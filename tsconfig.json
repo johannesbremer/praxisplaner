@@ -2,7 +2,6 @@
   "include": ["**/*.ts", "**/*.tsx", "eslint.config.js"],
   "compilerOptions": {
     "strict": true,
-    "esModuleInterop": true,
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
