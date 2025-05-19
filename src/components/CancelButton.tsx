@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef } from "react";
 
 export const CancelButton = forwardRef<
   HTMLButtonElement,
@@ -12,5 +12,5 @@ export const CancelButton = forwardRef<
       {...props}
       className="text-sm rounded-lg text-left p-2 font-medium hover:bg-slate-200 focus:bg-slate-200"
     />
-  )
-})
+  );
+});

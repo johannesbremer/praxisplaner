@@ -1,24 +1,24 @@
 export interface RenderedItem {
-  id: string
-  title: string
-  order: number
-  content?: string
-  columnId: string
+  columnId: string;
+  content?: string;
+  id: string;
+  order: number;
+  title: string;
 }
 
 export const CONTENT_TYPES = {
-  card: 'application/app-card',
-  column: 'application/app-column',
-}
+  card: "application/app-card",
+  column: "application/app-column",
+};
 
 export const INTENTS = {
-  updateColumnName: 'updateColumnName' as const,
-  updateBoardName: 'updateBoardName' as const,
-}
+  updateBoardName: "updateBoardName" as const,
+  updateColumnName: "updateColumnName" as const,
+};
 
 export const ItemMutationFields = {
-  id: { type: String, name: 'id' },
-  columnId: { type: String, name: 'columnId' },
-  order: { type: Number, name: 'order' },
-  title: { type: String, name: 'title' },
-} as const
+  columnId: { name: "columnId", type: String },
+  id: { name: "id", type: String },
+  order: { name: "order", type: Number },
+  title: { name: "title", type: String },
+} as const;

@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef } from "react";
 
 export const SaveButton = forwardRef<
   HTMLButtonElement,
@@ -15,5 +15,5 @@ export const SaveButton = forwardRef<
       {...props}
       className="text-sm rounded-lg text-left p-2 font-medium text-white bg-blue-500"
     />
-  )
-})
+  );
+});

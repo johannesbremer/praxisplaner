@@ -1,44 +1,44 @@
-import { useRef, useState } from 'react'
-import invariant from 'tiny-invariant'
+import { useRef, useState } from "react";
+import invariant from "tiny-invariant";
 
-import { Icon } from '../icons/icons'
-import { useCreateColumnMutation } from '../queries'
-import { CancelButton } from '~/components/CancelButton'
-import { SaveButton } from '~/components/SaveButton'
+import { Icon } from "../icons/icons";
+import { useCreateColumnMutation } from "../queries";
+import { CancelButton } from "~/components/CancelButton";
+import { SaveButton } from "~/components/SaveButton";
 
 export function NewColumn({
   boardId,
   editInitially,
   onNewColumnAdded,
 }: {
-  boardId: string
-  editInitially: boolean
-  onNewColumnAdded: () => void
+  boardId: string;
+  editInitially: boolean;
+  onNewColumnAdded: () => void;
 }) {
-  const [editing, setEditing] = useState(editInitially)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(editInitially);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const newColumnMutation = useCreateColumnMutation()
+  const newColumnMutation = useCreateColumnMutation();
 
   return editing ? (
     <form
       className="ml-2 p-2 flex-shrink-0 flex flex-col gap-5 overflow-hidden max-h-full w-80 border rounded-xl shadow bg-slate-100"
       onSubmit={(event) => {
-        event.preventDefault()
-        invariant(inputRef.current, 'missing input ref')
+        event.preventDefault();
+        invariant(inputRef.current, "missing input ref");
 
         newColumnMutation.mutate({
           boardId,
           name: inputRef.current.value,
-        })
+        });
 
-        inputRef.current.value = ''
+        inputRef.current.value = "";
 
-        onNewColumnAdded()
+        onNewColumnAdded();
       }}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
-          setEditing(false)
+          setEditing(false);
         }
       }}
     >
@@ -59,12 +59,12 @@ export function NewColumn({
   ) : (
     <button
       onClick={() => {
-        setEditing(true)
+        setEditing(true);
       }}
       aria-label="Add new column"
       className="ml-2 flex-shrink-0 flex justify-center h-16 w-16 bg-black hover:bg-white bg-opacity-10 hover:bg-opacity-5 rounded-xl"
     >
       <Icon name="plus" size="xl" />
     </button>
-  )
+  );
 }
