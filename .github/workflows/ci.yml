@@ -39,6 +39,8 @@ jobs:
       - run: pnpm tsc
 
 name: CI
+permissions:
+  contents: read
 
 on:
   pull_request: ~
