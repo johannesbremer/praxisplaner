@@ -1,4 +1,9 @@
-import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+// src/router.tsx
+import {
+  createRouter as createTanStackRouter,
+  // ErrorComponentProps, // Changed to type-only import below
+} from "@tanstack/react-router";
+import type { ErrorComponentProps } from "@tanstack/react-router"; // Corrected: type-only import
 import {
   MutationCache,
   QueryClient,
@@ -9,8 +14,7 @@ import toast from "react-hot-toast";
 import { ConvexQueryClient } from "@convex-dev/react-query";
 import { ConvexProvider } from "convex/react";
 import { routeTree } from "./routeTree.gen";
-import { DefaultCatchBoundary } from "./components/DefaultCatchBoundary";
-import { NotFound } from "./components/NotFound";
+// import * as React from "react"; // Removed: Not needed with modern JSX transform
 
 export function createRouter() {
   if (typeof document !== "undefined") {
@@ -32,7 +36,9 @@ export function createRouter() {
     },
     mutationCache: new MutationCache({
       onError: (error) => {
-        toast(error.message, { className: "bg-red-500 text-white" });
+        const errorMessage =
+          error instanceof Error ? error.message : "An unknown error occurred";
+        toast(errorMessage, { className: "bg-red-500 text-white" });
       },
     }),
   });
@@ -42,8 +48,26 @@ export function createRouter() {
     createTanStackRouter({
       routeTree,
       defaultPreload: "intent",
-      defaultErrorComponent: DefaultCatchBoundary,
-      defaultNotFoundComponent: () => <NotFound />,
+      defaultErrorComponent: (
+        { error, reset }: ErrorComponentProps, // Type annotation is still valid
+      ) => (
+        <div style={{ padding: "20px", textAlign: "center", color: "red" }}>
+          <h1>Something went wrong!</h1>
+          <p>{error instanceof Error ? error.message : String(error)}</p>
+          <button
+            onClick={reset}
+            style={{ marginTop: "10px", padding: "8px 16px" }}
+          >
+            Try Again
+          </button>
+        </div>
+      ),
+      defaultNotFoundComponent: () => (
+        <div style={{ padding: "20px", textAlign: "center" }}>
+          <h1>404 - Page Not Found</h1>
+          <p>The page you are looking for does not exist.</p>
+        </div>
+      ),
       context: { queryClient },
       Wrap: ({ children }) => (
         <ConvexProvider client={convexQueryClient.convexClient}>

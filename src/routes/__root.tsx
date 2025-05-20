@@ -1,3 +1,4 @@
+// __root.tsx
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools/production";
 import {
   Link,
@@ -6,17 +7,18 @@ import {
   useRouterState,
   HeadContent,
   Scripts,
+  // ErrorComponentProps, // You might import this for more specific error prop typing
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import * as React from "react";
 import { Toaster } from "react-hot-toast";
 import type { QueryClient } from "@tanstack/react-query";
-import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary";
-import { IconLink } from "~/components/IconLink";
-import { NotFound } from "~/components/NotFound";
+// import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary"; // Removed: Component not found
+// import { IconLink } from "~/components/IconLink"; // Removed: Component not found
+// import { NotFound } from "~/components/NotFound"; // Removed: Component not found
 import appCss from "~/styles/app.css?url";
 import { seo } from "~/utils/seo";
-import { Loader } from "~/components/Loader";
+// import { Loader } from "~/components/Loader"; // Removed: Component not found
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -59,14 +61,43 @@ export const Route = createRootRouteWithContext<{
       { rel: "icon", href: "/favicon.ico" },
     ],
   }),
-  errorComponent: (props) => {
+  // Replaced DefaultCatchBoundary with an inline error component
+  errorComponent: (props: { error: any; reset: () => void }) => {
+    // You can use ErrorComponentProps from @tanstack/react-router for better typing if desired
     return (
       <RootDocument>
-        <DefaultCatchBoundary {...props} />
+        <div style={{ padding: "20px", textAlign: "center", color: "red" }}>
+          <h1>Something went wrong!</h1>
+          <p>
+            {props.error instanceof Error
+              ? props.error.message
+              : String(props.error)}
+          </p>
+          <button
+            onClick={props.reset}
+            style={{ marginTop: "10px", padding: "8px 16px" }}
+          >
+            Try Again
+          </button>
+        </div>
       </RootDocument>
     );
   },
-  notFoundComponent: () => <NotFound />,
+  // Replaced NotFound component with an inline version
+  notFoundComponent: () => (
+    <RootDocument>
+      <div style={{ padding: "20px", textAlign: "center" }}>
+        <h1>404 - Page Not Found</h1>
+        <p>The page you are looking for does not exist.</p>
+        <Link
+          to="/"
+          style={{ marginTop: "10px", display: "inline-block", color: "blue" }}
+        >
+          Go Home
+        </Link>
+      </div>
+    </RootDocument>
+  ),
   component: RootComponent,
 });
 
@@ -97,24 +128,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
               <LoadingIndicator />
             </div>
             <div className="flex items-center gap-6">
-              {/* <label
-                htmlFor="countries"
-                className="block text-sm font-medium text-gray-900 dark:text-white"
-              >
-                Delay
-              </label>
-              <select
-                className="border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
-                onChange={(event) => {
-                  // setExtraDelay(Number(event.currentTarget.value))
-                }}
-                defaultValue="0"
-              >
-                <option value="0">None</option>
-                <option value="100">100</option>
-                <option value="500">500</option>
-                <option value="2000">2000</option>
-              </select> */}
+              {/* IconLink components were removed/commented out due to missing component */}
+              {/* You can uncomment these when IconLink is available */}
+              {/*
               <IconLink
                 href="https://github.com/TanStack/router/tree/main/examples/react/start-trellaux"
                 label="Source"
@@ -125,6 +141,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 icon="/tanstack.png"
                 label="TanStack"
               />
+              */}
+              {/* Fallback simple links: */}
+              <a
+                href="https://github.com/TanStack/router/tree/main/examples/react/start-trellaux"
+                className="text-white hover:text-slate-300"
+              >
+                Source
+              </a>
+              <a
+                href="https://tanstack.com"
+                className="text-white hover:text-slate-300"
+              >
+                TanStack
+              </a>
             </div>
           </div>
 
@@ -145,11 +175,15 @@ function LoadingIndicator() {
   const isLoading = useRouterState({ select: (s) => s.isLoading });
   return (
     <div
-      className={`h-12 transition-all duration-300 ${
+      className={`h-12 transition-all duration-300 flex items-center ${
         isLoading ? `opacity-100 delay-300` : `opacity-0 delay-0`
       }`}
     >
-      <Loader />
+      {/* Loader component was removed/commented out due to missing component */}
+      {/* You can uncomment this when Loader is available */}
+      {/* <Loader /> */}
+      {isLoading && <div className="text-white">Loading...</div>}{" "}
+      {/* Placeholder for Loader */}
     </div>
   );
 }

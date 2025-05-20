@@ -7,10 +7,14 @@
   "type": "module",
   "scripts": {
     "build": "vinxi build",
-    "dev": "npx convex dev --once && concurrently -r npm:dev:web npm:dev:db",
-    "dev:db": "convex dev --run board:seed",
-    "dev:web": "vinxi dev",
-    "start": "vinxi start"
+    "dev": "npx concurrently -r pnpm:dev:web pnpm:dev:db",
+    "dev:db": "npx convex dev",
+    "dev:web": "npx wait-on tcp:127.0.0.1:3210 -t 60000 && vinxi dev",
+    "format": "prettier --write .",
+    "format:list": "prettier --list-different .",
+    "lint": "eslint . --max-warnings 0",
+    "start": "vinxi start",
+    "test": "vitest"
   },
   "dependencies": {
     "@convex-dev/react-query": "0.0.0-alpha.8",
@@ -20,7 +24,6 @@
     "@tanstack/react-router-devtools": "^1.120.6",
     "@tanstack/react-router-with-query": "^1.120.5",
     "@tanstack/react-start": "^1.120.5",
-    "concurrently": "^8.2.2",
     "convex": "^1.24.1",
     "ky": "^1.8.1",
     "msw": "^2.8.4",
@@ -31,15 +34,17 @@
     "tailwind-merge": "^2.6.0",
     "tiny-invariant": "^1.3.3",
     "vinxi": "0.5.3",
-    "zod": "^3.25.3"
+    "zod": "^3.25.7"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.5.0",
     "@eslint/js": "^9.27.0",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
+    "@vitest/coverage-v8": "^3.1.4",
     "@vitest/eslint-plugin": "^1.2.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.1.2",
     "eslint": "^9.27.0",
     "eslint-plugin-jsdoc": "^50.6.17",
     "eslint-plugin-jsonc": "^2.20.1",
@@ -50,9 +55,13 @@
     "eslint-plugin-regexp": "^2.7.0",
     "eslint-plugin-yml": "^1.18.0",
     "postcss": "^8.5.3",
+    "prettier": "^3.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.32.1",
-    "vite-tsconfig-paths": "^5.1.4"
-  }
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.1.4",
+    "wait-on": "^8.0.3"
+  },
+  "packageManager": "pnpm@10.11.0"
 }
