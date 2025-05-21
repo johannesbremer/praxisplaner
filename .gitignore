@@ -8,6 +8,9 @@ yarn.lock
 .vercel
 .output
 .vinxi
+
+src/routeTree.gen.ts
+convex/_generated/
 app.config.timestamp_*.js
 coverage
 
