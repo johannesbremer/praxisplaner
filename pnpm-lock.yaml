@@ -96,6 +96,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.1.7
         version: 4.1.7
+      '@tanstack/eslint-plugin-router':
+        specifier: ^1.115.0
+        version: 1.115.0(eslint@9.27.0(jiti@2.4.2))(typescript@5.8.3)
       '@tanstack/router-cli':
         specifier: ^1.120.5
         version: 1.120.5(@tanstack/react-router@1.120.5(react-dom@19.1.0(react@19.1.0))(react@19.1.0))
@@ -1623,6 +1626,11 @@ packages:
   '@tanstack/directive-functions-plugin@1.119.2':
     resolution: {integrity: sha512-FsBBDrOQHUA9xCsSgmxJud1NY3PFz8P3LFrz2h+LdyRt/t5jeTvgLRjNZWKMk4izBqyyTYC9X+WF10ZyS9nPMw==}
     engines: {node: '>=12'}
+
+  '@tanstack/eslint-plugin-router@1.115.0':
+    resolution: {integrity: sha512-vwKP9NjzAQ2nU3qADDoTSTxD1vNduLcK0312AWkXkicCWUZQZJtmRuZXPk9cEfuzDD2BAJCIUmlaF1K0vq4oRw==}
+    peerDependencies:
+      eslint: ^8.57.0 || ^9.0.0
 
   '@tanstack/history@1.115.0':
     resolution: {integrity: sha512-K7JJNrRVvyjAVnbXOH2XLRhFXDkeP54Kt2P4FR1Kl2KDGlIbkua5VqZQD2rot3qaDrpufyUa63nuLai1kOLTsQ==}
@@ -6353,6 +6361,14 @@ snapshots:
       - terser
       - tsx
       - yaml
+
+  '@tanstack/eslint-plugin-router@1.115.0(eslint@9.27.0(jiti@2.4.2))(typescript@5.8.3)':
+    dependencies:
+      '@typescript-eslint/utils': 8.32.1(eslint@9.27.0(jiti@2.4.2))(typescript@5.8.3)
+      eslint: 9.27.0(jiti@2.4.2)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
 
   '@tanstack/history@1.115.0': {}
 

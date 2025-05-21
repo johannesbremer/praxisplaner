@@ -13,6 +13,7 @@ import markdown from "eslint-plugin-markdown";
 import n from "eslint-plugin-n";
 import packageJson from "eslint-plugin-package-json";
 import perfectionist from "eslint-plugin-perfectionist";
+import pluginRouter from "@tanstack/eslint-plugin-router";
 import * as regexp from "eslint-plugin-regexp";
 import yml from "eslint-plugin-yml";
 import tseslint from "typescript-eslint";
@@ -44,6 +45,7 @@ export default tseslint.config(
   n.configs["flat/recommended"],
   packageJson.configs.recommended,
   perfectionist.configs["recommended-natural"],
+  pluginRouter.configs["flat/recommended"],
   regexp.configs["flat/recommended"],
   {
     extends: [
