@@ -25,5 +25,4 @@ runs:
       run: pnpm run gen:routes
       shell: bash
 
-      shell: bash
   using: composite
