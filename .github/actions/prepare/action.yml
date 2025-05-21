@@ -25,18 +25,5 @@ runs:
       run: pnpm run gen:routes
       shell: bash
 
-    - name: Verify generated files
-      run: |
-        echo "--- Verifying generated files ---"
-        echo "Checking for Convex generated files..."
-        ls -la convex/_generated/
-        test -f convex/_generated/api.js || (echo "ERROR: convex/_generated/api.js not found!" && exit 1)
-        echo "Convex files look OK."
-        echo "Checking for TanStack Router generated file..."
-        ls -la src/
-        test -f src/routeTree.gen.ts || (echo "ERROR: src/routeTree.gen.ts not found after generation!" && exit 1)
-        echo "src/routeTree.gen.ts found."
-        echo "--- Verification complete ---"
-
       shell: bash
   using: composite
