@@ -4,6 +4,7 @@ https://github.com/JoshuaKGoldberg/create-typescript-app/blob/35b86c82de893deedd
 */
 
 import comments from "@eslint-community/eslint-plugin-eslint-comments/configs";
+import convexPlugin from "@convex-dev/eslint-plugin";
 import eslint from "@eslint/js";
 import vitest from "@vitest/eslint-plugin";
 import jsdoc from "eslint-plugin-jsdoc";
@@ -34,6 +35,7 @@ export default tseslint.config(
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
   eslint.configs.recommended,
   comments.recommended,
+  convexPlugin.configs.recommended,
   jsdoc.configs["flat/contents-typescript-error"],
   jsdoc.configs["flat/logical-typescript-error"],
   jsdoc.configs["flat/stylistic-typescript-error"],
