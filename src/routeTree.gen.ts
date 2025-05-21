@@ -11,14 +11,14 @@
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
-import { Route as FileObserverImport } from './routes/file-observer'
+import { Route as PraxisplanerImport } from './routes/praxisplaner'
 import { Route as IndexImport } from './routes/index'
 
 // Create/Update Routes
 
-const FileObserverRoute = FileObserverImport.update({
-  id: '/file-observer',
-  path: '/file-observer',
+const PraxisplanerRoute = PraxisplanerImport.update({
+  id: '/praxisplaner',
+  path: '/praxisplaner',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -39,11 +39,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexImport
       parentRoute: typeof rootRoute
     }
-    '/file-observer': {
-      id: '/file-observer'
-      path: '/file-observer'
-      fullPath: '/file-observer'
-      preLoaderRoute: typeof FileObserverImport
+    '/praxisplaner': {
+      id: '/praxisplaner'
+      path: '/praxisplaner'
+      fullPath: '/praxisplaner'
+      preLoaderRoute: typeof PraxisplanerImport
       parentRoute: typeof rootRoute
     }
   }
@@ -53,37 +53,37 @@ declare module '@tanstack/react-router' {
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/file-observer': typeof FileObserverRoute
+  '/praxisplaner': typeof PraxisplanerRoute
 }
 
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/file-observer': typeof FileObserverRoute
+  '/praxisplaner': typeof PraxisplanerRoute
 }
 
 export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
-  '/file-observer': typeof FileObserverRoute
+  '/praxisplaner': typeof PraxisplanerRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/file-observer'
+  fullPaths: '/' | '/praxisplaner'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/file-observer'
-  id: '__root__' | '/' | '/file-observer'
+  to: '/' | '/praxisplaner'
+  id: '__root__' | '/' | '/praxisplaner'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FileObserverRoute: typeof FileObserverRoute
+  PraxisplanerRoute: typeof PraxisplanerRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FileObserverRoute: FileObserverRoute,
+  PraxisplanerRoute: PraxisplanerRoute,
 }
 
 export const routeTree = rootRoute
@@ -97,14 +97,14 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/",
-        "/file-observer"
+        "/praxisplaner"
       ]
     },
     "/": {
       "filePath": "index.tsx"
     },
-    "/file-observer": {
-      "filePath": "file-observer.tsx"
+    "/praxisplaner": {
+      "filePath": "praxisplaner.tsx"
     }
   }
 }

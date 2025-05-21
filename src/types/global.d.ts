@@ -1,29 +1,34 @@
 // src/types/global.d.ts
 
+// Import only the specific handle types needed from your custom definitions
 import type {
-  FileSystemObserverConstructor as CustomFileSystemObserverConstructor,
-  StorageManager as CustomStorageManager,
+  FileSystemDirectoryHandle as CustomFileSystemDirectoryHandle,
+  FileSystemHandle as CustomFileSystemHandle, // For the 'startIn' option
 } from "./file-system";
 
-declare global {
-  interface Navigator {
-    /**
-     * Provides access to the Origin Private File System (OPFS).
-     */
-    storage: CustomStorageManager;
-  }
-
-  interface Window {
-    /**
-     * Constructor for the FileSystemObserver API.
-     */
-    FileSystemObserver: CustomFileSystemObserverConstructor;
-  }
-
-  // If you use `self` extensively and it might not always be `Window` (e.g., in Web Workers),
-  // you might consider a broader augmentation or ensure `self` is correctly typed in context.
-  // For client-side React components, `window.FileSystemObserver` is generally safe.
-  // The demo uses `self.FileSystemObserver`, which in a browser client module refers to `window`.
+// Options for window.showDirectoryPicker()
+export interface DirectoryPickerOptions {
+  id?: string; // A string to identify the picker and remember the last-picked directory
+  mode?: "read" | "readwrite"; // Permission mode to request
+  startIn?: // A well-known directory or a FileSystemHandle to start picking from
+  | "desktop"
+    | "documents"
+    | "downloads"
+    | "music"
+    | "pictures"
+    | "videos"
+    | CustomFileSystemHandle;
 }
 
+declare global {
+  interface Window {
+    // Declare showDirectoryPicker as it's part of the File System Access API
+    showDirectoryPicker(
+      options?: DirectoryPickerOptions,
+    ): Promise<CustomFileSystemDirectoryHandle>;
+  }
+}
+
+// This export {} is crucial to ensure this file is treated as a module
+// and its declarations are correctly picked up by TypeScript.
 export {};
