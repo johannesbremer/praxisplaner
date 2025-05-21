@@ -16,8 +16,8 @@ import type { QueryClient } from "@tanstack/react-query";
 // import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary"; // Removed: Component not found
 // import { IconLink } from "~/components/IconLink"; // Removed: Component not found
 // import { NotFound } from "~/components/NotFound"; // Removed: Component not found
-import appCss from "~/styles/app.css?url";
-import { seo } from "~/utils/seo";
+import appCss from "src/styles/app.css?url";
+import { seo } from "src/utils/seo";
 // import { Loader } from "~/components/Loader"; // Removed: Component not found
 
 export const Route = createRootRouteWithContext<{

@@ -7,6 +7,13 @@ import type {
   FileSystemFileHandle,
   PermissionState,
 } from "../types/file-system";
+// Import shadcn/ui components
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
@@ -317,116 +324,150 @@ function PraxisPlanerComponent() {
   ]);
 
   if (isFsaSupported === null) {
-    return <p>Checking File System Access API support...</p>;
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        <p className="text-lg">Checking File System Access API support...</p>
+      </div>
+    );
   }
 
   return (
-    <div
-      style={{
-        fontFamily: "Arial, sans-serif",
-        padding: "20px",
-        display: "flex",
-        gap: "20px",
-        flexDirection: "column",
-      }}
-    >
-      {/* Using a <style> tag for component-specific styles. Consider moving to CSS Modules or a styled-components solution for larger apps. */}
-      <style>{`.log-container { max-height: 300px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background: #f9f9f9; min-width: 400px; margin-top: 10px; } .log-container div { margin-bottom: 5px; font-size: 0.9em; white-space: nowrap; } .error-msg { color: red; font-weight: bold; }`}</style>
+    <div className="container mx-auto max-w-4xl p-6 space-y-6 bg-background text-foreground">
+      <div className="flex flex-col">
+        <h1 className="text-3xl font-bold tracking-tight mb-6">
+          Praxis GDT File Processor
+        </h1>
 
-      <h1>Praxis GDT File Processor (Local Directory)</h1>
+        {!isFsaSupported && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>API Not Supported</AlertTitle>
+            <AlertDescription>
+              {gdtError ||
+                "File System Access API for local directories is not supported by your browser."}
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {!isFsaSupported && (
-        <p className="error-msg">
-          {gdtError ||
-            "File System Access API for local directories is not supported by your browser."}
-        </p>
-      )}
-      {isFsaSupported && !window.isSecureContext && (
-        <p className="error-msg">
-          Local directory access requires a secure context (HTTPS or localhost).
-        </p>
-      )}
+        {isFsaSupported && !window.isSecureContext && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>Secure Context Required</AlertTitle>
+            <AlertDescription>
+              Local directory access requires a secure context (HTTPS or
+              localhost).
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {isFsaSupported && window.isSecureContext && (
-        <>
-          <div
-            style={{
-              margin: "10px 0",
-              display: "flex",
-              gap: "10px",
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <button onClick={selectGdtDirectory}>
-              {gdtDirectoryHandle
-                ? `Change Monitored Directory`
-                : "Select GDT Directory to Monitor"}
-            </button>
-            {gdtDirectoryHandle && (
-              <button
-                onClick={forgetGdtDirectory}
-                style={{ backgroundColor: "#ffdddd" }}
-              >
-                Stop Monitoring & Forget "{gdtDirectoryHandle.name}"
-              </button>
-            )}
-          </div>
+        {isFsaSupported && window.isSecureContext && (
+          <>
+            <div className="flex flex-wrap gap-3 mb-6">
+              <Button onClick={selectGdtDirectory} variant="default">
+                {gdtDirectoryHandle
+                  ? `Change Monitored Directory`
+                  : "Select GDT Directory to Monitor"}
+              </Button>
 
-          {gdtDirectoryHandle && (
-            <p>
-              Monitored Directory: <strong>{gdtDirectoryHandle.name}</strong>{" "}
-              <br />
-              Permission Status:{" "}
-              <strong
-                style={{
-                  color:
-                    gdtDirPermission === "granted"
-                      ? "green"
-                      : gdtDirPermission === "denied"
-                        ? "red"
-                        : "sandybrown",
-                }}
-              >
-                {gdtDirPermission || "Unknown"}
-              </strong>
-              {gdtDirPermission === "prompt" && (
-                <button
-                  onClick={() =>
-                    verifyAndSetPermission(gdtDirectoryHandle, true)
-                  }
-                  style={{ backgroundColor: "#e6ffe6", marginLeft: "10px" }}
-                >
-                  Request Permission
-                </button>
+              {gdtDirectoryHandle && (
+                <Button onClick={forgetGdtDirectory} variant="destructive">
+                  Stop Monitoring & Forget "{gdtDirectoryHandle.name}"
+                </Button>
               )}
-            </p>
-          )}
-
-          {gdtDirPermission === "denied" && (
-            <p className="error-msg">
-              Access to the directory was denied. You may need to reset
-              permissions for this site in your browser settings (usually by
-              clicking the lock icon in the address bar) if you wish to grant
-              access again.
-            </p>
-          )}
-
-          {gdtError && <p className="error-msg">Error: {gdtError}</p>}
-
-          <div>
-            <h3>📬 GDT Processing Log</h3>
-            <div className="log-container">
-              {gdtLog.length === 0 && (
-                <div>Awaiting GDT directory selection and file events...</div>
-              )}
-              {gdtLog.map((msg, i) => (
-                <div key={`gdt-${i}`}>{msg}</div>
-              ))}
             </div>
-          </div>
-        </>
-      )}
+
+            {gdtDirectoryHandle && (
+              <Card className="mb-6 border-border bg-card text-card-foreground">
+                <CardContent className="pt-6">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">Monitored Directory:</span>
+                      <span className="font-semibold">
+                        {gdtDirectoryHandle.name}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">Permission Status:</span>
+                      <Badge
+                        variant={
+                          gdtDirPermission === "granted"
+                            ? "secondary"
+                            : gdtDirPermission === "denied"
+                              ? "destructive"
+                              : "outline"
+                        }
+                        className={
+                          gdtDirPermission === "granted"
+                            ? "bg-green-100 text-green-800 hover:bg-green-200"
+                            : gdtDirPermission === "denied"
+                              ? ""
+                              : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        }
+                      >
+                        {gdtDirPermission || "Unknown"}
+                      </Badge>
+
+                      {gdtDirPermission === "prompt" && (
+                        <Button
+                          onClick={() =>
+                            verifyAndSetPermission(gdtDirectoryHandle, true)
+                          }
+                          variant="outline"
+                          size="sm"
+                        >
+                          Request Permission
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {gdtDirPermission === "denied" && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTitle>Permission Denied</AlertTitle>
+                <AlertDescription>
+                  Access to the directory was denied. You may need to reset
+                  permissions for this site in your browser settings (usually by
+                  clicking the lock icon in the address bar) if you wish to
+                  grant access again.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {gdtError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{gdtError}</AlertDescription>
+              </Alert>
+            )}
+
+            <Card className="border-border bg-card text-card-foreground">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <span>📬</span> GDT Processing Log
+                </CardTitle>
+                <Separator />
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-72 rounded-md border border-border p-4 bg-card text-card-foreground font-mono text-sm">
+                  {gdtLog.length === 0 ? (
+                    <div className="text-muted-foreground">
+                      Awaiting GDT directory selection and file events...
+                    </div>
+                  ) : (
+                    gdtLog.map((msg, i) => (
+                      <div key={`gdt-${i}`} className="pb-2 whitespace-nowrap">
+                        {msg}
+                      </div>
+                    ))
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
     </div>
   );
 }

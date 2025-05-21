@@ -26,7 +26,7 @@
     "erasableSyntaxOnly": true,
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./src/*"]
+      "@/*": ["./*"]
     },
     "noEmit": true
   }
