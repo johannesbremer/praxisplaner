@@ -51,9 +51,7 @@ export default tseslint.config(
     files: ["**/*.{js,ts}"],
     languageOptions: {
       parserOptions: {
-        projectService: {
-          allowDefaultProject: ["bin/index.js"],
-        },
+        project: true,
         tsconfigRootDir: ".",
       },
     },
@@ -74,9 +72,29 @@ export default tseslint.config(
         "always",
         { enforceForIfStatements: true },
       ],
+      "n/no-unsupported-features/node-builtins": [
+        "error",
+        {
+          ignores: ["File", "WritableStream", "Blob"],
+        },
+      ],
       "no-useless-rename": "error",
       "object-shorthand": "error",
       "operator-assignment": "error",
+      "n/no-missing-import": [
+        "error",
+        {
+          tryExtensions: [
+            ".js",
+            ".jsx",
+            ".json",
+            ".node",
+            ".ts",
+            ".tsx",
+            ".d.ts",
+          ],
+        },
+      ],
     },
     settings: {
       perfectionist: { partitionByComment: true, type: "natural" },
