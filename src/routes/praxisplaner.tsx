@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
-  PermissionState as BrowserPermissionState, // Renamed to avoid conflict
+  BrowserPermissionState,
 } from "../types/file-system";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

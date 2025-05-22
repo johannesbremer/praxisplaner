@@ -20,7 +20,7 @@ export interface FileSystemPermissionDescriptor {
 }
 
 // Represents the state of a permission
-export type PermissionState = "denied" | "granted" | "prompt";
+export type BrowserPermissionState = "denied" | "granted" | "prompt";
 
 // Base interface for both files and directories
 export interface FileSystemDirectoryHandle extends FileSystemHandle {
