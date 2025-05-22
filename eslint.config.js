@@ -1,5 +1,5 @@
 /*
-This is a fork of the following MIT licensed repo:
+This file is forked from the following MIT licensed repo:
 https://github.com/JoshuaKGoldberg/create-typescript-app/blob/35b86c82de893deedd884321e690336d79b4e24f/eslint.config.js
 */
 
