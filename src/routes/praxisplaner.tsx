@@ -5,29 +5,72 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
-  PermissionState,
+  PermissionState as BrowserPermissionState, // Renamed to avoid conflict
 } from "../types/file-system";
-// Import shadcn/ui components
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+
+import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import type { Doc } from "../../convex/_generated/dataModel";
+
+// Local type for PermissionState used in this component
+type PermissionStatus = BrowserPermissionState | "error" | null;
 
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
 });
+
+const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
 
 function PraxisPlanerComponent() {
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
   const [gdtDirPermission, setGdtDirPermission] =
-    useState<PermissionState | null>(null);
+    useState<PermissionStatus>(null);
   const [gdtLog, setGdtLog] = useState<string[]>([]);
   const [gdtError, setGdtError] = useState<string | null>(null);
   const gdtPollingIntervalRef = useRef<number | null>(null);
+  const [isLoadingHandle, setIsLoadingHandle] = useState(true);
+
+  const saveGdtPreference = useMutation(api.gdtPreferences.save);
+  const removeGdtPreference = useMutation(api.gdtPreferences.remove);
+  const gdtPreference = useQuery(api.gdtPreferences.get);
+
+  const addProcessedFileMutation = useMutation(api.gdtFiles.addProcessedFile);
+  const recentProcessedFiles = useQuery(api.gdtFiles.getRecentProcessedFiles, {
+    limit: 50,
+  });
+
+  const logPermissionEventMutation = useMutation(
+    api.permissionLogs.logPermissionEvent,
+  );
+  const recentPermissionEvents = useQuery(
+    api.permissionLogs.getRecentPermissionEvents,
+    { limit: 30 },
+  );
 
   const addGdtLog = useCallback((message: string) => {
     setGdtLog((prev) => [
@@ -44,11 +87,16 @@ function PraxisPlanerComponent() {
         setGdtError(
           "File System Access API (showDirectoryPicker) is not supported by your browser.",
         );
-      } else if (!window.isSecureContext) {
+        setIsLoadingHandle(false);
+        return;
+      }
+      if (!window.isSecureContext) {
         setGdtError(
           "File System Access API requires a secure context (HTTPS or localhost).",
         );
         setIsFsaSupported(false);
+        setIsLoadingHandle(false);
+        return;
       }
     }
   }, []);
@@ -57,89 +105,156 @@ function PraxisPlanerComponent() {
     async (
       handle: FileSystemDirectoryHandle | null,
       withRequest = false,
+      loggingContext: string = "general",
     ): Promise<boolean> => {
       if (!handle) {
         setGdtDirPermission(null);
         return false;
       }
 
-      let currentPermissionState: PermissionState;
+      let resultingPermissionState: BrowserPermissionState;
       const permissionOptions = { mode: "readwrite" as const };
+      const operationType = withRequest ? "request" : "query";
 
       try {
+        addGdtLog(
+          `[Perm] ${withRequest ? "Requesting" : "Querying"} 'readwrite' for "${handle.name}" (Ctx: ${loggingContext})...`,
+        );
         if (withRequest) {
-          currentPermissionState =
+          resultingPermissionState =
             await handle.requestPermission(permissionOptions);
         } else {
-          currentPermissionState =
+          resultingPermissionState =
             await handle.queryPermission(permissionOptions);
         }
+
+        await logPermissionEventMutation({
+          handleName: handle.name,
+          operationType,
+          accessMode: "readwrite",
+          resultState: resultingPermissionState,
+          context: loggingContext,
+        });
+        addGdtLog(
+          `[Perm] Logged to Convex: ${handle.name}, ${operationType}, ${resultingPermissionState}, Ctx: ${loggingContext}`,
+        );
+
+        setGdtDirPermission(resultingPermissionState);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        console.error("Error verifying permission:", errorMessage);
+        console.error(`Error ${operationType} permission:`, errorMessage);
         addGdtLog(
-          `❌ Error verifying permission for "${handle.name}": ${errorMessage}. Handle might be stale.`,
+          `[Perm] ❌ Error ${operationType} 'readwrite' for "${handle.name}": ${errorMessage}. (Ctx: ${loggingContext})`,
         );
-        setGdtDirectoryHandle(null); // Invalidate handle if permission check fails badly
-        setGdtDirPermission(null);
+
+        await logPermissionEventMutation({
+          handleName: handle.name,
+          operationType,
+          accessMode: "readwrite",
+          resultState: "error",
+          context: loggingContext,
+          errorMessage: errorMessage,
+        });
+        addGdtLog(
+          `[Perm] Logged ERROR to Convex for "${handle.name}": ${errorMessage}`,
+        );
+
+        setGdtDirPermission("error");
         return false;
       }
 
-      setGdtDirPermission(currentPermissionState);
-
-      if (currentPermissionState === "granted") {
+      if (resultingPermissionState === "granted") {
         addGdtLog(
-          `✅ Permission '${currentPermissionState}' for directory "${handle.name}".`,
+          `[Perm] ✅ Permission '${resultingPermissionState}' for "${handle.name}".`,
         );
         return true;
       } else {
         addGdtLog(
-          `⚠️ Permission '${currentPermissionState}' for directory "${handle.name}".`,
+          `[Perm] ⚠️ Permission '${resultingPermissionState}' for "${handle.name}".`,
         );
-        if (currentPermissionState === "prompt" && !withRequest) {
+        if (resultingPermissionState === "prompt" && !withRequest) {
           addGdtLog(`💡 Click "Request Permission" to grant access.`);
-        } else if (currentPermissionState === "denied") {
+        } else if (resultingPermissionState === "denied") {
           addGdtLog(
-            `🚫 Access to "${handle.name}" was denied. You may need to reset permissions in browser settings if you want to grant access later.`,
+            `🚫 Access to "${handle.name}" was denied. Reset in browser settings.`,
           );
         }
         return false;
       }
     },
-    [addGdtLog],
+    [addGdtLog, logPermissionEventMutation],
   );
+
+  useEffect(() => {
+    if (isFsaSupported === false || typeof gdtPreference === "undefined") {
+      if (isFsaSupported !== null && typeof gdtPreference !== "undefined")
+        setIsLoadingHandle(false);
+      return;
+    }
+    const loadPersistedHandle = async () => {
+      if (gdtPreference?.directoryName) {
+        addGdtLog(
+          `Found preference for "${gdtPreference.directoryName}" in Convex.`,
+        );
+        try {
+          const persistedHandle =
+            await idbGet<FileSystemDirectoryHandle>(IDB_GDT_HANDLE_KEY);
+          if (persistedHandle) {
+            addGdtLog(
+              `Loaded handle "${persistedHandle.name}" from IndexedDB.`,
+            );
+            setGdtDirectoryHandle(persistedHandle);
+            await verifyAndSetPermission(persistedHandle, true, "initial load");
+          } else {
+            addGdtLog(
+              `No handle in IndexedDB for "${gdtPreference.directoryName}". Re-select needed.`,
+            );
+            await removeGdtPreference();
+            addGdtLog("Cleared stale preference from Convex.");
+          }
+        } catch (error) {
+          console.error("Error loading handle from IndexedDB:", error);
+          addGdtLog(
+            `Error loading handle: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          await removeGdtPreference();
+        }
+      }
+      setIsLoadingHandle(false);
+    };
+    if (isFsaSupported && window.isSecureContext) loadPersistedHandle();
+  }, [
+    isFsaSupported,
+    gdtPreference,
+    addGdtLog,
+    removeGdtPreference,
+    verifyAndSetPermission,
+  ]);
 
   const selectGdtDirectory = async () => {
     if (!isFsaSupported || !window.isSecureContext) {
-      const errorMsg = !isFsaSupported
-        ? "File System Access API not supported."
-        : "Secure context required.";
-      setGdtError(`Cannot select directory: ${errorMsg}`);
-      addGdtLog(`❌ ${errorMsg}`);
+      setGdtError(
+        !isFsaSupported ? "FSA not supported." : "Secure context required.",
+      );
+      addGdtLog(
+        `❌ ${!isFsaSupported ? "FSA not supported." : "Secure context required."}`,
+      );
       return;
     }
-
     try {
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      await idbSet(IDB_GDT_HANDLE_KEY, handle);
+      await saveGdtPreference({ directoryName: handle.name });
+      addGdtLog(`Saved handle for "${handle.name}" to IDB & Convex pref.`);
       setGdtDirectoryHandle(handle);
-      addGdtLog(
-        `📂 Selected directory: "${handle.name}". Verifying permissions...`,
-      );
-      const permissionGranted = await verifyAndSetPermission(handle, true);
-
-      if (!permissionGranted) {
-        addGdtLog(
-          `User did not grant 'readwrite' permission for "${handle.name}" or permission is 'prompt'. Polling will not start/resume until granted.`,
-        );
-      }
+      await verifyAndSetPermission(handle, true, "user selected new directory");
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {
         addGdtLog("Directory selection aborted by user.");
       } else {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error("Error selecting GDT directory:", err);
-        setGdtError(`Error selecting GDT directory: ${errorMessage}`);
+        setGdtError(`Error selecting directory: ${errorMessage}`);
         addGdtLog(`❌ Error selecting directory: ${errorMessage}`);
       }
     }
@@ -150,97 +265,179 @@ function PraxisPlanerComponent() {
       clearInterval(gdtPollingIntervalRef.current);
       gdtPollingIntervalRef.current = null;
     }
-    if (gdtDirectoryHandle) {
+    const name = gdtDirectoryHandle?.name;
+    addGdtLog(
+      name
+        ? `🗑️ Clearing GDT directory: "${name}".`
+        : "🗑️ Clearing GDT directory.",
+    );
+    try {
+      await idbDel(IDB_GDT_HANDLE_KEY);
+      await removeGdtPreference();
       addGdtLog(
-        `🗑️ Cleared selected GDT directory: "${gdtDirectoryHandle.name}".`,
+        name
+          ? `Removed handle for "${name}" from IDB & Convex.`
+          : "Cleared stored handle/preference.",
+      );
+    } catch (e) {
+      addGdtLog(
+        `Error forgetting directory: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     setGdtDirectoryHandle(null);
     setGdtDirPermission(null);
-  }, [gdtDirectoryHandle, addGdtLog]);
+  }, [gdtDirectoryHandle, addGdtLog, removeGdtPreference]);
 
   const parseAndProcessGdtFile = useCallback(
     async (
       dirHandle: FileSystemDirectoryHandle,
       fileHandle: FileSystemFileHandle,
     ) => {
+      let fileContent = "";
+      const fileName = fileHandle.name;
+      const sourceDirName = dirHandle.name;
+      let parsedSuccessfullyLocal = false;
+      let procErrorMessage: string | undefined = undefined;
+
       try {
-        addGdtLog(
-          `📄 Found GDT file: "${fileHandle.name}". Attempting to process...`,
-        );
+        addGdtLog(`📄 Processing "${fileName}"...`);
         const file = await fileHandle.getFile();
-        const content = await file.text();
+        fileContent = await file.text();
         addGdtLog(
-          `📜 Content of "${fileHandle.name}" (first 100 chars): ${content.substring(0, 100)}...`,
+          `📜 Content (100 chars): ${fileContent.substring(0, 100)}...`,
         );
-        const isValidGdt = content.includes("8000") && content.includes("8100"); // Simple GDT check
-        if (isValidGdt) {
-          addGdtLog(`✅ Successfully "parsed" GDT file: "${fileHandle.name}".`);
+
+        if (fileContent.includes("8000") && fileContent.includes("8100")) {
+          parsedSuccessfullyLocal = true;
+          addGdtLog(`✅ Parsed "${fileName}".`);
         } else {
-          addGdtLog(
-            `⚠️ File "${fileHandle.name}" might not be a valid GDT (or parser needs improvement).`,
-          );
+          parsedSuccessfullyLocal = false; // Ensure it's explicitly false
+          procErrorMessage = `File "${fileName}" may not be valid GDT.`;
+          addGdtLog(`⚠️ ${procErrorMessage}`);
         }
-        await dirHandle.removeEntry(fileHandle.name);
-        addGdtLog(
-          `🗑️ Deleted GDT file: "${fileHandle.name}" after processing.`,
-        );
+
+        const processedFilePayload: {
+          fileName: string;
+          fileContent: string;
+          sourceDirectoryName: string;
+          gdtParsedSuccessfully: boolean;
+          processingErrorMessage?: string;
+        } = {
+          fileName: fileName,
+          fileContent: fileContent,
+          sourceDirectoryName: sourceDirName, // Use correct variable
+          gdtParsedSuccessfully: parsedSuccessfullyLocal, // Use correct variable
+        };
+        if (procErrorMessage !== undefined) {
+          processedFilePayload.processingErrorMessage = procErrorMessage;
+        }
+        await addProcessedFileMutation(processedFilePayload);
+        addGdtLog(`💾 Stored "${fileName}" in Convex.`);
+
+        await dirHandle.removeEntry(fileName);
+        addGdtLog(`🗑️ Deleted "${fileName}".`);
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(
-          `Error processing GDT file "${fileHandle.name}":`,
-          errorMessage,
-        );
-        addGdtLog(
-          `❌ Error processing GDT file "${fileHandle.name}": ${errorMessage}`,
-        );
-        // If deletion fails due to permission, re-query to update UI and stop polling if needed
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
+
+        const errorFilePayload: {
+          fileName: string;
+          fileContent: string;
+          sourceDirectoryName: string;
+          gdtParsedSuccessfully: boolean;
+          processingErrorMessage: string; // Error message is always present here
+        } = {
+          fileName: fileName,
+          fileContent: fileContent || "Could not read content.",
+          sourceDirectoryName: sourceDirName, // Use correct variable
+          gdtParsedSuccessfully: false,
+          processingErrorMessage: `Processing error: ${errorMsg}`,
+        };
+        await addProcessedFileMutation(errorFilePayload);
+        addGdtLog(`💾 Stored error for "${fileName}" in Convex.`);
+
         if (
           err instanceof DOMException &&
-          err.name === "NotAllowedError" &&
+          (err.name === "NotAllowedError" || err.name === "SecurityError") &&
           dirHandle
         ) {
           addGdtLog(
-            `🚨 Failed to delete "${fileHandle.name}". Permission might have been revoked. Re-querying...`,
+            `🚨 Delete failed for "${fileName}". Re-checking permissions.`,
           );
-          await verifyAndSetPermission(dirHandle, false);
+          await verifyAndSetPermission(
+            dirHandle,
+            false,
+            "post delete failure check",
+          );
         }
       }
     },
-    [addGdtLog, verifyAndSetPermission],
+    [addGdtLog, addProcessedFileMutation, verifyAndSetPermission],
   );
 
-  // Polling for GDT files
   useEffect(() => {
     if (gdtDirectoryHandle && gdtDirPermission === "granted") {
-      addGdtLog(
-        `🚀 Starting GDT file polling in "${gdtDirectoryHandle.name}".`,
-      );
+      addGdtLog(`🚀 Starting polling in "${gdtDirectoryHandle.name}".`);
       const POLLING_INTERVAL = 5000;
-
       const poll = async () => {
         if (!gdtDirectoryHandle) {
-          // Handle might have been cleared
           if (gdtPollingIntervalRef.current)
             clearInterval(gdtPollingIntervalRef.current);
           gdtPollingIntervalRef.current = null;
-          addGdtLog("🛑 GDT file polling stopped: Directory handle lost.");
+          addGdtLog("🛑 Polling stopped: Directory handle lost.");
           return;
         }
-
-        // Re-check permission before each poll to handle revocation
-        const currentPerm = await gdtDirectoryHandle.queryPermission({
-          mode: "readwrite",
-        });
-        if (currentPerm !== "granted") {
+        let currentPermInPoll: BrowserPermissionState;
+        try {
+          currentPermInPoll = await gdtDirectoryHandle.queryPermission({
+            mode: "readwrite",
+          });
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
           addGdtLog(
-            `Polling skipped: Permission for "${gdtDirectoryHandle.name}" is now '${currentPerm}'.`,
+            `❌ Error querying perm in poll for "${gdtDirectoryHandle.name}": ${errorMsg}`,
           );
-          setGdtDirPermission(currentPerm);
+          await logPermissionEventMutation({
+            handleName: gdtDirectoryHandle.name,
+            operationType: "query",
+            accessMode: "readwrite",
+            resultState: "error",
+            context: "polling query error",
+            errorMessage: errorMsg,
+          });
+          setGdtDirPermission("error");
           if (gdtPollingIntervalRef.current) {
             clearInterval(gdtPollingIntervalRef.current);
             gdtPollingIntervalRef.current = null;
-            addGdtLog("🛑 GDT file polling stopped due to permission change.");
+            addGdtLog("🛑 Polling stopped: permission query error.");
+          }
+          return;
+        }
+
+        // Check current gdtDirPermission from React state against the new poll result
+        const previousGdtDirPermission = gdtDirPermission; // Capture before potential update
+        if (currentPermInPoll !== previousGdtDirPermission) {
+          addGdtLog(
+            `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed in poll: '${previousGdtDirPermission || "unknown"}' -> '${currentPermInPoll}'. Logging.`,
+          );
+          setGdtDirPermission(currentPermInPoll); // Update UI state
+          await logPermissionEventMutation({
+            handleName: gdtDirectoryHandle.name,
+            operationType: "query",
+            accessMode: "readwrite",
+            resultState: currentPermInPoll,
+            context: "polling detected change",
+          });
+        }
+
+        // After potential state update, check the *new* gdtDirPermission
+        if (currentPermInPoll !== "granted") {
+          if (gdtPollingIntervalRef.current) {
+            clearInterval(gdtPollingIntervalRef.current);
+            gdtPollingIntervalRef.current = null;
+            addGdtLog(
+              `🛑 Polling stopped: permission no longer 'granted' (now '${currentPermInPoll}').`,
+            );
           }
           return;
         }
@@ -259,34 +456,15 @@ function PraxisPlanerComponent() {
               );
             }
           }
-          if (foundGdtFileInPoll) {
-            addGdtLog(
-              `🔎 Poll completed for "${gdtDirectoryHandle.name}". Processed GDT files if any.`,
-            );
-          }
+          if (foundGdtFileInPoll)
+            addGdtLog(`🔎 Poll completed for "${gdtDirectoryHandle.name}".`);
         } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          console.error("Error during GDT polling:", errorMessage);
-          addGdtLog(`❌ Error during GDT polling: ${errorMessage}.`);
-          // If directory becomes inaccessible during polling
-          if (
-            gdtDirectoryHandle &&
-            err instanceof DOMException &&
-            (err.name === "NotFoundError" || err.name === "NotAllowedError")
-          ) {
-            addGdtLog(
-              `🚨 Directory "${gdtDirectoryHandle.name}" might be inaccessible. Stopping polling.`,
-            );
-            if (gdtPollingIntervalRef.current)
-              clearInterval(gdtPollingIntervalRef.current);
-            gdtPollingIntervalRef.current = null;
-            setGdtDirectoryHandle(null); // Invalidate handle
-            setGdtDirPermission(null);
-          }
+          addGdtLog(
+            `❌ Error during GDT polling file iteration: ${err instanceof Error ? err.message : String(err)}.`,
+          );
         }
       };
-
-      poll(); // Initial poll
+      poll();
       gdtPollingIntervalRef.current = window.setInterval(
         poll,
         POLLING_INTERVAL,
@@ -296,43 +474,49 @@ function PraxisPlanerComponent() {
         if (gdtPollingIntervalRef.current) {
           clearInterval(gdtPollingIntervalRef.current);
           gdtPollingIntervalRef.current = null;
-          addGdtLog(
-            "🛑 GDT file polling stopped (component unmount or deps change).",
-          );
+          if (gdtDirectoryHandle) {
+            // Check gdtDirectoryHandle from closure for log message
+            addGdtLog(
+              `🛑 GDT file polling stopped for "${gdtDirectoryHandle.name}" (component unmount or deps change).`,
+            );
+          }
         }
       };
     } else {
-      // Ensure polling is stopped if conditions are not met (e.g., permission revoked, handle cleared)
       if (gdtPollingIntervalRef.current) {
         clearInterval(gdtPollingIntervalRef.current);
         gdtPollingIntervalRef.current = null;
         if (gdtDirectoryHandle) {
-          // Log only if there was a directory to begin with
+          // Check gdtDirectoryHandle from closure for log message
           addGdtLog(
-            `🛑 GDT file polling not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
+            `🛑 Polling not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
           );
         }
       }
-      return undefined; // Explicitly return undefined for the 'else' path to satisfy TS7030
+      return undefined; // Explicit return for the else path
     }
   }, [
     gdtDirectoryHandle,
     gdtDirPermission,
     addGdtLog,
     parseAndProcessGdtFile,
-    verifyAndSetPermission,
+    logPermissionEventMutation,
   ]);
 
-  if (isFsaSupported === null) {
+  if (
+    isLoadingHandle ||
+    isFsaSupported === null ||
+    (isFsaSupported && typeof gdtPreference === "undefined")
+  ) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <p className="text-lg">Checking File System Access API support...</p>
+        <p className="text-lg">Initializing...</p>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto max-w-4xl p-6 space-y-6 bg-background text-foreground">
+    <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
       <div className="flex flex-col">
         <h1 className="text-3xl font-bold tracking-tight mb-6">
           Praxis GDT File Processor
@@ -342,19 +526,14 @@ function PraxisPlanerComponent() {
           <Alert variant="destructive" className="mb-4">
             <AlertTitle>API Not Supported</AlertTitle>
             <AlertDescription>
-              {gdtError ||
-                "File System Access API for local directories is not supported by your browser."}
+              {gdtError || "FSA not supported."}
             </AlertDescription>
           </Alert>
         )}
-
         {isFsaSupported && !window.isSecureContext && (
           <Alert variant="destructive" className="mb-4">
             <AlertTitle>Secure Context Required</AlertTitle>
-            <AlertDescription>
-              Local directory access requires a secure context (HTTPS or
-              localhost).
-            </AlertDescription>
+            <AlertDescription>HTTPS or localhost needed.</AlertDescription>
           </Alert>
         )}
 
@@ -363,78 +542,76 @@ function PraxisPlanerComponent() {
             <div className="flex flex-wrap gap-3 mb-6">
               <Button onClick={selectGdtDirectory} variant="default">
                 {gdtDirectoryHandle
-                  ? `Change Monitored Directory`
-                  : "Select GDT Directory to Monitor"}
+                  ? `Change Dir (${gdtDirectoryHandle.name})`
+                  : "Select GDT Directory"}
               </Button>
-
               {gdtDirectoryHandle && (
                 <Button onClick={forgetGdtDirectory} variant="destructive">
-                  Stop Monitoring & Forget "{gdtDirectoryHandle.name}"
+                  Forget "{gdtDirectoryHandle.name}"
                 </Button>
               )}
             </div>
 
             {gdtDirectoryHandle && (
-              <Card className="mb-6 border-border bg-card text-card-foreground">
-                <CardContent className="pt-6">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">Monitored Directory:</span>
-                      <span className="font-semibold">
-                        {gdtDirectoryHandle.name}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">Permission Status:</span>
-                      <Badge
-                        variant={
-                          gdtDirPermission === "granted"
-                            ? "secondary"
-                            : gdtDirPermission === "denied"
+              <Card className="mb-6">
+                <CardContent className="pt-6 space-y-2">
+                  <div>
+                    <span className="font-medium">Monitored:</span>{" "}
+                    <span className="font-semibold">
+                      {gdtDirectoryHandle.name}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">Permission:</span>
+                    <Badge
+                      variant={
+                        gdtDirPermission === "granted"
+                          ? "secondary"
+                          : gdtDirPermission === "denied"
+                            ? "destructive"
+                            : gdtDirPermission === "error"
                               ? "destructive"
                               : "outline"
-                        }
-                        className={
-                          gdtDirPermission === "granted"
-                            ? "bg-green-100 text-green-800 hover:bg-green-200"
-                            : gdtDirPermission === "denied"
-                              ? ""
-                              : "bg-amber-100 text-amber-800 hover:bg-amber-200"
-                        }
+                      }
+                      className={
+                        gdtDirPermission === "granted"
+                          ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
+                          : gdtDirPermission === "denied" ||
+                              gdtDirPermission === "error"
+                            ? ""
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
+                      }
+                    >
+                      {gdtDirPermission || "Unknown"}
+                    </Badge>
+                    {gdtDirPermission === "prompt" && (
+                      <Button
+                        onClick={() => {
+                          if (gdtDirectoryHandle)
+                            verifyAndSetPermission(
+                              gdtDirectoryHandle,
+                              true,
+                              "user request button",
+                            );
+                        }}
+                        variant="outline"
+                        size="sm"
                       >
-                        {gdtDirPermission || "Unknown"}
-                      </Badge>
-
-                      {gdtDirPermission === "prompt" && (
-                        <Button
-                          onClick={() =>
-                            verifyAndSetPermission(gdtDirectoryHandle, true)
-                          }
-                          variant="outline"
-                          size="sm"
-                        >
-                          Request Permission
-                        </Button>
-                      )}
-                    </div>
+                        Request Permission
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             )}
-
             {gdtDirPermission === "denied" && (
               <Alert variant="destructive" className="mb-4">
                 <AlertTitle>Permission Denied</AlertTitle>
                 <AlertDescription>
-                  Access to the directory was denied. You may need to reset
-                  permissions for this site in your browser settings (usually by
-                  clicking the lock icon in the address bar) if you wish to
-                  grant access again.
+                  Access denied. Check browser site settings.
                 </AlertDescription>
               </Alert>
             )}
-
             {gdtError && (
               <Alert variant="destructive" className="mb-4">
                 <AlertTitle>Error</AlertTitle>
@@ -442,27 +619,191 @@ function PraxisPlanerComponent() {
               </Alert>
             )}
 
-            <Card className="border-border bg-card text-card-foreground">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <span>📬</span> GDT Processing Log
-                </CardTitle>
-                <Separator />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">📬 Real-time Log</CardTitle>
+                <CardDescription>Live GDT monitor events.</CardDescription>
+                <Separator className="my-2" />
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-72 rounded-md border border-border p-4 bg-card text-card-foreground font-mono text-sm">
-                  {gdtLog.length === 0 ? (
-                    <div className="text-muted-foreground">
-                      Awaiting GDT directory selection and file events...
-                    </div>
-                  ) : (
-                    gdtLog.map((msg, i) => (
-                      <div key={`gdt-${i}`} className="pb-2 whitespace-nowrap">
-                        {msg}
-                      </div>
-                    ))
-                  )}
+                <ScrollArea className="h-60 rounded-md border p-4 bg-muted font-mono text-sm">
+                  <pre className="whitespace-pre-wrap">
+                    {gdtLog.length === 0
+                      ? "Awaiting events..."
+                      : gdtLog.join("\n")}
+                  </pre>
                 </ScrollArea>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">💾 Processed Files</CardTitle>
+                <CardDescription>Persisted GDT records.</CardDescription>
+                <Separator className="my-2" />
+              </CardHeader>
+              <CardContent>
+                {recentProcessedFiles === undefined && (
+                  <p className="text-muted-foreground">
+                    Loading processed files...
+                  </p>
+                )}
+                {recentProcessedFiles?.length === 0 && (
+                  <p className="text-muted-foreground">
+                    No files processed yet.
+                  </p>
+                )}
+                {recentProcessedFiles && recentProcessedFiles.length > 0 && (
+                  <ScrollArea className="h-80">
+                    <div className="p-1 space-y-3">
+                      {recentProcessedFiles.map(
+                        (file: Doc<"processedGdtFiles">) => (
+                          <div
+                            key={file._id}
+                            className="p-3 border rounded-md bg-muted/50 text-sm"
+                          >
+                            <div className="flex justify-between items-start">
+                              <h4 className="font-semibold">{file.fileName}</h4>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm">
+                                    View
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[60vw] max-h-[80vh] bg-card p-6">
+                                  <DialogHeader>
+                                    <DialogTitle>{file.fileName}</DialogTitle>
+                                    <DialogDescription>
+                                      Processed:{" "}
+                                      {new Date(
+                                        Number(file.processedAt),
+                                      ).toLocaleString()}{" "}
+                                      from '{file.sourceDirectoryName}'
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <ScrollArea className="max-h-[60vh] mt-4 border rounded-md">
+                                    <pre className="p-4 text-xs whitespace-pre-wrap break-all">
+                                      {file.fileContent}
+                                    </pre>
+                                  </ScrollArea>
+                                  <DialogFooter>
+                                    <DialogClose asChild>
+                                      <Button type="button" variant="secondary">
+                                        Close
+                                      </Button>
+                                    </DialogClose>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              From: {file.sourceDirectoryName} @{" "}
+                              {new Date(
+                                Number(file.processedAt),
+                              ).toLocaleTimeString()}
+                            </p>
+                            {file.gdtParsedSuccessfully ? (
+                              <p className="mt-1 text-green-600 dark:text-green-400">
+                                Status: Successfully Parsed
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-red-600 dark:text-red-400">
+                                Status: Processing Issue
+                                {file.processingErrorMessage && (
+                                  <span className="block text-xs text-muted-foreground italic">
+                                    Details: {file.processingErrorMessage}
+                                  </span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">
+                  🛡️ Permission Event Log
+                </CardTitle>
+                <CardDescription>Historical permission checks.</CardDescription>
+                <Separator className="my-2" />
+              </CardHeader>
+              <CardContent>
+                {recentPermissionEvents === undefined && (
+                  <p className="text-muted-foreground">
+                    Loading permission events...
+                  </p>
+                )}
+                {recentPermissionEvents?.length === 0 && (
+                  <p className="text-muted-foreground">
+                    No permission events logged yet.
+                  </p>
+                )}
+                {recentPermissionEvents &&
+                  recentPermissionEvents.length > 0 && (
+                    <ScrollArea className="h-72">
+                      <div className="p-1 space-y-2 text-xs">
+                        {recentPermissionEvents.map(
+                          (event: Doc<"permissionEvents">) => (
+                            <div
+                              key={event._id}
+                              className={`p-2 border rounded-md ${event.resultState === "error" ? "border-red-500/50 bg-red-500/5" : event.resultState === "denied" ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}
+                            >
+                              <div className="font-mono text-muted-foreground">
+                                {new Date(
+                                  Number(event.timestamp),
+                                ).toLocaleString()}
+                              </div>
+                              <div>
+                                Handle:{" "}
+                                <span className="font-semibold">
+                                  {event.handleName}
+                                </span>
+                              </div>
+                              <div>
+                                Action:{" "}
+                                <span className="font-medium">
+                                  {event.operationType}
+                                </span>{" "}
+                                ({event.accessMode}) for context:{" "}
+                                <span className="italic">
+                                  "{event.context}"
+                                </span>
+                              </div>
+                              <div>
+                                Result:{" "}
+                                <span
+                                  className={`font-bold ${
+                                    event.resultState === "granted"
+                                      ? "text-green-600 dark:text-green-400"
+                                      : event.resultState === "denied"
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : event.resultState === "prompt"
+                                          ? "text-blue-600 dark:text-blue-400"
+                                          : event.resultState === "error"
+                                            ? "text-red-600 dark:text-red-400"
+                                            : ""
+                                  }`}
+                                >
+                                  {event.resultState.toUpperCase()}
+                                </span>
+                              </div>
+                              {event.errorMessage && (
+                                <div className="text-red-700 dark:text-red-400">
+                                  Error: {event.errorMessage}
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </ScrollArea>
+                  )}
               </CardContent>
             </Card>
           </>

@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@convex-dev/react-query": "0.0.0-alpha.8",
+    "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-scroll-area": "^1.2.9",
     "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
@@ -33,6 +34,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.24.1",
+    "idb-keyval": "^6.2.2",
     "ky": "^1.8.1",
     "lucide-react": "^0.511.0",
     "msw": "^2.8.4",
