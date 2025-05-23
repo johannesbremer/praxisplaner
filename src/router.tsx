@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 import { ConvexQueryClient } from "@convex-dev/react-query";
 import { ConvexProvider } from "convex/react";
 import { routeTree } from "./routeTree.gen";
-// import * as React from "react"; // Removed: Not needed with modern JSX transform
+import * as React from "react";
 
 export function createRouter() {
   if (typeof document !== "undefined") {
@@ -69,7 +69,7 @@ export function createRouter() {
         </div>
       ),
       context: { queryClient },
-      Wrap: ({ children }) => (
+      Wrap: ({ children }: { children: React.ReactNode }) => (
         <ConvexProvider client={convexQueryClient.convexClient}>
           {children}
         </ConvexProvider>
