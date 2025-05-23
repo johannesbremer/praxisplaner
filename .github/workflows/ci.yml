@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
-      - run: pnpm lint
+      - run: pnpm lint:check
   prettier:
     name: Prettier
     runs-on: ubuntu-latest

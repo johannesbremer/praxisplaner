@@ -15,7 +15,8 @@
     "gen": "pnpm exec concurrently -r pnpm:gen:routes pnpm:gen:convex",
     "gen:convex": "pnpm exec convex codegen",
     "gen:routes": "pnpm exec tsr generate",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . --fix",
+    "lint:check": "eslint . --max-warnings 0",
     "start": "vinxi start",
     "test": "vitest"
   },
