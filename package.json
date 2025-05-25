@@ -38,7 +38,6 @@
     "idb-keyval": "^6.2.2",
     "ky": "^1.8.1",
     "lucide-react": "^0.511.0",
-    "msw": "^2.8.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-hot-toast": "^2.5.2",
