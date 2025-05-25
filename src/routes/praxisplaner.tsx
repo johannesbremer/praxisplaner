@@ -188,8 +188,9 @@ function PraxisPlanerComponent() {
 
   useEffect(() => {
     if (isFsaSupported === false || typeof gdtPreference === "undefined") {
-      if (isFsaSupported !== null && typeof gdtPreference !== "undefined")
+      if (isFsaSupported !== null && typeof gdtPreference !== "undefined") {
         setIsLoadingHandle(false);
+      }
       return;
     }
     const loadPersistedHandle = async () => {
@@ -223,7 +224,9 @@ function PraxisPlanerComponent() {
       }
       setIsLoadingHandle(false);
     };
-    if (isFsaSupported && window.isSecureContext) loadPersistedHandle();
+    if (isFsaSupported && window.isSecureContext) {
+      loadPersistedHandle();
+    }
   }, [
     isFsaSupported,
     gdtPreference,
@@ -381,8 +384,9 @@ function PraxisPlanerComponent() {
       const POLLING_INTERVAL = 5000;
       const poll = async () => {
         if (!gdtDirectoryHandle) {
-          if (gdtPollingIntervalRef.current)
+          if (gdtPollingIntervalRef.current) {
             clearInterval(gdtPollingIntervalRef.current);
+          }
           gdtPollingIntervalRef.current = null;
           addGdtLog("🛑 Polling stopped: Directory handle lost.");
           return;
@@ -456,8 +460,9 @@ function PraxisPlanerComponent() {
               );
             }
           }
-          if (foundGdtFileInPoll)
+          if (foundGdtFileInPoll) {
             addGdtLog(`🔎 Poll completed for "${gdtDirectoryHandle.name}".`);
+          }
         } catch (err) {
           addGdtLog(
             `❌ Error during GDT polling file iteration: ${err instanceof Error ? err.message : String(err)}.`,
@@ -587,12 +592,13 @@ function PraxisPlanerComponent() {
                     {gdtDirPermission === "prompt" && (
                       <Button
                         onClick={() => {
-                          if (gdtDirectoryHandle)
+                          if (gdtDirectoryHandle) {
                             verifyAndSetPermission(
                               gdtDirectoryHandle,
                               true,
                               "user request button",
                             );
+                          }
                         }}
                         variant="outline"
                         size="sm"
