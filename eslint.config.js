@@ -31,6 +31,7 @@ export default tseslint.config(
       ".output",
       ".vinxi",
       "app.config.timestamp_*.js",
+      ".github/instructions",
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
