@@ -1,0 +1,32 @@
+jobs:
+  update_instructions_file:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PUSH2REP }}
+
+      - name: Update Convex Instructions
+        run: |
+          curl -sSL https://convex.link/convex_github_copilot_instructions -o .github/instructions/convex.instructions.md
+          if git diff --quiet ".github/instructions/convex.instructions.md"; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add .github/instructions/convex.instructions.md
+          git commit -m "Update Convex Instructions" || exit 0
+          git push
+
+name: Update Instructions
+
+on:
+  push:
+    paths:
+      - .github/workflows/update-instructions.yml
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch: {}
