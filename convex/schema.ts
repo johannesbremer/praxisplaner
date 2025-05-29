@@ -41,6 +41,12 @@ export default defineSchema({
     processedAt: v.int64(),
     processingErrorMessage: v.optional(v.string()),
     sourceDirectoryName: v.string(),
+    // Additional GDT fields
+    examDate: v.optional(v.string()), // FK 7620
+    gdtVersion: v.optional(v.string()), // FK 9218
+    testDescription: v.optional(v.string()), // FK 6220
+    testProcedure: v.optional(v.string()), // FK 8402
+    testReference: v.optional(v.string()), // FK 6201
   }).index("by_processedAt", ["processedAt"]),
 
   // New table for permission events
