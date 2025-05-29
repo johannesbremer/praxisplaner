@@ -54,11 +54,13 @@ export function extractPatientData(
   // GDT field mapping with field-specific validation/transformation
   for (const field of fields) {
     switch (field.fieldId) {
-      case GDT_FIELD_IDS.BIRTH_DATE:
-        if (isValidDate(field.content)) {
-          patientData.dateOfBirth = field.content;
+      case GDT_FIELD_IDS.BIRTH_DATE: {
+        const dateResult = isValidDate(field.content);
+        if (dateResult.isValid) {
+          patientData.dateOfBirth = dateResult.value;
         }
         break;
+      }
       case GDT_FIELD_IDS.CITY:
         patientData.city = field.content;
         break;

@@ -1,11 +1,24 @@
-import type { GdtField, GdtValidationResult } from "./types";
+import type {
+  DateValidationResult,
+  GdtField,
+  GdtValidationResult,
+} from "./types";
 
 import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
 
-/** Validates whether a string conforms to the TTMMJJJJ date format as used in GDT files. */
-export function isValidDate(date: string): boolean {
+/**
+ * Validates and converts a date from DDMMYYYY to YYYY-MM-DD format.
+ * Returns a DateValidationResult with either a converted date string or an error.
+ */
+export function isValidDate(date: string): DateValidationResult {
   if (!/^\d{8}$/.test(date)) {
-    return false;
+    return {
+      error: {
+        message: "Date must be exactly 8 digits",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
   }
 
   const day = parseInt(date.substring(0, 2), 10);
@@ -14,29 +27,57 @@ export function isValidDate(date: string): boolean {
 
   // Basic range checks
   if (month < 1 || month > 12 || day < 1 || day > 31) {
-    return false;
+    return {
+      error: {
+        message: "Invalid day or month values",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
   }
 
   // Check for valid year (allow historical dates but not future ones)
   const currentYear = new Date().getFullYear();
   if (year < 1900 || year > currentYear) {
-    return false;
+    return {
+      error: {
+        message: "Year must be between 1900 and current year",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
   }
 
   // Handle months with 30 days
   if ([4, 6, 9, 11].includes(month) && day > 30) {
-    return false;
+    return {
+      error: {
+        message: "Invalid day for month",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
   }
 
   // Handle February
   if (month === 2) {
     const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
     if (day > (isLeapYear ? 29 : 28)) {
-      return false;
+      return {
+        error: {
+          message: "Invalid day for February",
+          type: GDT_ERROR_TYPES.INVALID_FORMAT,
+        },
+        isValid: false,
+      };
     }
   }
 
-  return true;
+  // Convert to YYYY-MM-DD format
+  return {
+    isValid: true,
+    value: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+  };
 }
 
 /** Parses a single GDT line into its components according to GDT specification. */

@@ -28,6 +28,22 @@ export interface GdtValidationSuccess {
   isValid: true;
 }
 
+// Date validation types
+export interface DateValidationError {
+  error: {
+    message: string;
+    type: GdtErrorType;
+  };
+  isValid: false;
+}
+
+export type DateValidationResult = DateValidationError | DateValidationSuccess;
+
+export interface DateValidationSuccess {
+  isValid: true;
+  value: string;
+}
+
 // Database mutation result type
 export type ProcessingResult =
   | {
