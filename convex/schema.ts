@@ -9,17 +9,26 @@ export default defineSchema({
   }).index("by_singletonKey", ["singletonKey"]),
 
   patients: defineTable({
-    address: v.optional(v.string()), // Optional address fields
-    createdAt: v.int64(), // When the patient was first added
-    dateOfBirth: v.optional(v.string()), // FK 3103, format YYYYMMDD
+    // Patient identification fields
+    address: v.optional(v.string()), // Combined address field
+    dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
     firstName: v.optional(v.string()), // FK 3102
     gender: v.optional(v.string()), // FK 3110, M/W/D/X
-    lastModified: v.int64(),
+    insuranceNumber: v.optional(v.string()), // FK 3105
     lastName: v.optional(v.string()), // FK 3101
-    patientId: v.string(), // FK 3000 from GDT file
+    patientId: v.number(), // FK 3000 - Required, unique identifier as integer
+    phone: v.optional(v.string()), // FK 3626
     title: v.optional(v.string()), // Optional title
-    // Reference to first GDT file where this patient was found
-    sourceGdtFileId: v.id("processedGdtFiles"),
+
+    // Metadata and tracking fields
+    createdAt: v.int64(), // When the patient was first added
+    lastModified: v.int64(), // Last update timestamp
+    sourceGdtFileId: v.id("processedGdtFiles"), // Reference to first GDT file
+
+    // GDT metadata (optional)
+    gdtReceiverId: v.optional(v.string()), // FK 8315
+    gdtSenderId: v.optional(v.string()), // FK 8316
+    gdtVersion: v.optional(v.string()), // FK 0001
   })
     .index("by_patientId", ["patientId"])
     .index("by_lastModified", ["lastModified"])
