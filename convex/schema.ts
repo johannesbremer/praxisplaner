@@ -8,6 +8,23 @@ export default defineSchema({
     // initialPermissionGrantedOnLoad: v.optional(v.boolean()), // REMOVED
   }).index("by_singletonKey", ["singletonKey"]),
 
+  patients: defineTable({
+    address: v.optional(v.string()), // Optional address fields
+    createdAt: v.int64(), // When the patient was first added
+    dateOfBirth: v.optional(v.string()), // FK 3103, format YYYYMMDD
+    firstName: v.optional(v.string()), // FK 3102
+    gender: v.optional(v.string()), // FK 3110, M/W/D/X
+    lastModified: v.int64(),
+    lastName: v.optional(v.string()), // FK 3101
+    patientId: v.string(), // FK 3000 from GDT file
+    title: v.optional(v.string()), // Optional title
+    // Reference to first GDT file where this patient was found
+    sourceGdtFileId: v.id("processedGdtFiles"),
+  })
+    .index("by_patientId", ["patientId"])
+    .index("by_lastModified", ["lastModified"])
+    .index("by_createdAt", ["createdAt"]),
+
   processedGdtFiles: defineTable({
     fileContent: v.string(),
     fileName: v.string(),
