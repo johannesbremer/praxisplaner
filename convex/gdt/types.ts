@@ -1,3 +1,6 @@
+import type { Doc } from "../_generated/dataModel";
+
+// Error handling types
 export interface GdtError {
   field?: keyof typeof GDT_FIELD_IDS;
   message: string;
@@ -7,6 +10,7 @@ export interface GdtError {
 export type GdtErrorType =
   (typeof GDT_ERROR_TYPES)[keyof typeof GDT_ERROR_TYPES];
 
+// GDT parsing types
 export interface GdtField {
   content: string;
   fieldId: string;
@@ -24,27 +28,7 @@ export interface GdtValidationSuccess {
   isValid: true;
 }
 
-export interface PatientData {
-  // Patient identification fields (from GDT)
-  city?: string; // FK 3106
-  dateOfBirth?: string; // FK 3103
-  firstName?: string; // FK 3102
-  lastName?: string; // FK 3101
-  patientId: number; // FK 3000
-  street?: string; // FK 3107
-
-  // Test information
-  examDate?: string; // FK 7620
-  testDescription?: string; // FK 6220
-  testProcedure?: string; // FK 8402
-  testReference?: string; // FK 6201
-
-  // GDT metadata
-  gdtReceiverId?: string; // FK 8315
-  gdtSenderId?: string; // FK 8316
-  gdtVersion?: string; // FK 9218 or FK 0001
-}
-
+// Database mutation result type
 export type ProcessingResult =
   | {
       error: string;
@@ -55,6 +39,12 @@ export type ProcessingResult =
       patientId: number;
       success: true;
     };
+
+// Type alias for DocInput to use in insert operations
+export type PatientInsertFields = Omit<
+  Doc<"patients">,
+  "_creationTime" | "_id"
+>;
 
 // Known GDT field IDs for type checking and documentation
 export const GDT_FIELD_IDS = {

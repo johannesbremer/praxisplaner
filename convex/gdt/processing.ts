@@ -1,4 +1,5 @@
-import type { GdtField, PatientData } from "./types";
+import type { Doc } from "../_generated/dataModel";
+import type { GdtField, PatientInsertFields } from "./types";
 
 import { GDT_FIELD_IDS } from "./types";
 import { isValidDate, parseGdtLine } from "./validation";
@@ -33,16 +34,24 @@ export function parseGdtContent(content: string): GdtField[] {
   return fields;
 }
 
-/** Extracts patient-related data from GDT fields. */
-export function extractPatientData(fields: GdtField[]): PatientData {
-  const patientData: PatientData = {
+/** Extracts and transforms GDT fields into Convex document format. */
+type ProcessedFileInput = Omit<
+  Doc<"processedGdtFiles">,
+  "_creationTime" | "_id"
+>;
+
+export function extractPatientData(
+  fields: GdtField[],
+): Omit<PatientInsertFields, "createdAt" | "lastModified" | "sourceGdtFileId"> {
+  // Initialize with required fields
+  const patientData: Omit<
+    PatientInsertFields,
+    "createdAt" | "lastModified" | "sourceGdtFileId"
+  > = {
     patientId: 0,
   };
 
-  // Address components
-  let street: string | undefined;
-  let city: string | undefined;
-
+  // GDT field mapping with field-specific validation/transformation
   for (const field of fields) {
     switch (field.fieldId) {
       case GDT_FIELD_IDS.BIRTH_DATE:
@@ -51,10 +60,7 @@ export function extractPatientData(fields: GdtField[]): PatientData {
         }
         break;
       case GDT_FIELD_IDS.CITY:
-        city = field.content;
-        break;
-      case GDT_FIELD_IDS.EXAM_DATE:
-        patientData.examDate = field.content;
+        patientData.city = field.content;
         break;
       case GDT_FIELD_IDS.FIRST_NAME:
         patientData.firstName = field.content;
@@ -76,34 +82,56 @@ export function extractPatientData(fields: GdtField[]): PatientData {
         patientData.gdtSenderId = field.content;
         break;
       case GDT_FIELD_IDS.STREET:
-        street = field.content;
-        break;
-      case GDT_FIELD_IDS.TEST_DESC:
-        patientData.testDescription = field.content;
-        break;
-      case GDT_FIELD_IDS.TEST_PROCEDURE:
-        patientData.testProcedure = field.content;
-        break;
-      case GDT_FIELD_IDS.TEST_REF:
-        patientData.testReference = field.content;
+        patientData.street = field.content;
         break;
       case GDT_FIELD_IDS.VERSION:
       case GDT_FIELD_IDS.VERSION_ALT:
         patientData.gdtVersion = field.content;
         break;
-      case GDT_FIELD_IDS.ZIP:
-        // ZIP code is not used in the current schema
-        break;
     }
   }
 
-  // Set address fields directly
-  if (street) {
-    patientData.street = street;
-  }
-  if (city) {
-    patientData.city = city;
+  return patientData;
+}
+
+/** Creates a new processed GDT file record from parsed fields. */
+export function createProcessedFileRecord(
+  args: {
+    fileContent: string;
+    fileName: string;
+    gdtParsedSuccessfully: boolean;
+    processingErrorMessage?: string;
+    sourceDirectoryName: string;
+  },
+  patientData?: Omit<
+    PatientInsertFields,
+    "createdAt" | "lastModified" | "sourceGdtFileId"
+  >,
+): ProcessedFileInput {
+  const baseRecord: Partial<ProcessedFileInput> = {
+    fileContent: args.fileContent,
+    fileName: args.fileName,
+    gdtParsedSuccessfully: args.gdtParsedSuccessfully,
+    processedAt: BigInt(Date.now()),
+    sourceDirectoryName: args.sourceDirectoryName,
+  };
+
+  if (args.processingErrorMessage) {
+    baseRecord.processingErrorMessage = args.processingErrorMessage;
   }
 
-  return patientData;
+  if (patientData) {
+    if (patientData.gdtVersion) {
+      baseRecord.gdtVersion = patientData.gdtVersion;
+    }
+    if (patientData.dateOfBirth) {
+      baseRecord.examDate = patientData.dateOfBirth;
+    }
+    if (patientData.gdtSenderId) {
+      baseRecord.testReference = patientData.gdtSenderId;
+    }
+  }
+
+  // We know this satisfies the type due to the schema definition
+  return baseRecord as ProcessedFileInput;
 }

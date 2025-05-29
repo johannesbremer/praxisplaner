@@ -3,7 +3,11 @@ import { v } from "convex/values";
 import type { ProcessingResult } from "./types";
 
 import { mutation, query } from "../_generated/server";
-import { extractPatientData, parseGdtContent } from "./processing";
+import {
+  createProcessedFileRecord,
+  extractPatientData,
+  parseGdtContent,
+} from "./processing";
 import { validateGdtContent } from "./validation";
 
 // =============================================================================
@@ -21,16 +25,20 @@ export const addProcessedFile = mutation({
   }),
   handler: async (ctx, args): Promise<ProcessingResult> => {
     try {
+      // Validate the GDT content first
       const validationResult = validateGdtContent(args.fileContent);
       if (!validationResult.isValid) {
-        await ctx.db.insert("processedGdtFiles", {
-          fileContent: args.fileContent,
-          fileName: args.fileName,
-          gdtParsedSuccessfully: false,
-          processedAt: BigInt(Date.now()),
-          processingErrorMessage: validationResult.error.message,
-          sourceDirectoryName: args.sourceDirectoryName,
-        });
+        // Store invalid file with error
+        await ctx.db.insert(
+          "processedGdtFiles",
+          createProcessedFileRecord({
+            fileContent: args.fileContent,
+            fileName: args.fileName,
+            gdtParsedSuccessfully: false,
+            processingErrorMessage: validationResult.error.message,
+            sourceDirectoryName: args.sourceDirectoryName,
+          }),
+        );
         return { error: validationResult.error.message, success: false };
       }
 
@@ -39,24 +47,18 @@ export const addProcessedFile = mutation({
       const patientData = extractPatientData(gdtFields);
 
       // Store the GDT file
-      const gdtFileId = await ctx.db.insert("processedGdtFiles", {
-        fileContent: args.fileContent,
-        fileName: args.fileName,
-        gdtParsedSuccessfully: true,
-        processedAt: BigInt(Date.now()),
-        sourceDirectoryName: args.sourceDirectoryName,
-        ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
-        ...(patientData.examDate && { examDate: patientData.examDate }),
-        ...(patientData.testReference && {
-          testReference: patientData.testReference,
-        }),
-        ...(patientData.testDescription && {
-          testDescription: patientData.testDescription,
-        }),
-        ...(patientData.testProcedure && {
-          testProcedure: patientData.testProcedure,
-        }),
-      });
+      const gdtFileId = await ctx.db.insert(
+        "processedGdtFiles",
+        createProcessedFileRecord(
+          {
+            fileContent: args.fileContent,
+            fileName: args.fileName,
+            gdtParsedSuccessfully: true,
+            sourceDirectoryName: args.sourceDirectoryName,
+          },
+          patientData,
+        ),
+      );
 
       // Check if patient exists
       const existingPatient = await ctx.db
@@ -71,24 +73,10 @@ export const addProcessedFile = mutation({
       if (!existingPatient) {
         // Create new patient
         await ctx.db.insert("patients", {
+          ...patientData,
           createdAt: now,
           lastModified: now,
-          patientId: patientData.patientId,
           sourceGdtFileId: gdtFileId,
-          ...(patientData.firstName && { firstName: patientData.firstName }),
-          ...(patientData.lastName && { lastName: patientData.lastName }),
-          ...(patientData.dateOfBirth && {
-            dateOfBirth: patientData.dateOfBirth,
-          }),
-          ...(patientData.street && { street: patientData.street }),
-          ...(patientData.city && { city: patientData.city }),
-          ...(patientData.gdtSenderId && {
-            gdtSenderId: patientData.gdtSenderId,
-          }),
-          ...(patientData.gdtReceiverId && {
-            gdtReceiverId: patientData.gdtReceiverId,
-          }),
-          ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
         });
 
         return {
@@ -98,8 +86,8 @@ export const addProcessedFile = mutation({
         };
       }
 
-      // Update existing patient with type-safe field updates
-      const updates: Record<string, unknown> = {
+      // Update existing patient with non-null fields only
+      const updates = {
         lastModified: now,
         ...(patientData.firstName && { firstName: patientData.firstName }),
         ...(patientData.lastName && { lastName: patientData.lastName }),
@@ -130,14 +118,16 @@ export const addProcessedFile = mutation({
         error instanceof Error
           ? error.message
           : "Unknown error processing GDT file";
-      await ctx.db.insert("processedGdtFiles", {
-        fileContent: args.fileContent,
-        fileName: args.fileName,
-        gdtParsedSuccessfully: false,
-        processedAt: BigInt(Date.now()),
-        processingErrorMessage: errorMessage,
-        sourceDirectoryName: args.sourceDirectoryName,
-      });
+      await ctx.db.insert(
+        "processedGdtFiles",
+        createProcessedFileRecord({
+          fileContent: args.fileContent,
+          fileName: args.fileName,
+          gdtParsedSuccessfully: false,
+          processingErrorMessage: errorMessage,
+          sourceDirectoryName: args.sourceDirectoryName,
+        }),
+      );
       return { error: errorMessage, success: false };
     }
   },
