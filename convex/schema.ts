@@ -9,26 +9,23 @@ export default defineSchema({
   }).index("by_singletonKey", ["singletonKey"]),
 
   patients: defineTable({
-    // Patient identification fields
-    address: v.optional(v.string()), // Combined address field
+    // Patient identification fields (from GDT file)
+    city: v.optional(v.string()), // FK 3106 - City
     dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
     firstName: v.optional(v.string()), // FK 3102
-    gender: v.optional(v.string()), // FK 3110, M/W/D/X
-    insuranceNumber: v.optional(v.string()), // FK 3105
     lastName: v.optional(v.string()), // FK 3101
     patientId: v.number(), // FK 3000 - Required, unique identifier as integer
-    phone: v.optional(v.string()), // FK 3626
-    title: v.optional(v.string()), // Optional title
+    street: v.optional(v.string()), // FK 3107 - Street address
 
     // Metadata and tracking fields
-    createdAt: v.int64(), // When the patient was first added
-    lastModified: v.int64(), // Last update timestamp
-    sourceGdtFileId: v.id("processedGdtFiles"), // Reference to first GDT file
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+    sourceGdtFileId: v.id("processedGdtFiles"),
 
-    // GDT metadata (optional)
-    gdtReceiverId: v.optional(v.string()), // FK 8315
-    gdtSenderId: v.optional(v.string()), // FK 8316
-    gdtVersion: v.optional(v.string()), // FK 0001
+    // GDT metadata from file
+    gdtReceiverId: v.optional(v.string()), // FK 8315 - e.g., "TERMINP1"
+    gdtSenderId: v.optional(v.string()), // FK 8316 - e.g., "TERMINP1"
+    gdtVersion: v.optional(v.string()), // FK 9218 - e.g., "02.10"
   })
     .index("by_patientId", ["patientId"])
     .index("by_lastModified", ["lastModified"])
@@ -37,16 +34,16 @@ export default defineSchema({
   processedGdtFiles: defineTable({
     fileContent: v.string(),
     fileName: v.string(),
-    gdtParsedSuccessfully: v.boolean(),
+    gdtParsedSuccessfully: v.optional(v.boolean()),
     processedAt: v.int64(),
     processingErrorMessage: v.optional(v.string()),
     sourceDirectoryName: v.string(),
-    // Additional GDT fields
-    examDate: v.optional(v.string()), // FK 7620
-    gdtVersion: v.optional(v.string()), // FK 9218
-    testDescription: v.optional(v.string()), // FK 6220
-    testProcedure: v.optional(v.string()), // FK 8402
-    testReference: v.optional(v.string()), // FK 6201
+    // GDT fields based on actual files
+    examDate: v.optional(v.string()), // FK 7620 - Date of examination (TTMMJJJJ)
+    gdtVersion: v.optional(v.string()), // FK 9218 - GDT Version (alternative field)
+    testDescription: v.optional(v.string()), // FK 6220 - Description (e.g., "Termin 27.08.2010")
+    testProcedure: v.optional(v.string()), // FK 8402 - Procedure type (e.g., "ALLG00")
+    testReference: v.optional(v.string()), // FK 6201 - Reference number
   }).index("by_processedAt", ["processedAt"]),
 
   // New table for permission events

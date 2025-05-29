@@ -1,47 +1,48 @@
-// convex/gdtFiles.ts
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 
-// GDT field types based on the specification
+// =============================================================================
+// Types & Constants
+// =============================================================================
+
 interface GdtField {
   content: string;
   fieldId: string;
   length: number;
 }
 
-// Known GDT field IDs for type checking and documentation
-export const GDT_FIELD_IDS = {
-  // Patient identification fields
-  BIRTH_DATE: "3103", // Birth date (TTMMJJJJ)
-  CITY: "3106", // City
-  FIRST_NAME: "3102", // First name
-  GENDER: "3110", // Gender (M/W/D/X)
-  INSURANCE_NUMBER: "3105", // Insurance number
-  LAST_NAME: "3101", // Last name
-  PATIENT_ID: "3000", // Patient ID
-  PHONE: "3626", // Phone number
-  STREET: "3107", // Street address
-  ZIP: "3105", // ZIP/Postal code
+interface GdtValidationError {
+  error: GdtError;
+  isValid: false;
+}
 
-  // Message metadata fields
-  RECEIVER_ID: "8315", // Receiver ID
-  SATZ_END: "8001", // Satzende
-  SATZ_START: "8000", // Satzart
-  SENDER_ID: "8316", // Sender ID
-  VERSION: "0001", // Standard version field
-  VERSION_ALT: "9218", // Alternative version field for older formats
+type GdtValidationResult = GdtValidationError | GdtValidationSuccess;
 
-  // Test/Examination fields
-  EXAM_DATE: "7620",
-  TEST_DESC: "6220",
-  TEST_IDENT: "8410", // Test identifier
-  TEST_NAME: "8411", // Test name
-  TEST_PROCEDURE: "8402",
-  TEST_REF: "6201",
-  TEST_RESULT: "8420", // Test result value
-  TEST_UNIT: "8421", // Test unit
-} as const;
+interface GdtValidationSuccess {
+  isValid: true;
+}
+
+interface PatientData {
+  // Patient identification fields (from GDT)
+  city?: string; // FK 3106
+  dateOfBirth?: string; // FK 3103
+  firstName?: string; // FK 3102
+  lastName?: string; // FK 3101
+  patientId: number; // FK 3000
+  street?: string; // FK 3107
+
+  // Test information
+  examDate?: string; // FK 7620
+  testDescription?: string; // FK 6220
+  testProcedure?: string; // FK 8402
+  testReference?: string; // FK 6201
+
+  // GDT metadata
+  gdtReceiverId?: string; // FK 8315
+  gdtSenderId?: string; // FK 8316
+  gdtVersion?: string; // FK 9218 or FK 0001
+}
 
 type ProcessingResult =
   | {
@@ -54,17 +55,34 @@ type ProcessingResult =
       success: true;
     };
 
-// Gender types according to GDT specification
-type GdtGender = "D" | "M" | "W" | "X";
+// Known GDT field IDs for type checking and documentation
+export const GDT_FIELD_IDS = {
+  // Patient identification fields
+  BIRTH_DATE: "3103", // Birth date (TTMMJJJJ)
+  CITY: "3106", // City
+  FIRST_NAME: "3102", // First name
+  LAST_NAME: "3101", // Last name
+  PATIENT_ID: "3000", // Patient ID
+  STREET: "3107", // Street address
+  ZIP: "3105", // ZIP/Postal code
 
-/** Validates whether a string represents a valid GDT gender value. */
-function isValidGender(gender: string): gender is GdtGender {
-  return ["D", "M", "W", "X"].includes(gender);
-}
+  // Message metadata fields
+  RECEIVER_ID: "8315", // Receiver ID
+  SATZ_END: "8001", // Satzende
+  SATZ_START: "8000", // Satzart
+  SENDER_ID: "8316", // Sender ID
+  VERSION: "0001", // Standard version field
+  VERSION_ALT: "9218", // Alternative version field for older formats
+
+  // Test/Examination fields
+  EXAM_DATE: "7620", // Date of examination (TTMMJJJJ)
+  TEST_DESC: "6220", // Test/examination description
+  TEST_PROCEDURE: "8402", // Test/procedure identifier
+  TEST_REF: "6201", // Test number/reference
+} as const;
 
 /** Validates whether a string conforms to the TTMMJJJJ date format as used in GDT files. */
-function isValiddateOfBirth(date: string): boolean {
-  // Check basic format first
+function isValidDate(date: string): boolean {
   if (!/^\d{8}$/.test(date)) {
     return false;
   }
@@ -73,7 +91,7 @@ function isValiddateOfBirth(date: string): boolean {
   const month = parseInt(date.substring(2, 4), 10);
   const year = parseInt(date.substring(4, 8), 10);
 
-  // Basic range checks first
+  // Basic range checks
   if (month < 1 || month > 12 || day < 1 || day > 31) {
     return false;
   }
@@ -97,20 +115,14 @@ function isValiddateOfBirth(date: string): boolean {
     }
   }
 
-  // If we get here, create a Date object for final validation
-  const d = new Date(year, month - 1, day);
-  return (
-    d.getFullYear() === year &&
-    d.getMonth() === month - 1 &&
-    d.getDate() === day
-  );
+  return true;
 }
 
-/** Parses a single GDT line into its components according to GDT 3.5 specification. */
+/** Parses a single GDT line into its components according to GDT specification. */
 function parseGdtLine(line: string): GdtField | null {
   if (line.length < 9) {
     return null;
-  } // Minimum length for a valid GDT line
+  }
 
   const lengthStr = line.slice(0, 3);
   const fieldId = line.slice(3, 7);
@@ -124,39 +136,28 @@ function parseGdtLine(line: string): GdtField | null {
   return { content, fieldId, length };
 }
 
-/** Parses the entire GDT file content into an array of GdtField objects and validates structure. */
+/** Parses the entire GDT file content into an array of GdtField objects. */
 function parseGdtContent(content: string): GdtField[] {
   const fields: GdtField[] = [];
-  // Support both CRLF and LF line endings by normalizing to LF
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-  // Find Satzart for later use with Satzende
-  let satzartContent = "";
-  const firstLine = lines[0]?.trim();
-  if (firstLine) {
-    const firstField = parseGdtLine(firstLine);
-    if (firstField?.fieldId === GDT_FIELD_IDS.SATZ_START) {
-      satzartContent = firstField.content;
-    }
-  }
+  // Find Satzart for Satzende
+  const firstLineText = lines[0]?.trim() ?? "";
+  const firstField = firstLineText ? parseGdtLine(firstLineText) : null;
+  const satzartContent = firstField?.content || "6310";
 
-  for (const line of lines) {
-    if (!line.trim()) {
-      continue;
-    }
-    const field = parseGdtLine(line);
-    if (!field) {
-      continue;
-    }
-    fields.push(field);
-  }
+  fields.push(
+    ...lines
+      .filter((line) => line.trim())
+      .map(parseGdtLine)
+      .filter((f): f is GdtField => f !== null),
+  );
 
-  // Check and fix Satzende if needed
+  // Add Satzende if needed
   const lastField = fields[fields.length - 1];
   if (!lastField || lastField.fieldId !== GDT_FIELD_IDS.SATZ_END) {
-    // Add proper Satzende field (length 13 = 9 + content length "6310")
     fields.push({
-      content: satzartContent || "6310",
+      content: satzartContent,
       fieldId: GDT_FIELD_IDS.SATZ_END,
       length: 13,
     });
@@ -165,46 +166,20 @@ function parseGdtContent(content: string): GdtField[] {
   return fields;
 }
 
-// Extract patient data from GDT content
-interface PatientData {
-  // Patient identification fields
-  address?: string;
-  dateOfBirth?: string;
-  firstName?: string;
-  gender?: string;
-  insuranceNumber?: string;
-  lastName?: string;
-  patientId: number;
-  phone?: string;
-  title?: string;
-
-  // Test information
-  examDate?: string; // FK 7620
-  testDescription?: string; // FK 6220
-  testProcedure?: string; // FK 8402
-  testReference?: string; // FK 6201
-
-  // GDT metadata
-  gdtReceiverId?: string;
-  gdtSenderId?: string;
-  gdtVersion?: string;
-}
-
-/** Extracts patient-related data from GDT content according to GDT 3.5 specification. */
+/** Extracts patient-related data from GDT fields. */
 function extractPatientData(fields: GdtField[]): PatientData {
   const patientData: PatientData = {
-    patientId: 0, // Will be set from FK 3000
+    patientId: 0,
   };
 
-  // Temporary variables for address construction
+  // Address components
   let street: string | undefined;
   let city: string | undefined;
-  let zip: string | undefined;
 
   for (const field of fields) {
     switch (field.fieldId) {
       case GDT_FIELD_IDS.BIRTH_DATE:
-        if (/^\d{8}$/.test(field.content)) {
+        if (isValidDate(field.content)) {
           patientData.dateOfBirth = field.content;
         }
         break;
@@ -217,14 +192,6 @@ function extractPatientData(fields: GdtField[]): PatientData {
       case GDT_FIELD_IDS.FIRST_NAME:
         patientData.firstName = field.content;
         break;
-      case GDT_FIELD_IDS.GENDER:
-        if (isValidGender(field.content)) {
-          patientData.gender = field.content;
-        }
-        break;
-      case GDT_FIELD_IDS.INSURANCE_NUMBER:
-        patientData.insuranceNumber = field.content;
-        break;
       case GDT_FIELD_IDS.LAST_NAME:
         patientData.lastName = field.content;
         break;
@@ -235,9 +202,6 @@ function extractPatientData(fields: GdtField[]): PatientData {
         }
         break;
       }
-      case GDT_FIELD_IDS.PHONE:
-        patientData.phone = field.content;
-        break;
       case GDT_FIELD_IDS.RECEIVER_ID:
         patientData.gdtReceiverId = field.content;
         break;
@@ -261,99 +225,137 @@ function extractPatientData(fields: GdtField[]): PatientData {
         patientData.gdtVersion = field.content;
         break;
       case GDT_FIELD_IDS.ZIP:
-        zip = field.content;
+        // ZIP code is not used in the current schema
         break;
     }
   }
 
-  // Build address from components
-  const addressParts: string[] = [];
+  // Set address fields directly
   if (street) {
-    addressParts.push(street);
+    patientData.street = street;
   }
-  if (zip || city) {
-    const locationParts = [zip, city].filter(Boolean);
-    addressParts.push(locationParts.join(" "));
-  }
-  if (addressParts.length > 0) {
-    patientData.address = addressParts.join(", ");
+  if (city) {
+    patientData.city = city;
   }
 
   return patientData;
 }
 
-/** Validates GDT content according to GDT 3.5 specification, with some leniency for older formats. */
-function validateGdtContent(
-  gdtContent: string,
-): { error: string; isValid: false } | { isValid: true } {
-  // Remove trailing newlines/spaces and split
+/** Typed errors that can occur during GDT processing */
+const GDT_ERROR_TYPES = {
+  EMPTY_FILE: "EMPTY_FILE",
+  INVALID_FORMAT: "INVALID_FORMAT",
+  MISSING_FIELD: "MISSING_FIELD",
+  PARSE_ERROR: "PARSE_ERROR",
+  UNEXPECTED_ERROR: "UNEXPECTED_ERROR",
+} as const;
+
+interface GdtError {
+  field?: keyof typeof GDT_FIELD_IDS;
+  message: string;
+  type: GdtErrorType;
+}
+
+type GdtErrorType = (typeof GDT_ERROR_TYPES)[keyof typeof GDT_ERROR_TYPES];
+
+/** Validates GDT content according to specification. */
+function validateGdtContent(gdtContent: string): GdtValidationResult {
   const lines = gdtContent
     .trim()
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0);
 
-  // Check if file has content
   if (lines.length === 0) {
-    return { error: "Empty GDT file", isValid: false };
-  }
-
-  const firstLineContent = lines[0];
-  if (!firstLineContent) {
     return {
-      error: "Invalid GDT file: First line is missing",
+      error: {
+        message: "Empty GDT file",
+        type: GDT_ERROR_TYPES.EMPTY_FILE,
+      },
       isValid: false,
     };
   }
 
-  const firstLine = parseGdtLine(firstLineContent);
+  const firstLineText = lines[0];
+  if (!firstLineText) {
+    return {
+      error: {
+        message: "First line is missing",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
+  }
+
+  const firstLine = parseGdtLine(firstLineText);
   if (!firstLine) {
     return {
-      error: "Invalid GDT file: First line could not be parsed",
+      error: {
+        message: "First line could not be parsed",
+        type: GDT_ERROR_TYPES.PARSE_ERROR,
+      },
       isValid: false,
     };
   }
 
   if (firstLine.fieldId !== GDT_FIELD_IDS.SATZ_START) {
     return {
-      error: "Invalid GDT file: Missing or invalid Satzart",
+      error: {
+        field: "SATZ_START",
+        message: "Missing or invalid Satzart",
+        type: GDT_ERROR_TYPES.MISSING_FIELD,
+      },
       isValid: false,
     };
   }
 
-  // Check for mandatory fields
   const fields = lines
     .map(parseGdtLine)
     .filter((f): f is GdtField => f !== null);
   const foundFields = new Set(fields.map((f) => f.fieldId));
 
-  // Check mandatory patient ID
   if (!foundFields.has(GDT_FIELD_IDS.PATIENT_ID)) {
     return {
-      error: "Invalid GDT file: Missing patient ID (FK 3000)",
+      error: {
+        field: "PATIENT_ID",
+        message: "Missing patient ID (FK 3000)",
+        type: GDT_ERROR_TYPES.MISSING_FIELD,
+      },
       isValid: false,
     };
   }
 
-  // Check for test/procedure identifier
   if (!foundFields.has(GDT_FIELD_IDS.TEST_PROCEDURE)) {
     return {
-      error: "Invalid GDT file: Missing test/procedure identifier (FK 8402)",
+      error: {
+        field: "TEST_PROCEDURE",
+        message: "Missing test/procedure identifier (FK 8402)",
+        type: GDT_ERROR_TYPES.MISSING_FIELD,
+      },
       isValid: false,
     };
   }
 
-  // More lenient version check - accept either FK 0001 or FK 9218 for version
-  if (!foundFields.has(GDT_FIELD_IDS.VERSION) && !foundFields.has("9218")) {
+  if (
+    !foundFields.has(GDT_FIELD_IDS.VERSION) &&
+    !foundFields.has(GDT_FIELD_IDS.VERSION_ALT)
+  ) {
     return {
-      error: "Invalid GDT file: Missing GDT version (FK 0001 or FK 9218)",
+      error: {
+        field: "VERSION",
+        message: "Missing GDT version (FK 0001 or FK 9218)",
+        type: GDT_ERROR_TYPES.MISSING_FIELD,
+      },
       isValid: false,
     };
   }
 
-  // All validations passed
   return { isValid: true };
 }
+
+// =============================================================================
+// Database Mutations
+// =============================================================================
 
 /** Process and store a GDT file along with any patient data it contains. */
 export const addProcessedFile = mutation({
@@ -365,106 +367,94 @@ export const addProcessedFile = mutation({
     sourceDirectoryName: v.string(),
   }),
   handler: async (ctx, args): Promise<ProcessingResult> => {
-    // First validate the GDT content
-    const validationResult = validateGdtContent(args.fileContent);
+    try {
+      const validationResult = validateGdtContent(args.fileContent);
+      if (!validationResult.isValid) {
+        await ctx.db.insert("processedGdtFiles", {
+          fileContent: args.fileContent,
+          fileName: args.fileName,
+          gdtParsedSuccessfully: false,
+          processedAt: BigInt(Date.now()),
+          processingErrorMessage: validationResult.error.message,
+          sourceDirectoryName: args.sourceDirectoryName,
+        });
+        return { error: validationResult.error.message, success: false };
+      }
 
-    if (!validationResult.isValid) {
-      // Store invalid file with error
-      await ctx.db.insert("processedGdtFiles", {
+      // Parse and extract data
+      const gdtFields = parseGdtContent(args.fileContent);
+      const patientData = extractPatientData(gdtFields);
+
+      // Store the GDT file
+      const gdtFileId = await ctx.db.insert("processedGdtFiles", {
         fileContent: args.fileContent,
         fileName: args.fileName,
-        gdtParsedSuccessfully: false,
+        gdtParsedSuccessfully: true,
         processedAt: BigInt(Date.now()),
-        processingErrorMessage: validationResult.error,
         sourceDirectoryName: args.sourceDirectoryName,
+        ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
+        ...(patientData.examDate && { examDate: patientData.examDate }),
+        ...(patientData.testReference && {
+          testReference: patientData.testReference,
+        }),
+        ...(patientData.testDescription && {
+          testDescription: patientData.testDescription,
+        }),
+        ...(patientData.testProcedure && {
+          testProcedure: patientData.testProcedure,
+        }),
       });
-      return { error: validationResult.error, success: false };
-    }
 
-    // Parse and extract data
-    const gdtFields = parseGdtContent(args.fileContent);
-    const patientData = extractPatientData(gdtFields);
+      // Check if patient exists
+      const existingPatient = await ctx.db
+        .query("patients")
+        .withIndex("by_patientId", (q) =>
+          q.eq("patientId", patientData.patientId),
+        )
+        .first();
 
-    // Validate gender if present
-    if (patientData.gender && !isValidGender(patientData.gender)) {
-      const error = `Invalid gender value: ${patientData.gender}. Must be one of: M, W, D, X`;
-      await ctx.db.insert("processedGdtFiles", {
-        fileContent: args.fileContent,
-        fileName: args.fileName,
-        gdtParsedSuccessfully: false,
-        processedAt: BigInt(Date.now()),
-        processingErrorMessage: error,
-        sourceDirectoryName: args.sourceDirectoryName,
-      });
-      return { error, success: false };
-    }
+      const now = BigInt(Date.now());
 
-    // Validate birth date if present
-    if (
-      patientData.dateOfBirth &&
-      !isValiddateOfBirth(patientData.dateOfBirth)
-    ) {
-      const error = `Invalid birth date format: ${patientData.dateOfBirth}. Must be TTMMJJJJ`;
-      await ctx.db.insert("processedGdtFiles", {
-        fileContent: args.fileContent,
-        fileName: args.fileName,
-        gdtParsedSuccessfully: false,
-        processedAt: BigInt(Date.now()),
-        processingErrorMessage: error,
-        sourceDirectoryName: args.sourceDirectoryName,
-      });
-      return { error, success: false };
-    }
+      if (!existingPatient) {
+        // Create new patient
+        await ctx.db.insert("patients", {
+          createdAt: now,
+          lastModified: now,
+          patientId: patientData.patientId,
+          sourceGdtFileId: gdtFileId,
+          ...(patientData.firstName && { firstName: patientData.firstName }),
+          ...(patientData.lastName && { lastName: patientData.lastName }),
+          ...(patientData.dateOfBirth && {
+            dateOfBirth: patientData.dateOfBirth,
+          }),
+          ...(patientData.street && { street: patientData.street }),
+          ...(patientData.city && { city: patientData.city }),
+          ...(patientData.gdtSenderId && {
+            gdtSenderId: patientData.gdtSenderId,
+          }),
+          ...(patientData.gdtReceiverId && {
+            gdtReceiverId: patientData.gdtReceiverId,
+          }),
+          ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
+        });
 
-    // Store the GDT file with additional fields
-    const gdtFileId = await ctx.db.insert("processedGdtFiles", {
-      fileContent: args.fileContent,
-      fileName: args.fileName,
-      gdtParsedSuccessfully: true,
-      processedAt: BigInt(Date.now()),
-      sourceDirectoryName: args.sourceDirectoryName,
-      ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
-      ...(patientData.examDate && { examDate: patientData.examDate }),
-      ...(patientData.testReference && {
-        testReference: patientData.testReference,
-      }),
-      ...(patientData.testDescription && {
-        testDescription: patientData.testDescription,
-      }),
-      ...(patientData.testProcedure && {
-        testProcedure: patientData.testProcedure,
-      }),
-    });
+        return {
+          isNewPatient: true,
+          patientId: patientData.patientId,
+          success: true,
+        };
+      }
 
-    // Check if patient already exists
-    const existingPatient = await ctx.db
-      .query("patients")
-      .withIndex("by_patientId", (q) =>
-        q.eq("patientId", patientData.patientId),
-      )
-      .first();
-
-    const now = BigInt(Date.now());
-
-    if (!existingPatient) {
-      // Create new patient with required fields and explicit optional fields
-      await ctx.db.insert("patients", {
-        createdAt: now,
+      // Update existing patient with type-safe field updates
+      const updates: Record<string, unknown> = {
         lastModified: now,
-        patientId: patientData.patientId,
-        sourceGdtFileId: gdtFileId,
-        // Optional fields are only included if they have a non-undefined value
         ...(patientData.firstName && { firstName: patientData.firstName }),
         ...(patientData.lastName && { lastName: patientData.lastName }),
         ...(patientData.dateOfBirth && {
           dateOfBirth: patientData.dateOfBirth,
         }),
-        ...(patientData.gender && { gender: patientData.gender }),
-        ...(patientData.address && { address: patientData.address }),
-        ...(patientData.phone && { phone: patientData.phone }),
-        ...(patientData.insuranceNumber && {
-          insuranceNumber: patientData.insuranceNumber,
-        }),
+        ...(patientData.street && { street: patientData.street }),
+        ...(patientData.city && { city: patientData.city }),
         ...(patientData.gdtSenderId && {
           gdtSenderId: patientData.gdtSenderId,
         }),
@@ -472,60 +462,37 @@ export const addProcessedFile = mutation({
           gdtReceiverId: patientData.gdtReceiverId,
         }),
         ...(patientData.gdtVersion && { gdtVersion: patientData.gdtVersion }),
-      });
+      };
+
+      await ctx.db.patch(existingPatient._id, updates);
 
       return {
-        isNewPatient: true,
+        isNewPatient: false,
         patientId: patientData.patientId,
         success: true,
       };
+    } catch (error) {
+      // Log and store any unexpected errors
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Unknown error processing GDT file";
+      await ctx.db.insert("processedGdtFiles", {
+        fileContent: args.fileContent,
+        fileName: args.fileName,
+        gdtParsedSuccessfully: false,
+        processedAt: BigInt(Date.now()),
+        processingErrorMessage: errorMessage,
+        sourceDirectoryName: args.sourceDirectoryName,
+      });
+      return { error: errorMessage, success: false };
     }
-
-    // Update existing patient fields only if they are provided in the GDT file
-    const updates: Record<string, unknown> = {
-      lastModified: now,
-    };
-
-    if (patientData.firstName) {
-      updates["firstName"] = patientData.firstName;
-    }
-    if (patientData.lastName) {
-      updates["lastName"] = patientData.lastName;
-    }
-    if (patientData.dateOfBirth) {
-      updates["dateOfBirth"] = patientData.dateOfBirth;
-    }
-    if (patientData.gender) {
-      updates["gender"] = patientData.gender;
-    }
-    if (patientData.address) {
-      updates["address"] = patientData.address;
-    }
-    if (patientData.phone) {
-      updates["phone"] = patientData.phone;
-    }
-    if (patientData.insuranceNumber) {
-      updates["insuranceNumber"] = patientData.insuranceNumber;
-    }
-    if (patientData.gdtSenderId) {
-      updates["gdtSenderId"] = patientData.gdtSenderId;
-    }
-    if (patientData.gdtReceiverId) {
-      updates["gdtReceiverId"] = patientData.gdtReceiverId;
-    }
-    if (patientData.gdtVersion) {
-      updates["gdtVersion"] = patientData.gdtVersion;
-    }
-
-    await ctx.db.patch(existingPatient._id, updates);
-
-    return {
-      isNewPatient: false,
-      patientId: patientData.patientId,
-      success: true,
-    };
   },
 });
+
+// =============================================================================
+// Database Queries
+// =============================================================================
 
 /** Get the most recently processed GDT files */
 export const getRecentProcessedFiles = query({
@@ -533,7 +500,7 @@ export const getRecentProcessedFiles = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 20; // Default for display
+    const limit = args.limit ?? 20;
     return await ctx.db.query("processedGdtFiles").order("desc").take(limit);
   },
 });
@@ -559,149 +526,5 @@ export const listPatients = query({
       )
       .order(order)
       .take(limit);
-  },
-});
-
-/** Upload and process a GDT file, creating or updating patient records as necessary */
-export const uploadGdtFile = mutation({
-  args: {
-    fileContent: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not logged in");
-    }
-
-    // First validate the GDT content
-    const validationResult = validateGdtContent(args.fileContent);
-
-    if (!validationResult.isValid) {
-      throw new Error(`Invalid GDT file: ${validationResult.error}`);
-    }
-
-    // Store the GDT file first to get its ID
-    const gdtFileId = await ctx.db.insert("processedGdtFiles", {
-      fileContent: args.fileContent,
-      fileName: "upload.gdt", // Default name for uploaded files
-      gdtParsedSuccessfully: true,
-      processedAt: BigInt(Date.now()),
-      sourceDirectoryName: "upload", // Default directory for uploaded files
-    });
-
-    // Parse and extract patient data
-    const gdtFields = parseGdtContent(args.fileContent);
-    const patientData = extractPatientData(gdtFields);
-
-    // Ensure required fields are present
-    if (!patientData.patientId) {
-      throw new Error("No patient ID found in GDT file");
-    }
-
-    // Validate any optional fields
-    if (patientData.gender && !isValidGender(patientData.gender)) {
-      throw new Error(
-        `Invalid gender value: ${patientData.gender}. Must be one of: M, W, D, X`,
-      );
-    }
-
-    if (
-      patientData.dateOfBirth &&
-      !isValiddateOfBirth(patientData.dateOfBirth)
-    ) {
-      throw new Error(
-        `Invalid birth date format: ${patientData.dateOfBirth}. Must be TTMMJJJJ`,
-      );
-    }
-
-    const now = BigInt(Date.now());
-
-    // Check if patient already exists
-    const existingPatient = await ctx.db
-      .query("patients")
-      .withIndex("by_patientId", (q) =>
-        q.eq("patientId", patientData.patientId),
-      )
-      .first();
-
-    if (existingPatient) {
-      // Update existing patient with type-safe updates
-      const updates: Record<string, unknown> = {
-        lastModified: now,
-      };
-
-      if (patientData.firstName) {
-        updates["firstName"] = patientData.firstName;
-      }
-      if (patientData.lastName) {
-        updates["lastName"] = patientData.lastName;
-      }
-      if (patientData.dateOfBirth) {
-        updates["dateOfBirth"] = patientData.dateOfBirth;
-      }
-      if (patientData.gender) {
-        updates["gender"] = patientData.gender;
-      }
-      if (patientData.address?.trim()) {
-        updates["address"] = patientData.address;
-      }
-      if (patientData.insuranceNumber?.trim()) {
-        updates["insuranceNumber"] = patientData.insuranceNumber;
-      }
-      if (patientData.phone?.trim()) {
-        updates["phone"] = patientData.phone;
-      }
-      if (patientData.gdtReceiverId?.trim()) {
-        updates["gdtReceiverId"] = patientData.gdtReceiverId;
-      }
-      if (patientData.gdtSenderId?.trim()) {
-        updates["gdtSenderId"] = patientData.gdtSenderId;
-      }
-      if (patientData.gdtVersion?.trim()) {
-        updates["gdtVersion"] = patientData.gdtVersion;
-      }
-
-      await ctx.db.patch(existingPatient._id, updates);
-
-      return {
-        isNewPatient: false,
-        patientId: patientData.patientId,
-        success: true,
-      };
-    }
-
-    // Create new patient with all available fields
-    await ctx.db.insert("patients", {
-      createdAt: now,
-      lastModified: now,
-      patientId: patientData.patientId,
-      sourceGdtFileId: gdtFileId,
-      ...(patientData.firstName && { firstName: patientData.firstName }),
-      ...(patientData.lastName && { lastName: patientData.lastName }),
-      ...(patientData.dateOfBirth && {
-        dateOfBirth: patientData.dateOfBirth,
-      }),
-      ...(patientData.gender && { gender: patientData.gender }),
-      ...(patientData.address?.trim() && { address: patientData.address }),
-      ...(patientData.insuranceNumber?.trim() && {
-        insuranceNumber: patientData.insuranceNumber,
-      }),
-      ...(patientData.phone?.trim() && { phone: patientData.phone }),
-      ...(patientData.gdtReceiverId?.trim() && {
-        gdtReceiverId: patientData.gdtReceiverId,
-      }),
-      ...(patientData.gdtSenderId?.trim() && {
-        gdtSenderId: patientData.gdtSenderId,
-      }),
-      ...(patientData.gdtVersion?.trim() && {
-        gdtVersion: patientData.gdtVersion,
-      }),
-    });
-
-    return {
-      isNewPatient: true,
-      patientId: patientData.patientId,
-      success: true,
-    };
   },
 });
