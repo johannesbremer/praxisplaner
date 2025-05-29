@@ -38,7 +38,7 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     *   Eingeleitet durch Objektattribut FK `8133` (Inhalt: `Kopfdaten_GDT`).
     *   Beginnt mit FK `8002`, Inhalt: `Obj_0033`.
     *   Enthält wichtige Metadaten zur Übertragung:
-        *   FK `0001` (Version der Datensatzbeschreibung): z.B. `3.5` (Muss-Feld innerhalb Obj_Kopfdaten_GDT)
+        *   FK `0001` (Version der Datensatzbeschreibung): z.B. `3.5` (Kann-Feld)
         *   FK `8315` (ID des Empfängers): z.B. `PRAX_AIS` (Kennung des AIS) (Kann-Feld)
         *   FK `8316` (ID des Senders): z.B. `EKG_GERAET_01` (Kennung des GDT-Geräts) (Kann-Feld)
         *   Weitere optionale Felder wie Zeitstempel der Erstellung (Obj_Timestamp via FK `8218` mit Inhalt `Timestamp_Erstellung_Datensatz`), Softwareversion etc.
@@ -128,7 +128,7 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
         *   FK `6229` (Dateityp/MIME-Type).
     *   Endet mit FK `8003`, Inhalt: `Obj_0010`.
 
-8.  **Satzende (Muss)**
+8.  **Satzende (Optionales Objekt)**
     *   FK `8001`, Inhalt: `6310`
     *   Beispiel: `01380016310` (Länge von "6310" (4) + 9 = 13)
 
