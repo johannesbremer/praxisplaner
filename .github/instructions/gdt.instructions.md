@@ -54,7 +54,7 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
         *   Beginnt mit FK `8002`, Inhalt: `Obj_0047`.
         *   FK `3101` (Name): z.B. `Mustermann`
         *   FK `3102` (Vorname): z.B. `Franz`
-        *   FK `3103` (Geburtsdatum): Format **`JJJJMMTT`** (basierend auf GDT-Beispielen, z.B. `19451001` aus der Beispieldatei und GDT 3.5 Datensatzbeschreibung S. 21).
+        *   FK `3103` (Geburtsdatum): Format **`TTMMJJJJ`** (basierend auf GDT-Beispielen, z.B. `01101945` aus der Beispieldatei und GDT 3.5 Datensatzbeschreibung S. 21).
         *   FK `3110` (Geschlecht): z.B. `M` (männlich), `W` (weiblich). (GDT 3.5 Datensatzbeschreibung S. 21 Beispiel `0103110M`). Moderne Systeme könnten auch `D` (divers), `X` (unbestimmt) verwenden.
         *   Weitere Felder wie Adresse, Titel etc.
         *   Endet mit FK `8003`, Inhalt: `Obj_0047`.
@@ -151,7 +151,7 @@ Das AIS empfängt die GDT 6310-Datei und parst sie.
 *   **Fehlertoleranz vs. strikte Validierung:** AIS-Systeme sollten robust genug sein, um kleinere Abweichungen vom Standard zu tolerieren, aber kritische Fehler sollten erkannt werden.
 *   **Herstellerspezifische FKs:** Wie im `Obj_Fließtext`-Beispiel (FKs `3564` ff. in der Beispieldatei) können Systeme proprietäre FKs verwenden. Ein allgemeiner Parser muss dies berücksichtigen oder konfigurierbar sein.
 *   **Dynamik der Feldkennung `8402`:** Die Liste der gültigen Kennungen für `8402` wird vom QMS gepflegt und ist dynamisch (GDT 3.5 Anhang, S. 8).
-*   **Datumsformate:** Während viele Datumsfelder im GDT `TTMMJJJJ` verwenden (z.B. FK `7278`), scheint FK `3103` (Geburtsdatum) im GDT-Kontext (basierend auf GDT-Beispielen) `JJJJMMTT` zu verwenden. Dies ist bei der Implementierung zu beachten.
+*   **Datumsformate:** Für alle Datumsfelder im GDT, insbesondere FK `3103` (Geburtsdatum) und FK `7278` (allgemeines Datum), ist das Format **`TTMMJJJJ`** zu verwenden. Frühere Annahmen oder Beispiele, die `JJJJMMTT` für FK `3103` nannten, sind hiermit korrigiert. Dies ist bei der Implementierung konsistent zu beachten.
 
 ## 6. Beispiel aus der Beispieldatei (gekürzt und kommentiert mit Korrekturen)
 
@@ -171,7 +171,7 @@ Das AIS empfängt die GDT 6310-Datei und parst sie.
 0178002Obj_0047                 //       Objektstart: Obj_Person
 0193101Mustermann               //         FK 3101: Name
 0143102Franz                    //         FK 3102: Vorname
-017310319451001                 //         FK 3103: Geburtsdatum "19451001" (JJJJMMTT)
+017310301101945                 //         FK 3103: Geburtsdatum "01101945" (TTMMJJJJ)
 0103110M                        //         FK 3110: Geschlecht "M"
 0178003Obj_0047                 //       Objektende
 0178003Obj_0045                 //   Objektende
@@ -188,7 +188,7 @@ Das AIS empfängt die GDT 6310-Datei und parst sie.
 0138421mmHg                     //     FK 8421: Einheit "mmHg"
 0268225Timestamp_Messung        //     Attribut: Timestamp_Messung
 0178002Obj_0054                 //       Objektstart: Obj_Timestamp
-017727819981023                 //         FK 7278: Datum "19981023" (TTMMJJJJ)
+017727823101998                 //         FK 7278: Datum "23101998" (TTMMJJJJ)
 0157279173510                 //         FK 7279: Uhrzeit "173510"
 0147273UTC+2                    //         FK 7273: Zeitzone
 0178003Obj_0054                 //       Objektende
@@ -206,4 +206,6 @@ Das AIS empfängt die GDT 6310-Datei und parst sie.
 0118421cm                       //     FK 8421: Einheit "cm"
 0178003Obj_0069                 //   Objektende
 01380016310                     // Satzende
+
+```
 
