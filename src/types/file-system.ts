@@ -77,3 +77,30 @@ export interface FileSystemWritableFileStream
   // Optional: seek(position: number): Promise<void>;
   // Optional: truncate(size: number): Promise<void>;
 }
+
+// --- FileSystemObserver API Types ---
+
+export interface FileSystemChangeRecord {
+  changedHandle: FileSystemHandle;
+  type: "appeared" | "disappeared" | "modified";
+  relativePathComponents: string[];
+}
+
+export interface FileSystemObserverOptions {
+  recursive?: boolean;
+}
+
+export type FileSystemObserverCallback = (
+  records: FileSystemChangeRecord[],
+  observer: FileSystemObserver,
+) => void | Promise<void>;
+
+export declare class FileSystemObserver {
+  constructor(callback: FileSystemObserverCallback);
+  observe(
+    handle: FileSystemDirectoryHandle,
+    options?: FileSystemObserverOptions,
+  ): Promise<void>;
+  unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
+  disconnect(): void;
+}

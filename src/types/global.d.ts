@@ -4,6 +4,8 @@
 import type {
   FileSystemDirectoryHandle as CustomFileSystemDirectoryHandle,
   FileSystemHandle as CustomFileSystemHandle, // For the 'startIn' option
+  FileSystemObserver as CustomFileSystemObserver,
+  FileSystemObserverCallback as CustomFileSystemObserverCallback,
 } from "./file-system";
 
 // Options for window.showDirectoryPicker()
@@ -26,6 +28,8 @@ declare global {
     showDirectoryPicker(
       options?: DirectoryPickerOptions,
     ): Promise<CustomFileSystemDirectoryHandle>;
+    // Declare FileSystemObserver as it's part of the File System Access API
+    FileSystemObserver: typeof CustomFileSystemObserver;
   }
 }
 

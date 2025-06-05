@@ -6,6 +6,7 @@ import type {
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
   BrowserPermissionState,
+  FileSystemObserver,
 } from "../types/file-system";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ function PraxisPlanerComponent() {
     useState<PermissionStatus>(null);
   const [gdtLog, setGdtLog] = useState<string[]>([]);
   const [gdtError, setGdtError] = useState<string | null>(null);
-  const gdtPollingIntervalRef = useRef<number | null>(null);
+  const gdtFileObserverRef = useRef<FileSystemObserver | null>(null);
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
 
   const saveGdtPreference = useMutation(api.gdtPreferences.save);
@@ -264,9 +265,9 @@ function PraxisPlanerComponent() {
   };
 
   const forgetGdtDirectory = useCallback(async () => {
-    if (gdtPollingIntervalRef.current) {
-      clearInterval(gdtPollingIntervalRef.current);
-      gdtPollingIntervalRef.current = null;
+    if (gdtFileObserverRef.current) {
+      gdtFileObserverRef.current.disconnect();
+      gdtFileObserverRef.current = null;
     }
     const name = gdtDirectoryHandle?.name;
     addGdtLog(
@@ -380,125 +381,138 @@ function PraxisPlanerComponent() {
 
   useEffect(() => {
     if (gdtDirectoryHandle && gdtDirPermission === "granted") {
-      addGdtLog(`🚀 Starting polling in "${gdtDirectoryHandle.name}".`);
-      const POLLING_INTERVAL = 5000;
-      const poll = async () => {
-        if (!gdtDirectoryHandle) {
-          if (gdtPollingIntervalRef.current) {
-            clearInterval(gdtPollingIntervalRef.current);
-          }
-          gdtPollingIntervalRef.current = null;
-          addGdtLog("🛑 Polling stopped: Directory handle lost.");
-          return;
-        }
-        let currentPermInPoll: BrowserPermissionState;
+      addGdtLog(`🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`);
+      
+      // Check if FileSystemObserver is supported
+      if (!window.FileSystemObserver) {
+        addGdtLog("❌ FileSystemObserver API not supported. Falling back to error state.");
+        setGdtDirPermission("error");
+        return;
+      }
+
+      let isObserverActive = true;
+
+      const setupObserver = async () => {
         try {
-          currentPermInPoll = await gdtDirectoryHandle.queryPermission({
-            mode: "readwrite",
+          // Create FileSystemObserver with callback
+          const observer = new window.FileSystemObserver(async (records, observer) => {
+            if (!isObserverActive || !gdtDirectoryHandle) {
+              return;
+            }
+
+            // First verify we still have permission
+            let currentPermission: BrowserPermissionState;
+            try {
+              currentPermission = await gdtDirectoryHandle.queryPermission({
+                mode: "readwrite",
+              });
+              
+              // Log permission changes
+              if (currentPermission !== gdtDirPermission) {
+                addGdtLog(
+                  `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission || "unknown"}' -> '${currentPermission}'.`,
+                );
+                setGdtDirPermission(currentPermission);
+                await logPermissionEventMutation({
+                  handleName: gdtDirectoryHandle.name,
+                  operationType: "query",
+                  accessMode: "readwrite",
+                  resultState: currentPermission,
+                  context: "FileSystemObserver permission check",
+                });
+              }
+
+              if (currentPermission !== "granted") {
+                addGdtLog(
+                  `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
+                );
+                observer.disconnect();
+                gdtFileObserverRef.current = null;
+                return;
+              }
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              addGdtLog(
+                `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
+              );
+              await logPermissionEventMutation({
+                handleName: gdtDirectoryHandle.name,
+                operationType: "query",
+                accessMode: "readwrite",
+                resultState: "error",
+                context: "FileSystemObserver permission query error",
+                errorMessage: errorMsg,
+              });
+              setGdtDirPermission("error");
+              observer.disconnect();
+              gdtFileObserverRef.current = null;
+              return;
+            }
+
+            // Process file change records
+            const gdtFiles = records.filter((record) => {
+              const fileName = record.relativePathComponents[record.relativePathComponents.length - 1];
+              return (
+                record.type === "appeared" &&
+                record.changedHandle.kind === "file" &&
+                fileName.toLowerCase().endsWith(".gdt")
+              );
+            });
+
+            if (gdtFiles.length > 0) {
+              addGdtLog(`📁 Detected ${gdtFiles.length} new GDT file(s) in "${gdtDirectoryHandle.name}".`);
+              
+              for (const record of gdtFiles) {
+                try {
+                  await parseAndProcessGdtFile(
+                    gdtDirectoryHandle,
+                    record.changedHandle as FileSystemFileHandle,
+                  );
+                } catch (err) {
+                  const errorMsg = err instanceof Error ? err.message : String(err);
+                  addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
+                }
+              }
+            }
           });
+
+          // Start observing the directory
+          await observer.observe(gdtDirectoryHandle, { recursive: false });
+          gdtFileObserverRef.current = observer;
+          addGdtLog(`👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`);
+          
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
-          addGdtLog(
-            `❌ Error querying perm in poll for "${gdtDirectoryHandle.name}": ${errorMsg}`,
-          );
-          await logPermissionEventMutation({
-            handleName: gdtDirectoryHandle.name,
-            operationType: "query",
-            accessMode: "readwrite",
-            resultState: "error",
-            context: "polling query error",
-            errorMessage: errorMsg,
-          });
+          addGdtLog(`❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`);
           setGdtDirPermission("error");
-          if (gdtPollingIntervalRef.current) {
-            clearInterval(gdtPollingIntervalRef.current);
-            gdtPollingIntervalRef.current = null;
-            addGdtLog("🛑 Polling stopped: permission query error.");
-          }
-          return;
-        }
-
-        // Check current gdtDirPermission from React state against the new poll result
-        const previousGdtDirPermission = gdtDirPermission; // Capture before potential update
-        if (currentPermInPoll !== previousGdtDirPermission) {
-          addGdtLog(
-            `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed in poll: '${previousGdtDirPermission || "unknown"}' -> '${currentPermInPoll}'. Logging.`,
-          );
-          setGdtDirPermission(currentPermInPoll); // Update UI state
-          await logPermissionEventMutation({
-            handleName: gdtDirectoryHandle.name,
-            operationType: "query",
-            accessMode: "readwrite",
-            resultState: currentPermInPoll,
-            context: "polling detected change",
-          });
-        }
-
-        // After potential state update, check the *new* gdtDirPermission
-        if (currentPermInPoll !== "granted") {
-          if (gdtPollingIntervalRef.current) {
-            clearInterval(gdtPollingIntervalRef.current);
-            gdtPollingIntervalRef.current = null;
-            addGdtLog(
-              `🛑 Polling stopped: permission no longer 'granted' (now '${currentPermInPoll}').`,
-            );
-          }
-          return;
-        }
-
-        try {
-          let foundGdtFileInPoll = false;
-          for await (const entry of gdtDirectoryHandle.values()) {
-            if (
-              entry.kind === "file" &&
-              entry.name.toLowerCase().endsWith(".gdt")
-            ) {
-              foundGdtFileInPoll = true;
-              await parseAndProcessGdtFile(
-                gdtDirectoryHandle,
-                entry as FileSystemFileHandle,
-              );
-            }
-          }
-          if (foundGdtFileInPoll) {
-            addGdtLog(`🔎 Poll completed for "${gdtDirectoryHandle.name}".`);
-          }
-        } catch (err) {
-          addGdtLog(
-            `❌ Error during GDT polling file iteration: ${err instanceof Error ? err.message : String(err)}.`,
-          );
         }
       };
-      poll();
-      gdtPollingIntervalRef.current = window.setInterval(
-        poll,
-        POLLING_INTERVAL,
-      );
+
+      setupObserver();
 
       return () => {
-        if (gdtPollingIntervalRef.current) {
-          clearInterval(gdtPollingIntervalRef.current);
-          gdtPollingIntervalRef.current = null;
+        isObserverActive = false;
+        if (gdtFileObserverRef.current) {
+          gdtFileObserverRef.current.disconnect();
+          gdtFileObserverRef.current = null;
           if (gdtDirectoryHandle) {
-            // Check gdtDirectoryHandle from closure for log message
             addGdtLog(
-              `🛑 GDT file polling stopped for "${gdtDirectoryHandle.name}" (component unmount or deps change).`,
+              `🛑 FileSystemObserver stopped for "${gdtDirectoryHandle.name}" (component unmount or deps change).`,
             );
           }
         }
       };
     } else {
-      if (gdtPollingIntervalRef.current) {
-        clearInterval(gdtPollingIntervalRef.current);
-        gdtPollingIntervalRef.current = null;
+      if (gdtFileObserverRef.current) {
+        gdtFileObserverRef.current.disconnect();
+        gdtFileObserverRef.current = null;
         if (gdtDirectoryHandle) {
-          // Check gdtDirectoryHandle from closure for log message
           addGdtLog(
-            `🛑 Polling not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
+            `🛑 FileSystemObserver not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
           );
         }
       }
-      return undefined; // Explicit return for the else path
+      return undefined;
     }
   }, [
     gdtDirectoryHandle,
