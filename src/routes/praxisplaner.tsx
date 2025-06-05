@@ -20,21 +20,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
 
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
-import { useQuery, useMutation } from "convex/react";
+import { useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
-import type { Doc } from "../../convex/_generated/dataModel";
+import {
+  parseGdtContent,
+  extractPatientData,
+} from "../../convex/gdt/processing";
 
 // Local type for PermissionState used in this component
 type PermissionStatus = BrowserPermissionState | "error" | null;
@@ -58,22 +51,11 @@ function PraxisPlanerComponent() {
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
   const isUserSelectingRef = useRef(false);
 
-  const saveGdtPreference = useMutation(api.gdtPreferences.save);
-  const removeGdtPreference = useMutation(api.gdtPreferences.remove);
-  const gdtPreference = useQuery(api.gdtPreferences.get);
+  // Note: GDT preferences, file processing, and permission logging
+  // will now be handled via IndexDB instead of Convex
 
-  const addProcessedFileMutation = useMutation(api.gdtFiles.addProcessedFile);
-  const recentProcessedFiles = useQuery(api.gdtFiles.getRecentProcessedFiles, {
-    limit: 50,
-  });
-
-  const logPermissionEventMutation = useMutation(
-    api.permissionLogs.logPermissionEvent,
-  );
-  const recentPermissionEvents = useQuery(
-    api.permissionLogs.getRecentPermissionEvents,
-    { limit: 30 },
-  );
+  // Convex mutation for saving patient data
+  const upsertPatientMutation = useConvexMutation(api.patients.upsertPatient);
 
   const addGdtLog = useCallback((message: string) => {
     setGdtLog((prev) => [
@@ -131,15 +113,9 @@ function PraxisPlanerComponent() {
             await handle.queryPermission(permissionOptions);
         }
 
-        await logPermissionEventMutation({
-          handleName: handle.name,
-          operationType,
-          accessMode: "readwrite",
-          resultState: resultingPermissionState,
-          context: loggingContext,
-        });
+        // Permission logging now handled via IndexDB instead of Convex
         addGdtLog(
-          `[Perm] Logged to Convex: ${handle.name}, ${operationType}, ${resultingPermissionState}, Ctx: ${loggingContext}`,
+          `[Perm] Permission ${operationType}: ${handle.name}, ${resultingPermissionState}, Ctx: ${loggingContext}`,
         );
 
         setGdtDirPermission(resultingPermissionState);
@@ -166,17 +142,8 @@ function PraxisPlanerComponent() {
           `[Perm] ❌ Error ${operationType} 'readwrite' for "${handle.name}": ${errorMessage}. (Ctx: ${loggingContext})`,
         );
 
-        await logPermissionEventMutation({
-          handleName: handle.name,
-          operationType,
-          accessMode: "readwrite",
-          resultState: "error",
-          context: loggingContext,
-          errorMessage: errorMessage,
-        });
-        addGdtLog(
-          `[Perm] Logged ERROR to Convex for "${handle.name}": ${errorMessage}`,
-        );
+        // Error logging now handled via IndexDB instead of Convex
+        addGdtLog(`[Perm] ERROR for "${handle.name}": ${errorMessage}`);
 
         setGdtDirPermission("error");
 
@@ -218,14 +185,12 @@ function PraxisPlanerComponent() {
         return false;
       }
     },
-    [addGdtLog, logPermissionEventMutation],
+    [addGdtLog],
   );
 
   useEffect(() => {
-    if (isFsaSupported === false || typeof gdtPreference === "undefined") {
-      if (isFsaSupported !== null && typeof gdtPreference !== "undefined") {
-        setIsLoadingHandle(false);
-      }
+    if (isFsaSupported === false) {
+      setIsLoadingHandle(false);
       return;
     }
     const loadPersistedHandle = async () => {
@@ -238,74 +203,57 @@ function PraxisPlanerComponent() {
         return;
       }
 
-      if (gdtPreference?.directoryName) {
-        addGdtLog(
-          `Found preference for "${gdtPreference.directoryName}" in Convex.`,
-        );
-        try {
-          const persistedHandle =
-            await idbGet<FileSystemDirectoryHandle>(IDB_GDT_HANDLE_KEY);
-          if (persistedHandle) {
-            addGdtLog(
-              `Loaded handle "${persistedHandle.name}" from IndexedDB.`,
-            );
+      // Try to load persisted handle directly from IndexDB
+      try {
+        const persistedHandle =
+          await idbGet<FileSystemDirectoryHandle>(IDB_GDT_HANDLE_KEY);
+        if (persistedHandle) {
+          addGdtLog(`Loaded handle "${persistedHandle.name}" from IndexedDB.`);
 
-            // Also try to load permission metadata
-            try {
-              const permissionMetadata = await idbGet<{
-                handleName: string;
-                permission: BrowserPermissionState | "error";
-                timestamp: number;
-                context: string;
-                errorMessage?: string;
-              }>(IDB_GDT_PERMISSION_KEY);
+          // Also try to load permission metadata
+          try {
+            const permissionMetadata = await idbGet<{
+              handleName: string;
+              permission: BrowserPermissionState | "error";
+              timestamp: number;
+              context: string;
+              errorMessage?: string;
+            }>(IDB_GDT_PERMISSION_KEY);
 
-              if (
-                permissionMetadata &&
-                permissionMetadata.handleName === persistedHandle.name
-              ) {
-                addGdtLog(
-                  `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
-                );
-                // Set the cached permission, but still verify it below
-                setGdtDirPermission(permissionMetadata.permission);
-              }
-            } catch (permError) {
-              console.warn(
-                "Error loading permission metadata from IndexedDB:",
-                permError,
+            if (
+              permissionMetadata &&
+              permissionMetadata.handleName === persistedHandle.name
+            ) {
+              addGdtLog(
+                `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
               );
+              // Set the cached permission, but still verify it below
+              setGdtDirPermission(permissionMetadata.permission);
             }
-
-            setGdtDirectoryHandle(persistedHandle);
-            await verifyAndSetPermission(persistedHandle, true, "initial load");
-          } else {
-            addGdtLog(
-              `No handle in IndexedDB for "${gdtPreference.directoryName}". Re-select needed.`,
+          } catch (permError) {
+            console.warn(
+              "Error loading permission metadata from IndexedDB:",
+              permError,
             );
-            await removeGdtPreference();
-            addGdtLog("Cleared stale preference from Convex.");
           }
-        } catch (error) {
-          console.error("Error loading handle from IndexedDB:", error);
-          addGdtLog(
-            `Error loading handle: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          await removeGdtPreference();
+
+          setGdtDirectoryHandle(persistedHandle);
+          await verifyAndSetPermission(persistedHandle, true, "initial load");
+        } else {
+          addGdtLog("No persisted handle found in IndexedDB.");
         }
+      } catch (error) {
+        console.error("Error loading handle from IndexedDB:", error);
+        addGdtLog(
+          `Error loading handle: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       setIsLoadingHandle(false);
     };
     if (isFsaSupported && window.isSecureContext) {
       loadPersistedHandle();
     }
-  }, [
-    isFsaSupported,
-    gdtPreference,
-    addGdtLog,
-    removeGdtPreference,
-    verifyAndSetPermission,
-  ]);
+  }, [isFsaSupported, addGdtLog, verifyAndSetPermission]);
 
   const selectGdtDirectory = async () => {
     if (!isFsaSupported || !window.isSecureContext) {
@@ -323,8 +271,8 @@ function PraxisPlanerComponent() {
 
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
-      await saveGdtPreference({ directoryName: handle.name });
-      addGdtLog(`Saved handle for "${handle.name}" to IDB & Convex pref.`);
+      // GDT preferences now stored in IndexDB instead of Convex
+      addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);
       setGdtDirectoryHandle(handle);
       await verifyAndSetPermission(handle, true, "user selected new directory");
     } catch (err: unknown) {
@@ -355,10 +303,10 @@ function PraxisPlanerComponent() {
     try {
       await idbDel(IDB_GDT_HANDLE_KEY);
       await idbDel(IDB_GDT_PERMISSION_KEY);
-      await removeGdtPreference();
+      // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(
         name
-          ? `Removed handle & permission metadata for "${name}" from IDB & Convex.`
+          ? `Removed handle & permission metadata for "${name}" from IndexedDB.`
           : "Cleared stored handle/preference.",
       );
     } catch (e) {
@@ -368,7 +316,7 @@ function PraxisPlanerComponent() {
     }
     setGdtDirectoryHandle(null);
     setGdtDirPermission(null);
-  }, [gdtDirectoryHandle, addGdtLog, removeGdtPreference]);
+  }, [gdtDirectoryHandle, addGdtLog]);
 
   const parseAndProcessGdtFile = useCallback(
     async (
@@ -389,32 +337,54 @@ function PraxisPlanerComponent() {
           `📜 Content (100 chars): ${fileContent.substring(0, 100)}...`,
         );
 
-        if (fileContent.includes("8000") && fileContent.includes("8100")) {
-          parsedSuccessfullyLocal = true;
-          addGdtLog(`✅ Parsed "${fileName}".`);
-        } else {
-          parsedSuccessfullyLocal = false; // Ensure it's explicitly false
-          procErrorMessage = `File "${fileName}" may not be valid GDT.`;
+        // Parse GDT content and extract patient data
+        try {
+          const gdtFields = parseGdtContent(fileContent);
+          const patientData = extractPatientData(gdtFields);
+
+          if (patientData.patientId > 0) {
+            // Save patient data to Convex
+            const result = await upsertPatientMutation({
+              ...patientData,
+              sourceGdtFileName: fileName,
+            });
+
+            parsedSuccessfullyLocal = true;
+            addGdtLog(
+              `✅ Parsed "${fileName}" - Patient ${patientData.patientId} ${result.isNewPatient ? "created" : "updated"}.`,
+            );
+          } else {
+            parsedSuccessfullyLocal = false;
+            procErrorMessage = `File "${fileName}" missing valid patient ID.`;
+            addGdtLog(`⚠️ ${procErrorMessage}`);
+          }
+        } catch (gdtError) {
+          parsedSuccessfullyLocal = false;
+          procErrorMessage = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procErrorMessage}`);
         }
 
-        const processedFilePayload: {
-          fileName: string;
-          fileContent: string;
-          sourceDirectoryName: string;
-          gdtParsedSuccessfully: boolean;
-          processingErrorMessage?: string;
-        } = {
+        // File processing metadata stored in IndexDB instead of Convex
+        const processedFilePayload = {
           fileName: fileName,
           fileContent: fileContent,
-          sourceDirectoryName: sourceDirName, // Use correct variable
-          gdtParsedSuccessfully: parsedSuccessfullyLocal, // Use correct variable
+          sourceDirectoryName: sourceDirName,
+          gdtParsedSuccessfully: parsedSuccessfullyLocal,
+          processingErrorMessage: procErrorMessage,
         };
-        if (procErrorMessage !== undefined) {
-          processedFilePayload.processingErrorMessage = procErrorMessage;
+
+        // Store file processing metadata in IndexedDB
+        try {
+          await idbSet(
+            `gdt_processed_${fileName}_${Date.now()}`,
+            processedFilePayload,
+          );
+          addGdtLog(`💾 Stored "${fileName}" processing data in IndexedDB.`);
+        } catch (idbError) {
+          addGdtLog(
+            `⚠️ Failed to store "${fileName}" metadata in IndexedDB: ${idbError instanceof Error ? idbError.message : String(idbError)}`,
+          );
         }
-        await addProcessedFileMutation(processedFilePayload);
-        addGdtLog(`💾 Stored "${fileName}" in Convex.`);
 
         await dirHandle.removeEntry(fileName);
         addGdtLog(`🗑️ Deleted "${fileName}".`);
@@ -422,21 +392,19 @@ function PraxisPlanerComponent() {
         const errorMsg = err instanceof Error ? err.message : String(err);
         addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
 
-        const errorFilePayload: {
-          fileName: string;
-          fileContent: string;
-          sourceDirectoryName: string;
-          gdtParsedSuccessfully: boolean;
-          processingErrorMessage: string; // Error message is always present here
-        } = {
-          fileName: fileName,
-          fileContent: fileContent || "Could not read content.",
-          sourceDirectoryName: sourceDirName, // Use correct variable
-          gdtParsedSuccessfully: false,
-          processingErrorMessage: `Processing error: ${errorMsg}`,
-        };
-        await addProcessedFileMutation(errorFilePayload);
-        addGdtLog(`💾 Stored error for "${fileName}" in Convex.`);
+        // Error logging now handled via IndexDB instead of Convex
+        try {
+          await idbSet(`gdt_error_${fileName}_${Date.now()}`, {
+            fileName,
+            error: errorMsg,
+            timestamp: Date.now(),
+          });
+          addGdtLog(`💾 Stored error for "${fileName}" in IndexedDB.`);
+        } catch (idbError) {
+          addGdtLog(
+            `⚠️ Failed to store error in IndexedDB: ${idbError instanceof Error ? idbError.message : String(idbError)}`,
+          );
+        }
 
         if (
           err instanceof DOMException &&
@@ -454,7 +422,7 @@ function PraxisPlanerComponent() {
         }
       }
     },
-    [addGdtLog, addProcessedFileMutation, verifyAndSetPermission],
+    [addGdtLog, verifyAndSetPermission, upsertPatientMutation],
   );
 
   useEffect(() => {
@@ -512,13 +480,7 @@ function PraxisPlanerComponent() {
                     );
                   }
 
-                  await logPermissionEventMutation({
-                    handleName: gdtDirectoryHandle.name,
-                    operationType: "query",
-                    accessMode: "readwrite",
-                    resultState: currentPermission,
-                    context: "FileSystemObserver permission check",
-                  });
+                  // Permission logging now handled via IndexDB instead of Convex
                 }
 
                 if (currentPermission !== "granted") {
@@ -535,14 +497,7 @@ function PraxisPlanerComponent() {
                 addGdtLog(
                   `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
                 );
-                await logPermissionEventMutation({
-                  handleName: gdtDirectoryHandle.name,
-                  operationType: "query",
-                  accessMode: "readwrite",
-                  resultState: "error",
-                  context: "FileSystemObserver permission query error",
-                  errorMessage: errorMsg,
-                });
+                // Error logging now handled via IndexDB instead of Convex
                 setGdtDirPermission("error");
 
                 // Store error state in IndexedDB
@@ -642,19 +597,9 @@ function PraxisPlanerComponent() {
       }
       return undefined;
     }
-  }, [
-    gdtDirectoryHandle,
-    gdtDirPermission,
-    addGdtLog,
-    parseAndProcessGdtFile,
-    logPermissionEventMutation,
-  ]);
+  }, [gdtDirectoryHandle, gdtDirPermission, addGdtLog, parseAndProcessGdtFile]);
 
-  if (
-    isLoadingHandle ||
-    isFsaSupported === null ||
-    (isFsaSupported && typeof gdtPreference === "undefined")
-  ) {
+  if (isLoadingHandle || isFsaSupported === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <p className="text-lg">Initializing...</p>
@@ -784,176 +729,7 @@ function PraxisPlanerComponent() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">💾 Processed Files</CardTitle>
-                <CardDescription>Persisted GDT records.</CardDescription>
-                <Separator className="my-2" />
-              </CardHeader>
-              <CardContent>
-                {recentProcessedFiles === undefined && (
-                  <p className="text-muted-foreground">
-                    Loading processed files...
-                  </p>
-                )}
-                {recentProcessedFiles?.length === 0 && (
-                  <p className="text-muted-foreground">
-                    No files processed yet.
-                  </p>
-                )}
-                {recentProcessedFiles && recentProcessedFiles.length > 0 && (
-                  <ScrollArea className="h-80">
-                    <div className="p-1 space-y-3">
-                      {recentProcessedFiles.map(
-                        (file: Doc<"processedGdtFiles">) => (
-                          <div
-                            key={file._id}
-                            className="p-3 border rounded-md bg-muted/50 text-sm"
-                          >
-                            <div className="flex justify-between items-start">
-                              <h4 className="font-semibold">{file.fileName}</h4>
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button variant="outline" size="sm">
-                                    View
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[60vw] max-h-[80vh] bg-card p-6">
-                                  <DialogHeader>
-                                    <DialogTitle>{file.fileName}</DialogTitle>
-                                    <DialogDescription>
-                                      Processed:{" "}
-                                      {new Date(
-                                        Number(file.processedAt),
-                                      ).toLocaleString()}{" "}
-                                      from '{file.sourceDirectoryName}'
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  <ScrollArea className="max-h-[60vh] mt-4 border rounded-md">
-                                    <pre className="p-4 text-xs whitespace-pre-wrap break-all">
-                                      {file.fileContent}
-                                    </pre>
-                                  </ScrollArea>
-                                  <DialogFooter>
-                                    <DialogClose asChild>
-                                      <Button type="button" variant="secondary">
-                                        Close
-                                      </Button>
-                                    </DialogClose>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              From: {file.sourceDirectoryName} @{" "}
-                              {new Date(
-                                Number(file.processedAt),
-                              ).toLocaleTimeString()}
-                            </p>
-                            {file.gdtParsedSuccessfully ? (
-                              <p className="mt-1 text-green-600 dark:text-green-400">
-                                Status: Successfully Parsed
-                              </p>
-                            ) : (
-                              <p className="mt-1 text-red-600 dark:text-red-400">
-                                Status: Processing Issue
-                                {file.processingErrorMessage && (
-                                  <span className="block text-xs text-muted-foreground italic">
-                                    Details: {file.processingErrorMessage}
-                                  </span>
-                                )}
-                              </p>
-                            )}
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">
-                  🛡️ Permission Event Log
-                </CardTitle>
-                <CardDescription>Historical permission checks.</CardDescription>
-                <Separator className="my-2" />
-              </CardHeader>
-              <CardContent>
-                {recentPermissionEvents === undefined && (
-                  <p className="text-muted-foreground">
-                    Loading permission events...
-                  </p>
-                )}
-                {recentPermissionEvents?.length === 0 && (
-                  <p className="text-muted-foreground">
-                    No permission events logged yet.
-                  </p>
-                )}
-                {recentPermissionEvents &&
-                  recentPermissionEvents.length > 0 && (
-                    <ScrollArea className="h-72">
-                      <div className="p-1 space-y-2 text-xs">
-                        {recentPermissionEvents.map(
-                          (event: Doc<"permissionEvents">) => (
-                            <div
-                              key={event._id}
-                              className={`p-2 border rounded-md ${event.resultState === "error" ? "border-red-500/50 bg-red-500/5" : event.resultState === "denied" ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}
-                            >
-                              <div className="font-mono text-muted-foreground">
-                                {new Date(
-                                  Number(event.timestamp),
-                                ).toLocaleString()}
-                              </div>
-                              <div>
-                                Handle:{" "}
-                                <span className="font-semibold">
-                                  {event.handleName}
-                                </span>
-                              </div>
-                              <div>
-                                Action:{" "}
-                                <span className="font-medium">
-                                  {event.operationType}
-                                </span>{" "}
-                                ({event.accessMode}) for context:{" "}
-                                <span className="italic">
-                                  "{event.context}"
-                                </span>
-                              </div>
-                              <div>
-                                Result:{" "}
-                                <span
-                                  className={`font-bold ${
-                                    event.resultState === "granted"
-                                      ? "text-green-600 dark:text-green-400"
-                                      : event.resultState === "denied"
-                                        ? "text-amber-600 dark:text-amber-400"
-                                        : event.resultState === "prompt"
-                                          ? "text-blue-600 dark:text-blue-400"
-                                          : event.resultState === "error"
-                                            ? "text-red-600 dark:text-red-400"
-                                            : ""
-                                  }`}
-                                >
-                                  {event.resultState.toUpperCase()}
-                                </span>
-                              </div>
-                              {event.errorMessage && (
-                                <div className="text-red-700 dark:text-red-400">
-                                  Error: {event.errorMessage}
-                                </div>
-                              )}
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    </ScrollArea>
-                  )}
-              </CardContent>
-            </Card>
+            {/* Note: Processed files and permission events are now handled via IndexDB */}
           </>
         )}
       </div>
