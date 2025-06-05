@@ -44,6 +44,7 @@ export const Route = createFileRoute("/praxisplaner")({
 });
 
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
+const IDB_GDT_PERMISSION_KEY = "gdtDirectoryPermission";
 
 function PraxisPlanerComponent() {
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
@@ -141,6 +142,18 @@ function PraxisPlanerComponent() {
         );
 
         setGdtDirPermission(resultingPermissionState);
+        
+        // Store permission metadata in IndexedDB to avoid split brain issues
+        try {
+          await idbSet(IDB_GDT_PERMISSION_KEY, {
+            handleName: handle.name,
+            permission: resultingPermissionState,
+            timestamp: Date.now(),
+            context: loggingContext,
+          });
+        } catch (idbError) {
+          console.warn("Failed to store permission metadata in IndexedDB:", idbError);
+        }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -162,6 +175,20 @@ function PraxisPlanerComponent() {
         );
 
         setGdtDirPermission("error");
+        
+        // Store error state in IndexedDB
+        try {
+          await idbSet(IDB_GDT_PERMISSION_KEY, {
+            handleName: handle.name,
+            permission: "error",
+            timestamp: Date.now(),
+            context: loggingContext,
+            errorMessage: errorMessage,
+          });
+        } catch (idbError) {
+          console.warn("Failed to store error permission metadata in IndexedDB:", idbError);
+        }
+        
         return false;
       }
 
@@ -206,6 +233,28 @@ function PraxisPlanerComponent() {
             addGdtLog(
               `Loaded handle "${persistedHandle.name}" from IndexedDB.`,
             );
+            
+            // Also try to load permission metadata
+            try {
+              const permissionMetadata = await idbGet<{
+                handleName: string;
+                permission: BrowserPermissionState | "error";
+                timestamp: number;
+                context: string;
+                errorMessage?: string;
+              }>(IDB_GDT_PERMISSION_KEY);
+              
+              if (permissionMetadata && permissionMetadata.handleName === persistedHandle.name) {
+                addGdtLog(
+                  `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
+                );
+                // Set the cached permission, but still verify it below
+                setGdtDirPermission(permissionMetadata.permission);
+              }
+            } catch (permError) {
+              console.warn("Error loading permission metadata from IndexedDB:", permError);
+            }
+            
             setGdtDirectoryHandle(persistedHandle);
             await verifyAndSetPermission(persistedHandle, true, "initial load");
           } else {
@@ -277,10 +326,11 @@ function PraxisPlanerComponent() {
     );
     try {
       await idbDel(IDB_GDT_HANDLE_KEY);
+      await idbDel(IDB_GDT_PERMISSION_KEY);
       await removeGdtPreference();
       addGdtLog(
         name
-          ? `Removed handle for "${name}" from IDB & Convex.`
+          ? `Removed handle & permission metadata for "${name}" from IDB & Convex.`
           : "Cleared stored handle/preference.",
       );
     } catch (e) {
@@ -413,6 +463,19 @@ function PraxisPlanerComponent() {
                   `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission || "unknown"}' -> '${currentPermission}'.`,
                 );
                 setGdtDirPermission(currentPermission);
+                
+                // Store updated permission in IndexedDB
+                try {
+                  await idbSet(IDB_GDT_PERMISSION_KEY, {
+                    handleName: gdtDirectoryHandle.name,
+                    permission: currentPermission,
+                    timestamp: Date.now(),
+                    context: "FileSystemObserver permission check",
+                  });
+                } catch (idbError) {
+                  console.warn("Failed to store permission change in IndexedDB:", idbError);
+                }
+                
                 await logPermissionEventMutation({
                   handleName: gdtDirectoryHandle.name,
                   operationType: "query",
@@ -444,6 +507,20 @@ function PraxisPlanerComponent() {
                 errorMessage: errorMsg,
               });
               setGdtDirPermission("error");
+              
+              // Store error state in IndexedDB
+              try {
+                await idbSet(IDB_GDT_PERMISSION_KEY, {
+                  handleName: gdtDirectoryHandle.name,
+                  permission: "error",
+                  timestamp: Date.now(),
+                  context: "FileSystemObserver permission query error",
+                  errorMessage: errorMsg,
+                });
+              } catch (idbError) {
+                console.warn("Failed to store error state in IndexedDB:", idbError);
+              }
+              
               observer.disconnect();
               gdtFileObserverRef.current = null;
               return;
