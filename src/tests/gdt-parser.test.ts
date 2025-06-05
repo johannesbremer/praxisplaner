@@ -557,9 +557,9 @@ toolshort`;
       expect(fields.length).toBeGreaterThan(0);
 
       const patientData = extractPatientData(fields);
-      expect(patientData["patientId"]).toBe(12345);
-      expect(patientData["firstName"]).toBe("Franz");
-      expect(patientData["lastName"]).toBe("Mustermann");
+      expect(patientData.patientId).toBe(12345);
+      expect(patientData.firstName).toBe("Franz");
+      expect(patientData.lastName).toBe("Mustermann");
     });
 
     test("should handle minimal valid GDT file", () => {
@@ -573,7 +573,7 @@ toolshort`;
 
       const fields = parseGdtContent(minimalGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData["patientId"]).toBe(12345);
+      expect(patientData.patientId).toBe(12345);
     });
 
     test("should handle GDT with alternative version field", () => {
@@ -636,8 +636,8 @@ toolshort`;
 
       const fields = parseGdtContent(specialCharsGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData["firstName"]).toBe("Müller-Weiß");
-      expect(patientData["lastName"]).toBe("Björn-Ärger");
+      expect(patientData.firstName).toBe("Müller-Weiß");
+      expect(patientData.lastName).toBe("Björn-Ärger");
     });
 
     test("should handle GDT file with mixed valid and invalid lines", () => {
@@ -665,7 +665,7 @@ toolshort`;
 
       const fields = parseGdtContent(duplicateIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData["patientId"]).toBe(67890); // Should use the last occurrence
+      expect(patientData.patientId).toBe(67890); // Should use the last occurrence
     });
 
     test("should handle GDT file with zero patient ID", () => {
@@ -685,7 +685,7 @@ toolshort`;
 
       const fields = parseGdtContent(zeroIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData["patientId"]).toBe(0);
+      expect(patientData.patientId).toBe(0);
     });
 
     test("should handle GDT file with negative patient ID", () => {
@@ -697,7 +697,7 @@ toolshort`;
 
       const fields = parseGdtContent(negativeIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData["patientId"]).toBe(-123);
+      expect(patientData.patientId).toBe(-123);
     });
 
     test("should handle GDT file with only invalid lines after SATZ_START", () => {
