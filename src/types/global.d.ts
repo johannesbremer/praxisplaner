@@ -2,9 +2,9 @@
 
 // Import only the specific handle types needed from your custom definitions
 import type {
-  FileSystemDirectoryHandle as CustomFileSystemDirectoryHandle,
-  FileSystemHandle as CustomFileSystemHandle, // For the 'startIn' option
-  FileSystemObserver as CustomFileSystemObserver,
+  FileSystemDirectoryHandle as FSDirectoryHandle,
+  FileSystemHandle as FSHandle,
+  FileSystemObserver as FSObserver,
 } from "./file-system";
 
 // Options for window.showDirectoryPicker()
@@ -18,7 +18,7 @@ export interface DirectoryPickerOptions {
     | "music"
     | "pictures"
     | "videos"
-    | CustomFileSystemHandle;
+    | FSHandle;
 }
 
 declare global {
@@ -26,9 +26,9 @@ declare global {
     // Declare showDirectoryPicker as it's part of the File System Access API
     showDirectoryPicker(
       options?: DirectoryPickerOptions,
-    ): Promise<CustomFileSystemDirectoryHandle>;
+    ): Promise<FSDirectoryHandle>;
     // Declare FileSystemObserver as it's part of the File System Access API
-    FileSystemObserver: typeof CustomFileSystemObserver;
+    FileSystemObserver: typeof FSObserver;
   }
 }
 
