@@ -231,7 +231,9 @@ function PraxisPlanerComponent() {
     const loadPersistedHandle = async () => {
       // Skip if user is actively selecting a directory to avoid race condition
       if (isUserSelectingRef.current) {
-        addGdtLog("Skipping persistence recovery - user selection in progress.");
+        addGdtLog(
+          "Skipping persistence recovery - user selection in progress.",
+        );
         setIsLoadingHandle(false);
         return;
       }
@@ -318,7 +320,7 @@ function PraxisPlanerComponent() {
     try {
       // Set flag to prevent race condition with loadPersistedHandle
       isUserSelectingRef.current = true;
-      
+
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       await saveGdtPreference({ directoryName: handle.name });
