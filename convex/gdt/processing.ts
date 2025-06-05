@@ -1,4 +1,3 @@
-import type { Doc } from "../_generated/dataModel";
 import type { GdtField, PatientInsertFields } from "./types";
 
 import { GDT_FIELD_IDS } from "./types";
@@ -34,19 +33,17 @@ export function parseGdtContent(content: string): GdtField[] {
   return fields;
 }
 
-/** Extracts and transforms GDT fields into Convex document format. */
-type ProcessedFileInput = Omit<
-  Doc<"processedGdtFiles">,
-  "_creationTime" | "_id"
->;
-
+/** Extracts and transforms GDT fields into patient data format. */
 export function extractPatientData(
   fields: GdtField[],
-): Omit<PatientInsertFields, "createdAt" | "lastModified" | "sourceGdtFileId"> {
+): Omit<
+  PatientInsertFields,
+  "createdAt" | "lastModified" | "sourceGdtFileName"
+> {
   // Initialize with required fields
   const patientData: Omit<
     PatientInsertFields,
-    "createdAt" | "lastModified" | "sourceGdtFileId"
+    "createdAt" | "lastModified" | "sourceGdtFileName"
   > = {
     patientId: 0,
   };
@@ -77,63 +74,11 @@ export function extractPatientData(
         }
         break;
       }
-      case GDT_FIELD_IDS.RECEIVER_ID:
-        patientData.gdtReceiverId = field.content;
-        break;
-      case GDT_FIELD_IDS.SENDER_ID:
-        patientData.gdtSenderId = field.content;
-        break;
       case GDT_FIELD_IDS.STREET:
         patientData.street = field.content;
-        break;
-      case GDT_FIELD_IDS.VERSION:
-      case GDT_FIELD_IDS.VERSION_ALT:
-        patientData.gdtVersion = field.content;
         break;
     }
   }
 
   return patientData;
-}
-
-/** Creates a new processed GDT file record from parsed fields. */
-export function createProcessedFileRecord(
-  args: {
-    fileContent: string;
-    fileName: string;
-    gdtParsedSuccessfully: boolean;
-    processingErrorMessage?: string;
-    sourceDirectoryName: string;
-  },
-  patientData?: Omit<
-    PatientInsertFields,
-    "createdAt" | "lastModified" | "sourceGdtFileId"
-  >,
-): ProcessedFileInput {
-  const baseRecord: Partial<ProcessedFileInput> = {
-    fileContent: args.fileContent,
-    fileName: args.fileName,
-    gdtParsedSuccessfully: args.gdtParsedSuccessfully,
-    processedAt: BigInt(Date.now()),
-    sourceDirectoryName: args.sourceDirectoryName,
-  };
-
-  if (args.processingErrorMessage) {
-    baseRecord.processingErrorMessage = args.processingErrorMessage;
-  }
-
-  if (patientData) {
-    if (patientData.gdtVersion) {
-      baseRecord.gdtVersion = patientData.gdtVersion;
-    }
-    if (patientData.dateOfBirth) {
-      baseRecord.examDate = patientData.dateOfBirth;
-    }
-    if (patientData.gdtSenderId) {
-      baseRecord.testReference = patientData.gdtSenderId;
-    }
-  }
-
-  // We know this satisfies the type due to the schema definition
-  return baseRecord as ProcessedFileInput;
 }
