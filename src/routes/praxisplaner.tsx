@@ -142,7 +142,7 @@ function PraxisPlanerComponent() {
         );
 
         setGdtDirPermission(resultingPermissionState);
-        
+
         // Store permission metadata in IndexedDB to avoid split brain issues
         try {
           await idbSet(IDB_GDT_PERMISSION_KEY, {
@@ -152,7 +152,10 @@ function PraxisPlanerComponent() {
             context: loggingContext,
           });
         } catch (idbError) {
-          console.warn("Failed to store permission metadata in IndexedDB:", idbError);
+          console.warn(
+            "Failed to store permission metadata in IndexedDB:",
+            idbError,
+          );
         }
       } catch (error) {
         const errorMessage =
@@ -175,7 +178,7 @@ function PraxisPlanerComponent() {
         );
 
         setGdtDirPermission("error");
-        
+
         // Store error state in IndexedDB
         try {
           await idbSet(IDB_GDT_PERMISSION_KEY, {
@@ -186,9 +189,12 @@ function PraxisPlanerComponent() {
             errorMessage: errorMessage,
           });
         } catch (idbError) {
-          console.warn("Failed to store error permission metadata in IndexedDB:", idbError);
+          console.warn(
+            "Failed to store error permission metadata in IndexedDB:",
+            idbError,
+          );
         }
-        
+
         return false;
       }
 
@@ -233,7 +239,7 @@ function PraxisPlanerComponent() {
             addGdtLog(
               `Loaded handle "${persistedHandle.name}" from IndexedDB.`,
             );
-            
+
             // Also try to load permission metadata
             try {
               const permissionMetadata = await idbGet<{
@@ -243,8 +249,11 @@ function PraxisPlanerComponent() {
                 context: string;
                 errorMessage?: string;
               }>(IDB_GDT_PERMISSION_KEY);
-              
-              if (permissionMetadata && permissionMetadata.handleName === persistedHandle.name) {
+
+              if (
+                permissionMetadata &&
+                permissionMetadata.handleName === persistedHandle.name
+              ) {
                 addGdtLog(
                   `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
                 );
@@ -252,9 +261,12 @@ function PraxisPlanerComponent() {
                 setGdtDirPermission(permissionMetadata.permission);
               }
             } catch (permError) {
-              console.warn("Error loading permission metadata from IndexedDB:", permError);
+              console.warn(
+                "Error loading permission metadata from IndexedDB:",
+                permError,
+              );
             }
-            
+
             setGdtDirectoryHandle(persistedHandle);
             await verifyAndSetPermission(persistedHandle, true, "initial load");
           } else {
@@ -431,11 +443,15 @@ function PraxisPlanerComponent() {
 
   useEffect(() => {
     if (gdtDirectoryHandle && gdtDirPermission === "granted") {
-      addGdtLog(`🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`);
-      
+      addGdtLog(
+        `🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`,
+      );
+
       // Check if FileSystemObserver is supported
       if (!window.FileSystemObserver) {
-        addGdtLog("❌ FileSystemObserver API not supported. Falling back to error state.");
+        addGdtLog(
+          "❌ FileSystemObserver API not supported. Falling back to error state.",
+        );
         setGdtDirPermission("error");
         return;
       }
@@ -445,122 +461,141 @@ function PraxisPlanerComponent() {
       const setupObserver = async () => {
         try {
           // Create FileSystemObserver with callback
-          const observer = new window.FileSystemObserver(async (records, observer) => {
-            if (!isObserverActive || !gdtDirectoryHandle) {
-              return;
-            }
+          const observer = new window.FileSystemObserver(
+            async (records, observer) => {
+              if (!isObserverActive || !gdtDirectoryHandle) {
+                return;
+              }
 
-            // First verify we still have permission
-            let currentPermission: BrowserPermissionState;
-            try {
-              currentPermission = await gdtDirectoryHandle.queryPermission({
-                mode: "readwrite",
-              });
-              
-              // Log permission changes
-              if (currentPermission !== gdtDirPermission) {
-                addGdtLog(
-                  `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission || "unknown"}' -> '${currentPermission}'.`,
-                );
-                setGdtDirPermission(currentPermission);
-                
-                // Store updated permission in IndexedDB
-                try {
-                  await idbSet(IDB_GDT_PERMISSION_KEY, {
+              // First verify we still have permission
+              let currentPermission: BrowserPermissionState;
+              try {
+                currentPermission = await gdtDirectoryHandle.queryPermission({
+                  mode: "readwrite",
+                });
+
+                // Log permission changes
+                if (currentPermission !== gdtDirPermission) {
+                  addGdtLog(
+                    `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission || "unknown"}' -> '${currentPermission}'.`,
+                  );
+                  setGdtDirPermission(currentPermission);
+
+                  // Store updated permission in IndexedDB
+                  try {
+                    await idbSet(IDB_GDT_PERMISSION_KEY, {
+                      handleName: gdtDirectoryHandle.name,
+                      permission: currentPermission,
+                      timestamp: Date.now(),
+                      context: "FileSystemObserver permission check",
+                    });
+                  } catch (idbError) {
+                    console.warn(
+                      "Failed to store permission change in IndexedDB:",
+                      idbError,
+                    );
+                  }
+
+                  await logPermissionEventMutation({
                     handleName: gdtDirectoryHandle.name,
-                    permission: currentPermission,
-                    timestamp: Date.now(),
+                    operationType: "query",
+                    accessMode: "readwrite",
+                    resultState: currentPermission,
                     context: "FileSystemObserver permission check",
                   });
-                } catch (idbError) {
-                  console.warn("Failed to store permission change in IndexedDB:", idbError);
                 }
-                
+
+                if (currentPermission !== "granted") {
+                  addGdtLog(
+                    `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
+                  );
+                  observer.disconnect();
+                  gdtFileObserverRef.current = null;
+                  return;
+                }
+              } catch (err) {
+                const errorMsg =
+                  err instanceof Error ? err.message : String(err);
+                addGdtLog(
+                  `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
+                );
                 await logPermissionEventMutation({
                   handleName: gdtDirectoryHandle.name,
                   operationType: "query",
                   accessMode: "readwrite",
-                  resultState: currentPermission,
-                  context: "FileSystemObserver permission check",
+                  resultState: "error",
+                  context: "FileSystemObserver permission query error",
+                  errorMessage: errorMsg,
                 });
-              }
+                setGdtDirPermission("error");
 
-              if (currentPermission !== "granted") {
-                addGdtLog(
-                  `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
-                );
+                // Store error state in IndexedDB
+                try {
+                  await idbSet(IDB_GDT_PERMISSION_KEY, {
+                    handleName: gdtDirectoryHandle.name,
+                    permission: "error",
+                    timestamp: Date.now(),
+                    context: "FileSystemObserver permission query error",
+                    errorMessage: errorMsg,
+                  });
+                } catch (idbError) {
+                  console.warn(
+                    "Failed to store error state in IndexedDB:",
+                    idbError,
+                  );
+                }
+
                 observer.disconnect();
                 gdtFileObserverRef.current = null;
                 return;
               }
-            } catch (err) {
-              const errorMsg = err instanceof Error ? err.message : String(err);
-              addGdtLog(
-                `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
-              );
-              await logPermissionEventMutation({
-                handleName: gdtDirectoryHandle.name,
-                operationType: "query",
-                accessMode: "readwrite",
-                resultState: "error",
-                context: "FileSystemObserver permission query error",
-                errorMessage: errorMsg,
+
+              // Process file change records
+              const gdtFiles = records.filter((record) => {
+                const fileName =
+                  record.relativePathComponents[
+                    record.relativePathComponents.length - 1
+                  ];
+                return (
+                  record.type === "appeared" &&
+                  record.changedHandle.kind === "file" &&
+                  fileName &&
+                  fileName.toLowerCase().endsWith(".gdt")
+                );
               });
-              setGdtDirPermission("error");
-              
-              // Store error state in IndexedDB
-              try {
-                await idbSet(IDB_GDT_PERMISSION_KEY, {
-                  handleName: gdtDirectoryHandle.name,
-                  permission: "error",
-                  timestamp: Date.now(),
-                  context: "FileSystemObserver permission query error",
-                  errorMessage: errorMsg,
-                });
-              } catch (idbError) {
-                console.warn("Failed to store error state in IndexedDB:", idbError);
-              }
-              
-              observer.disconnect();
-              gdtFileObserverRef.current = null;
-              return;
-            }
 
-            // Process file change records
-            const gdtFiles = records.filter((record) => {
-              const fileName = record.relativePathComponents[record.relativePathComponents.length - 1];
-              return (
-                record.type === "appeared" &&
-                record.changedHandle.kind === "file" &&
-                fileName.toLowerCase().endsWith(".gdt")
-              );
-            });
+              if (gdtFiles.length > 0) {
+                addGdtLog(
+                  `📁 Detected ${gdtFiles.length} new GDT file(s) in "${gdtDirectoryHandle.name}".`,
+                );
 
-            if (gdtFiles.length > 0) {
-              addGdtLog(`📁 Detected ${gdtFiles.length} new GDT file(s) in "${gdtDirectoryHandle.name}".`);
-              
-              for (const record of gdtFiles) {
-                try {
-                  await parseAndProcessGdtFile(
-                    gdtDirectoryHandle,
-                    record.changedHandle as FileSystemFileHandle,
-                  );
-                } catch (err) {
-                  const errorMsg = err instanceof Error ? err.message : String(err);
-                  addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
+                for (const record of gdtFiles) {
+                  try {
+                    await parseAndProcessGdtFile(
+                      gdtDirectoryHandle,
+                      record.changedHandle as FileSystemFileHandle,
+                    );
+                  } catch (err) {
+                    const errorMsg =
+                      err instanceof Error ? err.message : String(err);
+                    addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
+                  }
                 }
               }
-            }
-          });
+            },
+          );
 
           // Start observing the directory
           await observer.observe(gdtDirectoryHandle, { recursive: false });
           gdtFileObserverRef.current = observer;
-          addGdtLog(`👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`);
-          
+          addGdtLog(
+            `👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`,
+          );
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
-          addGdtLog(`❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`);
+          addGdtLog(
+            `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
+          );
           setGdtDirPermission("error");
         }
       };

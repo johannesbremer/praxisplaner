@@ -5,7 +5,6 @@ import type {
   FileSystemDirectoryHandle as CustomFileSystemDirectoryHandle,
   FileSystemHandle as CustomFileSystemHandle, // For the 'startIn' option
   FileSystemObserver as CustomFileSystemObserver,
-  FileSystemObserverCallback as CustomFileSystemObserverCallback,
 } from "./file-system";
 
 // Options for window.showDirectoryPicker()

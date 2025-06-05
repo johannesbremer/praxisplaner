@@ -82,25 +82,25 @@ export interface FileSystemWritableFileStream
 
 export interface FileSystemChangeRecord {
   changedHandle: FileSystemHandle;
-  type: "appeared" | "disappeared" | "modified";
   relativePathComponents: string[];
-}
-
-export interface FileSystemObserverOptions {
-  recursive?: boolean;
+  type: "appeared" | "disappeared" | "modified";
 }
 
 export type FileSystemObserverCallback = (
   records: FileSystemChangeRecord[],
   observer: FileSystemObserver,
-) => void | Promise<void>;
+) => Promise<void> | void;
+
+export interface FileSystemObserverOptions {
+  recursive?: boolean;
+}
 
 export declare class FileSystemObserver {
   constructor(callback: FileSystemObserverCallback);
+  disconnect(): void;
   observe(
     handle: FileSystemDirectoryHandle,
     options?: FileSystemObserverOptions,
   ): Promise<void>;
   unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
-  disconnect(): void;
 }
