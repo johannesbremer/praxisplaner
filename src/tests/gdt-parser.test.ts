@@ -371,8 +371,9 @@ describe("GDT Parser", () => {
 
       // Check that SATZ_END is automatically added if missing
       const lastField = result[result.length - 1];
-      expect(lastField.fieldId).toBe(GDT_FIELD_IDS.SATZ_END);
-      expect(lastField.content).toBe("6310");
+      expect(lastField).toBeDefined();
+      expect(lastField?.fieldId).toBe(GDT_FIELD_IDS.SATZ_END);
+      expect(lastField?.content).toBe("6310");
     });
 
     test("should handle empty content", () => {
@@ -421,9 +422,9 @@ toolshort`;
       const result = parseGdtContent(content);
 
       expect(result.length).toBe(3); // 2 valid + auto-added SATZ_END
-      expect(result[0].fieldId).toBe("8000");
-      expect(result[1].fieldId).toBe("3000");
-      expect(result[2].fieldId).toBe(GDT_FIELD_IDS.SATZ_END);
+      expect(result[0]?.fieldId).toBe("8000");
+      expect(result[1]?.fieldId).toBe("3000");
+      expect(result[2]?.fieldId).toBe(GDT_FIELD_IDS.SATZ_END);
     });
 
     test("should handle windows line endings", () => {
@@ -431,8 +432,8 @@ toolshort`;
       const result = parseGdtContent(content);
 
       expect(result.length).toBe(3);
-      expect(result[0].fieldId).toBe("8000");
-      expect(result[1].fieldId).toBe("3000");
+      expect(result[0]?.fieldId).toBe("8000");
+      expect(result[1]?.fieldId).toBe("3000");
     });
   });
 
@@ -556,9 +557,9 @@ toolshort`;
       expect(fields.length).toBeGreaterThan(0);
 
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(12345);
-      expect(patientData.firstName).toBe("Franz");
-      expect(patientData.lastName).toBe("Mustermann");
+      expect(patientData["patientId"]).toBe(12345);
+      expect(patientData["firstName"]).toBe("Franz");
+      expect(patientData["lastName"]).toBe("Mustermann");
     });
 
     test("should handle minimal valid GDT file", () => {
@@ -572,7 +573,7 @@ toolshort`;
 
       const fields = parseGdtContent(minimalGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(12345);
+      expect(patientData["patientId"]).toBe(12345);
     });
 
     test("should handle GDT with alternative version field", () => {
@@ -594,7 +595,9 @@ toolshort`;
       const validation = validateGdtContent(corruptedGdt);
       expect(validation.isValid).toBe(false);
       if (!validation.isValid) {
-        expect(validation.error.type).toBe(GDT_ERROR_TYPES.PARSE_ERROR);
+        expect((validation as { error: { type: string } }).error.type).toBe(
+          GDT_ERROR_TYPES.PARSE_ERROR,
+        );
       }
     });
 
@@ -604,7 +607,9 @@ toolshort`;
       const validation = validateGdtContent(corruptedGdt);
       expect(validation.isValid).toBe(false);
       if (!validation.isValid) {
-        expect(validation.error.type).toBe(GDT_ERROR_TYPES.PARSE_ERROR);
+        expect((validation as { error: { type: string } }).error.type).toBe(
+          GDT_ERROR_TYPES.PARSE_ERROR,
+        );
       }
     });
 
@@ -616,7 +621,9 @@ toolshort`;
       const validation = validateGdtContent(wrongOrderGdt);
       expect(validation.isValid).toBe(false);
       if (!validation.isValid) {
-        expect(validation.error.field).toBe("SATZ_START");
+        expect((validation as { error: { field: string } }).error.field).toBe(
+          "SATZ_START",
+        );
       }
     });
 
@@ -629,8 +636,8 @@ toolshort`;
 
       const fields = parseGdtContent(specialCharsGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.firstName).toBe("Müller-Weiß");
-      expect(patientData.lastName).toBe("Björn-Ärger");
+      expect(patientData["firstName"]).toBe("Müller-Weiß");
+      expect(patientData["lastName"]).toBe("Björn-Ärger");
     });
 
     test("should handle GDT file with mixed valid and invalid lines", () => {
@@ -658,7 +665,7 @@ toolshort`;
 
       const fields = parseGdtContent(duplicateIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(67890); // Should use the last occurrence
+      expect(patientData["patientId"]).toBe(67890); // Should use the last occurrence
     });
 
     test("should handle GDT file with zero patient ID", () => {
@@ -667,7 +674,9 @@ toolshort`;
       const validation = validateGdtContent(zeroIdGdt);
       expect(validation.isValid).toBe(false);
       if (!validation.isValid) {
-        expect(validation.error.field).toBe("PATIENT_ID"); // Should fail because patient ID field is missing (wrong field ID)
+        expect((validation as { error: { field: string } }).error.field).toBe(
+          "PATIENT_ID",
+        ); // Should fail because patient ID field is missing (wrong field ID)
       }
     });
 
@@ -676,7 +685,7 @@ toolshort`;
 
       const fields = parseGdtContent(zeroIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(0);
+      expect(patientData["patientId"]).toBe(0);
     });
 
     test("should handle GDT file with negative patient ID", () => {
@@ -688,7 +697,7 @@ toolshort`;
 
       const fields = parseGdtContent(negativeIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(-123);
+      expect(patientData["patientId"]).toBe(-123);
     });
 
     test("should handle GDT file with only invalid lines after SATZ_START", () => {
@@ -697,7 +706,9 @@ toolshort`;
       const validation = validateGdtContent(invalidLinesGdt);
       expect(validation.isValid).toBe(false);
       if (!validation.isValid) {
-        expect(validation.error.field).toBe("PATIENT_ID"); // Should fail on missing required fields
+        expect((validation as { error: { field: string } }).error.field).toBe(
+          "PATIENT_ID",
+        ); // Should fail on missing required fields
       }
     });
   });
