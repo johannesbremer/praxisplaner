@@ -56,6 +56,7 @@ function PraxisPlanerComponent() {
   const [gdtError, setGdtError] = useState<string | null>(null);
   const gdtFileObserverRef = useRef<FileSystemObserver | null>(null);
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
+  const isUserSelectingRef = useRef(false);
 
   const saveGdtPreference = useMutation(api.gdtPreferences.save);
   const removeGdtPreference = useMutation(api.gdtPreferences.remove);
@@ -228,6 +229,13 @@ function PraxisPlanerComponent() {
       return;
     }
     const loadPersistedHandle = async () => {
+      // Skip if user is actively selecting a directory to avoid race condition
+      if (isUserSelectingRef.current) {
+        addGdtLog("Skipping persistence recovery - user selection in progress.");
+        setIsLoadingHandle(false);
+        return;
+      }
+
       if (gdtPreference?.directoryName) {
         addGdtLog(
           `Found preference for "${gdtPreference.directoryName}" in Convex.`,
@@ -308,6 +316,9 @@ function PraxisPlanerComponent() {
       return;
     }
     try {
+      // Set flag to prevent race condition with loadPersistedHandle
+      isUserSelectingRef.current = true;
+      
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       await saveGdtPreference({ directoryName: handle.name });
@@ -322,6 +333,9 @@ function PraxisPlanerComponent() {
         setGdtError(`Error selecting directory: ${errorMessage}`);
         addGdtLog(`❌ Error selecting directory: ${errorMessage}`);
       }
+    } finally {
+      // Clear flag after selection is complete
+      isUserSelectingRef.current = false;
     }
   };
 
