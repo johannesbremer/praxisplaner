@@ -18,7 +18,7 @@
     "lint": "eslint . --fix",
     "lint:check": "eslint . --max-warnings 0",
     "start": "vinxi start",
-    "test": "vitest"
+    "test": "vitest --run"
   },
   "dependencies": {
     "@convex-dev/react-query": "0.0.0-alpha.8",
