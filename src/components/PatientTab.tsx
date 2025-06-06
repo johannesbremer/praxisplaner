@@ -2,13 +2,8 @@
 
 import { useConvexQuery } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import type { Doc } from "../../convex/_generated/dataModel";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { User, Calendar, MapPin } from "lucide-react";
 
@@ -27,9 +22,11 @@ export function PatientTab({ patientId }: PatientTabProps) {
     );
   }
 
+  const typedPatient = patient as Doc<"patients">;
+
   const formatDate = (dateString?: string) => {
     if (!dateString) {
-      return "Nicht verf\xFCgbar";
+      return "Nicht verfügbar";
     }
     // GDT format is TTMMJJJJ (day month year)
     if (dateString.length === 8) {
@@ -47,12 +44,12 @@ export function PatientTab({ patientId }: PatientTabProps) {
         <User className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            {patient.firstName && patient.lastName
-              ? `${patient.firstName} ${patient.lastName}`
-              : `Patient ${patient.patientId}`}
+            {typedPatient.firstName && typedPatient.lastName
+              ? `${typedPatient.firstName} ${typedPatient.lastName}`
+              : `Patient ${typedPatient.patientId}`}
           </h1>
           <p className="text-muted-foreground">
-            Patient ID: {patient.patientId}
+            Patient ID: {typedPatient.patientId}
           </p>
         </div>
       </div>
@@ -70,13 +67,13 @@ export function PatientTab({ patientId }: PatientTabProps) {
               <span className="font-medium text-sm text-muted-foreground">
                 Vorname:
               </span>
-              <p>{patient.firstName || "Nicht verfügbar"}</p>
+              <p>{typedPatient.firstName || "Nicht verfügbar"}</p>
             </div>
             <div>
               <span className="font-medium text-sm text-muted-foreground">
                 Nachname:
               </span>
-              <p>{patient.lastName || "Nicht verfügbar"}</p>
+              <p>{typedPatient.lastName || "Nicht verfügbar"}</p>
             </div>
             <div>
               <span className="font-medium text-sm text-muted-foreground">
@@ -84,7 +81,7 @@ export function PatientTab({ patientId }: PatientTabProps) {
               </span>
               <p className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                {formatDate(patient.dateOfBirth)}
+                {formatDate(typedPatient.dateOfBirth)}
               </p>
             </div>
           </CardContent>
@@ -102,13 +99,13 @@ export function PatientTab({ patientId }: PatientTabProps) {
               <span className="font-medium text-sm text-muted-foreground">
                 Straße:
               </span>
-              <p>{patient.street || "Nicht verfügbar"}</p>
+              <p>{typedPatient.street || "Nicht verfügbar"}</p>
             </div>
             <div>
               <span className="font-medium text-sm text-muted-foreground">
                 Stadt:
               </span>
-              <p>{patient.city || "Nicht verfügbar"}</p>
+              <p>{typedPatient.city || "Nicht verfügbar"}</p>
             </div>
           </CardContent>
         </Card>

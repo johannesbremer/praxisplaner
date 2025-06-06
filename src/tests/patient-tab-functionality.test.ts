@@ -25,46 +25,40 @@ vi.mock("lucide-react", () => ({
 
 // Mock UI components
 vi.mock("@/components/ui/tabs", () => ({
-  Tabs: ({ children, onValueChange, value }: any) =>
-    `<Tabs value=${value}>${children}</Tabs>`,
-  TabsContent: ({ children, value }: any) =>
-    `<TabsContent value=${value}>${children}</TabsContent>`,
-  TabsList: ({ children }: any) => `<TabsList>${children}</TabsList>`,
-  TabsTrigger: ({ children, value }: any) =>
-    `<TabsTrigger value=${value}>${children}</TabsTrigger>`,
+  Tabs: () => null,
+  TabsContent: () => null,
+  TabsList: () => null,
+  TabsTrigger: () => null,
 }));
 
 vi.mock("@/components/ui/card", () => ({
-  Card: ({ children }: any) => `<Card>${children}</Card>`,
-  CardContent: ({ children }: any) => `<CardContent>${children}</CardContent>`,
-  CardDescription: ({ children }: any) =>
-    `<CardDescription>${children}</CardDescription>`,
-  CardHeader: ({ children }: any) => `<CardHeader>${children}</CardHeader>`,
-  CardTitle: ({ children }: any) => `<CardTitle>${children}</CardTitle>`,
+  Card: () => null,
+  CardContent: () => null,
+  CardDescription: () => null,
+  CardHeader: () => null,
+  CardTitle: () => null,
 }));
 
 vi.mock("@/components/ui/badge", () => ({
-  Badge: ({ children }: any) => `<Badge>${children}</Badge>`,
+  Badge: () => null,
 }));
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, onClick }: any) =>
-    `<Button onClick=${onClick}>${children}</Button>`,
+  Button: () => null,
 }));
 
 vi.mock("@/components/ui/alert", () => ({
-  Alert: ({ children }: any) => `<Alert>${children}</Alert>`,
-  AlertDescription: ({ children }: any) =>
-    `<AlertDescription>${children}</AlertDescription>`,
-  AlertTitle: ({ children }: any) => `<AlertTitle>${children}</AlertTitle>`,
+  Alert: () => null,
+  AlertDescription: () => null,
+  AlertTitle: () => null,
 }));
 
 vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: any) => `<ScrollArea>${children}</ScrollArea>`,
+  ScrollArea: () => null,
 }));
 
 vi.mock("@/components/ui/separator", () => ({
-  Separator: () => "<Separator />",
+  Separator: () => null,
 }));
 
 describe("Patient Tab Functionality", () => {
@@ -122,7 +116,7 @@ describe("Patient Tab Functionality", () => {
     tabs.push(newTab);
 
     expect(tabs).toHaveLength(1);
-    expect(tabs[0].patientId).toBe(123);
+    expect(tabs[0]?.patientId).toBe(123);
 
     // Check if tab exists
     const existingTab = tabs.find((tab) => tab.patientId === 123);

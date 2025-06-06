@@ -69,6 +69,13 @@ function PraxisPlanerComponent() {
   // Convex mutation for saving patient data
   const upsertPatientMutation = useConvexMutation(api.patients.upsertPatient);
 
+  const addGdtLog = useCallback((message: string) => {
+    setGdtLog((prev) => [
+      ...prev.slice(-29),
+      `[${new Date().toLocaleTimeString()}] ${message}`,
+    ]);
+  }, []);
+
   // Tab management functions
   const openPatientTab = useCallback(
     (patientId: number, patientName?: string) => {
@@ -115,13 +122,6 @@ function PraxisPlanerComponent() {
     },
     [activeTab, addGdtLog],
   );
-
-  const addGdtLog = useCallback((message: string) => {
-    setGdtLog((prev) => [
-      ...prev.slice(-29),
-      `[${new Date().toLocaleTimeString()}] ${message}`,
-    ]);
-  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
