@@ -1,43 +1,44 @@
 // src/tests/patient-tab-functionality.test.ts
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the PatientTab component
 vi.mock("../components/PatientTab", () => ({
-  PatientTab: ({ patientId }: { patientId: number }) => 
+  PatientTab: ({ patientId }: { patientId: number }) =>
     `Patient Tab for ${patientId}`,
 }));
 
 // Mock Convex query
 vi.mock("@convex-dev/react-query", () => ({
-  useConvexQuery: vi.fn(),
   useConvexMutation: vi.fn(() => vi.fn()),
+  useConvexQuery: vi.fn(),
 }));
 
 // Mock lucide-react icons
 vi.mock("lucide-react", () => ({
-  Settings: () => "Settings Icon",
-  User: () => "User Icon", 
-  X: () => "X Icon",
   Calendar: () => "Calendar Icon",
   MapPin: () => "MapPin Icon",
+  Settings: () => "Settings Icon",
+  User: () => "User Icon",
+  X: () => "X Icon",
 }));
 
 // Mock UI components
 vi.mock("@/components/ui/tabs", () => ({
-  Tabs: ({ children, value, onValueChange }: any) => 
+  Tabs: ({ children, onValueChange, value }: any) =>
     `<Tabs value=${value}>${children}</Tabs>`,
-  TabsList: ({ children }: any) => `<TabsList>${children}</TabsList>`,
-  TabsTrigger: ({ children, value }: any) => 
-    `<TabsTrigger value=${value}>${children}</TabsTrigger>`,
-  TabsContent: ({ children, value }: any) => 
+  TabsContent: ({ children, value }: any) =>
     `<TabsContent value=${value}>${children}</TabsContent>`,
+  TabsList: ({ children }: any) => `<TabsList>${children}</TabsList>`,
+  TabsTrigger: ({ children, value }: any) =>
+    `<TabsTrigger value=${value}>${children}</TabsTrigger>`,
 }));
 
 vi.mock("@/components/ui/card", () => ({
   Card: ({ children }: any) => `<Card>${children}</Card>`,
   CardContent: ({ children }: any) => `<CardContent>${children}</CardContent>`,
-  CardDescription: ({ children }: any) => `<CardDescription>${children}</CardDescription>`,
+  CardDescription: ({ children }: any) =>
+    `<CardDescription>${children}</CardDescription>`,
   CardHeader: ({ children }: any) => `<CardHeader>${children}</CardHeader>`,
   CardTitle: ({ children }: any) => `<CardTitle>${children}</CardTitle>`,
 }));
@@ -47,13 +48,15 @@ vi.mock("@/components/ui/badge", () => ({
 }));
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, onClick }: any) => `<Button onClick=${onClick}>${children}</Button>`,
+  Button: ({ children, onClick }: any) =>
+    `<Button onClick=${onClick}>${children}</Button>`,
 }));
 
 vi.mock("@/components/ui/alert", () => ({
   Alert: ({ children }: any) => `<Alert>${children}</Alert>`,
+  AlertDescription: ({ children }: any) =>
+    `<AlertDescription>${children}</AlertDescription>`,
   AlertTitle: ({ children }: any) => `<AlertTitle>${children}</AlertTitle>`,
-  AlertDescription: ({ children }: any) => `<AlertDescription>${children}</AlertDescription>`,
 }));
 
 vi.mock("@/components/ui/scroll-area", () => ({
@@ -87,7 +90,11 @@ describe("Patient Tab Functionality", () => {
 
   it("should format patient name correctly", () => {
     // Test the patient name formatting logic
-    const formatPatientName = (firstName?: string, lastName?: string, patientId?: number) => {
+    const formatPatientName = (
+      firstName?: string,
+      lastName?: string,
+      patientId?: number,
+    ) => {
       if (firstName && lastName) {
         return `${firstName} ${lastName}`;
       }
@@ -101,35 +108,37 @@ describe("Patient Tab Functionality", () => {
 
   it("should generate correct tab ID", () => {
     const generateTabId = (patientId: number) => `patient-${patientId}`;
-    
+
     expect(generateTabId(123)).toBe("patient-123");
     expect(generateTabId(456)).toBe("patient-456");
   });
 
   it("should handle tab data structure", () => {
     // Test the tab data structure management
-    const tabs: Array<{ patientId: number; title: string }> = [];
-    
+    const tabs: { patientId: number; title: string }[] = [];
+
     // Add a new tab
     const newTab = { patientId: 123, title: "John Doe" };
     tabs.push(newTab);
-    
+
     expect(tabs).toHaveLength(1);
     expect(tabs[0].patientId).toBe(123);
-    
+
     // Check if tab exists
-    const existingTab = tabs.find(tab => tab.patientId === 123);
+    const existingTab = tabs.find((tab) => tab.patientId === 123);
     expect(existingTab).toBeDefined();
-    
+
     // Remove tab
-    const filteredTabs = tabs.filter(tab => tab.patientId !== 123);
+    const filteredTabs = tabs.filter((tab) => tab.patientId !== 123);
     expect(filteredTabs).toHaveLength(0);
   });
 
   it("should handle GDT date formatting", () => {
     // Test the GDT date formatting function used in PatientTab
     const formatGdtDate = (dateString?: string) => {
-      if (!dateString) return "Nicht verfügbar";
+      if (!dateString) {
+        return "Nicht verf\xFCgbar";
+      }
       // GDT format is TTMMJJJJ (day month year)
       if (dateString.length === 8) {
         const day = dateString.substring(0, 2);
