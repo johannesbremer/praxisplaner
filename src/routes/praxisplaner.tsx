@@ -432,11 +432,9 @@ function PraxisPlanerComponent() {
         }
 
         // File processing metadata stored in IndexDB instead of Convex
+        // Only store minimal data needed for error tracking, not full file content
         const processedFilePayload = {
           fileName: fileName,
-          fileContent: fileContent,
-          sourceDirectoryName: sourceDirName,
-          gdtParsedSuccessfully: parsedSuccessfullyLocal,
           processingErrorMessage: procErrorMessage,
         };
 
@@ -446,10 +444,10 @@ function PraxisPlanerComponent() {
             `gdt_processed_${fileName}_${Date.now()}`,
             processedFilePayload,
           );
-          addGdtLog(`💾 Stored "${fileName}" processing data in IndexedDB.`);
+          addGdtLog(`💾 Stored "${fileName}" error tracking data in IndexedDB.`);
         } catch (idbError) {
           addGdtLog(
-            `⚠️ Failed to store "${fileName}" metadata in IndexedDB: ${idbError instanceof Error ? idbError.message : String(idbError)}`,
+            `⚠️ Failed to store "${fileName}" error tracking data in IndexedDB: ${idbError instanceof Error ? idbError.message : String(idbError)}`,
           );
         }
 
