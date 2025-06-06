@@ -21,7 +21,6 @@ vi.mock("lucide-react", () => ({
   X: () => "X Icon",
   Calendar: () => "Calendar Icon",
   MapPin: () => "MapPin Icon",
-  FileText: () => "FileText Icon",
 }));
 
 // Mock UI components

@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { User, Calendar, MapPin, FileText } from "lucide-react";
+import { User, Calendar, MapPin } from "lucide-react";
 
 interface PatientTabProps {
   patientId: number;
@@ -39,10 +39,6 @@ export function PatientTab({ patientId }: PatientTabProps) {
       return `${day}.${month}.${year}`;
     }
     return dateString;
-  };
-
-  const formatTimestamp = (timestamp: number) => {
-    return new Date(Number(timestamp)).toLocaleString("de-DE");
   };
 
   return (
@@ -113,35 +109,6 @@ export function PatientTab({ patientId }: PatientTabProps) {
                 Stadt:
               </span>
               <p>{patient.city || "Nicht verfügbar"}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              GDT Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <span className="font-medium text-sm text-muted-foreground">
-                Quell-GDT-Datei:
-              </span>
-              <p>{patient.sourceGdtFileName || "Nicht verfügbar"}</p>
-            </div>
-            <div>
-              <span className="font-medium text-sm text-muted-foreground">
-                Erstellt:
-              </span>
-              <p>{formatTimestamp(patient.createdAt)}</p>
-            </div>
-            <div>
-              <span className="font-medium text-sm text-muted-foreground">
-                Zuletzt geändert:
-              </span>
-              <p>{formatTimestamp(patient.lastModified)}</p>
             </div>
           </CardContent>
         </Card>
