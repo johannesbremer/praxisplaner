@@ -9,8 +9,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, Save } from "lucide-react";
-import { RuleEditor } from "@/components/rule-editor";
-import { RuleList } from "@/components/rule-list";
+import { RuleEditor } from "@/src/components/rule-editor";
+import { RuleList } from "@/src/components/rule-list";
 import { toast } from "sonner"; // Correctly using sonner
 import type { Rule } from "@/lib/types";
 import { createFileRoute } from "@tanstack/react-router";
