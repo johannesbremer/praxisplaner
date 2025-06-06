@@ -4,11 +4,10 @@ import { useConvexQuery } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { User, Calendar, MapPin } from "lucide-react";
 
 interface PatientTabProps {
-  patientId: number;
+  patientId: Doc<"patients">["patientId"];
 }
 
 export function PatientTab({ patientId }: PatientTabProps) {
@@ -22,19 +21,32 @@ export function PatientTab({ patientId }: PatientTabProps) {
     );
   }
 
-  const typedPatient = patient as Doc<"patients">;
+  // Patient is already properly typed from the query
+  const typedPatient: Doc<"patients"> = patient;
 
-  const formatDate = (dateString?: string) => {
+  const formatGermanDate = (dateString?: string) => {
     if (!dateString) {
       return "Nicht verfügbar";
     }
-    // GDT format is TTMMJJJJ (day month year)
+
+    // Handle ISO date format (YYYY-MM-DD) which is how dates are stored in Convex
+    const date = new Date(dateString);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString("de-DE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+
+    // Fallback: if it's still in GDT format TTMMJJJJ
     if (dateString.length === 8) {
       const day = dateString.substring(0, 2);
       const month = dateString.substring(2, 4);
       const year = dateString.substring(4, 8);
       return `${day}.${month}.${year}`;
     }
+
     return dateString;
   };
 
@@ -54,7 +66,7 @@ export function PatientTab({ patientId }: PatientTabProps) {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -65,41 +77,21 @@ export function PatientTab({ patientId }: PatientTabProps) {
           <CardContent className="space-y-3">
             <div>
               <span className="font-medium text-sm text-muted-foreground">
-                Vorname:
-              </span>
-              <p>{typedPatient.firstName || "Nicht verfügbar"}</p>
-            </div>
-            <div>
-              <span className="font-medium text-sm text-muted-foreground">
-                Nachname:
-              </span>
-              <p>{typedPatient.lastName || "Nicht verfügbar"}</p>
-            </div>
-            <div>
-              <span className="font-medium text-sm text-muted-foreground">
                 Geburtsdatum:
               </span>
               <p className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                {formatDate(typedPatient.dateOfBirth)}
+                {formatGermanDate(typedPatient.dateOfBirth)}
               </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Adresse
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
             <div>
               <span className="font-medium text-sm text-muted-foreground">
                 Straße:
               </span>
-              <p>{typedPatient.street || "Nicht verfügbar"}</p>
+              <p className="flex items-center gap-2">
+                <MapPin className="h-4 w-4" />
+                {typedPatient.street || "Nicht verfügbar"}
+              </p>
             </div>
             <div>
               <span className="font-medium text-sm text-muted-foreground">
@@ -107,20 +99,6 @@ export function PatientTab({ patientId }: PatientTabProps) {
               </span>
               <p>{typedPatient.city || "Nicht verfügbar"}</p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Badge
-              variant="secondary"
-              className="bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
-            >
-              Aktiv
-            </Badge>
           </CardContent>
         </Card>
       </div>

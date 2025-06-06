@@ -27,6 +27,7 @@ import { Settings, User, X } from "lucide-react";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
+import type { Doc } from "../../convex/_generated/dataModel";
 import {
   parseGdtContent,
   extractPatientData,
@@ -36,7 +37,7 @@ import {
 type PermissionStatus = BrowserPermissionState | "error" | null;
 
 interface PatientTabData {
-  patientId: number;
+  patientId: Doc<"patients">["patientId"];
   title: string;
 }
 
@@ -78,7 +79,7 @@ function PraxisPlanerComponent() {
 
   // Tab management functions
   const openPatientTab = useCallback(
-    (patientId: number, patientName?: string) => {
+    (patientId: Doc<"patients">["patientId"], patientName?: string) => {
       const tabId = `patient-${patientId}`;
       const title = patientName || `Patient ${patientId}`;
 
@@ -107,7 +108,7 @@ function PraxisPlanerComponent() {
   );
 
   const closePatientTab = useCallback(
-    (patientId: number) => {
+    (patientId: Doc<"patients">["patientId"]) => {
       const tabId = `patient-${patientId}`;
       setPatientTabs((prev) =>
         prev.filter((tab) => tab.patientId !== patientId),
