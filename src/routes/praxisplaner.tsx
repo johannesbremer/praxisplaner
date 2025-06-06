@@ -20,10 +20,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PatientTab } from "../components/PatientTab";
+import { Settings, User, X } from "lucide-react";
 
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
+import type { Doc } from "../../convex/_generated/dataModel";
 import {
   parseGdtContent,
   extractPatientData,
@@ -31,6 +35,11 @@ import {
 
 // Local type for PermissionState used in this component
 type PermissionStatus = BrowserPermissionState | "error" | null;
+
+interface PatientTabData {
+  patientId: Doc<"patients">["patientId"];
+  title: string;
+}
 
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
@@ -51,6 +60,10 @@ function PraxisPlanerComponent() {
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
   const isUserSelectingRef = useRef(false);
 
+  // Tab management state
+  const [activeTab, setActiveTab] = useState<string>("settings");
+  const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
+
   // Note: GDT preferences, file processing, and permission logging
   // will now be handled via IndexDB instead of Convex
 
@@ -63,6 +76,53 @@ function PraxisPlanerComponent() {
       `[${new Date().toLocaleTimeString()}] ${message}`,
     ]);
   }, []);
+
+  // Tab management functions
+  const openPatientTab = useCallback(
+    (patientId: Doc<"patients">["patientId"], patientName?: string) => {
+      const tabId = `patient-${patientId}`;
+      const title = patientName || `Patient ${patientId}`;
+
+      // Check if tab already exists
+      const existingTab = patientTabs.find(
+        (tab) => tab.patientId === patientId,
+      );
+      if (existingTab) {
+        // Tab exists, just switch to it
+        setActiveTab(tabId);
+        addGdtLog(`🔄 Switched to existing tab for Patient ${patientId}.`);
+        return;
+      }
+
+      // Create new tab
+      const newTab: PatientTabData = {
+        patientId,
+        title,
+      };
+
+      setPatientTabs((prev) => [...prev, newTab]);
+      setActiveTab(tabId);
+      addGdtLog(`📋 Opened new tab for Patient ${patientId}.`);
+    },
+    [patientTabs, addGdtLog],
+  );
+
+  const closePatientTab = useCallback(
+    (patientId: Doc<"patients">["patientId"]) => {
+      const tabId = `patient-${patientId}`;
+      setPatientTabs((prev) =>
+        prev.filter((tab) => tab.patientId !== patientId),
+      );
+
+      // If we're closing the active tab, switch to settings
+      if (activeTab === tabId) {
+        setActiveTab("settings");
+      }
+
+      addGdtLog(`❌ Closed tab for Patient ${patientId}.`);
+    },
+    [activeTab, addGdtLog],
+  );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -353,6 +413,13 @@ function PraxisPlanerComponent() {
             addGdtLog(
               `✅ Parsed "${fileName}" - Patient ${patientData.patientId} ${result.isNewPatient ? "created" : "updated"}.`,
             );
+
+            // Open patient tab with name if available
+            const patientName =
+              patientData.firstName && patientData.lastName
+                ? `${patientData.firstName} ${patientData.lastName}`
+                : undefined;
+            openPatientTab(patientData.patientId, patientName);
           } else {
             parsedSuccessfullyLocal = false;
             procErrorMessage = `File "${fileName}" missing valid patient ID.`;
@@ -422,7 +489,7 @@ function PraxisPlanerComponent() {
         }
       }
     },
-    [addGdtLog, verifyAndSetPermission, upsertPatientMutation],
+    [addGdtLog, verifyAndSetPermission, upsertPatientMutation, openPatientTab],
   );
 
   useEffect(() => {
@@ -607,7 +674,7 @@ function PraxisPlanerComponent() {
     );
   }
 
-  return (
+  const settingsContent = (
     <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
       <div className="flex flex-col">
         <h1 className="text-3xl font-bold tracking-tight mb-6">
@@ -733,6 +800,62 @@ function PraxisPlanerComponent() {
           </>
         )}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen bg-background text-foreground">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="h-full flex flex-col"
+      >
+        <div className="border-b px-6 py-3">
+          <TabsList className="h-auto">
+            <TabsTrigger value="settings" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Einstellungen
+            </TabsTrigger>
+            {patientTabs.map((tab) => (
+              <TabsTrigger
+                key={`patient-${tab.patientId}`}
+                value={`patient-${tab.patientId}`}
+                className="flex items-center gap-2 group relative"
+              >
+                <User className="h-4 w-4" />
+                {tab.title}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closePatientTab(tab.patientId);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+
+        <div className="flex-1 overflow-hidden">
+          <TabsContent value="settings" className="h-full overflow-auto">
+            {settingsContent}
+          </TabsContent>
+
+          {patientTabs.map((tab) => (
+            <TabsContent
+              key={`patient-${tab.patientId}`}
+              value={`patient-${tab.patientId}`}
+              className="h-full overflow-auto"
+            >
+              <PatientTab patientId={tab.patientId} />
+            </TabsContent>
+          ))}
+        </div>
+      </Tabs>
     </div>
   );
 }
