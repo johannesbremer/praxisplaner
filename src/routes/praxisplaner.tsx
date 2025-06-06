@@ -385,8 +385,6 @@ function PraxisPlanerComponent() {
     ) => {
       let fileContent = "";
       const fileName = fileHandle.name;
-      const sourceDirName = dirHandle.name;
-      let parsedSuccessfullyLocal = false;
       let procErrorMessage: string | undefined = undefined;
 
       try {
@@ -409,7 +407,6 @@ function PraxisPlanerComponent() {
               sourceGdtFileName: fileName,
             });
 
-            parsedSuccessfullyLocal = true;
             addGdtLog(
               `✅ Parsed "${fileName}" - Patient ${patientData.patientId} ${result.isNewPatient ? "created" : "updated"}.`,
             );
@@ -421,12 +418,10 @@ function PraxisPlanerComponent() {
                 : undefined;
             openPatientTab(patientData.patientId, patientName);
           } else {
-            parsedSuccessfullyLocal = false;
             procErrorMessage = `File "${fileName}" missing valid patient ID.`;
             addGdtLog(`⚠️ ${procErrorMessage}`);
           }
         } catch (gdtError) {
-          parsedSuccessfullyLocal = false;
           procErrorMessage = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procErrorMessage}`);
         }
@@ -444,7 +439,9 @@ function PraxisPlanerComponent() {
             `gdt_processed_${fileName}_${Date.now()}`,
             processedFilePayload,
           );
-          addGdtLog(`💾 Stored "${fileName}" error tracking data in IndexedDB.`);
+          addGdtLog(
+            `💾 Stored "${fileName}" error tracking data in IndexedDB.`,
+          );
         } catch (idbError) {
           addGdtLog(
             `⚠️ Failed to store "${fileName}" error tracking data in IndexedDB: ${idbError instanceof Error ? idbError.message : String(idbError)}`,

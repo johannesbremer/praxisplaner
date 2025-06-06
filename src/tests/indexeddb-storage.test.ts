@@ -14,8 +14,8 @@ describe("IndexedDB Storage Optimization", () => {
     
     // This represents the new minimal payload structure after our changes
     const processedFilePayload = {
-      fileName: fileName,
-      processingErrorMessage: processingErrorMessage,
+      fileName,
+      processingErrorMessage,
     };
 
     // Verify only the essential fields are present
@@ -35,8 +35,8 @@ describe("IndexedDB Storage Optimization", () => {
     const processingErrorMessage = undefined;
     
     const processedFilePayload = {
-      fileName: fileName,
-      processingErrorMessage: processingErrorMessage,
+      fileName,
+      processingErrorMessage,
     };
 
     expect(processedFilePayload).toEqual({
@@ -55,8 +55,8 @@ describe("IndexedDB Storage Optimization", () => {
     const processingErrorMessage = "Parse error occurred";
     
     const processedFilePayload = {
-      fileName: fileName,
-      processingErrorMessage: processingErrorMessage,
+      fileName,
+      processingErrorMessage,
     };
 
     // Count the number of properties - should be exactly 2

@@ -18,10 +18,10 @@ describe("File System Access API Functionality", () => {
   test("permission metadata structure should be preserved", () => {
     // This represents the permission metadata structure that should remain intact
     const permissionMetadata = {
+      context: "test context",
       handleName: "TestDirectory",
       permission: "granted" as const,
       timestamp: Date.now(),
-      context: "test context",
     };
 
     // Verify all required fields are present for FSA API functionality
@@ -39,8 +39,8 @@ describe("File System Access API Functionality", () => {
   test("error storage structure should be preserved", () => {
     // Error storage should remain intact per the issue requirements
     const errorData = {
-      fileName: "test.gdt",
       error: "Test error message",
+      fileName: "test.gdt",
       timestamp: Date.now(),
     };
 
@@ -67,7 +67,7 @@ describe("File System Access API Functionality", () => {
 
     // But only minimal data should be stored in IndexedDB
     const storedData = {
-      fileName: fileName,
+      fileName,
       processingErrorMessage: errorMessage,
     };
 
@@ -85,11 +85,11 @@ describe("File System Access API Functionality", () => {
     
     // Old payload (what we removed)
     const oldPayload = {
-      fileName: "test.gdt",
       fileContent: largeFileContent,
-      sourceDirectoryName: "TestDirectory",
+      fileName: "test.gdt",
       gdtParsedSuccessfully: true,
       processingErrorMessage: "Some error",
+      sourceDirectoryName: "TestDirectory",
     };
 
     // New payload (what we keep)
