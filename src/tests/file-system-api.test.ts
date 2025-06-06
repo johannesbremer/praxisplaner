@@ -72,8 +72,11 @@ describe("File System Access API Functionality", () => {
     };
 
     // Verify minimal storage
-    expect(Object.keys(storedData)).toEqual(["fileName", "processingErrorMessage"]);
-    
+    expect(Object.keys(storedData)).toEqual([
+      "fileName",
+      "processingErrorMessage",
+    ]);
+
     // Verify processing variables are still available for logic but not stored
     expect(fileContent).toContain("6310"); // Processing can still use file content
     expect(parsedSuccessfully).toBe(true); // Processing can still track success
@@ -82,7 +85,7 @@ describe("File System Access API Functionality", () => {
   test("storage reduction should significantly decrease data size", () => {
     // Compare old vs new payload sizes
     const largeFileContent = "0".repeat(10000); // Simulate large GDT file
-    
+
     // Old payload (what we removed)
     const oldPayload = {
       fileContent: largeFileContent,
@@ -101,10 +104,10 @@ describe("File System Access API Functionality", () => {
     // Calculate approximate size reduction
     const oldSize = JSON.stringify(oldPayload).length;
     const newSize = JSON.stringify(newPayload).length;
-    
+
     // Should be dramatically smaller
     expect(newSize).toBeLessThan(oldSize);
-    
+
     // Should be at least 90% reduction for large files
     const reductionPercentage = ((oldSize - newSize) / oldSize) * 100;
     expect(reductionPercentage).toBeGreaterThan(90);

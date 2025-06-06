@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 /**
  * Test suite for IndexedDB storage optimization changes.
- * 
+ *
  * This test ensures we only store minimal necessary data in IndexedDB
  * for the File System Access API persistence, not full GDT file content.
  */
@@ -11,7 +11,7 @@ describe("IndexedDB Storage Optimization", () => {
     // Simulate the data structure that would be stored in IndexedDB
     const fileName = "test.gdt";
     const processingErrorMessage = "Test error message";
-    
+
     // This represents the new minimal payload structure after our changes
     const processedFilePayload = {
       fileName,
@@ -33,7 +33,7 @@ describe("IndexedDB Storage Optimization", () => {
   test("processedFilePayload should handle undefined error message", () => {
     const fileName = "test.gdt";
     const processingErrorMessage = undefined;
-    
+
     const processedFilePayload = {
       fileName,
       processingErrorMessage,
@@ -53,7 +53,7 @@ describe("IndexedDB Storage Optimization", () => {
   test("payload structure should be minimal to reduce storage usage", () => {
     const fileName = "example.gdt";
     const processingErrorMessage = "Parse error occurred";
-    
+
     const processedFilePayload = {
       fileName,
       processingErrorMessage,
@@ -66,7 +66,7 @@ describe("IndexedDB Storage Optimization", () => {
     // Verify the specific properties that should exist
     expect(Object.keys(processedFilePayload)).toEqual([
       "fileName",
-      "processingErrorMessage"
+      "processingErrorMessage",
     ]);
   });
 });
