@@ -3,7 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "jsx": "react-jsx",
-    "module": "ESNext",
+    "module": "esnext",
     "moduleResolution": "Bundler",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "isolatedModules": true,
@@ -24,6 +24,7 @@
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]

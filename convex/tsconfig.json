@@ -19,8 +19,9 @@
     "noPropertyAccessFromIndexSignature": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "noUncheckedSideEffectImports": true,
 
-    "target": "ESNext",
+    "target": "esnext",
     "lib": ["ES2021", "dom"],
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
