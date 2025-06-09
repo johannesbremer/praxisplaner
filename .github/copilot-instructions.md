@@ -1,7 +1,5 @@
 This is a `TanStack Start` + `Convex` project.
 
-## Code Standards
-
 ## Required Before Each Commit
 
 - Run `pnpm gen && pnpm lint && pnpm tsc && pnpm format && pnpm test && pnpm build`
