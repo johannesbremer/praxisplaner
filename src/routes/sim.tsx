@@ -1,14 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { Label } from "~/components/ui/label";
-import { Switch } from "~/components/ui/switch";
 import { Badge } from "~/components/ui/badge";
 
 import { RulesEngine } from "~/lib/rules-engine";
-import { generateSamplePatientContexts, generateSampleAppointmentTypes, generateDateRange } from "~/lib/convex-client";
+import {
+  generateSamplePatientContexts,
+  generateSampleAppointmentTypes,
+} from "~/lib/convex-client";
 import type { PatientContext, Rule } from "~/lib/types";
 
 export const Route = createFileRoute("/sim")({
@@ -69,11 +83,13 @@ const sampleRules: Rule[] = [
 ];
 
 export default function DebugView() {
-  const [selectedAppointmentType, setSelectedAppointmentType] = useState<string>("Erstberatung");
-  const [selectedPatientContext, setSelectedPatientContext] = useState<PatientContext>(
-    generateSamplePatientContexts()[0]
+  const [selectedAppointmentType, setSelectedAppointmentType] =
+    useState<string>("Erstberatung");
+  const [selectedPatientContext, setSelectedPatientContext] =
+    useState<PatientContext>(generateSamplePatientContexts()[0]!);
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split("T")[0] ?? "",
   );
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [simulationResults, setSimulationResults] = useState<any>(null);
   const [engine] = useState(() => new RulesEngine(sampleRules));
 
@@ -90,7 +106,7 @@ export default function DebugView() {
       baseSlots,
       selectedAppointmentType,
       selectedPatientContext,
-      date
+      date,
     );
 
     setSimulationResults({
@@ -102,18 +118,27 @@ export default function DebugView() {
   const formatPatientContext = (context: PatientContext): string => {
     const parts = [];
     parts.push(context.isNewPatient ? "Neuer Patient" : "Bestandspatient");
-    if (context.assignedDoctor) parts.push(`Arzt: ${context.assignedDoctor}`);
-    if (context.lastVisit) parts.push(`Letzter Besuch: ${context.lastVisit}`);
-    if (context.medicalHistory.length > 0) parts.push(`Historie: ${context.medicalHistory.join(", ")}`);
+    if (context.assignedDoctor) {
+      parts.push(`Arzt: ${context.assignedDoctor}`);
+    }
+    if (context.lastVisit) {
+      parts.push(`Letzter Besuch: ${context.lastVisit}`);
+    }
+    if (context.medicalHistory.length > 0) {
+      parts.push(`Historie: ${context.medicalHistory.join(", ")}`);
+    }
     return parts.join(" | ");
   };
 
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Debug View - Regelmotor Simulation</h1>
+        <h1 className="text-3xl font-bold mb-2">
+          Debug View - Regelmotor Simulation
+        </h1>
         <p className="text-muted-foreground">
-          Testen Sie verschiedene Patientenkonstellationen und sehen Sie, wie die Regeln angewendet werden.
+          Testen Sie verschiedene Patientenkonstellationen und sehen Sie, wie
+          die Regeln angewendet werden.
         </p>
       </div>
 
@@ -130,7 +155,10 @@ export default function DebugView() {
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="appointmentType">Terminart</Label>
-                <Select value={selectedAppointmentType} onValueChange={setSelectedAppointmentType}>
+                <Select
+                  value={selectedAppointmentType}
+                  onValueChange={setSelectedAppointmentType}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Terminart auswählen" />
                   </SelectTrigger>
@@ -146,9 +174,13 @@ export default function DebugView() {
 
               <div>
                 <Label htmlFor="patientContext">Patientenkontext</Label>
-                <Select 
-                  value={patientContexts.indexOf(selectedPatientContext).toString()}
-                  onValueChange={(value) => setSelectedPatientContext(patientContexts[parseInt(value)])}
+                <Select
+                  value={patientContexts
+                    .indexOf(selectedPatientContext)
+                    .toString()}
+                  onValueChange={(value) =>
+                    setSelectedPatientContext(patientContexts[parseInt(value)]!)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Patientenkontext auswählen" />
@@ -191,7 +223,10 @@ export default function DebugView() {
             <CardContent>
               <div className="space-y-3">
                 {sampleRules.map((rule) => (
-                  <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div
+                    key={rule.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                  >
                     <div>
                       <div className="font-medium text-sm">{rule.name}</div>
                       <div className="text-xs text-muted-foreground">
@@ -226,19 +261,25 @@ export default function DebugView() {
                       <div className="text-2xl font-bold text-blue-600">
                         {simulationResults.originalSlotCount}
                       </div>
-                      <div className="text-sm text-muted-foreground">Ursprüngliche Slots</div>
+                      <div className="text-sm text-muted-foreground">
+                        Ursprüngliche Slots
+                      </div>
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-green-600">
                         {simulationResults.slots.length}
                       </div>
-                      <div className="text-sm text-muted-foreground">Verfügbare Slots</div>
+                      <div className="text-sm text-muted-foreground">
+                        Verfügbare Slots
+                      </div>
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-purple-600">
                         {simulationResults.appliedRules.length}
                       </div>
-                      <div className="text-sm text-muted-foreground">Angewendete Regeln</div>
+                      <div className="text-sm text-muted-foreground">
+                        Angewendete Regeln
+                      </div>
                     </div>
                   </div>
 
@@ -246,11 +287,13 @@ export default function DebugView() {
                     <div>
                       <h4 className="font-medium mb-2">Angewendete Regeln:</h4>
                       <div className="flex flex-wrap gap-2">
-                        {simulationResults.appliedRules.map((ruleName: string, index: number) => (
-                          <Badge key={index} variant="outline">
-                            {ruleName}
-                          </Badge>
-                        ))}
+                        {simulationResults.appliedRules.map(
+                          (ruleName: string, index: number) => (
+                            <Badge key={index} variant="outline">
+                              {ruleName}
+                            </Badge>
+                          ),
+                        )}
                       </div>
                     </div>
                   )}
@@ -267,26 +310,34 @@ export default function DebugView() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {simulationResults.ruleTrace?.map((trace: any, index: number) => (
-                      <div
-                        key={index}
-                        className={`p-3 rounded-lg border ${
-                          trace.applied 
-                            ? "bg-green-50 border-green-200" 
-                            : "bg-gray-50 border-gray-200"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{trace.ruleName}</span>
-                          <Badge variant={trace.applied ? "default" : "secondary"}>
-                            {trace.applied ? "Angewendet" : "Nicht angewendet"}
-                          </Badge>
+                    {simulationResults.ruleTrace?.map(
+                      (trace: any, index: number) => (
+                        <div
+                          key={index}
+                          className={`p-3 rounded-lg border ${
+                            trace.applied
+                              ? "bg-green-50 border-green-200"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">
+                              {trace.ruleName}
+                            </span>
+                            <Badge
+                              variant={trace.applied ? "default" : "secondary"}
+                            >
+                              {trace.applied
+                                ? "Angewendet"
+                                : "Nicht angewendet"}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            {trace.reason}
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground mt-1">
-                          {trace.reason}
-                        </div>
-                      </div>
-                    ))}
+                      ),
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -301,23 +352,26 @@ export default function DebugView() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {simulationResults.slots.slice(0, 12).map((slot: any, index: number) => (
-                      <div key={index} className="p-3 border rounded-lg">
-                        <div className="font-medium">{slot.time}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {slot.doctor} • {slot.duration} Min.
-                        </div>
-                        {slot.notes && (
-                          <div className="text-xs text-blue-600 mt-1">
-                            {slot.notes}
+                    {simulationResults.slots
+                      .slice(0, 12)
+                      .map((slot: any, index: number) => (
+                        <div key={index} className="p-3 border rounded-lg">
+                          <div className="font-medium">{slot.time}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {slot.doctor} • {slot.duration} Min.
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {slot.notes && (
+                            <div className="text-xs text-blue-600 mt-1">
+                              {slot.notes}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                   </div>
                   {simulationResults.slots.length > 12 && (
                     <div className="text-center mt-4 text-muted-foreground">
-                      ... und {simulationResults.slots.length - 12} weitere Termine
+                      ... und {simulationResults.slots.length - 12} weitere
+                      Termine
                     </div>
                   )}
                 </CardContent>
@@ -328,11 +382,10 @@ export default function DebugView() {
               <CardContent className="flex items-center justify-center h-64">
                 <div className="text-center">
                   <div className="text-muted-foreground mb-4">
-                    Wählen Sie Parameter aus und klicken Sie auf "Simulation ausführen"
+                    Wählen Sie Parameter aus und klicken Sie auf "Simulation
+                    ausführen"
                   </div>
-                  <Button onClick={runSimulation}>
-                    Simulation starten
-                  </Button>
+                  <Button onClick={runSimulation}>Simulation starten</Button>
                 </div>
               </CardContent>
             </Card>

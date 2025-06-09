@@ -74,92 +74,96 @@ export interface RuleConfigurationVersion {
 }
 
 // Database-compatible types for Convex
-export interface DbRule {
-  _id: string;
+export interface DbBaseAvailability {
   _creationTime: number;
-  ruleConfigurationId: string;
-  name: string;
-  type: "CONDITIONAL_AVAILABILITY" | "RESOURCE_CONSTRAINT" | "SEASONAL_AVAILABILITY" | "TIME_BLOCK";
-  priority: number;
-  active: boolean;
-  conditions: {
-    appointmentType?: string;
-    patientType?: string;
-    dateRange?: {
-      start: string;
-      end: string;
-    };
-    timeRange?: {
-      start: string;
-      end: string;
-    };
-    dayOfWeek?: number[];
-    requiredResources?: string[];
-  };
-  actions: {
-    requireExtraTime?: boolean;
-    extraMinutes?: number;
-    limitPerDay?: number;
-    requireSpecificDoctor?: string;
-    enableBatchAppointments?: boolean;
-    batchSize?: number;
-    batchDuration?: number;
-    blockTimeSlots?: string[];
-  };
+  _id: string;
+  breakTimes?: {
+    end: string;
+    start: string;
+  }[];
   createdAt: bigint;
+  dayOfWeek: number;
+  doctorId: string;
+  endTime: string;
   lastModified: bigint;
-}
-
-export interface DbRuleConfiguration {
-  _id: string;
-  _creationTime: number;
   practiceId: string;
-  version: number;
-  description: string;
-  createdBy: string;
-  createdAt: bigint;
-  isActive: boolean;
+  slotDuration: number;
+  startTime: string;
 }
 
 export interface DbPractice {
-  _id: string;
   _creationTime: number;
-  name: string;
+  _id: string;
+  createdAt: bigint;
   currentActiveRuleConfigurationId?: string;
+  lastModified: bigint;
+  name: string;
   settings?: {
     defaultSlotDuration?: number;
     workingHours?: {
-      start: string;
       end: string;
+      start: string;
+    };
+  };
+}
+
+export interface DbRule {
+  _creationTime: number;
+  _id: string;
+  actions: {
+    batchDuration?: number;
+    batchSize?: number;
+    blockTimeSlots?: string[];
+    enableBatchAppointments?: boolean;
+    extraMinutes?: number;
+    limitPerDay?: number;
+    requireExtraTime?: boolean;
+    requireSpecificDoctor?: string;
+  };
+  active: boolean;
+  conditions: {
+    appointmentType?: string;
+    dateRange?: {
+      end: string;
+      start: string;
+    };
+    dayOfWeek?: number[];
+    patientType?: string;
+    requiredResources?: string[];
+    timeRange?: {
+      end: string;
+      start: string;
     };
   };
   createdAt: bigint;
   lastModified: bigint;
+  name: string;
+  priority: number;
+  ruleConfigurationId: string;
+  type:
+    | "CONDITIONAL_AVAILABILITY"
+    | "RESOURCE_CONSTRAINT"
+    | "SEASONAL_AVAILABILITY"
+    | "TIME_BLOCK";
 }
 
-export interface DbBaseAvailability {
-  _id: string;
+export interface DbRuleConfiguration {
   _creationTime: number;
-  practiceId: string;
-  doctorId: string;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-  slotDuration: number;
-  breakTimes?: {
-    start: string;
-    end: string;
-  }[];
+  _id: string;
   createdAt: bigint;
-  lastModified: bigint;
+  createdBy: string;
+  description: string;
+  isActive: boolean;
+  practiceId: string;
+  version: number;
 }
 
 export interface RuleApplicationResult {
-  slots: AvailableSlot[];
   appliedRules: string[];
   ruleTrace?: {
-    ruleName: string;
     applied: boolean;
     reason: string;
+    ruleName: string;
   }[];
+  slots: AvailableSlot[];
 }
