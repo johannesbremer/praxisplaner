@@ -81,6 +81,7 @@ The Rules Engine is a flexible, database-backed system that dynamically generate
 
 ```typescript
 // Example rule configuration:
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ruleExample: Rule = {
   actions: {
     extraMinutes: 15,

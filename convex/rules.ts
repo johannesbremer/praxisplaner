@@ -140,6 +140,7 @@ export const updateRule = mutation({
   handler: async (ctx, args) => {
     const { ruleId, ...updates } = args;
     const filteredUpdates = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       Object.entries(updates).filter(([, value]) => value !== undefined),
     );
 

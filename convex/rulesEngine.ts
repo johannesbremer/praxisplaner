@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 
 // Type definitions for slots and rules
-type AvailableSlot = {
+interface AvailableSlot {
   appointmentType: string;
   date: string;
   doctor: string;
@@ -11,15 +11,27 @@ type AvailableSlot = {
   id: string;
   notes?: string;
   time: string;
-};
+}
 
-type RuleTrace = {
-  applied: boolean;
-  reason: string;
-  ruleName: string;
-};
+interface BaseAvailability {
+  breakTimes?: {
+    end: string;
+    start: string;
+  }[];
+  doctorId: string;
+  endTime: string;
+  slotDuration: number;
+  startTime: string;
+}
 
-type Rule = {
+interface PatientContext {
+  assignedDoctor: null | string;
+  isNewPatient: boolean;
+  lastVisit: null | string;
+  medicalHistory: string[];
+}
+
+interface Rule {
   _id: string;
   actions: Record<string, unknown>;
   active: boolean;
@@ -31,25 +43,13 @@ type Rule = {
     | "RESOURCE_CONSTRAINT"
     | "SEASONAL_AVAILABILITY"
     | "TIME_BLOCK";
-};
+}
 
-type BaseAvailability = {
-  breakTimes?: Array<{
-    end: string;
-    start: string;
-  }>;
-  doctorId: string;
-  endTime: string;
-  slotDuration: number;
-  startTime: string;
-};
-
-type PatientContext = {
-  assignedDoctor: null | string;
-  isNewPatient: boolean;
-  lastVisit: null | string;
-  medicalHistory: string[];
-};
+interface RuleTrace {
+  applied: boolean;
+  reason: string;
+  ruleName: string;
+}
 
 /**
  * Generate available slots for a specific date, appointment type, and patient context
@@ -218,7 +218,7 @@ export const simulateSlotGeneration = query({
 
       let daySlots = generateSlotsFromBaseAvailability(
         baseAvailabilities,
-        dateStr!,
+        dateStr,
       );
 
       // Apply rules with tracing
@@ -360,7 +360,7 @@ function generateSlotsFromBaseAvailability(
     const startTime = availability.startTime;
     const endTime = availability.endTime;
     const slotDuration = availability.slotDuration;
-    const breakTimes = availability.breakTimes || [];
+    const breakTimes = availability.breakTimes ?? [];
 
     // Generate time slots between start and end, excluding breaks
     // This is a simplified implementation
@@ -438,8 +438,8 @@ function isRuleApplicable(
 
   // Check date range condition
   const dateRangeCondition = rule.conditions["dateRange"] as
-    | { end: string; start: string }
-    | undefined;
+    | undefined
+    | { end: string; start: string };
   if (dateRangeCondition) {
     const startDate = new Date(dateRangeCondition.start);
     const endDate = new Date(dateRangeCondition.end);

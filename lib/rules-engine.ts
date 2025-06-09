@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/match-description */
 // lib/rules-engine.ts
 import { isWithinInterval, parseISO } from "date-fns";
 
@@ -303,3 +304,4 @@ export class RulesEngine {
     return slots;
   }
 }
+/* eslint-enable jsdoc/match-description */

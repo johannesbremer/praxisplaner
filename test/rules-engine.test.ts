@@ -91,7 +91,8 @@ describe("RulesEngine", () => {
 
     // Should apply the "New Patient Extra Time" rule
     expect(result.appliedRules).toContain("New Patient Extra Time");
-    expect(result.slots[0].duration).toBe(45); // 30 + 15 minutes
+    expect(result.slots).toHaveLength(3);
+    expect(result.slots[0]?.duration).toBe(45); // 30 + 15 minutes
   });
 
   it("should not apply rules when conditions are not met", () => {
@@ -112,7 +113,8 @@ describe("RulesEngine", () => {
 
     // Should not apply the "New Patient Extra Time" rule
     expect(result.appliedRules).not.toContain("New Patient Extra Time");
-    expect(result.slots[0].duration).toBe(30); // Original duration
+    expect(result.slots).toHaveLength(3);
+    expect(result.slots[0]?.duration).toBe(30); // Original duration
   });
 
   it("should apply date range rules correctly", () => {
@@ -124,15 +126,77 @@ describe("RulesEngine", () => {
       medicalHistory: [],
     };
 
+    // Create more slots than the limit (5) for Dr. Schmidt to test the limiting behavior
+    const manySlots: AvailableSlot[] = [
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot1",
+        time: "09:00",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot2",
+        time: "09:30",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot3",
+        time: "10:00",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot4",
+        time: "11:00",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot5",
+        time: "11:30",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot6",
+        time: "12:00",
+      },
+      {
+        appointmentType: "default",
+        date: "2024-11-15",
+        doctor: "Dr. Schmidt",
+        duration: 30,
+        id: "slot7",
+        time: "12:30",
+      },
+    ];
+
     const result = engine.generateAvailableSlots(
-      sampleSlots,
+      manySlots,
       "Grippeimpfung",
       patientContext,
       new Date("2024-11-15"), // Within the date range
     );
 
-    // Should apply the "Limit Flu Shots" rule
+    // Should apply the "Limit Flu Shots" rule since we have 7 slots but limit is 5
     expect(result.appliedRules).toContain("Limit Flu Shots");
+    // Should have limited slots per doctor
+    expect(result.slots.length).toBeLessThan(manySlots.length);
   });
 
   it("should not apply date range rules outside the range", () => {
@@ -159,7 +223,8 @@ describe("RulesEngine", () => {
     const engine = new RulesEngine(sampleRules);
     expect(engine.getRules()).toHaveLength(2);
 
-    const newRules: Rule[] = [sampleRules[0]]; // Only one rule
+     
+    const newRules: Rule[] = [sampleRules[0]!]; // Only one rule
     engine.updateRules(newRules);
     expect(engine.getRules()).toHaveLength(1);
   });
@@ -200,9 +265,9 @@ describe("RulesEngine", () => {
     );
 
     expect(result.ruleTrace).toBeDefined();
-    expect(result.ruleTrace.length).toBe(2); // Both rules should be in the trace
-    expect(result.ruleTrace[0]).toHaveProperty("ruleName");
-    expect(result.ruleTrace[0]).toHaveProperty("applied");
-    expect(result.ruleTrace[0]).toHaveProperty("reason");
+    expect(result.ruleTrace?.length).toBe(2); // Both rules should be in the trace
+    expect(result.ruleTrace?.[0]).toHaveProperty("ruleName");
+    expect(result.ruleTrace?.[0]).toHaveProperty("applied");
+    expect(result.ruleTrace?.[0]).toHaveProperty("reason");
   });
 });

@@ -5,14 +5,17 @@
  * This provides a bridge between the UI components and the Convex backend
  */
 
-import type { PatientContext, Rule, RuleConfigurationVersion } from "./types";
+import type { DbRule, DbRuleConfiguration, PatientContext, Rule, RuleConfigurationVersion } from "./types";
 
+/* eslint-disable jsdoc/match-description, jsdoc/informative-docs */
 // Conversion utilities to transform between UI types and Convex types
 
 /**
- * Convert a Convex rule to UI Rule type
+ * Converts a Convex rule document to the UI Rule type.
+ * @param dbRule The database rule document from Convex
+ * @returns Converted Rule object for UI consumption
  */
-export function convertDbRuleToRule(dbRule: any): Rule {
+export function convertDbRuleToRule(dbRule: DbRule): Rule {
   return {
     actions: dbRule.actions,
     active: dbRule.active,
@@ -28,6 +31,7 @@ export function convertDbRuleToRule(dbRule: any): Rule {
  * Convert UI Rule to Convex-compatible format
  */
 export function convertRuleToDbRule(rule: Rule) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id, ...ruleData } = rule;
   return ruleData;
 }
@@ -36,7 +40,8 @@ export function convertRuleToDbRule(rule: Rule) {
  * Convert Convex rule configuration to UI type
  */
 export function convertDbConfigToConfig(
-  dbConfig: any,
+  dbConfig: DbRuleConfiguration,
+  ruleCount = 0,
 ): RuleConfigurationVersion {
   return {
     createdAt: new Date(Number(dbConfig.createdAt)),
@@ -44,7 +49,7 @@ export function convertDbConfigToConfig(
     description: dbConfig.description,
     id: dbConfig._id,
     isActive: dbConfig.isActive,
-    ruleCount: dbConfig.ruleCount || 0,
+    ruleCount,
     version: dbConfig.version,
   };
 }
@@ -220,3 +225,4 @@ export function validateRule(rule: Partial<Rule>): {
     valid: errors.length === 0,
   };
 }
+/* eslint-enable jsdoc/match-description, jsdoc/informative-docs */

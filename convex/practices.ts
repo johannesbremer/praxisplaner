@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/informative-docs */
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
@@ -72,6 +73,7 @@ export const updatePractice = mutation({
   handler: async (ctx, args) => {
     const { practiceId, ...updates } = args;
     const filteredUpdates = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       Object.entries(updates).filter(([, value]) => value !== undefined),
     );
 
@@ -160,6 +162,7 @@ export const updateBaseAvailability = mutation({
   handler: async (ctx, args) => {
     const { availabilityId, ...updates } = args;
     const filteredUpdates = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       Object.entries(updates).filter(([, value]) => value !== undefined),
     );
 
@@ -223,3 +226,4 @@ export const createAppointmentType = mutation({
   },
   returns: v.id("appointmentTypes"),
 });
+/* eslint-enable jsdoc/informative-docs */
