@@ -1,5 +1,9 @@
 This is a `TanStack Start` + `Convex` project.
 
+## Before You Start
+
+- I have a pretty strict linting setup. Please look at `tsconfig.json` and `eslint.config.js` to understand the rules.
+
 ## Required Before Each Commit
 
 - Run `pnpm gen && pnpm lint && pnpm tsc && pnpm format && pnpm test && pnpm build`
