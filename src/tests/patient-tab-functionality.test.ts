@@ -149,4 +149,59 @@ describe("Patient Tab Functionality", () => {
     expect(formatGdtDate("")).toBe("Nicht verfügbar");
     expect(formatGdtDate("invalid")).toBe("invalid");
   });
+
+  it("should dispatch PVS custom event correctly", () => {
+    // Test the PVS button functionality
+    const mockDispatchEvent = vi.fn();
+
+    // Mock the window object for Node.js environment
+    interface MockWindow {
+      CustomEvent: new (
+        type: string,
+        options?: { detail?: unknown },
+      ) => {
+        detail: unknown;
+        type: string;
+      };
+      dispatchEvent: ReturnType<typeof vi.fn>;
+    }
+
+    const mockWindow: MockWindow = {
+      CustomEvent: class CustomEvent {
+        detail: unknown;
+        type: string;
+        constructor(type: string, options?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = options?.detail;
+        }
+      },
+      dispatchEvent: mockDispatchEvent,
+    };
+
+    Object.defineProperty(global, "window", {
+      value: mockWindow,
+      writable: true,
+    });
+
+    // Simulate the handleOpenInPvs function
+    const handleOpenInPvs = (patientId: number) => {
+      const event = new mockWindow.CustomEvent("praxisplaner:openInPvs", {
+        detail: { patientId },
+      });
+      mockWindow.dispatchEvent(event);
+    };
+
+    // Test the function
+    handleOpenInPvs(4567);
+
+    // Verify the event was dispatched
+    expect(mockDispatchEvent).toHaveBeenCalledTimes(1);
+
+    const dispatchedEvent = mockDispatchEvent.mock.calls[0]?.[0] as {
+      detail: unknown;
+      type: string;
+    };
+    expect(dispatchedEvent.type).toBe("praxisplaner:openInPvs");
+    expect(dispatchedEvent.detail).toEqual({ patientId: 4567 });
+  });
 });

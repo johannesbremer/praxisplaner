@@ -4,7 +4,8 @@ import { useConvexQuery } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Calendar, MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { User, Calendar, MapPin, ExternalLink } from "lucide-react";
 
 interface PatientTabProps {
   patientId: Doc<"patients">["patientId"];
@@ -12,6 +13,13 @@ interface PatientTabProps {
 
 export function PatientTab({ patientId }: PatientTabProps) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
+
+  const handleOpenInPvs = () => {
+    const event = new CustomEvent("praxisplaner:openInPvs", {
+      detail: { patientId: patientId },
+    });
+    window.dispatchEvent(event);
+  };
 
   if (!patient) {
     return (
@@ -52,18 +60,28 @@ export function PatientTab({ patientId }: PatientTabProps) {
 
   return (
     <div className="container mx-auto max-w-4xl p-6 space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <User className="h-8 w-8 text-primary" />
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {typedPatient.firstName && typedPatient.lastName
-              ? `${typedPatient.firstName} ${typedPatient.lastName}`
-              : `Patient ${typedPatient.patientId}`}
-          </h1>
-          <p className="text-muted-foreground">
-            Patient ID: {typedPatient.patientId}
-          </p>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <User className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {typedPatient.firstName && typedPatient.lastName
+                ? `${typedPatient.firstName} ${typedPatient.lastName}`
+                : `Patient ${typedPatient.patientId}`}
+            </h1>
+            <p className="text-muted-foreground">
+              Patient ID: {typedPatient.patientId}
+            </p>
+          </div>
         </div>
+        <Button
+          onClick={handleOpenInPvs}
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Im PVS öffnen
+        </Button>
       </div>
 
       <div className="grid gap-6">
