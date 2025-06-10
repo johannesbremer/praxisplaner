@@ -15,7 +15,9 @@ export function PatientTab({ patientId }: PatientTabProps) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
 
   const handleOpenInPvs = () => {
-    console.log(`[PatientTab] Opening patient ${patientId} in PVS`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[PatientTab] Opening patient ${patientId} in PVS`);
+    }
     const event = new CustomEvent("praxisplaner:openInPvs", {
       detail: { patientId: patientId },
     });
