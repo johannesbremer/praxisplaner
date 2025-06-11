@@ -7,18 +7,17 @@ yarn.lock
 .env
 .vercel
 .output
-.vinxi
+.nitro
+.tanstack
 
 src/routeTree.gen.ts
 convex/_generated/
-app.config.timestamp_*.js
 coverage
 
 /build/
 /api/
 /server/build
 /public/build
-.vinxi
 # Sentry Config File
 .env.sentry-build-plugin
 
