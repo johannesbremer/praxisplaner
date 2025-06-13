@@ -8,9 +8,13 @@ jobs:
         with:
           token: ${{ secrets.PUSH2REP }}
 
+      - name: Prepare repository
+        uses: ./.github/actions/prepare
+
       - name: Update Convex Instructions
         run: |
           curl -sSL https://convex.link/convex_github_copilot_instructions -o .github/instructions/convex.instructions.md
+          pnpm exec prettier --write .github/instructions/convex.instructions.md
           if git diff --quiet ".github/instructions/convex.instructions.md"; then
             echo "Nothing to commit."
             exit 0

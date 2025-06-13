@@ -32,7 +32,7 @@ export default tseslint.config(
       ".nitro",
       ".tanstack",
       "dist",
-      ".github/instructions",
+      ".github/instructions/convex.instructions.md",
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
