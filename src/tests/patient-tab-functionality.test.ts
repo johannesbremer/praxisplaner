@@ -2,6 +2,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { PatientTabData } from "../types";
+
 // Mock the PatientTab component
 vi.mock("../components/PatientTab", () => ({
   PatientTab: ({ patientId }: { patientId: number }) =>
@@ -68,11 +70,6 @@ describe("Patient Tab Functionality", () => {
 
   it("should have tab management interface", () => {
     // Test that the interface types exist and work
-    interface PatientTabData {
-      patientId: number;
-      title: string;
-    }
-
     const mockTab: PatientTabData = {
       patientId: 123,
       title: "John Doe",

@@ -3,12 +3,13 @@
 import { useConvexQuery } from "@convex-dev/react-query";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { PatientTabData } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { User, Calendar, MapPin, ExternalLink } from "lucide-react";
 
 interface PatientTabProps {
-  patientId: Doc<"patients">["patientId"];
+  patientId: PatientTabData["patientId"];
 }
 
 export function PatientTab({ patientId }: PatientTabProps) {

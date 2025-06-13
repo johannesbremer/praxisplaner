@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type {
-  FileSystemChangeRecord,
-  FileSystemFileHandle,
-} from "../types/file-system";
+import type { FileSystemChangeRecord, FileSystemFileHandle } from "../types";
 
 // Mock the global FileSystemObserver
 const mockObserver = {

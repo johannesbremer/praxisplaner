@@ -12,9 +12,11 @@ import {
 import type {
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
-  BrowserPermissionState,
   FileSystemObserver,
-} from "../types/file-system";
+  BrowserPermissionState,
+  PermissionStatus,
+  PatientTabData,
+} from "../types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,14 +47,6 @@ import {
   parseGdtContent,
   extractPatientData,
 } from "../../convex/gdt/processing";
-
-// Local type for PermissionState used in this component
-type PermissionStatus = BrowserPermissionState | "error" | null;
-
-interface PatientTabData {
-  patientId: Doc<"patients">["patientId"];
-  title: string;
-}
 
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
