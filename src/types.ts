@@ -1,4 +1,4 @@
-// src/types/types.ts
+// src/types.ts
 
 import type { Doc } from "../convex/_generated/dataModel";
 
