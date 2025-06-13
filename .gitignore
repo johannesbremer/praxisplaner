@@ -1,25 +1,18 @@
 node_modules
 package-lock.json
-yarn.lock
 
 .DS_Store
 .cache
 .env
-.vercel
+.env.local
 .output
 .nitro
 .tanstack
 
 src/routeTree.gen.ts
 convex/_generated/
-coverage
 
 /build/
 /api/
 /server/build
 /public/build
-
-# Sentry Config File
-.env.sentry-build-plugin
-
-.env.local

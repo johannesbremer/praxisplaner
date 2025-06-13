@@ -22,7 +22,6 @@ export default tseslint.config(
   {
     ignores: [
       "**/*.snap",
-      "coverage",
       "node_modules",
       "pnpm-lock.yaml",
       "convex/_generated/",
