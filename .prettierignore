@@ -3,7 +3,6 @@ src/routeTree.gen.ts
 node_modules
 .pnpm-store
 .output
-.vinxi
-coverage
-app.config.timestamp_*.js
+.nitro
+.tanstack
 .github/instructions

@@ -29,6 +29,7 @@
     "paths": {
       "@/*": ["./*"]
     },
+    "types": ["vite/client"],
     "noEmit": true
   }
 }
