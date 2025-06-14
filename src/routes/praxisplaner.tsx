@@ -1,14 +1,7 @@
 // src/routes/praxisplaner.tsx
 
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  Suspense,
-  lazy,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
@@ -30,14 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PatientTab } from "../components/PatientTab";
 import { Settings, User, X } from "lucide-react";
-
-// Lazy load PatientTab component for better code splitting
-const PatientTab = lazy(() =>
-  import("../components/PatientTab").then((module) => ({
-    default: module.PatientTab,
-  })),
-);
 
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { useConvexMutation } from "@convex-dev/react-query";
@@ -853,20 +840,7 @@ function PraxisPlanerComponent() {
               value={`patient-${tab.patientId}`}
               className="h-full overflow-auto"
             >
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center h-64">
-                    <div className="text-center space-y-2">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                      <p className="text-muted-foreground">
-                        Lade Patientendaten...
-                      </p>
-                    </div>
-                  </div>
-                }
-              >
-                <PatientTab patientId={tab.patientId} />
-              </Suspense>
+              <PatientTab patientId={tab.patientId} />
             </TabsContent>
           ))}
         </div>
