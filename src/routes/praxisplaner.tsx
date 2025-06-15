@@ -135,24 +135,22 @@ function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    if (globalThis.window !== undefined) {
-      const supported = "showDirectoryPicker" in globalThis;
-      setIsFsaSupported(supported);
-      if (!supported) {
-        setGdtError(
-          "File System Access API (showDirectoryPicker) is not supported by your browser.",
-        );
-        setIsLoadingHandle(false);
-        return;
-      }
-      if (!globalThis.isSecureContext) {
-        setGdtError(
-          "File System Access API requires a secure context (HTTPS or localhost).",
-        );
-        setIsFsaSupported(false);
-        setIsLoadingHandle(false);
-        return;
-      }
+    const supported = "showDirectoryPicker" in globalThis;
+    setIsFsaSupported(supported);
+    if (!supported) {
+      setGdtError(
+        "File System Access API (showDirectoryPicker) is not supported by your browser.",
+      );
+      setIsLoadingHandle(false);
+      return;
+    }
+    if (!globalThis.isSecureContext) {
+      setGdtError(
+        "File System Access API requires a secure context (HTTPS or localhost).",
+      );
+      setIsFsaSupported(false);
+      setIsLoadingHandle(false);
+      return;
     }
   }, []);
 
@@ -335,9 +333,11 @@ function PraxisPlanerComponent() {
       // Set flag to prevent race condition with loadPersistedHandle
       isUserSelectingReference.current = true;
 
-      const handle = await globalThis.showDirectoryPicker({
+      // Experimental browser API - type assertion needed
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      const handle = (await (globalThis as any).showDirectoryPicker({
         mode: "readwrite",
-      });
+      })) as FileSystemDirectoryHandle;
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);
@@ -592,7 +592,10 @@ function PraxisPlanerComponent() {
 
             // Process file change records
             const gdtFiles = records.filter((record) => {
-              const fileName = record.relativePathComponents.at(-1);
+              const fileName =
+                record.relativePathComponents[
+                  record.relativePathComponents.length - 1
+                ];
               return (
                 record.type === "appeared" &&
                 record.changedHandle.kind === "file" &&

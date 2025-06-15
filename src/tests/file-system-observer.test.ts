@@ -13,14 +13,10 @@ const MockFileSystemObserver = vi.fn().mockImplementation(() => mockObserver);
 
 // Mock global FileSystemObserver for tests
 // We use type assertion here because we're mocking experimental browser APIs in a test environment
-type MockWindow = typeof globalThis & { FileSystemObserver?: unknown };
-const globalWithFileSystemObserver = globalThis as typeof globalThis & {
-  window: MockWindow;
-};
-
-// Initialize window and FileSystemObserver
-globalWithFileSystemObserver.window = {} as MockWindow;
-globalWithFileSystemObserver.window.FileSystemObserver = MockFileSystemObserver;
+Object.defineProperty(globalThis, "FileSystemObserver", {
+  value: MockFileSystemObserver,
+  writable: true,
+});
 
 describe("FileSystemObserver Integration", () => {
   beforeEach(() => {
@@ -28,13 +24,13 @@ describe("FileSystemObserver Integration", () => {
   });
 
   test("FileSystemObserver should be available on window", () => {
-    expect(globalThis.FileSystemObserver).toBeDefined();
-    expect(typeof globalThis.FileSystemObserver).toBe("function");
+    expect((globalThis as any).FileSystemObserver).toBeDefined();
+    expect(typeof (globalThis as any).FileSystemObserver).toBe("function");
   });
 
   test("FileSystemObserver should be constructable with callback", () => {
     const callback = vi.fn();
-    const observer = new globalThis.FileSystemObserver(callback);
+    const observer = new (globalThis as any).FileSystemObserver(callback);
 
     expect(MockFileSystemObserver).toHaveBeenCalledWith(callback);
     expect(observer).toEqual(mockObserver);
@@ -42,7 +38,7 @@ describe("FileSystemObserver Integration", () => {
 
   test("observer should have required methods", () => {
     const callback = vi.fn();
-    const observer = new globalThis.FileSystemObserver(callback);
+    const observer = new (globalThis as any).FileSystemObserver(callback);
 
     expect(typeof observer.observe).toBe("function");
     expect(typeof observer.unobserve).toBe("function");
@@ -51,7 +47,7 @@ describe("FileSystemObserver Integration", () => {
 
   test("observer callback should handle GDT file detection", async () => {
     const callback = vi.fn();
-    const observer = new globalThis.FileSystemObserver(callback);
+    const observer = new (globalThis as any).FileSystemObserver(callback);
 
     // Mock a file change record for a GDT file
     const mockGdtFile: Partial<FileSystemFileHandle> = {

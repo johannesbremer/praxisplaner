@@ -13,7 +13,7 @@ export function dispatchCustomEvent(
   target: EventTarget = globalThis,
 ): boolean {
   // Check if we're in a browser environment
-  if (globalThis.window === undefined || typeof CustomEvent === "undefined") {
+  if (typeof CustomEvent === "undefined") {
     return false;
   }
 
@@ -31,10 +31,8 @@ export function dispatchCustomEvent(
  */
 export function isFileSystemObserverSupported(): boolean {
   return (
-    globalThis.window !== undefined &&
-    "FileSystemObserver" in globalThis &&
-    typeof (globalThis as unknown as { FileSystemObserver?: unknown })
-      .FileSystemObserver === "function"
+    "FileSystemObserver" in window &&
+    typeof window.FileSystemObserver === "function"
   );
 }
 
@@ -42,11 +40,7 @@ export function isFileSystemObserverSupported(): boolean {
  * Check if we're in a secure context with File System Access API support.
  */
 export function isFileSystemAccessSupported(): boolean {
-  return (
-    globalThis.window !== undefined &&
-    globalThis.isSecureContext &&
-    "showDirectoryPicker" in globalThis
-  );
+  return globalThis.isSecureContext && "showDirectoryPicker" in globalThis;
 }
 
 /**
