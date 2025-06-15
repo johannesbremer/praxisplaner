@@ -10,6 +10,7 @@ import type { Doc } from "../../convex/_generated/dataModel";
 import type { PatientTabData } from "../types";
 
 import { api } from "../../convex/_generated/api";
+import { dispatchCustomEvent } from "../utils/browser-api";
 
 interface PatientTabProps {
   patientId: PatientTabData["patientId"];
@@ -19,13 +20,7 @@ export function PatientTab({ patientId }: PatientTabProps) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
 
   const handleOpenInPvs = () => {
-    // Use a type guard for CustomEvent to handle Node.js compatibility
-    if (typeof CustomEvent !== 'undefined') {
-      const event = new CustomEvent("praxisplaner:openInPvs", {
-        detail: { patientId },
-      });
-      window.dispatchEvent(event);
-    }
+    dispatchCustomEvent("praxisplaner:openInPvs", { patientId });
   };
 
   if (!patient) {

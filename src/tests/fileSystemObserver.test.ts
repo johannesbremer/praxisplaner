@@ -12,10 +12,15 @@ const mockObserver = {
 const MockFileSystemObserver = vi.fn().mockImplementation(() => mockObserver);
 
 // Mock global FileSystemObserver for tests
-// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-(globalThis as any).window = (globalThis as any).window || {};
-// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-(globalThis as any).window.FileSystemObserver = MockFileSystemObserver;
+// We use type assertion here because we're mocking experimental browser APIs in a test environment
+type MockWindow = typeof window & { FileSystemObserver?: unknown };
+const globalWithFileSystemObserver = globalThis as typeof globalThis & {
+  window: MockWindow;
+};
+
+// Initialize window and FileSystemObserver
+globalWithFileSystemObserver.window = {} as MockWindow;
+globalWithFileSystemObserver.window.FileSystemObserver = MockFileSystemObserver;
 
 describe("FileSystemObserver Integration", () => {
   beforeEach(() => {

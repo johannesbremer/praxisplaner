@@ -90,8 +90,9 @@ export interface FileSystemWritableFileStream
 
 // --- FileSystemObserver API Types ---
 
+// FileSystemChangeRecord interface for FileSystemObserver
 export interface FileSystemChangeRecord {
-  changedHandle: FileSystemHandle;
+  changedHandle: FileSystemDirectoryHandle | FileSystemFileHandle;
   relativePathComponents: string[];
   type: "appeared" | "disappeared" | "modified";
 }

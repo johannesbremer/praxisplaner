@@ -12,8 +12,10 @@ import {
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import * as React from "react";
 import { Toaster } from "sonner";
-import appCss from "src/styles/app.css?url";
-import { seo } from "src/utils/seo"; // Make sure this is uncommented
+
+import appCss from "../styles/app.css?url";
+import { seo } from "../utils/seo"; // Make sure this is uncommented
+
 // Icons and UI components for the HomePage content
 import { Bug, Calendar, Clock, FileText, Settings } from "lucide-react";
 
@@ -29,7 +31,7 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
   component: RootComponent,
-  errorComponent: (props: { error: any; reset: () => void }) => {
+  errorComponent: (props: { error: Error; reset: () => void }) => {
     return (
       <RootDocument>
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>

@@ -113,7 +113,9 @@ export default function VersionsView() {
 
                   <div className="flex gap-2">
                     <Button
-                      onClick={() => { handleViewVersion(version.id); }}
+                      onClick={() => {
+                        handleViewVersion(version.id);
+                      }}
                       size="sm"
                       variant="outline"
                     >
@@ -122,7 +124,9 @@ export default function VersionsView() {
                     </Button>
                     {!version.isActive && (
                       <Button
-                        onClick={() => { handleActivateVersion(version.id); }}
+                        onClick={() => {
+                          handleActivateVersion(version.id);
+                        }}
                         size="sm"
                         variant="outline"
                       >

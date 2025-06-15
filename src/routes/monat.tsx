@@ -51,20 +51,26 @@ export default function MonthView() {
           </h2>
           <div className="flex gap-2">
             <Button
-              onClick={() => { setCurrentMonth(subMonths(currentMonth, 1)); }}
+              onClick={() => {
+                setCurrentMonth(subMonths(currentMonth, 1));
+              }}
               size="icon"
               variant="outline"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
-              onClick={() => { setCurrentMonth(new Date()); }}
+              onClick={() => {
+                setCurrentMonth(new Date());
+              }}
               variant="outline"
             >
               Heute
             </Button>
             <Button
-              onClick={() => { setCurrentMonth(addMonths(currentMonth, 1)); }}
+              onClick={() => {
+                setCurrentMonth(addMonths(currentMonth, 1));
+              }}
               size="icon"
               variant="outline"
             >

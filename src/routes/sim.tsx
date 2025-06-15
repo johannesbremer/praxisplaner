@@ -102,12 +102,12 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="patient-type">Patiententyp</Label>
                   <Select
-                    onValueChange={(value) =>
-                      { setPatientContext({
+                    onValueChange={(value) => {
+                      setPatientContext({
                         ...patientContext,
                         isNewPatient: value === "new",
-                      }); }
-                    }
+                      });
+                    }}
                     value={patientContext.isNewPatient ? "new" : "existing"}
                   >
                     <SelectTrigger id="patient-type">
@@ -150,12 +150,12 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="assigned-doctor">Zugewiesener Arzt</Label>
                   <Select
-                    onValueChange={(value) =>
-                      { setPatientContext({
+                    onValueChange={(value) => {
+                      setPatientContext({
                         ...patientContext,
                         assignedDoctor: value === "none" ? null : value,
-                      }); }
-                    }
+                      });
+                    }}
                     value={patientContext.assignedDoctor || "none"}
                   >
                     <SelectTrigger id="assigned-doctor">
@@ -175,12 +175,12 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="last-visit">Letzter Besuch</Label>
                   <Select
-                    onValueChange={(value) =>
-                      { setPatientContext({
+                    onValueChange={(value) => {
+                      setPatientContext({
                         ...patientContext,
                         lastVisit: value === "never" ? null : value,
-                      }); }
-                    }
+                      });
+                    }}
                     value={patientContext.lastVisit || "never"}
                   >
                     <SelectTrigger id="last-visit">
@@ -202,7 +202,11 @@ export default function DebugView() {
                   className="rounded-md border"
                   locale={de}
                   mode="single"
-                  onSelect={(date) => date && setSelectedDate(date)}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedDate(date);
+                    }
+                  }}
                   selected={selectedDate}
                 />
               </div>
@@ -211,7 +215,7 @@ export default function DebugView() {
                 <Button
                   className="flex-1 sm:flex-none"
                   disabled={isLoading}
-                  onClick={runSimulation}
+                  onClick={() => void runSimulation()}
                 >
                   <Play className="h-4 w-4 mr-2" />
                   {isLoading ? "Simulation läuft..." : "Simulation starten"}

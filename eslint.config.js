@@ -102,7 +102,13 @@ export default tseslint.config(
       "n/no-unsupported-features/node-builtins": [
         "error",
         {
-          ignores: ["File", "WritableStream", "Blob"],
+          ignores: [
+            "File",
+            "WritableStream",
+            "Blob",
+            "CustomEvent",
+            "DOMException",
+          ],
         },
       ],
       "no-useless-rename": "error",

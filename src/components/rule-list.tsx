@@ -66,13 +66,23 @@ export function RuleList({ onDelete, onEdit, onToggle, rules }: RuleListProps) {
             <div className="flex items-center gap-2">
               <Switch
                 checked={rule.active}
-                onCheckedChange={() => { onToggle(rule.id); }}
+                onCheckedChange={() => {
+                  onToggle(rule.id);
+                }}
               />
-              <Button onClick={() => { onEdit(rule); }} size="icon" variant="ghost">
+              <Button
+                onClick={() => {
+                  onEdit(rule);
+                }}
+                size="icon"
+                variant="ghost"
+              >
                 <Edit2 className="h-4 w-4" />
               </Button>
               <Button
-                onClick={() => { onDelete(rule.id); }}
+                onClick={() => {
+                  onDelete(rule.id);
+                }}
                 size="icon"
                 variant="ghost"
               >

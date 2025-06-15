@@ -82,7 +82,7 @@ interface RuleEditorProps {
 
 export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
   const [formData, setFormData] = useState<Rule>(
-    rule || {
+    rule ?? {
       actions: {}, // Start with empty actions, will be populated by form
       active: true,
       conditions: {},
@@ -96,7 +96,7 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
   // Synchronize formData if the rule prop changes (e.g., when editing a different rule)
   useEffect(() => {
     setFormData(
-      rule || {
+      rule ?? {
         actions: {},
         active: true,
         conditions: {},
@@ -158,9 +158,9 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
               <Label htmlFor="name">Regelname</Label>
               <Input
                 id="name"
-                onChange={(e) =>
-                  { setFormData({ ...formData, name: e.target.value }); }
-                }
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                }}
                 placeholder="z.B. Neue Patienten - Ersttermin"
                 required
                 value={formData.name}
@@ -170,9 +170,9 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
             <div className="space-y-2">
               <Label htmlFor="type">Regeltyp</Label>
               <Select
-                onValueChange={(value) =>
-                  { setFormData({ ...formData, type: value as Rule["type"] }); }
-                }
+                onValueChange={(value) => {
+                  setFormData({ ...formData, type: value as Rule["type"] });
+                }}
                 value={formData.type}
               >
                 <SelectTrigger id="type">
@@ -203,14 +203,14 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                 <div className="space-y-2">
                   <Label htmlFor="patient-type">Patiententyp</Label>
                   <Select
-                    onValueChange={(value) =>
-                      { handleConditionChange(
+                    onValueChange={(value) => {
+                      handleConditionChange(
                         "patientType",
                         value === "all"
                           ? undefined
                           : (value as "existing" | "new"),
-                      ); }
-                    }
+                      );
+                    }}
                     value={formData.conditions.patientType || "all"}
                   >
                     <SelectTrigger id="patient-type">
@@ -234,12 +234,12 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                   </Label>
                   <Input
                     id="appointment-type"
-                    onChange={(e) =>
-                      { handleConditionChange(
+                    onChange={(e) => {
+                      handleConditionChange(
                         "appointmentType",
                         e.target.value || undefined,
-                      ); }
-                    }
+                      );
+                    }}
                     placeholder="z.B. Erstberatung, Grippeimpfung"
                     value={formData.conditions.appointmentType || ""}
                   />
@@ -255,9 +255,9 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                   <Switch
                     checked={formData.actions.requireExtraTime || false}
                     id="extra-time"
-                    onCheckedChange={(checked) =>
-                      { handleActionChange("requireExtraTime", checked); }
-                    }
+                    onCheckedChange={(checked) => {
+                      handleActionChange("requireExtraTime", checked);
+                    }}
                   />
                 </div>
 
@@ -294,11 +294,7 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                     }}
                     placeholder="Keine Begrenzung"
                     type="number"
-                    value={
-                      formData.actions.limitPerDay === undefined
-                        ? ""
-                        : formData.actions.limitPerDay
-                    }
+                    value={formData.actions.limitPerDay ?? ""}
                   />
                 </div>
                 {/* Add more action fields here based on Rule['actions'] type */}
@@ -331,9 +327,9 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
               <Switch
                 checked={formData.active}
                 id="active"
-                onCheckedChange={(checked) =>
-                  { setFormData({ ...formData, active: checked }); }
-                }
+                onCheckedChange={(checked) => {
+                  setFormData({ ...formData, active: checked });
+                }}
               />
               <Label htmlFor="active">Regel aktiv</Label>
             </div>

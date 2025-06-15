@@ -59,20 +59,26 @@ export default function WeekView() {
           </p>
           <div className="flex gap-2">
             <Button
-              onClick={() => { setCurrentWeek(subWeeks(currentWeek, 1)); }}
+              onClick={() => {
+                setCurrentWeek(subWeeks(currentWeek, 1));
+              }}
               size="icon"
               variant="outline"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
-              onClick={() => { setCurrentWeek(new Date()); }}
+              onClick={() => {
+                setCurrentWeek(new Date());
+              }}
               variant="outline"
             >
               Heute
             </Button>
             <Button
-              onClick={() => { setCurrentWeek(addWeeks(currentWeek, 1)); }}
+              onClick={() => {
+                setCurrentWeek(addWeeks(currentWeek, 1));
+              }}
               size="icon"
               variant="outline"
             >
