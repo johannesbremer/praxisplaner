@@ -12,6 +12,7 @@ package-lock.json
 src/routeTree.gen.ts
 convex/_generated/
 bundle-analysis.json
+stats.html
 
 /build/
 /api/

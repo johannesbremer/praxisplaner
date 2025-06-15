@@ -6,3 +6,4 @@ node_modules
 .nitro
 .tanstack
 bundle-analysis.json
+stats.html
