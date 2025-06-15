@@ -84,7 +84,7 @@ describe("File System Access API Functionality", () => {
 
   test("storage reduction should significantly decrease data size", () => {
     // Compare old vs new payload sizes
-    const largeFileContent = "0".repeat(10000); // Simulate large GDT file
+    const largeFileContent = "0".repeat(10_000); // Simulate large GDT file
 
     // Old payload (what we removed)
     const oldPayload = {

@@ -20,7 +20,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { Doc } from "../../convex/_generated/dataModel";
+import type { Doc as Document_ } from "../../convex/_generated/dataModel";
 import type {
   BrowserPermissionState,
   FileSystemDirectoryHandle,
@@ -52,13 +52,13 @@ function PraxisPlanerComponent() {
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
-  const [gdtDirPermission, setGdtDirPermission] =
+  const [gdtDirectoryPermission, setGdtDirectoryPermission] =
     useState<PermissionStatus>(null);
   const [gdtLog, setGdtLog] = useState<string[]>([]);
   const [gdtError, setGdtError] = useState<null | string>(null);
-  const gdtFileObserverRef = useRef<null | SafeFileSystemObserver>(null);
+  const gdtFileObserverReference = useRef<null | SafeFileSystemObserver>(null);
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
-  const isUserSelectingRef = useRef(false);
+  const isUserSelectingReference = useRef(false);
 
   // Tab management state
   const [activeTab, setActiveTab] = useState<string>("settings");
@@ -71,15 +71,15 @@ function PraxisPlanerComponent() {
   const upsertPatientMutation = useConvexMutation(api.patients.upsertPatient);
 
   const addGdtLog = useCallback((message: string) => {
-    setGdtLog((prev) => [
-      ...prev.slice(-29),
+    setGdtLog((previous) => [
+      ...previous.slice(-29),
       `[${new Date().toLocaleTimeString()}] ${message}`,
     ]);
   }, []);
 
   // Tab management functions
   const openPatientTab = useCallback(
-    (patientId: Doc<"patients">["patientId"], patientName?: string) => {
+    (patientId: Document_<"patients">["patientId"], patientName?: string) => {
       const tabId = `patient-${patientId}`;
       const title = patientName || `Patient ${patientId}`;
 
@@ -100,7 +100,7 @@ function PraxisPlanerComponent() {
         title,
       };
 
-      setPatientTabs((prev) => [...prev, newTab]);
+      setPatientTabs((previous) => [...previous, newTab]);
       setActiveTab(tabId);
       addGdtLog(`📋 Opened new tab for Patient ${patientId}.`);
     },
@@ -108,10 +108,10 @@ function PraxisPlanerComponent() {
   );
 
   const closePatientTab = useCallback(
-    (patientId: Doc<"patients">["patientId"]) => {
+    (patientId: Document_<"patients">["patientId"]) => {
       const tabId = `patient-${patientId}`;
-      setPatientTabs((prev) =>
-        prev.filter((tab) => tab.patientId !== patientId),
+      setPatientTabs((previous) =>
+        previous.filter((tab) => tab.patientId !== patientId),
       );
 
       // If we're closing the active tab, switch to settings
@@ -125,8 +125,8 @@ function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const supported = "showDirectoryPicker" in window;
+    if (globalThis.window !== undefined) {
+      const supported = "showDirectoryPicker" in globalThis;
       setIsFsaSupported(supported);
       if (!supported) {
         setGdtError(
@@ -135,7 +135,7 @@ function PraxisPlanerComponent() {
         setIsLoadingHandle(false);
         return;
       }
-      if (!window.isSecureContext) {
+      if (!globalThis.isSecureContext) {
         setGdtError(
           "File System Access API requires a secure context (HTTPS or localhost).",
         );
@@ -153,7 +153,7 @@ function PraxisPlanerComponent() {
       loggingContext = "general",
     ): Promise<boolean> => {
       if (!handle) {
-        setGdtDirPermission(null);
+        setGdtDirectoryPermission(null);
         return false;
       }
 
@@ -165,20 +165,14 @@ function PraxisPlanerComponent() {
         addGdtLog(
           `[Perm] ${withRequest ? "Requesting" : "Querying"} 'readwrite' for "${handle.name}" (Ctx: ${loggingContext})...`,
         );
-        if (withRequest) {
-          resultingPermissionState =
-            await handle.requestPermission(permissionOptions);
-        } else {
-          resultingPermissionState =
-            await handle.queryPermission(permissionOptions);
-        }
+        resultingPermissionState = await (withRequest ? handle.requestPermission(permissionOptions) : handle.queryPermission(permissionOptions));
 
         // Permission logging now handled via IndexDB instead of Convex
         addGdtLog(
           `[Perm] Permission ${operationType}: ${handle.name}, ${resultingPermissionState}, Ctx: ${loggingContext}`,
         );
 
-        setGdtDirPermission(resultingPermissionState);
+        setGdtDirectoryPermission(resultingPermissionState);
 
         // Store permission metadata in IndexedDB to avoid split brain issues
         try {
@@ -205,7 +199,7 @@ function PraxisPlanerComponent() {
         // Error logging now handled via IndexDB instead of Convex
         addGdtLog(`[Perm] ERROR for "${handle.name}": ${errorMessage}`);
 
-        setGdtDirPermission("error");
+        setGdtDirectoryPermission("error");
 
         // Store error state in IndexedDB
         try {
@@ -255,7 +249,7 @@ function PraxisPlanerComponent() {
     }
     const loadPersistedHandle = async () => {
       // Skip if user is actively selecting a directory to avoid race condition
-      if (isUserSelectingRef.current) {
+      if (isUserSelectingReference.current) {
         addGdtLog(
           "Skipping persistence recovery - user selection in progress.",
         );
@@ -288,7 +282,7 @@ function PraxisPlanerComponent() {
                 `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
               );
               // Set the cached permission, but still verify it below
-              setGdtDirPermission(permissionMetadata.permission);
+              setGdtDirectoryPermission(permissionMetadata.permission);
             }
           } catch (permError) {
             console.warn(
@@ -310,49 +304,49 @@ function PraxisPlanerComponent() {
       }
       setIsLoadingHandle(false);
     };
-    if (isFsaSupported && window.isSecureContext) {
+    if (isFsaSupported && globalThis.isSecureContext) {
       void loadPersistedHandle();
     }
   }, [isFsaSupported, addGdtLog, verifyAndSetPermission]);
 
   const selectGdtDirectory = async () => {
-    if (!isFsaSupported || !window.isSecureContext) {
+    if (!isFsaSupported || !globalThis.isSecureContext) {
       setGdtError(
-        !isFsaSupported ? "FSA not supported." : "Secure context required.",
+        isFsaSupported ? "Secure context required." : "FSA not supported.",
       );
       addGdtLog(
-        `❌ ${!isFsaSupported ? "FSA not supported." : "Secure context required."}`,
+        `❌ ${isFsaSupported ? "Secure context required." : "FSA not supported."}`,
       );
       return;
     }
     try {
       // Set flag to prevent race condition with loadPersistedHandle
-      isUserSelectingRef.current = true;
+      isUserSelectingReference.current = true;
 
-      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const handle = await globalThis.showDirectoryPicker({ mode: "readwrite" });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);
       setGdtDirectoryHandle(handle);
       await verifyAndSetPermission(handle, true, "user selected new directory");
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
         addGdtLog("Directory selection aborted by user.");
       } else {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         setGdtError(`Error selecting directory: ${errorMessage}`);
         addGdtLog(`❌ Error selecting directory: ${errorMessage}`);
       }
     } finally {
       // Clear flag after selection is complete
-      isUserSelectingRef.current = false;
+      isUserSelectingReference.current = false;
     }
   };
 
   const forgetGdtDirectory = useCallback(async () => {
-    if (gdtFileObserverRef.current) {
-      gdtFileObserverRef.current.disconnect();
-      gdtFileObserverRef.current = null;
+    if (gdtFileObserverReference.current) {
+      gdtFileObserverReference.current.disconnect();
+      gdtFileObserverReference.current = null;
     }
     const name = gdtDirectoryHandle?.name;
     addGdtLog(
@@ -369,13 +363,13 @@ function PraxisPlanerComponent() {
           ? `Removed handle & permission metadata for "${name}" from IndexedDB.`
           : "Cleared stored handle/preference.",
       );
-    } catch (e) {
+    } catch (error) {
       addGdtLog(
-        `Error forgetting directory: ${e instanceof Error ? e.message : String(e)}`,
+        `Error forgetting directory: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     setGdtDirectoryHandle(null);
-    setGdtDirPermission(null);
+    setGdtDirectoryPermission(null);
   }, [gdtDirectoryHandle, addGdtLog]);
 
   const parseAndProcessGdtFile = useCallback(
@@ -385,14 +379,14 @@ function PraxisPlanerComponent() {
     ) => {
       let fileContent = "";
       const fileName = fileHandle.name;
-      let procErrorMessage: string | undefined = undefined;
+      let procErrorMessage: string | undefined;
 
       try {
         addGdtLog(`📄 Processing "${fileName}"...`);
         const file = await fileHandle.getFile();
         fileContent = await file.text();
         addGdtLog(
-          `📜 Content (100 chars): ${fileContent.substring(0, 100)}...`,
+          `📜 Content (100 chars): ${fileContent.slice(0, 100)}...`,
         );
 
         // Parse GDT content and extract patient data
@@ -450,14 +444,14 @@ function PraxisPlanerComponent() {
 
         await dirHandle.removeEntry(fileName);
         addGdtLog(`🗑️ Deleted "${fileName}".`);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        addGdtLog(`❌ Error with "${fileName}": ${errorMessage}`);
 
         // Error logging now handled via IndexDB instead of Convex
         try {
           await idbSet(`gdt_error_${fileName}_${Date.now()}`, {
-            error: errorMsg,
+            error: errorMessage,
             fileName,
             timestamp: Date.now(),
           });
@@ -469,8 +463,8 @@ function PraxisPlanerComponent() {
         }
 
         if (
-          isDOMException(err) &&
-          (err.name === "NotAllowedError" || err.name === "SecurityError")
+          isDOMException(error) &&
+          (error.name === "NotAllowedError" || error.name === "SecurityError")
         ) {
           addGdtLog(
             `🚨 Delete failed for "${fileName}". Re-checking permissions.`,
@@ -487,7 +481,7 @@ function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    if (gdtDirectoryHandle && gdtDirPermission === "granted") {
+    if (gdtDirectoryHandle && gdtDirectoryPermission === "granted") {
       addGdtLog(
         `🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`,
       );
@@ -497,7 +491,7 @@ function PraxisPlanerComponent() {
         addGdtLog(
           "❌ FileSystemObserver API not supported. Falling back to error state.",
         );
-        setGdtDirPermission("error");
+        setGdtDirectoryPermission("error");
         return;
       }
 
@@ -520,11 +514,11 @@ function PraxisPlanerComponent() {
 
               // Log permission changes
 
-              if (currentPermission !== gdtDirPermission) {
+              if (currentPermission !== gdtDirectoryPermission) {
                 addGdtLog(
-                  `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission}' -> '${currentPermission}'.`,
+                  `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirectoryPermission}' -> '${currentPermission}'.`,
                 );
-                setGdtDirPermission(currentPermission);
+                setGdtDirectoryPermission(currentPermission);
 
                 // Store updated permission in IndexedDB
                 try {
@@ -549,22 +543,22 @@ function PraxisPlanerComponent() {
                   `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
                 );
                 observer.disconnect();
-                gdtFileObserverRef.current = null;
+                gdtFileObserverReference.current = null;
                 return;
               }
-            } catch (err) {
-              const errorMsg = err instanceof Error ? err.message : String(err);
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
               addGdtLog(
-                `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
+                `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMessage}`,
               );
               // Error logging now handled via IndexDB instead of Convex
-              setGdtDirPermission("error");
+              setGdtDirectoryPermission("error");
 
               // Store error state in IndexedDB
               try {
                 await idbSet(IDB_GDT_PERMISSION_KEY, {
                   context: "FileSystemObserver permission query error",
-                  errorMessage: errorMsg,
+                  errorMessage,
                   handleName: gdtDirectoryHandle.name,
                   permission: "error",
                   timestamp: Date.now(),
@@ -577,16 +571,16 @@ function PraxisPlanerComponent() {
               }
 
               observer.disconnect();
-              gdtFileObserverRef.current = null;
+              gdtFileObserverReference.current = null;
               return;
             }
 
             // Process file change records
             const gdtFiles = records.filter((record) => {
               const fileName =
-                record.relativePathComponents[
-                  record.relativePathComponents.length - 1
-                ];
+                record.relativePathComponents.at(
+                  -1
+                );
               return (
                 record.type === "appeared" &&
                 record.changedHandle.kind === "file" &&
@@ -605,10 +599,10 @@ function PraxisPlanerComponent() {
                     gdtDirectoryHandle,
                     record.changedHandle as FileSystemFileHandle,
                   );
-                } catch (err) {
-                  const errorMsg =
-                    err instanceof Error ? err.message : String(err);
-                  addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
+                } catch (error) {
+                  const errorMessage =
+                    error instanceof Error ? error.message : String(error);
+                  addGdtLog(`❌ Error processing detected file: ${errorMessage}`);
                 }
               }
             }
@@ -616,16 +610,16 @@ function PraxisPlanerComponent() {
 
           // Start observing the directory
           await observer.observe(gdtDirectoryHandle, { recursive: false });
-          gdtFileObserverRef.current = observer;
+          gdtFileObserverReference.current = observer;
           addGdtLog(
             `👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`,
           );
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           addGdtLog(
-            `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
+            `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMessage}`,
           );
-          setGdtDirPermission("error");
+          setGdtDirectoryPermission("error");
         }
       };
 
@@ -634,27 +628,27 @@ function PraxisPlanerComponent() {
       return () => {
         isObserverActive = false;
 
-        if (gdtFileObserverRef.current) {
-          gdtFileObserverRef.current.disconnect();
-          gdtFileObserverRef.current = null;
+        if (gdtFileObserverReference.current) {
+          gdtFileObserverReference.current.disconnect();
+          gdtFileObserverReference.current = null;
           addGdtLog(
             `🛑 FileSystemObserver stopped for "${gdtDirectoryHandle.name}" (component unmount or deps change).`,
           );
         }
       };
     } else {
-      if (gdtFileObserverRef.current) {
-        gdtFileObserverRef.current.disconnect();
-        gdtFileObserverRef.current = null;
+      if (gdtFileObserverReference.current) {
+        gdtFileObserverReference.current.disconnect();
+        gdtFileObserverReference.current = null;
         if (gdtDirectoryHandle) {
           addGdtLog(
-            `🛑 FileSystemObserver not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
+            `🛑 FileSystemObserver not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirectoryPermission || "none"}).`,
           );
         }
       }
-      return undefined;
+      return;
     }
-  }, [gdtDirectoryHandle, gdtDirPermission, addGdtLog, parseAndProcessGdtFile]);
+  }, [gdtDirectoryHandle, gdtDirectoryPermission, addGdtLog, parseAndProcessGdtFile]);
 
   if (isLoadingHandle || isFsaSupported === null) {
     return (
@@ -679,14 +673,14 @@ function PraxisPlanerComponent() {
             </AlertDescription>
           </Alert>
         )}
-        {isFsaSupported && !window.isSecureContext && (
+        {isFsaSupported && !globalThis.isSecureContext && (
           <Alert className="mb-4" variant="destructive">
             <AlertTitle>Secure Context Required</AlertTitle>
             <AlertDescription>HTTPS or localhost needed.</AlertDescription>
           </Alert>
         )}
 
-        {isFsaSupported && window.isSecureContext && (
+        {isFsaSupported && globalThis.isSecureContext && (
           <>
             <div className="flex flex-wrap gap-3 mb-6">
               <Button
@@ -720,26 +714,26 @@ function PraxisPlanerComponent() {
                     <span className="font-medium">Permission:</span>
                     <Badge
                       className={
-                        gdtDirPermission === "granted"
+                        gdtDirectoryPermission === "granted"
                           ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
-                          : gdtDirPermission === "denied" ||
-                              gdtDirPermission === "error"
+                          : (gdtDirectoryPermission === "denied" ||
+                              gdtDirectoryPermission === "error"
                             ? ""
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100")
                       }
                       variant={
-                        gdtDirPermission === "granted"
+                        gdtDirectoryPermission === "granted"
                           ? "secondary"
-                          : gdtDirPermission === "denied"
+                          : gdtDirectoryPermission === "denied"
                             ? "destructive"
-                            : gdtDirPermission === "error"
+                            : gdtDirectoryPermission === "error"
                               ? "destructive"
                               : "outline"
                       }
                     >
-                      {gdtDirPermission ?? "Unknown"}
+                      {gdtDirectoryPermission ?? "Unknown"}
                     </Badge>
-                    {gdtDirPermission === "prompt" && (
+                    {gdtDirectoryPermission === "prompt" && (
                       <Button
                         onClick={() => {
                           void verifyAndSetPermission(
@@ -758,7 +752,7 @@ function PraxisPlanerComponent() {
                 </CardContent>
               </Card>
             )}
-            {gdtDirPermission === "denied" && (
+            {gdtDirectoryPermission === "denied" && (
               <Alert className="mb-4" variant="destructive">
                 <AlertTitle>Permission Denied</AlertTitle>
                 <AlertDescription>

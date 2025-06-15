@@ -342,7 +342,7 @@ describe("GDT Parser", () => {
     });
 
     test("should handle windows line endings", () => {
-      const contentWithCrlf = validGdtContent.replace(/\n/g, "\r\n");
+      const contentWithCrlf = validGdtContent.replaceAll('\n', "\r\n");
       const result = validateGdtContent(contentWithCrlf);
       expect(result).toEqual({ isValid: true });
     });
@@ -447,7 +447,7 @@ toolshort`;
         dateOfBirth: "1945-10-01",
         firstName: "Franz",
         lastName: "Mustermann",
-        patientId: 12345,
+        patientId: 12_345,
         street: "Musterstrasse 12",
       });
     });
@@ -462,7 +462,7 @@ toolshort`;
 
       expect(result).toEqual({
         lastName: "Mustermann",
-        patientId: 12345,
+        patientId: 12_345,
       });
     });
 
@@ -491,7 +491,7 @@ toolshort`;
 
       expect(result).toEqual({
         lastName: "Mustermann",
-        patientId: 12345,
+        patientId: 12_345,
         // dateOfBirth should not be included due to invalid date
       });
     });
@@ -512,7 +512,7 @@ toolshort`;
       const result = extractPatientData(fields);
 
       expect(result).toEqual({
-        patientId: 12345,
+        patientId: 12_345,
       });
     });
 
@@ -541,7 +541,7 @@ toolshort`;
         dateOfBirth: "1945-10-01",
         firstName: "Franz",
         lastName: "Mustermann",
-        patientId: 12345,
+        patientId: 12_345,
         street: "Musterstrasse 12",
       });
     });
@@ -557,7 +557,7 @@ toolshort`;
       expect(fields.length).toBeGreaterThan(0);
 
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(12345);
+      expect(patientData.patientId).toBe(12_345);
       expect(patientData.firstName).toBe("Franz");
       expect(patientData.lastName).toBe("Mustermann");
     });
@@ -573,7 +573,7 @@ toolshort`;
 
       const fields = parseGdtContent(minimalGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(12345);
+      expect(patientData.patientId).toBe(12_345);
     });
 
     test("should handle GDT with alternative version field", () => {
@@ -665,7 +665,7 @@ toolshort`;
 
       const fields = parseGdtContent(duplicateIdGdt);
       const patientData = extractPatientData(fields);
-      expect(patientData.patientId).toBe(67890); // Should use the last occurrence
+      expect(patientData.patientId).toBe(67_890); // Should use the last occurrence
     });
 
     test("should handle GDT file with zero patient ID", () => {

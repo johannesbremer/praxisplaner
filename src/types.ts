@@ -1,6 +1,6 @@
 // src/types.ts
 
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc as Document_ } from "../convex/_generated/dataModel";
 
 // --- Application Types ---
 
@@ -12,7 +12,7 @@ export type PermissionStatus = "error" | BrowserPermissionState | null;
 
 // Patient tab data for UI
 export interface PatientTabData {
-  patientId: Doc<"patients">["patientId"];
+  patientId: Document_<"patients">["patientId"];
   title: string;
 }
 

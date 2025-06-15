@@ -13,26 +13,26 @@ export const upsertPatient = mutation({
     sourceGdtFileName: v.optional(v.string()),
     street: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (context, arguments_) => {
     const now = BigInt(Date.now());
 
     // Check if patient exists
-    const existingPatient = await ctx.db
+    const existingPatient = await context.db
       .query("patients")
-      .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+      .withIndex("by_patientId", (q) => q.eq("patientId", arguments_.patientId))
       .first();
 
     if (!existingPatient) {
       // Create new patient using spread operator with schema types
-      await ctx.db.insert("patients", {
-        ...args,
+      await context.db.insert("patients", {
+        ...arguments_,
         createdAt: now,
         lastModified: now,
       });
 
       return {
         isNewPatient: true,
-        patientId: args.patientId,
+        patientId: arguments_.patientId,
         success: true,
       };
     }
@@ -40,21 +40,21 @@ export const upsertPatient = mutation({
     // Update existing patient with non-null fields only using spread pattern
     const updates = {
       lastModified: now,
-      ...(args.firstName && { firstName: args.firstName }),
-      ...(args.lastName && { lastName: args.lastName }),
-      ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
-      ...(args.street && { street: args.street }),
-      ...(args.city && { city: args.city }),
-      ...(args.sourceGdtFileName && {
-        sourceGdtFileName: args.sourceGdtFileName,
+      ...(arguments_.firstName && { firstName: arguments_.firstName }),
+      ...(arguments_.lastName && { lastName: arguments_.lastName }),
+      ...(arguments_.dateOfBirth && { dateOfBirth: arguments_.dateOfBirth }),
+      ...(arguments_.street && { street: arguments_.street }),
+      ...(arguments_.city && { city: arguments_.city }),
+      ...(arguments_.sourceGdtFileName && {
+        sourceGdtFileName: arguments_.sourceGdtFileName,
       }),
     };
 
-    await ctx.db.patch(existingPatient._id, updates);
+    await context.db.patch(existingPatient._id, updates);
 
     return {
       isNewPatient: false,
-      patientId: args.patientId,
+      patientId: arguments_.patientId,
       success: true,
     };
   },
@@ -74,12 +74,12 @@ export const listPatients = query({
       v.union(v.literal("createdAt"), v.literal("lastModified")),
     ),
   },
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 20;
-    const orderBy = args.orderBy ?? "lastModified";
-    const order = args.order ?? "desc";
+  handler: async (context, arguments_) => {
+    const limit = arguments_.limit ?? 20;
+    const orderBy = arguments_.orderBy ?? "lastModified";
+    const order = arguments_.order ?? "desc";
 
-    return await ctx.db
+    return await context.db
       .query("patients")
       .withIndex(
         orderBy === "lastModified" ? "by_lastModified" : "by_createdAt",
@@ -93,10 +93,10 @@ export const listPatients = query({
 /** Get a patient by patientId */
 export const getPatient = query({
   args: { patientId: v.number() },
-  handler: async (ctx, args) => {
-    return await ctx.db
+  handler: async (context, arguments_) => {
+    return await context.db
       .query("patients")
-      .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+      .withIndex("by_patientId", (q) => q.eq("patientId", arguments_.patientId))
       .first();
   },
   returns: v.union(v.any(), v.null()), // Patient document or null

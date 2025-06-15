@@ -22,21 +22,21 @@ const alertVariants = cva(
 function Alert({
   className,
   variant,
-  ...props
+  ...properties
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return (
     <div
       className={cn(alertVariants({ variant }), className)}
       data-slot="alert"
       role="alert"
-      {...props}
+      {...properties}
     />
   );
 }
 
 function AlertDescription({
   className,
-  ...props
+  ...properties
 }: React.ComponentProps<"div">) {
   return (
     <div
@@ -45,12 +45,12 @@ function AlertDescription({
         className,
       )}
       data-slot="alert-description"
-      {...props}
+      {...properties}
     />
   );
 }
 
-function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
+function AlertTitle({ className, ...properties }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
@@ -58,7 +58,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
         className,
       )}
       data-slot="alert-title"
-      {...props}
+      {...properties}
     />
   );
 }

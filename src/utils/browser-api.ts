@@ -10,10 +10,10 @@
 export function dispatchCustomEvent(
   eventType: string,
   detail: unknown,
-  target: EventTarget = window,
+  target: EventTarget = globalThis,
 ): boolean {
   // Check if we're in a browser environment
-  if (typeof window === "undefined" || typeof CustomEvent === "undefined") {
+  if (globalThis.window === undefined || typeof CustomEvent === "undefined") {
     return false;
   }
 
@@ -31,9 +31,9 @@ export function dispatchCustomEvent(
  */
 export function isFileSystemObserverSupported(): boolean {
   return (
-    typeof window !== "undefined" &&
-    "FileSystemObserver" in window &&
-    typeof (window as unknown as { FileSystemObserver?: unknown })
+    globalThis.window !== undefined &&
+    "FileSystemObserver" in globalThis &&
+    typeof (globalThis as unknown as { FileSystemObserver?: unknown })
       .FileSystemObserver === "function"
   );
 }
@@ -43,9 +43,9 @@ export function isFileSystemObserverSupported(): boolean {
  */
 export function isFileSystemAccessSupported(): boolean {
   return (
-    typeof window !== "undefined" &&
-    window.isSecureContext &&
-    "showDirectoryPicker" in window
+    globalThis.window !== undefined &&
+    globalThis.isSecureContext &&
+    "showDirectoryPicker" in globalThis
   );
 }
 
@@ -92,8 +92,8 @@ export class SafeFileSystemObserver {
     }
 
     // Create the observer with proper error handling
-    const WindowWithObserver = window as unknown as {
-      FileSystemObserver: new (cb: FileSystemObserverCallback) => {
+    const WindowWithObserver = globalThis as unknown as {
+      FileSystemObserver: new (callback_: FileSystemObserverCallback) => {
         disconnect(): void;
         observe(
           handle: FileSystemDirectoryHandle,

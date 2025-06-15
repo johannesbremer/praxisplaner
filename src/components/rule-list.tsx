@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 
-interface RuleListProps {
+interface RuleListProperties {
   onDelete: (id: string) => void;
   onEdit: (rule: Rule) => void;
   onToggle: (id: string) => void;
   rules: Rule[];
 }
 
-export function RuleList({ onDelete, onEdit, onToggle, rules }: RuleListProps) {
+export function RuleList({ onDelete, onEdit, onToggle, rules }: RuleListProperties) {
   if (rules.length === 0) {
     return (
       <div className="text-center py-8">

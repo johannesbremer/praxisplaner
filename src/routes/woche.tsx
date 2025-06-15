@@ -14,8 +14,8 @@ export default function WeekView() {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
 
-  const hours = Array.from({ length: 11 }, (_, i) => i + 8); // 8 AM to 6 PM
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const hours = Array.from({ length: 11 }, (_, index) => index + 8); // 8 AM to 6 PM
+  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
 
   // Mock appointments
   const appointments = [

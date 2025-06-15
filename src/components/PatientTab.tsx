@@ -6,17 +6,43 @@ import { Calendar, ExternalLink, MapPin, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import type { Doc } from "../../convex/_generated/dataModel";
+import type { Doc as Document_ } from "../../convex/_generated/dataModel";
 import type { PatientTabData } from "../types";
 
 import { api } from "../../convex/_generated/api";
 import { dispatchCustomEvent } from "../utils/browser-api";
 
-interface PatientTabProps {
+interface PatientTabProperties {
   patientId: PatientTabData["patientId"];
 }
 
-export function PatientTab({ patientId }: PatientTabProps) {
+const formatGermanDate = (dateString?: string) => {
+  if (!dateString) {
+    return "Nicht verfügbar";
+  }
+
+  // Handle ISO date format (YYYY-MM-DD) which is how dates are stored in Convex
+  const date = new Date(dateString);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
+  // Fallback: if it's still in GDT format TTMMJJJJ
+  if (dateString.length === 8) {
+    const day = dateString.slice(0, 2);
+    const month = dateString.slice(2, 4);
+    const year = dateString.slice(4, 8);
+    return `${day}.${month}.${year}`;
+  }
+
+  return dateString;
+};
+
+export function PatientTab({ patientId }: PatientTabProperties) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
 
   const handleOpenInPvs = () => {
@@ -32,33 +58,7 @@ export function PatientTab({ patientId }: PatientTabProps) {
   }
 
   // Patient is already properly typed from the query
-  const typedPatient: Doc<"patients"> = patient;
-
-  const formatGermanDate = (dateString?: string) => {
-    if (!dateString) {
-      return "Nicht verfügbar";
-    }
-
-    // Handle ISO date format (YYYY-MM-DD) which is how dates are stored in Convex
-    const date = new Date(dateString);
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleDateString("de-DE", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-    }
-
-    // Fallback: if it's still in GDT format TTMMJJJJ
-    if (dateString.length === 8) {
-      const day = dateString.substring(0, 2);
-      const month = dateString.substring(2, 4);
-      const year = dateString.substring(4, 8);
-      return `${day}.${month}.${year}`;
-    }
-
-    return dateString;
-  };
+  const typedPatient: Document_<"patients"> = patient;
 
   return (
     <div className="container mx-auto max-w-4xl p-6 space-y-6">

@@ -17,6 +17,7 @@ import pluginRouter from "@tanstack/eslint-plugin-router";
 import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 import * as regexp from "eslint-plugin-regexp";
+import eslintPluginUnicorn from "eslint-plugin-unicorn";
 import yml from "eslint-plugin-yml";
 import tseslint from "typescript-eslint";
 import globals from "globals";
@@ -51,6 +52,7 @@ export default tseslint.config(
   perfectionist.configs["recommended-natural"],
   pluginRouter.configs["flat/recommended"],
   regexp.configs["flat/recommended"],
+  eslintPluginUnicorn.configs.recommended,
   {
     extends: [
       tseslint.configs.strictTypeChecked,
@@ -82,6 +84,10 @@ export default tseslint.config(
       "react/react-in-jsx-scope": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-react": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-vars": "error",
+
+      // Unicorn rules adjustments
+      "unicorn/prefer-at": "off", // Conflicts with Node.js version requirements
+      "unicorn/no-null": "off", // Many APIs and existing code uses null consistently
 
       // These on-by-default rules work well for this repo if configured
       "@typescript-eslint/prefer-nullish-coalescing": [
@@ -160,6 +166,13 @@ export default tseslint.config(
         "error",
         { order: { type: "asc" }, pathPattern: "^.*$" },
       ],
+    },
+  },
+  {
+    files: ["components/ui/**", "src/vite-env.d.ts"],
+    rules: {
+      "unicorn/prevent-abbreviations": "off",
+      "unicorn/filename-case": "off",
     },
   },
 );
