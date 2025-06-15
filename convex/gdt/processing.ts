@@ -6,7 +6,7 @@ import { isValidDate, parseGdtLine } from "./validation";
 /** Parses the entire GDT file content into an array of GdtField objects. */
 export function parseGdtContent(content: string): GdtField[] {
   const fields: GdtField[] = [];
-  const lines = content.replaceAll('\r\n', "\n").split("\n");
+  const lines = content.replaceAll("\r\n", "\n").split("\n");
 
   // Find Satzart for Satzende
   const firstLineText = lines[0]?.trim() ?? "";

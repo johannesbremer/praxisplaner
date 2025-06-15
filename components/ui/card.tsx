@@ -28,7 +28,10 @@ function CardAction({ className, ...properties }: React.ComponentProps<"div">) {
   );
 }
 
-function CardContent({ className, ...properties }: React.ComponentProps<"div">) {
+function CardContent({
+  className,
+  ...properties
+}: React.ComponentProps<"div">) {
   return (
     <div
       className={cn("px-6", className)}
@@ -38,7 +41,10 @@ function CardContent({ className, ...properties }: React.ComponentProps<"div">) 
   );
 }
 
-function CardDescription({ className, ...properties }: React.ComponentProps<"div">) {
+function CardDescription({
+  className,
+  ...properties
+}: React.ComponentProps<"div">) {
   return (
     <div
       className={cn("text-muted-foreground text-sm", className)}

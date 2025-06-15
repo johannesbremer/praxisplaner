@@ -175,10 +175,11 @@ export class RulesEngine {
 
       if (
         rule.conditions.appointmentType &&
-        rule.conditions.appointmentType.trim() !== ""
-       && rule.conditions.appointmentType !== appointmentType) {
-          conditionsMet = false;
-        }
+        rule.conditions.appointmentType.trim() !== "" &&
+        rule.conditions.appointmentType !== appointmentType
+      ) {
+        conditionsMet = false;
+      }
 
       if (conditionsMet && rule.conditions.patientType) {
         const isNew = patientContext.isNewPatient;

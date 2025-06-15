@@ -342,7 +342,7 @@ describe("GDT Parser", () => {
     });
 
     test("should handle windows line endings", () => {
-      const contentWithCrlf = validGdtContent.replaceAll('\n', "\r\n");
+      const contentWithCrlf = validGdtContent.replaceAll("\n", "\r\n");
       const result = validateGdtContent(contentWithCrlf);
       expect(result).toEqual({ isValid: true });
     });

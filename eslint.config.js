@@ -151,7 +151,10 @@ export default tseslint.config(
   {
     extends: [vitest.configs.recommended],
     files: ["**/*.test.*"],
-    rules: { "@typescript-eslint/no-unsafe-assignment": "off" },
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "unicorn/consistent-function-scoping": "off",
+    },
   },
   {
     extends: [yml.configs["flat/standard"], yml.configs["flat/prettier"]],
@@ -169,7 +172,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ["components/ui/**", "src/vite-env.d.ts"],
+    files: [
+      "components/ui/**",
+      "src/vite-env.d.ts",
+      "lib/utils.ts",
+      "src/components/*",
+      "src/hooks/*",
+    ],
     rules: {
       "unicorn/prevent-abbreviations": "off",
       "unicorn/filename-case": "off",

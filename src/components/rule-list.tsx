@@ -16,7 +16,12 @@ interface RuleListProperties {
   rules: Rule[];
 }
 
-export function RuleList({ onDelete, onEdit, onToggle, rules }: RuleListProperties) {
+export function RuleList({
+  onDelete,
+  onEdit,
+  onToggle,
+  rules,
+}: RuleListProperties) {
   if (rules.length === 0) {
     return (
       <div className="text-center py-8">

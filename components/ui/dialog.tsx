@@ -55,7 +55,10 @@ function DialogDescription({
   );
 }
 
-function DialogFooter({ className, ...properties }: React.ComponentProps<"div">) {
+function DialogFooter({
+  className,
+  ...properties
+}: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
@@ -68,7 +71,10 @@ function DialogFooter({ className, ...properties }: React.ComponentProps<"div">)
   );
 }
 
-function DialogHeader({ className, ...properties }: React.ComponentProps<"div">) {
+function DialogHeader({
+  className,
+  ...properties
+}: React.ComponentProps<"div">) {
   return (
     <div
       className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
