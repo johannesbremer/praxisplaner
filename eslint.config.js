@@ -97,6 +97,7 @@ export default tseslint.config(
       "unicorn/template-indent": "off", // Conflicts with Prettier's template literal formatting
       "unicorn/prefer-ternary": "off", // Can conflict with Prettier's ternary formatting
       "unicorn/prefer-logical-operator-over-ternary": "off", // Can conflict with Prettier's operator formatting
+      "unicorn/no-nested-ternary": "off", // Conflicts with Prettier's ternary formatting
 
       // These on-by-default rules work well for this repo if configured
       "@typescript-eslint/prefer-nullish-coalescing": [

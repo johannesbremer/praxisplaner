@@ -1,0 +1,120 @@
+
+> praxisplaner@0.0.1 lint /home/runner/work/praxisplaner/praxisplaner
+> eslint . --fix
+
+
+/home/runner/work/praxisplaner/praxisplaner/convex/gdt/types.ts
+  1:39  error  Can't resolve '../_generated/dataModel' in '/home/runner/work/praxisplaner/praxisplaner/convex/gdt'  n/no-missing-import
+
+/home/runner/work/praxisplaner/praxisplaner/convex/patients.ts
+    3:33  error  Can't resolve './_generated/server' in '/home/runner/work/praxisplaner/praxisplaner/convex'  n/no-missing-import
+    6:14  error  Unsafe assignment of an error typed value                                                    @typescript-eslint/no-unsafe-assignment
+    6:30  error  Unsafe call of a(n) `error` type typed value                                                 @typescript-eslint/no-unsafe-call
+   20:11  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   20:35  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   20:35  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   20:35  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   20:43  error  Unsafe member access .db on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   22:8   error  Unsafe member access .withIndex on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   22:41  error  Unsafe return of a value of type `any`                                                       @typescript-eslint/no-unsafe-return
+   22:41  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   22:43  error  Unsafe member access .eq on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   22:70  error  Unsafe member access .patientId on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   23:8   error  Unsafe member access .first on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   27:13  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   27:21  error  Unsafe member access .db on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   35:9   error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   35:31  error  Unsafe member access .patientId on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   41:11  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   43:22  error  Unsafe member access .firstName on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   43:37  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   43:59  error  Unsafe member access .firstName on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   44:22  error  Unsafe member access .lastName on an `any` value                                             @typescript-eslint/no-unsafe-member-access
+   44:36  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   44:57  error  Unsafe member access .lastName on an `any` value                                             @typescript-eslint/no-unsafe-member-access
+   45:22  error  Unsafe member access .dateOfBirth on an `any` value                                          @typescript-eslint/no-unsafe-member-access
+   45:39  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   45:63  error  Unsafe member access .dateOfBirth on an `any` value                                          @typescript-eslint/no-unsafe-member-access
+   46:22  error  Unsafe member access .street on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   46:34  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   46:53  error  Unsafe member access .street on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   47:22  error  Unsafe member access .city on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+   47:32  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   47:49  error  Unsafe member access .city on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+   48:22  error  Unsafe member access .sourceGdtFileName on an `any` value                                    @typescript-eslint/no-unsafe-member-access
+   49:9   error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   49:39  error  Unsafe member access .sourceGdtFileName on an `any` value                                    @typescript-eslint/no-unsafe-member-access
+   53:11  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   53:19  error  Unsafe member access .db on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   53:44  error  Unsafe member access ._id on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+   57:7   error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   57:29  error  Unsafe member access .patientId on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   69:14  error  Unsafe assignment of an error typed value                                                    @typescript-eslint/no-unsafe-assignment
+   69:29  error  Unsafe call of a(n) `error` type typed value                                                 @typescript-eslint/no-unsafe-call
+   78:11  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   78:30  error  Unsafe member access .limit on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   79:11  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   79:32  error  Unsafe member access .orderBy on an `any` value                                              @typescript-eslint/no-unsafe-member-access
+   80:11  error  Unsafe assignment of an `any` value                                                          @typescript-eslint/no-unsafe-assignment
+   80:30  error  Unsafe member access .order on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   82:5   error  Unsafe return of a value of type `any`                                                       @typescript-eslint/no-unsafe-return
+   82:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   82:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   82:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   82:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   82:26  error  Unsafe member access .db on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   84:8   error  Unsafe member access .withIndex on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   87:8   error  Unsafe member access .order on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   88:8   error  Unsafe member access .take on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+   94:14  error  Unsafe assignment of an error typed value                                                    @typescript-eslint/no-unsafe-assignment
+   94:27  error  Unsafe call of a(n) `error` type typed value                                                 @typescript-eslint/no-unsafe-call
+   97:5   error  Unsafe return of a value of type `any`                                                       @typescript-eslint/no-unsafe-return
+   97:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   97:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   97:18  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   97:26  error  Unsafe member access .db on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   99:8   error  Unsafe member access .withIndex on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+   99:41  error  Unsafe return of a value of type `any`                                                       @typescript-eslint/no-unsafe-return
+   99:41  error  Unsafe call of a(n) `any` typed value                                                        @typescript-eslint/no-unsafe-call
+   99:43  error  Unsafe member access .eq on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+   99:70  error  Unsafe member access .patientId on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+  100:8   error  Unsafe member access .first on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+
+/home/runner/work/praxisplaner/praxisplaner/src/components/PatientTab.tsx
+    9:39  error  Can't resolve '../../convex/_generated/dataModel' in '/home/runner/work/praxisplaner/praxisplaner/src/components'  n/no-missing-import
+   12:21  error  Can't resolve '../../convex/_generated/api' in '/home/runner/work/praxisplaner/praxisplaner/src/components'        n/no-missing-import
+   46:9   error  Unsafe assignment of an error typed value                                                                          @typescript-eslint/no-unsafe-assignment
+   46:38  error  Unsafe member access .patients on an `error` typed value                                                           @typescript-eslint/no-unsafe-member-access
+   46:61  error  Unsafe assignment of an error typed value                                                                          @typescript-eslint/no-unsafe-assignment
+   49:53  error  Unsafe assignment of an error typed value                                                                          @typescript-eslint/no-unsafe-assignment
+   61:9   error  Unsafe assignment of an error typed value                                                                          @typescript-eslint/no-unsafe-assignment
+   70:29  error  Unsafe member access .firstName on an `error` typed value                                                          @typescript-eslint/no-unsafe-member-access
+   70:55  error  Unsafe member access .lastName on an `error` typed value                                                           @typescript-eslint/no-unsafe-member-access
+   71:35  error  Unsafe member access .firstName on an `error` typed value                                                          @typescript-eslint/no-unsafe-member-access
+   71:61  error  Unsafe member access .lastName on an `error` typed value                                                           @typescript-eslint/no-unsafe-member-access
+   72:43  error  Unsafe member access .patientId on an `error` typed value                                                          @typescript-eslint/no-unsafe-member-access
+   75:41  error  Unsafe member access .patientId on an `error` typed value                                                          @typescript-eslint/no-unsafe-member-access
+  104:35  error  Unsafe argument of type error typed assigned to a parameter of type `string | undefined`                           @typescript-eslint/no-unsafe-argument
+  104:48  error  Unsafe member access .dateOfBirth on an `error` typed value                                                        @typescript-eslint/no-unsafe-member-access
+  113:31  error  Unsafe member access .street on an `error` typed value                                                             @typescript-eslint/no-unsafe-member-access
+  120:32  error  Unsafe member access .city on an `error` typed value                                                               @typescript-eslint/no-unsafe-member-access
+
+/home/runner/work/praxisplaner/praxisplaner/src/router.tsx
+  18:27  error  Can't resolve './routeTree.gen' in '/home/runner/work/praxisplaner/praxisplaner/src'  n/no-missing-import
+  76:7   error  Unsafe assignment of an error typed value                                             @typescript-eslint/no-unsafe-assignment
+
+/home/runner/work/praxisplaner/praxisplaner/src/routes/praxisplaner.tsx
+   23:39  error  Can't resolve '../../convex/_generated/dataModel' in '/home/runner/work/praxisplaner/praxisplaner/src/routes'  n/no-missing-import
+   32:21  error  Can't resolve '../../convex/_generated/api' in '/home/runner/work/praxisplaner/praxisplaner/src/routes'        n/no-missing-import
+   81:55  error  Unsafe member access .patients on an `error` typed value                                                       @typescript-eslint/no-unsafe-member-access
+  109:9   error  Unsafe assignment of an error typed value                                                                      @typescript-eslint/no-unsafe-assignment
+  412:19  error  Unsafe assignment of an error typed value                                                                      @typescript-eslint/no-unsafe-assignment
+  418:83  error  Unsafe member access .isNewPatient on an `error` typed value                                                   @typescript-eslint/no-unsafe-member-access
+  859:38  error  Unsafe assignment of an error typed value                                                                      @typescript-eslint/no-unsafe-assignment
+
+/home/runner/work/praxisplaner/praxisplaner/src/types.ts
+  3:39  error  Can't resolve '../convex/_generated/dataModel' in '/home/runner/work/praxisplaner/praxisplaner/src'  n/no-missing-import
+
+✖ 100 problems (100 errors, 0 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.
