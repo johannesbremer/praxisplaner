@@ -1,4 +1,14 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { format } from "date-fns";
+import { de } from "date-fns/locale";
+import { Info, Play, RefreshCw } from "lucide-react";
 import { useState } from "react";
+
+import type { AvailableSlot, PatientContext } from "@/lib/types";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Card,
   CardContent,
@@ -6,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -15,23 +24,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
-import { Badge } from "@/components/ui/badge";
-import { Play, RefreshCw, Info } from "lucide-react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
-import type { PatientContext, AvailableSlot } from "@/lib/types";
 import { RulesEngine } from "@/lib/rules-engine";
-import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/sim")({
   component: DebugView,
 });
 
 export default function DebugView() {
   const [patientContext, setPatientContext] = useState<PatientContext>({
+    assignedDoctor: null,
     isNewPatient: true,
     lastVisit: null,
-    assignedDoctor: null,
     medicalHistory: [],
   });
 
@@ -63,9 +65,9 @@ export default function DebugView() {
 
   const resetSimulation = () => {
     setPatientContext({
+      assignedDoctor: null,
       isNewPatient: true,
       lastVisit: null,
-      assignedDoctor: null,
       medicalHistory: [],
     });
     setSelectedDate(new Date());
@@ -100,13 +102,13 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="patient-type">Patiententyp</Label>
                   <Select
-                    value={patientContext.isNewPatient ? "new" : "existing"}
                     onValueChange={(value) =>
-                      setPatientContext({
+                      { setPatientContext({
                         ...patientContext,
                         isNewPatient: value === "new",
-                      })
+                      }); }
                     }
+                    value={patientContext.isNewPatient ? "new" : "existing"}
                   >
                     <SelectTrigger id="patient-type">
                       <SelectValue />
@@ -121,8 +123,8 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="appointment-type">Terminart</Label>
                   <Select
-                    value={appointmentType}
                     onValueChange={setAppointmentType}
+                    value={appointmentType}
                   >
                     <SelectTrigger id="appointment-type">
                       <SelectValue />
@@ -148,13 +150,13 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="assigned-doctor">Zugewiesener Arzt</Label>
                   <Select
-                    value={patientContext.assignedDoctor || "none"}
                     onValueChange={(value) =>
-                      setPatientContext({
+                      { setPatientContext({
                         ...patientContext,
                         assignedDoctor: value === "none" ? null : value,
-                      })
+                      }); }
                     }
+                    value={patientContext.assignedDoctor || "none"}
                   >
                     <SelectTrigger id="assigned-doctor">
                       <SelectValue />
@@ -173,13 +175,13 @@ export default function DebugView() {
                 <div className="space-y-2">
                   <Label htmlFor="last-visit">Letzter Besuch</Label>
                   <Select
-                    value={patientContext.lastVisit || "never"}
                     onValueChange={(value) =>
-                      setPatientContext({
+                      { setPatientContext({
                         ...patientContext,
                         lastVisit: value === "never" ? null : value,
-                      })
+                      }); }
                     }
+                    value={patientContext.lastVisit || "never"}
                   >
                     <SelectTrigger id="last-visit">
                       <SelectValue />
@@ -197,19 +199,19 @@ export default function DebugView() {
               <div className="space-y-2">
                 <Label>Datum auswählen</Label>
                 <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => date && setSelectedDate(date)}
-                  locale={de}
                   className="rounded-md border"
+                  locale={de}
+                  mode="single"
+                  onSelect={(date) => date && setSelectedDate(date)}
+                  selected={selectedDate}
                 />
               </div>
 
               <div className="flex gap-2">
                 <Button
-                  onClick={runSimulation}
-                  disabled={isLoading}
                   className="flex-1 sm:flex-none"
+                  disabled={isLoading}
+                  onClick={runSimulation}
                 >
                   <Play className="h-4 w-4 mr-2" />
                   {isLoading ? "Simulation läuft..." : "Simulation starten"}
@@ -235,8 +237,8 @@ export default function DebugView() {
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {availableSlots.map((slot) => (
                     <div
-                      key={slot.id}
                       className="p-3 border rounded-lg hover:bg-accent transition-colors"
+                      key={slot.id}
                     >
                       <div className="font-medium">{slot.time}</div>
                       <div className="text-sm text-muted-foreground">
@@ -272,7 +274,7 @@ export default function DebugView() {
               ) : (
                 <div className="space-y-2">
                   {appliedRules.map((rule, index) => (
-                    <div key={index} className="flex items-start gap-2">
+                    <div className="flex items-start gap-2" key={index}>
                       <Info className="h-4 w-4 text-muted-foreground mt-0.5" />
                       <div className="text-sm">{rule}</div>
                     </div>

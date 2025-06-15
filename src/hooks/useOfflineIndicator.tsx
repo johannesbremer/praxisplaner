@@ -7,13 +7,13 @@ export function useOfflineIndicator() {
     return onlineManager.subscribe(() => {
       if (onlineManager.isOnline()) {
         toast.success("online", {
-          id: "ReactQuery",
           duration: 2000,
+          id: "ReactQuery",
         });
       } else {
         toast.error("offline", {
-          id: "ReactQuery",
           duration: Infinity,
+          id: "ReactQuery",
         });
       }
     });

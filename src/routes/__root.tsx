@@ -1,21 +1,22 @@
 // src/routes/__root.tsx
+import type { QueryClient } from "@tanstack/react-query";
+
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools/production";
 import {
-  Link, // This is TanStack Router's Link
-  Outlet,
   createRootRouteWithContext,
   HeadContent,
+  Link, // This is TanStack Router's Link
+  Outlet,
   Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import * as React from "react";
-import type { QueryClient } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 import appCss from "src/styles/app.css?url";
 import { seo } from "src/utils/seo"; // Make sure this is uncommented
-import { Toaster } from "sonner";
-
 // Icons and UI components for the HomePage content
-import { Calendar, Settings, Bug, Clock, FileText } from "lucide-react";
+import { Bug, Calendar, Clock, FileText, Settings } from "lucide-react";
+
 import {
   Card,
   CardContent,
@@ -27,56 +28,11 @@ import {
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
-  head: () => {
-    const seoData = seo({
-      // Call seo and get the structured data
-      title: "Praxis Terminverwaltung | Dynamisches Terminmanagement",
-      description:
-        "Dynamisches Terminmanagement mit regelbasierter Verfügbarkeit für Ihre Arztpraxis.",
-      // Optionally add image: image: "/path/to/your/default-og-image.jpg",
-      // Optionally add keywords: keywords: "Arzt, Termin, Praxis, Kalender, Management",
-    });
-
-    return {
-      title: seoData.title, // Use the title from seoData
-      meta: [
-        {
-          charSet: "utf-8",
-        },
-        {
-          name: "viewport",
-          content: "width=device-width, initial-scale=1",
-        },
-        ...seoData.metaTags, // Spread the generated meta tags
-      ],
-      links: [
-        { rel: "stylesheet", href: appCss },
-        {
-          rel: "apple-touch-icon",
-          sizes: "180x180",
-          href: "/apple-touch-icon.png",
-        },
-        {
-          rel: "icon",
-          type: "image/png",
-          sizes: "32x32",
-          href: "/favicon-32x32.png",
-        },
-        {
-          rel: "icon",
-          type: "image/png",
-          sizes: "16x16",
-          href: "/favicon-16x16.png",
-        },
-        { rel: "manifest", href: "/site.webmanifest", color: "#ffffff" },
-        { rel: "icon", href: "/favicon.ico" },
-      ],
-    };
-  },
+  component: RootComponent,
   errorComponent: (props: { error: any; reset: () => void }) => {
     return (
       <RootDocument>
-        <div style={{ padding: "20px", textAlign: "center", color: "red" }}>
+        <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
           <h1>Etwas ist schiefgelaufen!</h1>
           <p>
             {props.error instanceof Error
@@ -93,47 +49,67 @@ export const Route = createRootRouteWithContext<{
       </RootDocument>
     );
   },
+  head: () => {
+    const seoData = seo({
+      // Call seo and get the structured data
+      description:
+        "Dynamisches Terminmanagement mit regelbasierter Verfügbarkeit für Ihre Arztpraxis.",
+      title: "Praxis Terminverwaltung | Dynamisches Terminmanagement",
+      // Optionally add image: image: "/path/to/your/default-og-image.jpg",
+      // Optionally add keywords: keywords: "Arzt, Termin, Praxis, Kalender, Management",
+    });
+
+    return {
+      links: [
+        { href: appCss, rel: "stylesheet" },
+        {
+          href: "/apple-touch-icon.png",
+          rel: "apple-touch-icon",
+          sizes: "180x180",
+        },
+        {
+          href: "/favicon-32x32.png",
+          rel: "icon",
+          sizes: "32x32",
+          type: "image/png",
+        },
+        {
+          href: "/favicon-16x16.png",
+          rel: "icon",
+          sizes: "16x16",
+          type: "image/png",
+        },
+        { color: "#ffffff", href: "/site.webmanifest", rel: "manifest" },
+        { href: "/favicon.ico", rel: "icon" },
+      ],
+      meta: [
+        {
+          charSet: "utf-8",
+        },
+        {
+          content: "width=device-width, initial-scale=1",
+          name: "viewport",
+        },
+        ...seoData.metaTags, // Spread the generated meta tags
+      ],
+      title: seoData.title, // Use the title from seoData
+    };
+  },
   notFoundComponent: () => (
     <RootDocument>
       <div style={{ padding: "20px", textAlign: "center" }}>
         <h1>404 - Seite nicht gefunden</h1>
         <p>Die gesuchte Seite existiert nicht.</p>
         <Link
+          style={{ color: "blue", display: "inline-block", marginTop: "10px" }}
           to="/"
-          style={{ marginTop: "10px", display: "inline-block", color: "blue" }}
         >
           Zur Startseite
         </Link>
       </div>
     </RootDocument>
   ),
-  component: RootComponent,
 });
-
-function RootComponent() {
-  return (
-    <RootDocument>
-      <Outlet />
-    </RootDocument>
-  );
-}
-
-function RootDocument({ children }: { children: React.ReactNode }) {
-  return (
-    <html>
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <ReactQueryDevtools />
-        <TanStackRouterDevtools position="bottom-right" />
-        <Toaster richColors position="top-right" />
-        <Scripts />
-      </body>
-    </html>
-  );
-}
 
 export function PraxisplanerHomePageContent() {
   return (
@@ -255,5 +231,30 @@ export function PraxisplanerHomePageContent() {
         </Link>
       </div>
     </div>
+  );
+}
+
+function RootComponent() {
+  return (
+    <RootDocument>
+      <Outlet />
+    </RootDocument>
+  );
+}
+
+function RootDocument({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <ReactQueryDevtools />
+        <TanStackRouterDevtools position="bottom-right" />
+        <Toaster position="top-right" richColors />
+        <Scripts />
+      </body>
+    </html>
   );
 }

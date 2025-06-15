@@ -1,4 +1,13 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { format } from "date-fns";
+import { de } from "date-fns/locale";
+import { Check, Eye, RotateCcw } from "lucide-react";
 import { useState } from "react";
+
+import type { RuleConfigurationVersion } from "@/lib/types";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -6,13 +15,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { RotateCcw, Eye, Check } from "lucide-react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
-import type { RuleConfigurationVersion } from "@/lib/types";
-import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/version")({
   component: VersionsView,
 });
@@ -20,31 +22,31 @@ export const Route = createFileRoute("/version")({
 export default function VersionsView() {
   const [versions] = useState<RuleConfigurationVersion[]>([
     {
-      id: "v3",
-      version: 3,
       createdAt: new Date("2024-01-15T14:30:00"),
       createdBy: "Dr. Schmidt",
       description: "Grippeimpfung Sonderregeln hinzugefügt",
-      ruleCount: 12,
+      id: "v3",
       isActive: true,
+      ruleCount: 12,
+      version: 3,
     },
     {
-      id: "v2",
-      version: 2,
       createdAt: new Date("2024-01-10T09:15:00"),
       createdBy: "Frau Müller",
       description: "Akutsprechstunde Zeiten angepasst",
-      ruleCount: 10,
+      id: "v2",
       isActive: false,
+      ruleCount: 10,
+      version: 2,
     },
     {
-      id: "v1",
-      version: 1,
       createdAt: new Date("2024-01-05T11:00:00"),
       createdBy: "Dr. Schmidt",
       description: "Initiale Regelkonfiguration",
-      ruleCount: 8,
+      id: "v1",
       isActive: false,
+      ruleCount: 8,
+      version: 1,
     },
   ]);
 
@@ -78,8 +80,8 @@ export default function VersionsView() {
           <div className="space-y-4">
             {versions.map((version) => (
               <div
-                key={version.id}
                 className={`p-4 border rounded-lg ${version.isActive ? "border-primary bg-primary/5" : ""}`}
+                key={version.id}
               >
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
@@ -88,7 +90,7 @@ export default function VersionsView() {
                         Version {version.version}
                       </h3>
                       {version.isActive && (
-                        <Badge variant="default" className="gap-1">
+                        <Badge className="gap-1" variant="default">
                           <Check className="h-3 w-3" />
                           Aktiv
                         </Badge>
@@ -111,18 +113,18 @@ export default function VersionsView() {
 
                   <div className="flex gap-2">
                     <Button
+                      onClick={() => { handleViewVersion(version.id); }}
                       size="sm"
                       variant="outline"
-                      onClick={() => handleViewVersion(version.id)}
                     >
                       <Eye className="h-4 w-4 mr-1" />
                       Anzeigen
                     </Button>
                     {!version.isActive && (
                       <Button
+                        onClick={() => { handleActivateVersion(version.id); }}
                         size="sm"
                         variant="outline"
-                        onClick={() => handleActivateVersion(version.id)}
                       >
                         <RotateCcw className="h-4 w-4 mr-1" />
                         Aktivieren

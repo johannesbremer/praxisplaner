@@ -1,6 +1,11 @@
 // components/rule-editor.tsx
 import type React from "react";
-import { useState, useEffect } from "react"; // Added useEffect
+
+import { useEffect, useState } from "react"; // Added useEffect
+
+import type { Rule } from "@/lib/types"; // Assuming RuleActions type is part of Rule
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,7 +25,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Rule } from "@/lib/types"; // Assuming RuleActions type is part of Rule
 
 // Helper to ensure the actions object conforms to exactOptionalPropertyTypes
 // This assumes Rule['actions'] is the target type that has optional properties like `limitPerDay?: number`
@@ -72,21 +75,21 @@ const prepareActionsForSave = (
 };
 
 interface RuleEditorProps {
-  rule: Rule | null;
-  onSave: (rule: Rule) => void;
   onCancel: () => void;
+  onSave: (rule: Rule) => void;
+  rule: null | Rule;
 }
 
-export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
+export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
   const [formData, setFormData] = useState<Rule>(
     rule || {
+      actions: {}, // Start with empty actions, will be populated by form
+      active: true,
+      conditions: {},
       id: "", // Will be set on save for new rules
       name: "",
-      type: "CONDITIONAL_AVAILABILITY",
-      conditions: {},
-      actions: {}, // Start with empty actions, will be populated by form
       priority: 1,
-      active: true,
+      type: "CONDITIONAL_AVAILABILITY",
     },
   );
 
@@ -94,13 +97,13 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
   useEffect(() => {
     setFormData(
       rule || {
+        actions: {},
+        active: true,
+        conditions: {},
         id: "",
         name: "",
-        type: "CONDITIONAL_AVAILABILITY",
-        conditions: {},
-        actions: {},
         priority: 1,
-        active: true,
+        type: "CONDITIONAL_AVAILABILITY",
       },
     );
   }, [rule]);
@@ -138,7 +141,7 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
   };
 
   return (
-    <Dialog open onOpenChange={onCancel}>
+    <Dialog onOpenChange={onCancel} open>
       <DialogContent className="max-w-2xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -155,22 +158,22 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
               <Label htmlFor="name">Regelname</Label>
               <Input
                 id="name"
-                value={formData.name}
                 onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
+                  { setFormData({ ...formData, name: e.target.value }); }
                 }
                 placeholder="z.B. Neue Patienten - Ersttermin"
                 required
+                value={formData.name}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="type">Regeltyp</Label>
               <Select
-                value={formData.type}
                 onValueChange={(value) =>
-                  setFormData({ ...formData, type: value as Rule["type"] })
+                  { setFormData({ ...formData, type: value as Rule["type"] }); }
                 }
+                value={formData.type}
               >
                 <SelectTrigger id="type">
                   <SelectValue />
@@ -190,25 +193,25 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
               </Select>
             </div>
 
-            <Tabs defaultValue="conditions" className="w-full">
+            <Tabs className="w-full" defaultValue="conditions">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="conditions">Bedingungen</TabsTrigger>
                 <TabsTrigger value="actions">Aktionen</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="conditions" className="space-y-4 pt-4">
+              <TabsContent className="space-y-4 pt-4" value="conditions">
                 <div className="space-y-2">
                   <Label htmlFor="patient-type">Patiententyp</Label>
                   <Select
-                    value={formData.conditions.patientType || "all"}
                     onValueChange={(value) =>
-                      handleConditionChange(
+                      { handleConditionChange(
                         "patientType",
                         value === "all"
                           ? undefined
-                          : (value as "new" | "existing"),
-                      )
+                          : (value as "existing" | "new"),
+                      ); }
                     }
+                    value={formData.conditions.patientType || "all"}
                   >
                     <SelectTrigger id="patient-type">
                       <SelectValue />
@@ -231,29 +234,29 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                   </Label>
                   <Input
                     id="appointment-type"
-                    value={formData.conditions.appointmentType || ""}
                     onChange={(e) =>
-                      handleConditionChange(
+                      { handleConditionChange(
                         "appointmentType",
                         e.target.value || undefined,
-                      )
+                      ); }
                     }
                     placeholder="z.B. Erstberatung, Grippeimpfung"
+                    value={formData.conditions.appointmentType || ""}
                   />
                 </div>
                 {/* Add more condition fields here based on Rule['conditions'] type */}
               </TabsContent>
 
-              <TabsContent value="actions" className="space-y-4 pt-4">
+              <TabsContent className="space-y-4 pt-4" value="actions">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="extra-time">
                     Zusätzliche Zeit erforderlich
                   </Label>
                   <Switch
-                    id="extra-time"
                     checked={formData.actions.requireExtraTime || false}
+                    id="extra-time"
                     onCheckedChange={(checked) =>
-                      handleActionChange("requireExtraTime", checked)
+                      { handleActionChange("requireExtraTime", checked); }
                     }
                   />
                 </div>
@@ -263,8 +266,6 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                     <Label htmlFor="extra-minutes">Zusätzliche Minuten</Label>
                     <Input
                       id="extra-minutes"
-                      type="number"
-                      value={formData.actions.extraMinutes || 0}
                       onChange={(e) => {
                         const val = Number.parseInt(e.target.value);
                         handleActionChange(
@@ -272,6 +273,8 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                           Number.isNaN(val) ? 0 : val,
                         );
                       }}
+                      type="number"
+                      value={formData.actions.extraMinutes || 0}
                     />
                   </div>
                 )}
@@ -282,12 +285,6 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                   </Label>
                   <Input
                     id="limit-per-day"
-                    type="number"
-                    value={
-                      formData.actions.limitPerDay === undefined
-                        ? ""
-                        : formData.actions.limitPerDay
-                    }
                     onChange={(e) => {
                       const val = e.target.value;
                       handleActionChange(
@@ -296,6 +293,12 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                       );
                     }}
                     placeholder="Keine Begrenzung"
+                    type="number"
+                    value={
+                      formData.actions.limitPerDay === undefined
+                        ? ""
+                        : formData.actions.limitPerDay
+                    }
                   />
                 </div>
                 {/* Add more action fields here based on Rule['actions'] type */}
@@ -306,10 +309,8 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
               <Label htmlFor="priority">Priorität</Label>
               <Input
                 id="priority"
-                type="number"
-                min="1"
                 max="100"
-                value={formData.priority}
+                min="1"
                 onChange={(e) => {
                   const val = Number.parseInt(e.target.value);
                   setFormData({
@@ -318,6 +319,8 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
                   });
                 }}
                 required
+                type="number"
+                value={formData.priority}
               />
               <p className="text-xs text-muted-foreground">
                 Niedrigere Zahlen haben höhere Priorität (1 = höchste)
@@ -326,10 +329,10 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
 
             <div className="flex items-center space-x-2">
               <Switch
-                id="active"
                 checked={formData.active}
+                id="active"
                 onCheckedChange={(checked) =>
-                  setFormData({ ...formData, active: checked })
+                  { setFormData({ ...formData, active: checked }); }
                 }
               />
               <Label htmlFor="active">Regel aktiv</Label>
@@ -337,7 +340,7 @@ export function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button onClick={onCancel} type="button" variant="outline">
               Abbrechen
             </Button>
             <Button type="submit">

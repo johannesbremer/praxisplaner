@@ -1,21 +1,22 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
 import {
-  format,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
-  isSameMonth,
-  isSameDay,
   addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
   subMonths,
 } from "date-fns";
 import { de } from "date-fns/locale";
-import { createFileRoute } from "@tanstack/react-router";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 export const Route = createFileRoute("/monat")({
   component: MonthView,
 });
@@ -28,7 +29,7 @@ export default function MonthView() {
   const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
   const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
 
-  const days = eachDayOfInterval({ start: startDate, end: endDate });
+  const days = eachDayOfInterval({ end: endDate, start: startDate });
   const today = new Date();
 
   // Mock appointment counts
@@ -50,22 +51,22 @@ export default function MonthView() {
           </h2>
           <div className="flex gap-2">
             <Button
-              variant="outline"
+              onClick={() => { setCurrentMonth(subMonths(currentMonth, 1)); }}
               size="icon"
-              onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+              variant="outline"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
+              onClick={() => { setCurrentMonth(new Date()); }}
               variant="outline"
-              onClick={() => setCurrentMonth(new Date())}
             >
               Heute
             </Button>
             <Button
-              variant="outline"
+              onClick={() => { setCurrentMonth(addMonths(currentMonth, 1)); }}
               size="icon"
-              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+              variant="outline"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -78,8 +79,8 @@ export default function MonthView() {
           <div className="grid grid-cols-7">
             {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((day) => (
               <div
-                key={day}
                 className="p-2 text-center text-sm font-medium text-muted-foreground border-b"
+                key={day}
               >
                 {day}
               </div>
@@ -95,12 +96,12 @@ export default function MonthView() {
 
               return (
                 <div
-                  key={index}
                   className={`
                     min-h-[100px] p-2 border-b border-r
                     ${!isCurrentMonth ? "bg-muted/50" : ""}
                     ${isToday ? "bg-primary/5" : ""}
                   `}
+                  key={index}
                 >
                   <div
                     className={`

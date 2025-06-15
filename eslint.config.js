@@ -14,9 +14,12 @@ import n from "eslint-plugin-n";
 import packageJson from "eslint-plugin-package-json";
 import perfectionist from "eslint-plugin-perfectionist";
 import pluginRouter from "@tanstack/eslint-plugin-router";
+import reactPlugin from "eslint-plugin-react";
+import reactHooksPlugin from "eslint-plugin-react-hooks";
 import * as regexp from "eslint-plugin-regexp";
 import yml from "eslint-plugin-yml";
 import tseslint from "typescript-eslint";
+import globals from "globals";
 
 export default tseslint.config(
   {
@@ -53,14 +56,33 @@ export default tseslint.config(
       tseslint.configs.strictTypeChecked,
       tseslint.configs.stylisticTypeChecked,
     ],
-    files: ["**/*.{js,ts}"],
+    files: ["**/*.{js,ts,jsx,tsx}"],
     languageOptions: {
       parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
         project: true,
         tsconfigRootDir: ".",
       },
+      globals: {
+        ...globals.browser,
+      },
+    },
+    plugins: {
+      react: reactPlugin,
+      "react-hooks": reactHooksPlugin,
     },
     rules: {
+      // React rules for TypeScript files
+      ...reactPlugin.configs.flat.recommended.rules,
+      ...reactPlugin.configs.flat["jsx-runtime"].rules,
+      ...reactHooksPlugin.configs.recommended.rules,
+      "react/prop-types": "off", // We're using TypeScript
+      "react/react-in-jsx-scope": "off", // Not needed with React 17+ JSX transform
+      "react/jsx-uses-react": "off", // Not needed with React 17+ JSX transform
+      "react/jsx-uses-vars": "error",
+
       // These on-by-default rules work well for this repo if configured
       "@typescript-eslint/prefer-nullish-coalescing": [
         "error",
@@ -104,6 +126,9 @@ export default tseslint.config(
     settings: {
       perfectionist: { partitionByComment: true, type: "natural" },
       vitest: { typecheck: true },
+      react: {
+        version: "detect", // Automatically detect React version
+      },
     },
   },
   {

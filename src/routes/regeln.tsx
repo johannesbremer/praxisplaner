@@ -1,5 +1,12 @@
 // src/routes/regeln.tsx
+import { createFileRoute } from "@tanstack/react-router";
+import { Plus, Save } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner"; // Correctly using sonner
+
+import type { Rule } from "@/lib/types";
+
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -7,13 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Plus, Save } from "lucide-react";
 import { RuleEditor } from "@/src/components/rule-editor";
 import { RuleList } from "@/src/components/rule-list";
-import { toast } from "sonner"; // Correctly using sonner
-import type { Rule } from "@/lib/types";
-import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -22,43 +24,43 @@ export const Route = createFileRoute("/regeln")({
 export default function LogicView() {
   const [rules, setRules] = useState<Rule[]>([
     {
-      id: "1",
-      name: "Neue Patienten - Ersttermin",
-      type: "CONDITIONAL_AVAILABILITY",
-      conditions: {
-        patientType: "new",
-        appointmentType: "Erstberatung",
-      },
       actions: {
-        requireExtraTime: true,
         extraMinutes: 15,
         limitPerDay: 3,
+        requireExtraTime: true,
       },
-      priority: 1,
       active: true,
+      conditions: {
+        appointmentType: "Erstberatung",
+        patientType: "new",
+      },
+      id: "1",
+      name: "Neue Patienten - Ersttermin",
+      priority: 1,
+      type: "CONDITIONAL_AVAILABILITY",
     },
     {
-      id: "2",
-      name: "Grippeimpfung - Saisonale Verfügbarkeit",
-      type: "SEASONAL_AVAILABILITY",
+      actions: {
+        batchDuration: 60,
+        batchSize: 4,
+        enableBatchAppointments: true,
+      },
+      active: true,
       conditions: {
         appointmentType: "Grippeimpfung",
         dateRange: {
-          start: "2024-10-01",
           end: "2024-12-31",
+          start: "2024-10-01",
         },
       },
-      actions: {
-        enableBatchAppointments: true,
-        batchSize: 4,
-        batchDuration: 60,
-      },
+      id: "2",
+      name: "Grippeimpfung - Saisonale Verfügbarkeit",
       priority: 2,
-      active: true,
+      type: "SEASONAL_AVAILABILITY",
     },
   ]);
 
-  const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [editingRule, setEditingRule] = useState<null | Rule>(null);
   const [showEditor, setShowEditor] = useState(false);
   // Removed: const { toast } = useToast();
 
@@ -120,11 +122,11 @@ export default function LogicView() {
             <CardContent>
               <div className="mb-4">
                 <Button
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     setEditingRule(null);
                     setShowEditor(true);
                   }}
-                  className="w-full sm:w-auto"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Neue Regel erstellen
@@ -132,9 +134,8 @@ export default function LogicView() {
               </div>
 
               <RuleList
-                rules={rules}
-                onEdit={handleEditRule}
                 onDelete={handleDeleteRule}
+                onEdit={handleEditRule}
                 onToggle={(id) => {
                   setRules(
                     rules.map((r) =>
@@ -148,6 +149,7 @@ export default function LogicView() {
                     );
                   }
                 }}
+                rules={rules}
               />
             </CardContent>
           </Card>
@@ -172,8 +174,8 @@ export default function LogicView() {
               </div>
 
               <Button
-                onClick={handleSaveConfiguration}
                 className="w-full"
+                onClick={handleSaveConfiguration}
                 variant="default"
               >
                 <Save className="h-4 w-4 mr-2" />
@@ -191,12 +193,12 @@ export default function LogicView() {
 
       {showEditor && (
         <RuleEditor
-          rule={editingRule}
-          onSave={handleSaveRule}
           onCancel={() => {
             setShowEditor(false);
             setEditingRule(null);
           }}
+          onSave={handleSaveRule}
+          rule={editingRule}
         />
       )}
     </div>

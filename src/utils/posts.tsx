@@ -2,11 +2,11 @@ import { notFound } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import axios from "redaxios";
 
-export type PostType = {
+export interface PostType {
+  body: string;
   id: string;
   title: string;
-  body: string;
-};
+}
 
 export const fetchPost = createServerFn({ method: "GET" })
   .validator((postId: string) => postId)
@@ -29,7 +29,7 @@ export const fetchPosts = createServerFn({ method: "GET" }).handler(
   async () => {
     console.info("Fetching posts...");
     return axios
-      .get<Array<PostType>>("https://jsonplaceholder.typicode.com/posts")
+      .get<PostType[]>("https://jsonplaceholder.typicode.com/posts")
       .then((r) => r.data.slice(0, 10));
   },
 );

@@ -1,16 +1,13 @@
 // src/routes/praxisplaner.tsx
 
+import { useConvexMutation } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
+import { Settings, User, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  FileSystemDirectoryHandle,
-  FileSystemFileHandle,
-  FileSystemObserver,
-  BrowserPermissionState,
-  PermissionStatus,
-  PatientTabData,
-} from "../types";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,21 +16,26 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PatientTab } from "../components/PatientTab";
-import { Settings, User, X } from "lucide-react";
 
-import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
-import { useConvexMutation } from "@convex-dev/react-query";
-import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
+import type {
+  BrowserPermissionState,
+  FileSystemDirectoryHandle,
+  FileSystemFileHandle,
+  FileSystemObserver,
+  PatientTabData,
+  PermissionStatus,
+} from "../types";
+
+import { api } from "../../convex/_generated/api";
 import {
-  parseGdtContent,
   extractPatientData,
+  parseGdtContent,
 } from "../../convex/gdt/processing";
+import { PatientTab } from "../components/PatientTab";
 
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
@@ -49,7 +51,7 @@ function PraxisPlanerComponent() {
   const [gdtDirPermission, setGdtDirPermission] =
     useState<PermissionStatus>(null);
   const [gdtLog, setGdtLog] = useState<string[]>([]);
-  const [gdtError, setGdtError] = useState<string | null>(null);
+  const [gdtError, setGdtError] = useState<null | string>(null);
   const gdtFileObserverRef = useRef<FileSystemObserver | null>(null);
   const [isLoadingHandle, setIsLoadingHandle] = useState(true);
   const isUserSelectingRef = useRef(false);
@@ -144,7 +146,7 @@ function PraxisPlanerComponent() {
     async (
       handle: FileSystemDirectoryHandle | null,
       withRequest = false,
-      loggingContext: string = "general",
+      loggingContext = "general",
     ): Promise<boolean> => {
       if (!handle) {
         setGdtDirPermission(null);
@@ -177,10 +179,10 @@ function PraxisPlanerComponent() {
         // Store permission metadata in IndexedDB to avoid split brain issues
         try {
           await idbSet(IDB_GDT_PERMISSION_KEY, {
+            context: loggingContext,
             handleName: handle.name,
             permission: resultingPermissionState,
             timestamp: Date.now(),
-            context: loggingContext,
           });
         } catch (idbError) {
           console.warn(
@@ -204,11 +206,11 @@ function PraxisPlanerComponent() {
         // Store error state in IndexedDB
         try {
           await idbSet(IDB_GDT_PERMISSION_KEY, {
+            context: loggingContext,
+            errorMessage,
             handleName: handle.name,
             permission: "error",
             timestamp: Date.now(),
-            context: loggingContext,
-            errorMessage: errorMessage,
           });
         } catch (idbError) {
           console.warn(
@@ -267,11 +269,11 @@ function PraxisPlanerComponent() {
           // Also try to load permission metadata
           try {
             const permissionMetadata = await idbGet<{
-              handleName: string;
-              permission: BrowserPermissionState | "error";
-              timestamp: number;
               context: string;
               errorMessage?: string;
+              handleName: string;
+              permission: "error" | BrowserPermissionState;
+              timestamp: number;
             }>(IDB_GDT_PERMISSION_KEY);
 
             if (
@@ -423,7 +425,7 @@ function PraxisPlanerComponent() {
         // File processing metadata stored in IndexDB instead of Convex
         // Only store minimal data needed for error tracking, not full file content
         const processedFilePayload = {
-          fileName: fileName,
+          fileName,
           processingErrorMessage: procErrorMessage,
         };
 
@@ -451,8 +453,8 @@ function PraxisPlanerComponent() {
         // Error logging now handled via IndexDB instead of Convex
         try {
           await idbSet(`gdt_error_${fileName}_${Date.now()}`, {
-            fileName,
             error: errorMsg,
+            fileName,
             timestamp: Date.now(),
           });
           addGdtLog(`💾 Stored error for "${fileName}" in IndexedDB.`);
@@ -524,10 +526,10 @@ function PraxisPlanerComponent() {
                   // Store updated permission in IndexedDB
                   try {
                     await idbSet(IDB_GDT_PERMISSION_KEY, {
+                      context: "FileSystemObserver permission check",
                       handleName: gdtDirectoryHandle.name,
                       permission: currentPermission,
                       timestamp: Date.now(),
-                      context: "FileSystemObserver permission check",
                     });
                   } catch (idbError) {
                     console.warn(
@@ -559,11 +561,11 @@ function PraxisPlanerComponent() {
                 // Store error state in IndexedDB
                 try {
                   await idbSet(IDB_GDT_PERMISSION_KEY, {
+                    context: "FileSystemObserver permission query error",
+                    errorMessage: errorMsg,
                     handleName: gdtDirectoryHandle.name,
                     permission: "error",
                     timestamp: Date.now(),
-                    context: "FileSystemObserver permission query error",
-                    errorMessage: errorMsg,
                   });
                 } catch (idbError) {
                   console.warn(
@@ -586,8 +588,7 @@ function PraxisPlanerComponent() {
                 return (
                   record.type === "appeared" &&
                   record.changedHandle.kind === "file" &&
-                  fileName &&
-                  fileName.toLowerCase().endsWith(".gdt")
+                  fileName?.toLowerCase().endsWith(".gdt")
                 );
               });
 
@@ -671,7 +672,7 @@ function PraxisPlanerComponent() {
         </h1>
 
         {!isFsaSupported && (
-          <Alert variant="destructive" className="mb-4">
+          <Alert className="mb-4" variant="destructive">
             <AlertTitle>API Not Supported</AlertTitle>
             <AlertDescription>
               {gdtError || "FSA not supported."}
@@ -679,7 +680,7 @@ function PraxisPlanerComponent() {
           </Alert>
         )}
         {isFsaSupported && !window.isSecureContext && (
-          <Alert variant="destructive" className="mb-4">
+          <Alert className="mb-4" variant="destructive">
             <AlertTitle>Secure Context Required</AlertTitle>
             <AlertDescription>HTTPS or localhost needed.</AlertDescription>
           </Alert>
@@ -712,6 +713,14 @@ function PraxisPlanerComponent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">Permission:</span>
                     <Badge
+                      className={
+                        gdtDirPermission === "granted"
+                          ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
+                          : gdtDirPermission === "denied" ||
+                              gdtDirPermission === "error"
+                            ? ""
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
+                      }
                       variant={
                         gdtDirPermission === "granted"
                           ? "secondary"
@@ -720,14 +729,6 @@ function PraxisPlanerComponent() {
                             : gdtDirPermission === "error"
                               ? "destructive"
                               : "outline"
-                      }
-                      className={
-                        gdtDirPermission === "granted"
-                          ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
-                          : gdtDirPermission === "denied" ||
-                              gdtDirPermission === "error"
-                            ? ""
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
                       }
                     >
                       {gdtDirPermission || "Unknown"}
@@ -743,8 +744,8 @@ function PraxisPlanerComponent() {
                             );
                           }
                         }}
-                        variant="outline"
                         size="sm"
+                        variant="outline"
                       >
                         Request Permission
                       </Button>
@@ -754,7 +755,7 @@ function PraxisPlanerComponent() {
               </Card>
             )}
             {gdtDirPermission === "denied" && (
-              <Alert variant="destructive" className="mb-4">
+              <Alert className="mb-4" variant="destructive">
                 <AlertTitle>Permission Denied</AlertTitle>
                 <AlertDescription>
                   Access denied. Check browser site settings.
@@ -762,7 +763,7 @@ function PraxisPlanerComponent() {
               </Alert>
             )}
             {gdtError && (
-              <Alert variant="destructive" className="mb-4">
+              <Alert className="mb-4" variant="destructive">
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription>{gdtError}</AlertDescription>
               </Alert>
@@ -795,32 +796,32 @@ function PraxisPlanerComponent() {
   return (
     <div className="h-screen bg-background text-foreground">
       <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
         className="h-full flex flex-col"
+        onValueChange={setActiveTab}
+        value={activeTab}
       >
         <div className="border-b px-6 py-3">
           <TabsList className="h-auto">
-            <TabsTrigger value="settings" className="flex items-center gap-2">
+            <TabsTrigger className="flex items-center gap-2" value="settings">
               <Settings className="h-4 w-4" />
               Einstellungen
             </TabsTrigger>
             {patientTabs.map((tab) => (
               <TabsTrigger
+                className="flex items-center gap-2 group relative"
                 key={`patient-${tab.patientId}`}
                 value={`patient-${tab.patientId}`}
-                className="flex items-center gap-2 group relative"
               >
                 <User className="h-4 w-4" />
                 {tab.title}
                 <Button
-                  variant="ghost"
-                  size="sm"
                   className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
                   onClick={(e) => {
                     e.stopPropagation();
                     closePatientTab(tab.patientId);
                   }}
+                  size="sm"
+                  variant="ghost"
                 >
                   <X className="h-3 w-3" />
                 </Button>
@@ -830,15 +831,15 @@ function PraxisPlanerComponent() {
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <TabsContent value="settings" className="h-full overflow-auto">
+          <TabsContent className="h-full overflow-auto" value="settings">
             {settingsContent}
           </TabsContent>
 
           {patientTabs.map((tab) => (
             <TabsContent
+              className="h-full overflow-auto"
               key={`patient-${tab.patientId}`}
               value={`patient-${tab.patientId}`}
-              className="h-full overflow-auto"
             >
               <PatientTab patientId={tab.patientId} />
             </TabsContent>

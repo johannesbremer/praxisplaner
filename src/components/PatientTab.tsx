@@ -1,12 +1,15 @@
 // src/components/PatientTab.tsx
 
 import { useConvexQuery } from "@convex-dev/react-query";
-import { api } from "../../convex/_generated/api";
+import { Calendar, ExternalLink, MapPin, User } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { PatientTabData } from "../types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { User, Calendar, MapPin, ExternalLink } from "lucide-react";
+
+import { api } from "../../convex/_generated/api";
 
 interface PatientTabProps {
   patientId: PatientTabData["patientId"];
@@ -16,10 +19,13 @@ export function PatientTab({ patientId }: PatientTabProps) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
 
   const handleOpenInPvs = () => {
-    const event = new CustomEvent("praxisplaner:openInPvs", {
-      detail: { patientId: patientId },
-    });
-    window.dispatchEvent(event);
+    // Use a type guard for CustomEvent to handle Node.js compatibility
+    if (typeof CustomEvent !== 'undefined') {
+      const event = new CustomEvent("praxisplaner:openInPvs", {
+        detail: { patientId },
+      });
+      window.dispatchEvent(event);
+    }
   };
 
   if (!patient) {
@@ -76,9 +82,9 @@ export function PatientTab({ patientId }: PatientTabProps) {
           </div>
         </div>
         <Button
+          className="flex items-center gap-2"
           onClick={handleOpenInPvs}
           variant="outline"
-          className="flex items-center gap-2"
         >
           <ExternalLink className="h-4 w-4" />
           Im PVS öffnen

@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { format, startOfWeek, addDays, addWeeks, subWeeks } from "date-fns";
-import { de } from "date-fns/locale";
 import { createFileRoute } from "@tanstack/react-router";
+import { addDays, addWeeks, format, startOfWeek, subWeeks } from "date-fns";
+import { de } from "date-fns/locale";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 export const Route = createFileRoute("/woche")({
   component: WeekView,
 });
@@ -19,31 +20,31 @@ export default function WeekView() {
   // Mock appointments
   const appointments = [
     {
-      id: "1",
       day: 1,
-      hour: 9,
+      doctor: "Dr. Müller",
       duration: 1,
+      hour: 9,
+      id: "1",
       patient: "Max Mustermann",
       type: "Erstberatung",
-      doctor: "Dr. Müller",
     },
     {
-      id: "2",
       day: 2,
-      hour: 14,
+      doctor: "Dr. Schmidt",
       duration: 0.5,
+      hour: 14,
+      id: "2",
       patient: "Anna Schmidt",
       type: "Nachuntersuchung",
-      doctor: "Dr. Schmidt",
     },
     {
-      id: "3",
       day: 3,
-      hour: 10,
+      doctor: "Dr. Weber",
       duration: 2,
+      hour: 10,
+      id: "3",
       patient: "Gruppentermin",
       type: "Grippeimpfung",
-      doctor: "Dr. Weber",
     },
   ];
 
@@ -58,22 +59,22 @@ export default function WeekView() {
           </p>
           <div className="flex gap-2">
             <Button
-              variant="outline"
+              onClick={() => { setCurrentWeek(subWeeks(currentWeek, 1)); }}
               size="icon"
-              onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}
+              variant="outline"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
+              onClick={() => { setCurrentWeek(new Date()); }}
               variant="outline"
-              onClick={() => setCurrentWeek(new Date())}
             >
               Heute
             </Button>
             <Button
-              variant="outline"
+              onClick={() => { setCurrentWeek(addWeeks(currentWeek, 1)); }}
               size="icon"
-              onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}
+              variant="outline"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -90,7 +91,7 @@ export default function WeekView() {
                   Zeit
                 </div>
                 {days.map((day, index) => (
-                  <div key={index} className="p-2 text-center border-l">
+                  <div className="p-2 text-center border-l" key={index}>
                     <div className="font-medium">
                       {format(day, "EEEE", { locale: de })}
                     </div>
@@ -102,7 +103,7 @@ export default function WeekView() {
               </div>
 
               {hours.map((hour) => (
-                <div key={hour} className="grid grid-cols-8 border-b">
+                <div className="grid grid-cols-8 border-b" key={hour}>
                   <div className="p-2 text-sm text-muted-foreground">
                     {hour}:00
                   </div>
@@ -113,8 +114,8 @@ export default function WeekView() {
 
                     return (
                       <div
-                        key={dayIndex}
                         className="relative border-l p-1 h-16"
+                        key={dayIndex}
                       >
                         {appointment && (
                           <div

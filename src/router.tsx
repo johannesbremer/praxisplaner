@@ -1,18 +1,20 @@
 // src/router.tsx
+import type { ErrorComponentProps } from "@tanstack/react-router"; // Corrected: type-only import
+
+import { ConvexQueryClient } from "@convex-dev/react-query";
+import {
+  MutationCache,
+  notifyManager,
+  QueryClient,
+} from "@tanstack/react-query";
 import {
   createRouter as createTanStackRouter,
   // ErrorComponentProps, // Changed to type-only import below
 } from "@tanstack/react-router";
-import type { ErrorComponentProps } from "@tanstack/react-router"; // Corrected: type-only import
-import {
-  MutationCache,
-  QueryClient,
-  notifyManager,
-} from "@tanstack/react-query";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
-import toast from "react-hot-toast";
-import { ConvexQueryClient } from "@convex-dev/react-query";
 import { ConvexProvider } from "convex/react";
+import toast from "react-hot-toast";
+
 import { routeTree } from "./routeTree.gen";
 // import * as React from "react"; // Removed: Not needed with modern JSX transform
 
@@ -30,8 +32,8 @@ export function createRouter() {
   const queryClient: QueryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        queryKeyHashFn: convexQueryClient.hashFn(),
         queryFn: convexQueryClient.queryFn(),
+        queryKeyHashFn: convexQueryClient.hashFn(),
       },
     },
     mutationCache: new MutationCache({
@@ -46,12 +48,11 @@ export function createRouter() {
 
   const router = routerWithQueryClient(
     createTanStackRouter({
-      routeTree,
-      defaultPreload: "intent",
+      context: { queryClient },
       defaultErrorComponent: (
         { error, reset }: ErrorComponentProps, // Type annotation is still valid
       ) => (
-        <div style={{ padding: "20px", textAlign: "center", color: "red" }}>
+        <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
           <h1>Something went wrong!</h1>
           <p>{error instanceof Error ? error.message : String(error)}</p>
           <button
@@ -68,13 +69,14 @@ export function createRouter() {
           <p>The page you are looking for does not exist.</p>
         </div>
       ),
-      context: { queryClient },
+      defaultPreload: "intent",
+      routeTree,
+      scrollRestoration: true,
       Wrap: ({ children }) => (
         <ConvexProvider client={convexQueryClient.convexClient}>
           {children}
         </ConvexProvider>
       ),
-      scrollRestoration: true,
     }),
     queryClient,
   );
