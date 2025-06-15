@@ -32,7 +32,8 @@ export function dispatchCustomEvent(
 export function isFileSystemObserverSupported(): boolean {
   return (
     "FileSystemObserver" in globalThis &&
-    typeof globalThis.FileSystemObserver === "function"
+    typeof (globalThis as unknown as { FileSystemObserver?: unknown })
+      .FileSystemObserver === "function"
   );
 }
 
