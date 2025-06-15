@@ -31,8 +31,8 @@ export function dispatchCustomEvent(
  */
 export function isFileSystemObserverSupported(): boolean {
   return (
-    "FileSystemObserver" in window &&
-    typeof window.FileSystemObserver === "function"
+    "FileSystemObserver" in globalThis &&
+    typeof globalThis.FileSystemObserver === "function"
   );
 }
 
