@@ -89,6 +89,15 @@ export default tseslint.config(
       "unicorn/prefer-at": "off", // Conflicts with Node.js version requirements
       "unicorn/no-null": "off", // Many APIs and existing code uses null consistently
 
+      // Formatting-related rules that may conflict with Prettier
+      "unicorn/empty-brace-spaces": "off", // Conflicts with Prettier's brace spacing
+      "unicorn/number-literal-case": "off", // Conflicts with Prettier's number formatting
+      "unicorn/numeric-separators-style": "off", // Conflicts with Prettier's number formatting
+      "unicorn/escape-case": "off", // Conflicts with Prettier's escape sequence formatting
+      "unicorn/template-indent": "off", // Conflicts with Prettier's template literal formatting
+      "unicorn/prefer-ternary": "off", // Can conflict with Prettier's ternary formatting
+      "unicorn/prefer-logical-operator-over-ternary": "off", // Can conflict with Prettier's operator formatting
+
       // These on-by-default rules work well for this repo if configured
       "@typescript-eslint/prefer-nullish-coalescing": [
         "error",
