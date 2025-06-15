@@ -19,6 +19,16 @@ export const Route = createFileRoute("/version")({
   component: VersionsView,
 });
 
+const handleActivateVersion = (versionId: string) => {
+  // In a real app, this would update the database
+  console.log("Activating version:", versionId);
+};
+
+const handleViewVersion = (versionId: string) => {
+  // In a real app, this would navigate to a detailed view
+  console.log("Viewing version:", versionId);
+};
+
 export default function VersionsView() {
   const [versions] = useState<RuleConfigurationVersion[]>([
     {
@@ -49,16 +59,6 @@ export default function VersionsView() {
       version: 1,
     },
   ]);
-
-  const handleActivateVersion = (versionId: string) => {
-    // In a real app, this would update the database
-    console.log("Activating version:", versionId);
-  };
-
-  const handleViewVersion = (versionId: string) => {
-    // In a real app, this would navigate to a detailed view
-    console.log("Viewing version:", versionId);
-  };
 
   return (
     <div className="container mx-auto p-6">

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 function Label({
   className,
-  ...props
+  ...properties
 }: React.ComponentProps<typeof LabelPrimitive.Root>) {
   return (
     <LabelPrimitive.Root
@@ -14,7 +14,7 @@ function Label({
         className,
       )}
       data-slot="label"
-      {...props}
+      {...properties}
     />
   );
 }

@@ -31,18 +31,18 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
   component: RootComponent,
-  errorComponent: (props: { error: Error; reset: () => void }) => {
+  errorComponent: (properties: { error: Error; reset: () => void }) => {
     return (
       <RootDocument>
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
           <h1>Etwas ist schiefgelaufen!</h1>
           <p>
-            {props.error instanceof Error
-              ? props.error.message
-              : String(props.error)}
+            {properties.error instanceof Error
+              ? properties.error.message
+              : String(properties.error)}
           </p>
           <button
-            onClick={props.reset}
+            onClick={properties.reset}
             style={{ marginTop: "10px", padding: "8px 16px" }}
           >
             Erneut versuchen
@@ -86,7 +86,7 @@ export const Route = createRootRouteWithContext<{
       ],
       meta: [
         {
-          charSet: "utf-8",
+          charSet: "utf8",
         },
         {
           content: "width=device-width, initial-scale=1",

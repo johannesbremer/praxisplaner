@@ -739,10 +739,10 @@ function PraxisPlanerComponent() {
                       className={
                         gdtDirectoryPermission === "granted"
                           ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100"
-                          : gdtDirectoryPermission === "denied" ||
+                          : (gdtDirectoryPermission === "denied" ||
                               gdtDirectoryPermission === "error"
                             ? ""
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100")
                       }
                       variant={getPermissionBadgeVariant(
                         gdtDirectoryPermission,

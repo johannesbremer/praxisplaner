@@ -21,6 +21,12 @@ export const Route = createFileRoute("/regeln")({
   component: LogicView,
 });
 
+const handleSaveConfiguration = () => {
+  toast.info("Konfiguration gespeichert", {
+    description: "Eine neue Version der Regelkonfiguration wurde erstellt.",
+  });
+};
+
 export default function LogicView() {
   const [rules, setRules] = useState<Rule[]>([
     {
@@ -91,12 +97,6 @@ export default function LogicView() {
   const handleEditRule = (rule: Rule) => {
     setEditingRule(rule);
     setShowEditor(true);
-  };
-
-  const handleSaveConfiguration = () => {
-    toast.info("Konfiguration gespeichert", {
-      description: "Eine neue Version der Regelkonfiguration wurde erstellt.",
-    });
   };
 
   return (

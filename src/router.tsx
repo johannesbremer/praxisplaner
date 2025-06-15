@@ -20,7 +20,7 @@ import { routeTree } from "./routeTree.gen";
 
 export function createRouter() {
   if (typeof document !== "undefined") {
-    notifyManager.setScheduler(window.requestAnimationFrame);
+    notifyManager.setScheduler(globalThis.requestAnimationFrame);
   }
 
   const CONVEX_URL = (import.meta as { env: Record<string, string> }).env[

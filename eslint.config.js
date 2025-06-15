@@ -17,6 +17,7 @@ import pluginRouter from "@tanstack/eslint-plugin-router";
 import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 import * as regexp from "eslint-plugin-regexp";
+import eslintPluginUnicorn from "eslint-plugin-unicorn";
 import yml from "eslint-plugin-yml";
 import tseslint from "typescript-eslint";
 import globals from "globals";
@@ -51,6 +52,7 @@ export default tseslint.config(
   perfectionist.configs["recommended-natural"],
   pluginRouter.configs["flat/recommended"],
   regexp.configs["flat/recommended"],
+  eslintPluginUnicorn.configs.recommended,
   {
     extends: [
       tseslint.configs.strictTypeChecked,
@@ -82,6 +84,20 @@ export default tseslint.config(
       "react/react-in-jsx-scope": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-react": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-vars": "error",
+
+      // Unicorn rules adjustments
+      "unicorn/prefer-at": "off", // Conflicts with Node.js version requirements
+      "unicorn/no-null": "off", // Many APIs and existing code uses null consistently
+
+      // Formatting-related rules that may conflict with Prettier
+      "unicorn/empty-brace-spaces": "off", // Conflicts with Prettier's brace spacing
+      "unicorn/number-literal-case": "off", // Conflicts with Prettier's number formatting
+      "unicorn/numeric-separators-style": "off", // Conflicts with Prettier's number formatting
+      "unicorn/escape-case": "off", // Conflicts with Prettier's escape sequence formatting
+      "unicorn/template-indent": "off", // Conflicts with Prettier's template literal formatting
+      "unicorn/prefer-ternary": "off", // Can conflict with Prettier's ternary formatting
+      "unicorn/prefer-logical-operator-over-ternary": "off", // Can conflict with Prettier's operator formatting
+      "unicorn/no-nested-ternary": "off", // Conflicts with Prettier's ternary formatting
 
       // These on-by-default rules work well for this repo if configured
       "@typescript-eslint/prefer-nullish-coalescing": [
@@ -145,7 +161,13 @@ export default tseslint.config(
   {
     extends: [vitest.configs.recommended],
     files: ["**/*.test.*"],
-    rules: { "@typescript-eslint/no-unsafe-assignment": "off" },
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "unicorn/consistent-function-scoping": "off",
+    },
   },
   {
     extends: [yml.configs["flat/standard"], yml.configs["flat/prettier"]],
@@ -160,6 +182,19 @@ export default tseslint.config(
         "error",
         { order: { type: "asc" }, pathPattern: "^.*$" },
       ],
+    },
+  },
+  {
+    files: [
+      "components/ui/**",
+      "src/vite-env.d.ts",
+      "lib/utils.ts",
+      "src/components/*",
+      "src/hooks/*",
+    ],
+    rules: {
+      "unicorn/prevent-abbreviations": "off",
+      "unicorn/filename-case": "off",
     },
   },
 );

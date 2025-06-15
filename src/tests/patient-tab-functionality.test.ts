@@ -128,13 +128,13 @@ describe("Patient Tab Functionality", () => {
     // Test the GDT date formatting function used in PatientTab
     const formatGdtDate = (dateString?: string) => {
       if (!dateString) {
-        return "Nicht verf\xFCgbar";
+        return "Nicht verf\u00FCgbar";
       }
       // GDT format is TTMMJJJJ (day month year)
       if (dateString.length === 8) {
-        const day = dateString.substring(0, 2);
-        const month = dateString.substring(2, 4);
-        const year = dateString.substring(4, 8);
+        const day = dateString.slice(0, 2);
+        const month = dateString.slice(2, 4);
+        const year = dateString.slice(4, 8);
         return `${day}.${month}.${year}`;
       }
       return dateString;
@@ -142,7 +142,7 @@ describe("Patient Tab Functionality", () => {
 
     expect(formatGdtDate("15121990")).toBe("15.12.1990");
     expect(formatGdtDate("01011980")).toBe("01.01.1980");
-    expect(formatGdtDate(undefined)).toBe("Nicht verfügbar");
+    expect(formatGdtDate()).toBe("Nicht verfügbar");
     expect(formatGdtDate("")).toBe("Nicht verfügbar");
     expect(formatGdtDate("invalid")).toBe("invalid");
   });
@@ -175,7 +175,7 @@ describe("Patient Tab Functionality", () => {
       dispatchEvent: mockDispatchEvent,
     };
 
-    Object.defineProperty(global, "window", {
+    Object.defineProperty(globalThis, "window", {
       value: mockWindow,
       writable: true,
     });

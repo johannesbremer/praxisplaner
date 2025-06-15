@@ -74,13 +74,13 @@ const prepareActionsForSave = (
   return actionsToSave;
 };
 
-interface RuleEditorProps {
+interface RuleEditorProperties {
   onCancel: () => void;
   onSave: (rule: Rule) => void;
   rule: null | Rule;
 }
 
-export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
+export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProperties) {
   const [formData, setFormData] = useState<Rule>(
     rule ?? {
       actions: {}, // Start with empty actions, will be populated by form
@@ -108,8 +108,8 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
     );
   }, [rule]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
     const finalActions = prepareActionsForSave(formData.actions);
     onSave({ ...formData, actions: finalActions });
   };
@@ -118,10 +118,10 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
     key: K,
     value: Rule["actions"][K],
   ) => {
-    setFormData((prev) => ({
-      ...prev,
+    setFormData((previous) => ({
+      ...previous,
       actions: {
-        ...prev.actions,
+        ...previous.actions,
         [key]: value,
       },
     }));
@@ -131,10 +131,10 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
     key: K,
     value: Rule["conditions"][K],
   ) => {
-    setFormData((prev) => ({
-      ...prev,
+    setFormData((previous) => ({
+      ...previous,
       conditions: {
-        ...prev.conditions,
+        ...previous.conditions,
         [key]: value,
       },
     }));
@@ -158,8 +158,8 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
               <Label htmlFor="name">Regelname</Label>
               <Input
                 id="name"
-                onChange={(e) => {
-                  setFormData({ ...formData, name: e.target.value });
+                onChange={(event) => {
+                  setFormData({ ...formData, name: event.target.value });
                 }}
                 placeholder="z.B. Neue Patienten - Ersttermin"
                 required
@@ -234,10 +234,10 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                   </Label>
                   <Input
                     id="appointment-type"
-                    onChange={(e) => {
+                    onChange={(event) => {
                       handleConditionChange(
                         "appointmentType",
-                        e.target.value || undefined,
+                        event.target.value || undefined,
                       );
                     }}
                     placeholder="z.B. Erstberatung, Grippeimpfung"
@@ -266,11 +266,11 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                     <Label htmlFor="extra-minutes">Zusätzliche Minuten</Label>
                     <Input
                       id="extra-minutes"
-                      onChange={(e) => {
-                        const val = Number.parseInt(e.target.value);
+                      onChange={(event) => {
+                        const value = Number.parseInt(event.target.value);
                         handleActionChange(
                           "extraMinutes",
-                          Number.isNaN(val) ? 0 : val,
+                          Number.isNaN(value) ? 0 : value,
                         );
                       }}
                       type="number"
@@ -285,11 +285,11 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                   </Label>
                   <Input
                     id="limit-per-day"
-                    onChange={(e) => {
-                      const val = e.target.value;
+                    onChange={(event) => {
+                      const value = event.target.value;
                       handleActionChange(
                         "limitPerDay",
-                        val === "" ? undefined : Number.parseInt(val),
+                        value === "" ? undefined : Number.parseInt(value),
                       );
                     }}
                     placeholder="Keine Begrenzung"
@@ -307,11 +307,11 @@ export function RuleEditor({ onCancel, onSave, rule }: RuleEditorProps) {
                 id="priority"
                 max="100"
                 min="1"
-                onChange={(e) => {
-                  const val = Number.parseInt(e.target.value);
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value);
                   setFormData({
                     ...formData,
-                    priority: Number.isNaN(val) ? 1 : val,
+                    priority: Number.isNaN(value) ? 1 : value,
                   });
                 }}
                 required

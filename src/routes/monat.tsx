@@ -104,7 +104,7 @@ export default function MonthView() {
                 <div
                   className={`
                     min-h-[100px] p-2 border-b border-r
-                    ${!isCurrentMonth ? "bg-muted/50" : ""}
+                    ${isCurrentMonth ? "" : "bg-muted/50"}
                     ${isToday ? "bg-primary/5" : ""}
                   `}
                   key={index}
@@ -112,7 +112,7 @@ export default function MonthView() {
                   <div
                     className={`
                     text-sm font-medium mb-1
-                    ${!isCurrentMonth ? "text-muted-foreground" : ""}
+                    ${isCurrentMonth ? "" : "text-muted-foreground"}
                     ${isToday ? "text-primary" : ""}
                   `}
                   >

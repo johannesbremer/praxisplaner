@@ -1,4 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc as Document_ } from "../_generated/dataModel";
 
 // Error handling types
 export interface GdtError {
@@ -58,7 +58,7 @@ export type ProcessingResult =
 
 // Type alias for DocInput to use in insert operations
 export type PatientInsertFields = Omit<
-  Doc<"patients">,
+  Document_<"patients">,
   "_creationTime" | "_id"
 >;
 
