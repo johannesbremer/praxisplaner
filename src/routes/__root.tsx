@@ -86,7 +86,7 @@ export const Route = createRootRouteWithContext<{
       ],
       meta: [
         {
-          charSet: "utf-8",
+          charSet: "utf8",
         },
         {
           content: "width=device-width, initial-scale=1",

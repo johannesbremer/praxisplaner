@@ -34,7 +34,7 @@ import {
   extractPatientData,
   parseGdtContent,
 } from "../../convex/gdt/processing";
-import { PatientTab } from "../components/PatientTab";
+import { PatientTab } from "../components/patient-tab";
 import {
   isDOMException,
   isFileSystemObserverSupported,
@@ -46,7 +46,17 @@ export const Route = createFileRoute("/praxisplaner")({
 });
 
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
-const IDB_GDT_PERMISSION_KEY = "gdtDirectoryPermission";
+const IDB_GDT_PERMISSION_KEY = "gdtDirPermission";
+
+const getPermissionBadgeVariant = (permission: PermissionStatus) => {
+  if (permission === "granted") {
+    return "secondary";
+  }
+  if (permission === "denied" || permission === "error") {
+    return "destructive";
+  }
+  return "outline";
+};
 
 function PraxisPlanerComponent() {
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
@@ -125,24 +135,22 @@ function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const supported = "showDirectoryPicker" in window;
-      setIsFsaSupported(supported);
-      if (!supported) {
-        setGdtError(
-          "File System Access API (showDirectoryPicker) is not supported by your browser.",
-        );
-        setIsLoadingHandle(false);
-        return;
-      }
-      if (!window.isSecureContext) {
-        setGdtError(
-          "File System Access API requires a secure context (HTTPS or localhost).",
-        );
-        setIsFsaSupported(false);
-        setIsLoadingHandle(false);
-        return;
-      }
+    const supported = "showDirectoryPicker" in globalThis;
+    setIsFsaSupported(supported);
+    if (!supported) {
+      setGdtError(
+        "File System Access API (showDirectoryPicker) is not supported by your browser.",
+      );
+      setIsLoadingHandle(false);
+      return;
+    }
+    if (!globalThis.isSecureContext) {
+      setGdtError(
+        "File System Access API requires a secure context (HTTPS or localhost).",
+      );
+      setIsFsaSupported(false);
+      setIsLoadingHandle(false);
+      return;
     }
   }, []);
 
@@ -165,13 +173,9 @@ function PraxisPlanerComponent() {
         addGdtLog(
           `[Perm] ${withRequest ? "Requesting" : "Querying"} 'readwrite' for "${handle.name}" (Ctx: ${loggingContext})...`,
         );
-        if (withRequest) {
-          resultingPermissionState =
-            await handle.requestPermission(permissionOptions);
-        } else {
-          resultingPermissionState =
-            await handle.queryPermission(permissionOptions);
-        }
+        resultingPermissionState = await (withRequest
+          ? handle.requestPermission(permissionOptions)
+          : handle.queryPermission(permissionOptions));
 
         // Permission logging now handled via IndexDB instead of Convex
         addGdtLog(
@@ -310,18 +314,18 @@ function PraxisPlanerComponent() {
       }
       setIsLoadingHandle(false);
     };
-    if (isFsaSupported && window.isSecureContext) {
+    if (isFsaSupported && globalThis.isSecureContext) {
       void loadPersistedHandle();
     }
   }, [isFsaSupported, addGdtLog, verifyAndSetPermission]);
 
   const selectGdtDirectory = async () => {
-    if (!isFsaSupported || !window.isSecureContext) {
+    if (!isFsaSupported || !globalThis.isSecureContext) {
       setGdtError(
-        !isFsaSupported ? "FSA not supported." : "Secure context required.",
+        isFsaSupported ? "Secure context required." : "FSA not supported.",
       );
       addGdtLog(
-        `❌ ${!isFsaSupported ? "FSA not supported." : "Secure context required."}`,
+        `❌ ${isFsaSupported ? "Secure context required." : "FSA not supported."}`,
       );
       return;
     }
@@ -329,19 +333,23 @@ function PraxisPlanerComponent() {
       // Set flag to prevent race condition with loadPersistedHandle
       isUserSelectingRef.current = true;
 
-      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      // Experimental browser API - type assertion needed
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      const handle = (await (globalThis as any).showDirectoryPicker({
+        mode: "readwrite",
+      })) as FileSystemDirectoryHandle;
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);
       setGdtDirectoryHandle(handle);
       await verifyAndSetPermission(handle, true, "user selected new directory");
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
         addGdtLog("Directory selection aborted by user.");
       } else {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        setGdtError(`Error selecting directory: ${errorMessage}`);
-        addGdtLog(`❌ Error selecting directory: ${errorMessage}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        setGdtError(`Error selecting directory: ${errorMsg}`);
+        addGdtLog(`❌ Error selecting directory: ${errorMsg}`);
       }
     } finally {
       // Clear flag after selection is complete
@@ -369,9 +377,9 @@ function PraxisPlanerComponent() {
           ? `Removed handle & permission metadata for "${name}" from IndexedDB.`
           : "Cleared stored handle/preference.",
       );
-    } catch (e) {
+    } catch (error) {
       addGdtLog(
-        `Error forgetting directory: ${e instanceof Error ? e.message : String(e)}`,
+        `Error forgetting directory: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     setGdtDirectoryHandle(null);
@@ -380,20 +388,18 @@ function PraxisPlanerComponent() {
 
   const parseAndProcessGdtFile = useCallback(
     async (
-      dirHandle: FileSystemDirectoryHandle,
+      directoryHandle: FileSystemDirectoryHandle,
       fileHandle: FileSystemFileHandle,
     ) => {
       let fileContent = "";
       const fileName = fileHandle.name;
-      let procErrorMessage: string | undefined = undefined;
+      let procerrorMsg: string | undefined;
 
       try {
         addGdtLog(`📄 Processing "${fileName}"...`);
         const file = await fileHandle.getFile();
         fileContent = await file.text();
-        addGdtLog(
-          `📜 Content (100 chars): ${fileContent.substring(0, 100)}...`,
-        );
+        addGdtLog(`📜 Content (100 chars): ${fileContent.slice(0, 100)}...`);
 
         // Parse GDT content and extract patient data
         try {
@@ -418,19 +424,19 @@ function PraxisPlanerComponent() {
                 : undefined;
             openPatientTab(patientData.patientId, patientName);
           } else {
-            procErrorMessage = `File "${fileName}" missing valid patient ID.`;
-            addGdtLog(`⚠️ ${procErrorMessage}`);
+            procerrorMsg = `File "${fileName}" missing valid patient ID.`;
+            addGdtLog(`⚠️ ${procerrorMsg}`);
           }
         } catch (gdtError) {
-          procErrorMessage = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
-          addGdtLog(`⚠️ ${procErrorMessage}`);
+          procerrorMsg = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
+          addGdtLog(`⚠️ ${procerrorMsg}`);
         }
 
         // File processing metadata stored in IndexDB instead of Convex
         // Only store minimal data needed for error tracking, not full file content
         const processedFilePayload = {
           fileName,
-          processingErrorMessage: procErrorMessage,
+          processingerrorMsg: procerrorMsg,
         };
 
         // Store file processing metadata in IndexedDB
@@ -448,10 +454,10 @@ function PraxisPlanerComponent() {
           );
         }
 
-        await dirHandle.removeEntry(fileName);
+        await directoryHandle.removeEntry(fileName);
         addGdtLog(`🗑️ Deleted "${fileName}".`);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
         addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
 
         // Error logging now handled via IndexDB instead of Convex
@@ -469,14 +475,14 @@ function PraxisPlanerComponent() {
         }
 
         if (
-          isDOMException(err) &&
-          (err.name === "NotAllowedError" || err.name === "SecurityError")
+          isDOMException(error) &&
+          (error.name === "NotAllowedError" || error.name === "SecurityError")
         ) {
           addGdtLog(
             `🚨 Delete failed for "${fileName}". Re-checking permissions.`,
           );
           await verifyAndSetPermission(
-            dirHandle,
+            directoryHandle,
             false,
             "post delete failure check",
           );
@@ -552,8 +558,9 @@ function PraxisPlanerComponent() {
                 gdtFileObserverRef.current = null;
                 return;
               }
-            } catch (err) {
-              const errorMsg = err instanceof Error ? err.message : String(err);
+            } catch (error) {
+              const errorMsg =
+                error instanceof Error ? error.message : String(error);
               addGdtLog(
                 `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
               );
@@ -564,7 +571,7 @@ function PraxisPlanerComponent() {
               try {
                 await idbSet(IDB_GDT_PERMISSION_KEY, {
                   context: "FileSystemObserver permission query error",
-                  errorMessage: errorMsg,
+                  errorMsg,
                   handleName: gdtDirectoryHandle.name,
                   permission: "error",
                   timestamp: Date.now(),
@@ -605,9 +612,9 @@ function PraxisPlanerComponent() {
                     gdtDirectoryHandle,
                     record.changedHandle as FileSystemFileHandle,
                   );
-                } catch (err) {
+                } catch (error) {
                   const errorMsg =
-                    err instanceof Error ? err.message : String(err);
+                    error instanceof Error ? error.message : String(error);
                   addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
                 }
               }
@@ -620,8 +627,9 @@ function PraxisPlanerComponent() {
           addGdtLog(
             `👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`,
           );
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
+        } catch (error) {
+          const errorMsg =
+            error instanceof Error ? error.message : String(error);
           addGdtLog(
             `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
           );
@@ -652,7 +660,7 @@ function PraxisPlanerComponent() {
           );
         }
       }
-      return undefined;
+      return;
     }
   }, [gdtDirectoryHandle, gdtDirPermission, addGdtLog, parseAndProcessGdtFile]);
 
@@ -679,14 +687,14 @@ function PraxisPlanerComponent() {
             </AlertDescription>
           </Alert>
         )}
-        {isFsaSupported && !window.isSecureContext && (
+        {isFsaSupported && !globalThis.isSecureContext && (
           <Alert className="mb-4" variant="destructive">
             <AlertTitle>Secure Context Required</AlertTitle>
             <AlertDescription>HTTPS or localhost needed.</AlertDescription>
           </Alert>
         )}
 
-        {isFsaSupported && window.isSecureContext && (
+        {isFsaSupported && globalThis.isSecureContext && (
           <>
             <div className="flex flex-wrap gap-3 mb-6">
               <Button
@@ -727,15 +735,7 @@ function PraxisPlanerComponent() {
                             ? ""
                             : "bg-amber-100 text-amber-800 dark:bg-amber-700 dark:text-amber-100"
                       }
-                      variant={
-                        gdtDirPermission === "granted"
-                          ? "secondary"
-                          : gdtDirPermission === "denied"
-                            ? "destructive"
-                            : gdtDirPermission === "error"
-                              ? "destructive"
-                              : "outline"
-                      }
+                      variant={getPermissionBadgeVariant(gdtDirPermission)}
                     >
                       {gdtDirPermission ?? "Unknown"}
                     </Badge>
@@ -820,8 +820,8 @@ function PraxisPlanerComponent() {
                 {tab.title}
                 <Button
                   className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  onClick={(event) => {
+                    event.stopPropagation();
                     closePatientTab(tab.patientId);
                   }}
                   size="sm"

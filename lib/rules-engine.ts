@@ -175,11 +175,10 @@ export class RulesEngine {
 
       if (
         rule.conditions.appointmentType &&
-        rule.conditions.appointmentType.trim() !== ""
+        rule.conditions.appointmentType.trim() !== "" &&
+        rule.conditions.appointmentType !== appointmentType
       ) {
-        if (rule.conditions.appointmentType !== appointmentType) {
-          conditionsMet = false;
-        }
+        conditionsMet = false;
       }
 
       if (conditionsMet && rule.conditions.patientType) {
@@ -200,8 +199,8 @@ export class RulesEngine {
             // Corrected order for isWithinInterval
             conditionsMet = false;
           }
-        } catch (e) {
-          console.error("Error parsing dateRange for rule:", rule.name, e);
+        } catch (error) {
+          console.error("Error parsing dateRange for rule:", rule.name, error);
           conditionsMet = false; // Invalid date range means condition not met
         }
       }

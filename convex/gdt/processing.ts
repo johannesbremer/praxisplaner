@@ -6,7 +6,7 @@ import { isValidDate, parseGdtLine } from "./validation";
 /** Parses the entire GDT file content into an array of GdtField objects. */
 export function parseGdtContent(content: string): GdtField[] {
   const fields: GdtField[] = [];
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const lines = content.replaceAll("\r\n", "\n").split("\n");
 
   // Find Satzart for Satzende
   const firstLineText = lines[0]?.trim() ?? "";
@@ -16,7 +16,7 @@ export function parseGdtContent(content: string): GdtField[] {
   fields.push(
     ...lines
       .filter((line) => line.trim())
-      .map(parseGdtLine)
+      .map((line) => parseGdtLine(line))
       .filter((f): f is GdtField => f !== null),
   );
 
@@ -58,25 +58,29 @@ export function extractPatientData(
         }
         break;
       }
-      case GDT_FIELD_IDS.CITY:
+      case GDT_FIELD_IDS.CITY: {
         patientData.city = field.content;
         break;
-      case GDT_FIELD_IDS.FIRST_NAME:
+      }
+      case GDT_FIELD_IDS.FIRST_NAME: {
         patientData.firstName = field.content;
         break;
-      case GDT_FIELD_IDS.LAST_NAME:
+      }
+      case GDT_FIELD_IDS.LAST_NAME: {
         patientData.lastName = field.content;
         break;
+      }
       case GDT_FIELD_IDS.PATIENT_ID: {
-        const parsedId = parseInt(field.content.trim(), 10);
-        if (!isNaN(parsedId)) {
+        const parsedId = Number.parseInt(field.content.trim(), 10);
+        if (!Number.isNaN(parsedId)) {
           patientData.patientId = parsedId;
         }
         break;
       }
-      case GDT_FIELD_IDS.STREET:
+      case GDT_FIELD_IDS.STREET: {
         patientData.street = field.content;
         break;
+      }
     }
   }
 

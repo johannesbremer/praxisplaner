@@ -16,6 +16,32 @@ interface PatientTabProps {
   patientId: PatientTabData["patientId"];
 }
 
+const formatGermanDate = (dateString?: string) => {
+  if (!dateString) {
+    return "Nicht verfügbar";
+  }
+
+  // Handle ISO date format (YYYY-MM-DD) which is how dates are stored in Convex
+  const date = new Date(dateString);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
+  // Fallback: if it's still in GDT format TTMMJJJJ
+  if (dateString.length === 8) {
+    const day = dateString.slice(0, 2);
+    const month = dateString.slice(2, 4);
+    const year = dateString.slice(4, 8);
+    return `${day}.${month}.${year}`;
+  }
+
+  return dateString;
+};
+
 export function PatientTab({ patientId }: PatientTabProps) {
   const patient = useConvexQuery(api.patients.getPatient, { patientId });
 
@@ -33,32 +59,6 @@ export function PatientTab({ patientId }: PatientTabProps) {
 
   // Patient is already properly typed from the query
   const typedPatient: Doc<"patients"> = patient;
-
-  const formatGermanDate = (dateString?: string) => {
-    if (!dateString) {
-      return "Nicht verfügbar";
-    }
-
-    // Handle ISO date format (YYYY-MM-DD) which is how dates are stored in Convex
-    const date = new Date(dateString);
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleDateString("de-DE", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-    }
-
-    // Fallback: if it's still in GDT format TTMMJJJJ
-    if (dateString.length === 8) {
-      const day = dateString.substring(0, 2);
-      const month = dateString.substring(2, 4);
-      const year = dateString.substring(4, 8);
-      return `${day}.${month}.${year}`;
-    }
-
-    return dateString;
-  };
 
   return (
     <div className="container mx-auto max-w-4xl p-6 space-y-6">

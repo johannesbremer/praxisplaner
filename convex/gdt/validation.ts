@@ -21,9 +21,9 @@ export function isValidDate(date: string): DateValidationResult {
     };
   }
 
-  const day = parseInt(date.substring(0, 2), 10);
-  const month = parseInt(date.substring(2, 4), 10);
-  const year = parseInt(date.substring(4, 8), 10);
+  const day = Number.parseInt(date.slice(0, 2), 10);
+  const month = Number.parseInt(date.slice(2, 4), 10);
+  const year = Number.parseInt(date.slice(4, 8), 10);
 
   // Basic range checks
   if (month < 1 || month > 12 || day < 1 || day > 31) {
@@ -90,8 +90,8 @@ export function parseGdtLine(line: string): GdtField | null {
   const fieldId = line.slice(3, 7);
   const content = line.slice(7).trim();
 
-  const length = parseInt(lengthStr, 10);
-  if (isNaN(length)) {
+  const length = Number.parseInt(lengthStr, 10);
+  if (Number.isNaN(length)) {
     return null;
   }
 
@@ -150,7 +150,7 @@ export function validateGdtContent(gdtContent: string): GdtValidationResult {
   }
 
   const fields = lines
-    .map(parseGdtLine)
+    .map((line) => parseGdtLine(line))
     .filter((f): f is GdtField => f !== null);
   const foundFields = new Set(fields.map((f) => f.fieldId));
 
