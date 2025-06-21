@@ -15,6 +15,7 @@ import * as React from "react";
 import { Toaster } from "sonner";
 
 import appCss from "../styles/app.css?url";
+import { captureErrorGlobal } from "../utils/error-tracking";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
 
 // Client-only PostHog wrapper component
@@ -68,6 +69,12 @@ export const Route = createRootRouteWithContext<{
 }>()({
   component: RootComponent,
   errorComponent: (props: { error: Error; reset: () => void }) => {
+    // Capture error with PostHog
+    captureErrorGlobal(props.error, {
+      context: "React Router error boundary",
+      errorType: "router_error_boundary",
+    });
+    
     return (
       <RootDocument>
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
