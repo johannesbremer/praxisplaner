@@ -73,11 +73,6 @@ export const Route = createRootRouteWithContext<{
     captureErrorGlobal(props.error, {
       context: "React Router error boundary",
       errorType: "router_error_boundary",
-      errorName: props.error.name,
-      errorStack: props.error.stack,
-      currentLocation: typeof location !== "undefined" ? location.href : undefined,
-      currentPathname: typeof location !== "undefined" ? location.pathname : undefined,
-      hasReset: typeof props.reset === "function",
     });
 
     return (

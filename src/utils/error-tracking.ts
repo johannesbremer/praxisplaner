@@ -8,32 +8,6 @@ import { useCallback } from "react";
  */
 
 /**
- * Enhanced context collection utilities
- */
-function getBrowserInfo() {
-  if (typeof navigator === "undefined") {
-    return {};
-  }
-  
-  return {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    cookieEnabled: navigator.cookieEnabled,
-    onLine: navigator.onLine,
-  };
-}
-
-function getEnvironmentInfo() {
-  return {
-    isSecureContext: globalThis.isSecureContext,
-    location: typeof location !== "undefined" ? location.href : undefined,
-    timestamp: new Date().toISOString(),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  };
-}
-
-/**
  * Hook to get PostHog error reporting function.
  * Returns a function that captures exceptions with context.
  */
@@ -46,14 +20,7 @@ export function useErrorTracking() {
       const errorInstance =
         error instanceof Error ? error : new Error(String(error));
 
-      // Enhance context with browser and environment info
-      const enhancedContext = {
-        ...context,
-        browser: getBrowserInfo(),
-        environment: getEnvironmentInfo(),
-      };
-
-      posthog.captureException(errorInstance, enhancedContext);
+      posthog.captureException(errorInstance, context);
     },
     [posthog],
   );
@@ -73,13 +40,6 @@ export function captureErrorGlobal(
   const errorInstance =
     error instanceof Error ? error : new Error(String(error));
 
-  // Enhance context with browser and environment info
-  const enhancedContext = {
-    ...context,
-    browser: getBrowserInfo(),
-    environment: getEnvironmentInfo(),
-  };
-
   // Access PostHog from global if available
   const posthog = (
     globalThis as {
@@ -93,9 +53,9 @@ export function captureErrorGlobal(
   ).posthog;
 
   if (posthog) {
-    posthog.captureException(errorInstance, enhancedContext);
+    posthog.captureException(errorInstance, context);
   } else {
     // Fallback to console if PostHog is not available
-    console.error("Error (PostHog not available):", error, enhancedContext);
+    console.error("Error (PostHog not available):", error, context);
   }
 }
