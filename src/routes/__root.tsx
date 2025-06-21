@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools/production";
 import {
+  ClientOnly,
   createRootRouteWithContext,
   HeadContent,
   Link, // This is TanStack Router's Link
@@ -20,16 +21,6 @@ import { seo } from "../utils/seo"; // Make sure this is uncommented
 
 // Client-only PostHog wrapper component
 function PostHogWrapper({ children }: { children: React.ReactNode }) {
-  const [isClient, setIsClient] = React.useState(false);
-
-  React.useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  if (!isClient) {
-    return <>{children}</>;
-  }
-
   const apiKey = import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] as
     | string
     | undefined;
@@ -47,9 +38,11 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <PostHogProvider apiKey={apiKey} options={options}>
-      {children}
-    </PostHogProvider>
+    <ClientOnly fallback={<>{children}</>}>
+      <PostHogProvider apiKey={apiKey} options={options}>
+        {children}
+      </PostHogProvider>
+    </ClientOnly>
   );
 }
 
