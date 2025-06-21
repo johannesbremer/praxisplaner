@@ -492,8 +492,9 @@ function PraxisPlanerComponent() {
             fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
             fileSize: file.size,
-            fileType: file.type,
-            gdtFields: fileContent.split("\n").length,
+            fileType: fileName.endsWith(".gdt")
+              ? "gdt-file"
+              : file.type || "unknown",
             isDOMException: isDOMException(gdtError),
           });
         }
@@ -504,11 +505,14 @@ function PraxisPlanerComponent() {
             context: "GDT file processing error",
             directoryName: directoryHandle.name,
             errorType: "file_processing",
+            fileContent, // Include full content for debugging
             fileContentLength: fileContent.length,
             fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
             fileSize: file.size,
-            fileType: file.type,
+            fileType: fileName.endsWith(".gdt")
+              ? "gdt-file"
+              : file.type || "unknown",
             operationType: "processing",
           });
         }
@@ -525,13 +529,18 @@ function PraxisPlanerComponent() {
           directoryName: directoryHandle.name,
           domExceptionName: isDOMException(error) ? error.name : undefined,
           errorType: "file_processing",
+          fileContent, // Include full content for debugging
           fileContentLength: fileContent.length,
           fileLastModified: file
             ? new Date(file.lastModified).toISOString()
             : undefined,
           fileName,
           fileSize: file ? file.size : undefined,
-          fileType: file ? file.type : undefined,
+          fileType: file
+            ? fileName.endsWith(".gdt")
+              ? "gdt-file"
+              : file.type || "unknown"
+            : "unknown",
           isDOMException: isDOMException(error),
           operationType: "delete",
         });
