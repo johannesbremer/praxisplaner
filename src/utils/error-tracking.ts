@@ -1,6 +1,7 @@
 // src/utils/error-tracking.ts
 
 import { usePostHog } from "posthog-js/react";
+import { useCallback } from "react";
 
 /**
  * Utility for error tracking with PostHog.
@@ -13,13 +14,16 @@ import { usePostHog } from "posthog-js/react";
 export function useErrorTracking() {
   const posthog = usePostHog();
 
-  const captureError = (error: unknown, context?: Record<string, unknown>) => {
-    // Convert error to Error instance if needed
-    const errorInstance =
-      error instanceof Error ? error : new Error(String(error));
+  const captureError = useCallback(
+    (error: unknown, context?: Record<string, unknown>) => {
+      // Convert error to Error instance if needed
+      const errorInstance =
+        error instanceof Error ? error : new Error(String(error));
 
-    posthog.captureException(errorInstance, context);
-  };
+      posthog.captureException(errorInstance, context);
+    },
+    [posthog],
+  );
 
   return { captureError };
 }
