@@ -38,7 +38,14 @@ export function captureErrorGlobal(
 
   // Access PostHog from global if available
   const posthog = (
-    globalThis as { posthog?: { captureException: (error: Error, context?: Record<string, unknown>) => void } }
+    globalThis as {
+      posthog?: {
+        captureException: (
+          error: Error,
+          context?: Record<string, unknown>,
+        ) => void;
+      };
+    }
   ).posthog;
 
   if (posthog) {

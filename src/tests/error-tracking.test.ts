@@ -11,7 +11,9 @@ const mockPostHog = {
 };
 
 type GlobalWithPostHog = typeof globalThis & {
-  posthog?: { captureException: (error: Error, context?: Record<string, unknown>) => void };
+  posthog?: {
+    captureException: (error: Error, context?: Record<string, unknown>) => void;
+  };
 };
 
 describe("Error Tracking", () => {
@@ -129,7 +131,7 @@ describe("Error Tracking", () => {
 
       const errorTypes = [
         "gdt_parsing",
-        "file_processing", 
+        "file_processing",
         "file_system_observer",
         "file_system_observer_setup",
         "browser_compatibility",

@@ -74,7 +74,7 @@ export const Route = createRootRouteWithContext<{
       context: "React Router error boundary",
       errorType: "router_error_boundary",
     });
-    
+
     return (
       <RootDocument>
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>

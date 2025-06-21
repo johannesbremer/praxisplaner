@@ -458,7 +458,7 @@ function PraxisPlanerComponent() {
         } catch (gdtError) {
           procerrorMsg = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procerrorMsg}`);
-          
+
           // Capture specific GDT parsing error
           captureError(gdtError, {
             context: "GDT parsing error",
@@ -507,7 +507,13 @@ function PraxisPlanerComponent() {
         }
       }
     },
-    [addGdtLog, verifyAndSetPermission, upsertPatientMutation, openPatientTab, captureError],
+    [
+      addGdtLog,
+      verifyAndSetPermission,
+      upsertPatientMutation,
+      openPatientTab,
+      captureError,
+    ],
   );
 
   useEffect(() => {
@@ -644,13 +650,17 @@ function PraxisPlanerComponent() {
                   const errorMsg =
                     error instanceof Error ? error.message : String(error);
                   addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
-                  
+
                   // Capture error for file processing failure
                   captureError(error, {
-                    context: "Error processing detected file in FileSystemObserver",
+                    context:
+                      "Error processing detected file in FileSystemObserver",
                     directoryName: gdtDirectoryHandle.name,
                     errorType: "file_system_observer",
-                    fileName: record.relativePathComponents[record.relativePathComponents.length - 1],
+                    fileName:
+                      record.relativePathComponents[
+                        record.relativePathComponents.length - 1
+                      ],
                   });
                 }
               }
@@ -670,7 +680,7 @@ function PraxisPlanerComponent() {
             `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
           );
           setGdtDirPermission("error");
-          
+
           // Capture FileSystemObserver setup error
           captureError(error, {
             context: "Error setting up FileSystemObserver",
@@ -705,7 +715,13 @@ function PraxisPlanerComponent() {
       }
       return;
     }
-  }, [gdtDirectoryHandle, gdtDirPermission, addGdtLog, parseAndProcessGdtFile, captureError]);
+  }, [
+    gdtDirectoryHandle,
+    gdtDirPermission,
+    addGdtLog,
+    parseAndProcessGdtFile,
+    captureError,
+  ]);
 
   if (isLoadingHandle || isFsaSupported === null) {
     return (

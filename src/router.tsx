@@ -48,13 +48,13 @@ export function createRouter() {
       onError: (error) => {
         const errorMessage =
           error instanceof Error ? error.message : "An unknown error occurred";
-        
+
         // Capture mutation errors with PostHog
         captureErrorGlobal(error, {
           context: "React Query mutation error",
           errorType: "mutation",
         });
-        
+
         toast(errorMessage, { className: "bg-red-500 text-white" });
       },
     }),
