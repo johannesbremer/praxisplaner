@@ -1,33 +1,37 @@
 // src/utils/error-tracking.ts
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */
 
 import { usePostHog } from "posthog-js/react";
 import { useCallback } from "react";
 
 /**
- * Utility for error tracking with PostHog.
+ * Utility for error tracking with PostHog integration.
  */
 
 /**
- * Enhanced context collection utilities
+ * Enhanced context collection utilities.
  */
 function getBrowserInfo() {
-  if (typeof navigator === "undefined") {
+  if (globalThis.window === undefined) {
     return {};
   }
-  
+
   return {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
     cookieEnabled: navigator.cookieEnabled,
+    language: navigator.language,
     onLine: navigator.onLine,
+    // Use userAgentData.platform if available, fallback to "unknown"
+    platform:
+      (navigator as { userAgentData?: { platform?: string } }).userAgentData
+        ?.platform ?? "unknown",
+    userAgent: navigator.userAgent,
   };
 }
 
 function getEnvironmentInfo() {
   return {
     isSecureContext: globalThis.isSecureContext,
-    location: typeof location !== "undefined" ? location.href : undefined,
+    location: typeof location === "undefined" ? undefined : location.href,
     timestamp: new Date().toISOString(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
@@ -99,3 +103,5 @@ export function captureErrorGlobal(
     console.error("Error (PostHog not available):", error, enhancedContext);
   }
 }
+
+/* eslint-enable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */

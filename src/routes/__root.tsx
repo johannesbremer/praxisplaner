@@ -72,11 +72,13 @@ export const Route = createRootRouteWithContext<{
     // Capture error with PostHog
     captureErrorGlobal(props.error, {
       context: "React Router error boundary",
-      errorType: "router_error_boundary",
+      currentLocation:
+        typeof location === "undefined" ? undefined : location.href,
+      currentPathname:
+        typeof location === "undefined" ? undefined : location.pathname,
       errorName: props.error.name,
       errorStack: props.error.stack,
-      currentLocation: typeof location !== "undefined" ? location.href : undefined,
-      currentPathname: typeof location !== "undefined" ? location.pathname : undefined,
+      errorType: "router_error_boundary",
       hasReset: typeof props.reset === "function",
     });
 

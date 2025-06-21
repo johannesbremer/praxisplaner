@@ -29,10 +29,12 @@ export function createRouter() {
   if (!CONVEX_URL) {
     const errorMessage = "VITE_CONVEX_URL environment variable is required";
     captureErrorGlobal(new Error(errorMessage), {
+      availableEnvVars: Object.keys(
+        (import.meta as { env: Record<string, string> }).env,
+      ),
       context: "Missing CONVEX_URL environment variable",
-      errorType: "configuration",
       envVarName: "VITE_CONVEX_URL",
-      availableEnvVars: Object.keys((import.meta as { env: Record<string, string> }).env),
+      errorType: "configuration",
       nodeEnv: (import.meta as { env: Record<string, string> }).env["NODE_ENV"],
     });
     console.error("missing envar CONVEX_URL");
@@ -55,13 +57,13 @@ export function createRouter() {
         // Capture mutation errors with PostHog
         captureErrorGlobal(error, {
           context: "React Query mutation error",
-          errorType: "mutation",
-          mutationKey: mutation.options.mutationKey,
-          mutationFn: mutation.options.mutationFn ? "present" : "missing",
-          variablesType: typeof variables,
-          hasContext: context !== undefined,
-          networkError: error instanceof Error && error.name === "NetworkError",
           errorName: error instanceof Error ? error.name : undefined,
+          errorType: "mutation",
+          hasContext: context !== undefined,
+          mutationFn: mutation.options.mutationFn ? "present" : "missing",
+          mutationKey: mutation.options.mutationKey,
+          networkError: error instanceof Error && error.name === "NetworkError",
+          variablesType: typeof variables,
         });
 
         toast(errorMessage, { className: "bg-red-500 text-white" });

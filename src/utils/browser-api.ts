@@ -1,4 +1,5 @@
 // src/utils/browser-api.ts
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */
 
 import { captureErrorGlobal } from "./error-tracking";
 
@@ -90,9 +91,10 @@ export class SafeFileSystemObserver {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
         featureName: "FileSystemObserver",
-        isSecureContext: globalThis.isSecureContext,
         hasFileSystemAPI: "showDirectoryPicker" in globalThis,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+        isSecureContext: globalThis.isSecureContext,
+        userAgent:
+          globalThis.window === undefined ? undefined : navigator.userAgent,
       });
       throw error;
     }
@@ -139,8 +141,8 @@ export class SafeFileSystemObserver {
       captureErrorGlobal(error, {
         context: "FileSystemObserver observe called without initialization",
         errorType: "browser_api",
-        operation: "observe",
         handleName: handle.name,
+        operation: "observe",
         options,
       });
       throw error;
@@ -159,8 +161,8 @@ export class SafeFileSystemObserver {
       captureErrorGlobal(error, {
         context: "FileSystemObserver unobserve called without initialization",
         errorType: "browser_api",
-        operation: "unobserve",
         handleName: handle.name,
+        operation: "unobserve",
       });
       throw error;
     }
@@ -169,3 +171,5 @@ export class SafeFileSystemObserver {
     );
   }
 }
+
+/* eslint-enable @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/node-builtins */

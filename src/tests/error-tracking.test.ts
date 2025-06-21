@@ -11,9 +11,22 @@ const mockPostHog = {
 };
 
 type GlobalWithPostHog = typeof globalThis & {
+  location?: {
+    href: string;
+  };
+  navigator?: {
+    cookieEnabled: boolean;
+    language: string;
+    onLine: boolean;
+    userAgent: string;
+    userAgentData?: {
+      platform: string;
+    };
+  };
   posthog?: {
     captureException: (error: Error, context?: Record<string, unknown>) => void;
   };
+  window?: object;
 };
 
 describe("Error Tracking", () => {
@@ -21,6 +34,32 @@ describe("Error Tracking", () => {
     vi.clearAllMocks();
     // Reset globalThis
     delete (globalThis as GlobalWithPostHog).posthog;
+
+    // Mock browser APIs for testing
+    Object.defineProperty(globalThis, "window", {
+      value: {},
+      writable: true,
+    });
+
+    Object.defineProperty(globalThis, "navigator", {
+      value: {
+        cookieEnabled: true,
+        language: "en-US",
+        onLine: true,
+        userAgent: "Mozilla/5.0 (Test Browser)",
+        userAgentData: {
+          platform: "Linux",
+        },
+      },
+      writable: true,
+    });
+
+    Object.defineProperty(globalThis, "location", {
+      value: {
+        href: "https://test.example.com",
+      },
+      writable: true,
+    });
   });
 
   describe("captureErrorGlobal", () => {
@@ -33,25 +72,34 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
-      
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
+
       // Verify enhanced context structure
-      const capturedContext = mockCaptureException.mock.calls[0]?.[1];
-      expect(capturedContext?.browser).toEqual(expect.objectContaining({
-        userAgent: expect.any(String),
-        platform: expect.any(String),
-        language: expect.any(String),
-        cookieEnabled: expect.any(Boolean),
-        onLine: expect.any(Boolean),
-      }));
-      expect(capturedContext?.environment).toEqual(expect.objectContaining({
-        timestamp: expect.any(String),
-        timezone: expect.any(String),
-      }));
+      const capturedContext = mockCaptureException.mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(capturedContext?.["browser"]).toEqual(
+        expect.objectContaining({
+          cookieEnabled: expect.any(Boolean),
+          language: expect.any(String),
+          onLine: expect.any(Boolean),
+          platform: expect.any(String),
+          userAgent: expect.any(String),
+        }),
+      );
+      expect(capturedContext?.["environment"]).toEqual(
+        expect.objectContaining({
+          timestamp: expect.any(String),
+          timezone: expect.any(String),
+        }),
+      );
     });
 
     test("should convert non-Error to Error and capture with enhanced context", () => {
@@ -105,10 +153,13 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
     });
   });
 
@@ -122,9 +173,9 @@ describe("Error Tracking", () => {
         directoryName: "GDT_Directory",
         errorType: "gdt_parsing",
         fileContent: "8000013601..\n8100004Patient123", // Full content now
+        fileLastModified: "2025-06-21T10:00:00.000Z",
         fileName: "patient123.gdt",
         fileSize: 1024,
-        fileLastModified: "2025-06-21T10:00:00.000Z",
         fileType: "text/plain",
         gdtFields: 10,
         isDOMException: false,
@@ -132,19 +183,22 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
       const capturedContext = mockCaptureException.mock.calls[0]?.[1];
       expect(capturedContext).toMatchObject({
         context: "GDT parsing error",
-        errorType: "gdt_parsing",
-        fileName: "patient123.gdt",
         directoryName: "GDT_Directory",
-        fileSize: 1024,
+        errorType: "gdt_parsing",
         fileContent: "8000013601..\n8100004Patient123", // Validates full content is captured
+        fileName: "patient123.gdt",
+        fileSize: 1024,
       });
     });
 
@@ -154,24 +208,27 @@ describe("Error Tracking", () => {
       const error = new DOMException("Access denied", "NotAllowedError");
       const context = {
         context: "Error requesting permission",
-        errorType: "file_system_permission",
+        currentPermissionState: "prompt",
         domExceptionName: "NotAllowedError",
+        errorType: "file_system_permission",
         handleName: String.raw`C:\GDT`,
         isDOMException: true,
         loggingContext: "initial load",
         operationType: "request",
         permissionMode: "readwrite",
-        currentPermissionState: "prompt",
         withRequest: true,
       };
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
     });
   });
 
@@ -181,7 +238,7 @@ describe("Error Tracking", () => {
 
       const errorTypes = [
         "gdt_parsing",
-        "file_processing", 
+        "file_processing",
         "file_system_permission",
         "file_system_observer",
         "file_system_observer_setup",
@@ -200,15 +257,17 @@ describe("Error Tracking", () => {
       }
 
       expect(mockCaptureException).toHaveBeenCalledTimes(errorTypes.length);
-      
+
       // Verify each call includes enhanced context
-      for (let i = 0; i < errorTypes.length; i++) {
+      for (const [i, errorType] of errorTypes.entries()) {
         const capturedContext = mockCaptureException.mock.calls[i]?.[1];
-        expect(capturedContext).toEqual(expect.objectContaining({
-          errorType: errorTypes[i],
-          browser: expect.any(Object),
-          environment: expect.any(Object),
-        }));
+        expect(capturedContext).toEqual(
+          expect.objectContaining({
+            browser: expect.any(Object),
+            environment: expect.any(Object),
+            errorType,
+          }),
+        );
       }
     });
 
@@ -218,42 +277,50 @@ describe("Error Tracking", () => {
       const error = new Error("Observer setup failed");
       const context = {
         context: "Error setting up FileSystemObserver",
+        currentPermission: "granted",
         directoryName: "GDT_Directory",
         errorType: "file_system_observer_setup",
-        currentPermission: "granted",
+        isDOMException: false,
         isObserverSupported: false,
         observerConfig: { recursive: false },
-        isDOMException: false,
       };
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
     });
 
     test("should handle configuration errors with environment details", () => {
       (globalThis as GlobalWithPostHog).posthog = mockPostHog;
 
-      const error = new Error("VITE_CONVEX_URL environment variable is required");
+      const error = new Error(
+        "VITE_CONVEX_URL environment variable is required",
+      );
       const context = {
-        context: "Missing CONVEX_URL environment variable",
-        errorType: "configuration",
-        envVarName: "VITE_CONVEX_URL",
         availableEnvVars: ["NODE_ENV", "VITE_PUBLIC_POSTHOG_KEY"],
+        context: "Missing CONVEX_URL environment variable",
+        envVarName: "VITE_CONVEX_URL",
+        errorType: "configuration",
         nodeEnv: "development",
       };
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
     });
 
     test("should handle mutation errors with detailed context", () => {
@@ -262,22 +329,25 @@ describe("Error Tracking", () => {
       const error = new Error("Mutation failed");
       const context = {
         context: "React Query mutation error",
-        errorType: "mutation",
-        mutationKey: ["patients", "upsert"],
-        mutationFn: "present",
-        variablesType: "object",
-        hasContext: false,
-        networkError: false,
         errorName: "Error",
+        errorType: "mutation",
+        hasContext: false,
+        mutationFn: "present",
+        mutationKey: ["patients", "upsert"],
+        networkError: false,
+        variablesType: "object",
       };
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, expect.objectContaining({
-        ...context,
-        browser: expect.any(Object),
-        environment: expect.any(Object),
-      }));
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          ...context,
+          browser: expect.any(Object),
+          environment: expect.any(Object),
+        }),
+      );
     });
   });
 });
