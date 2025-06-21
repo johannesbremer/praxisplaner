@@ -10,11 +10,47 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { Toaster } from "sonner";
 
 import appCss from "../styles/app.css?url";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
+
+// Client-only PostHog wrapper component
+function PostHogWrapper({ children }: { children: React.ReactNode }) {
+  const [isClient, setIsClient] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return <>{children}</>;
+  }
+
+  const apiKey = import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] as
+    | string
+    | undefined;
+  const apiHost = import.meta.env["VITE_PUBLIC_POSTHOG_HOST"] as
+    | string
+    | undefined;
+
+  // If PostHog is not configured, just render children without tracking
+  if (!apiKey) {
+    return <>{children}</>;
+  }
+
+  const options = {
+    ...(apiHost && { api_host: apiHost }),
+  };
+
+  return (
+    <PostHogProvider apiKey={apiKey} options={options}>
+      {children}
+    </PostHogProvider>
+  );
+}
 
 // Icons and UI components for the HomePage content
 import { Bug, Calendar, Clock, FileText, Settings } from "lucide-react";
@@ -239,7 +275,9 @@ export function PraxisplanerHomePageContent() {
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <PostHogWrapper>
+        <Outlet />
+      </PostHogWrapper>
     </RootDocument>
   );
 }
