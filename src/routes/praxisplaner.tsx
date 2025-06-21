@@ -199,8 +199,12 @@ function PraxisPlanerComponent() {
         } catch (idbError) {
           captureError(idbError, {
             context: "Failed to store permission metadata in IndexedDB",
+            errorType: "indexeddb_storage",
             handleName: handle.name,
+            loggingContext,
+            operationType,
             permission: resultingPermissionState,
+            storageKey: IDB_GDT_PERMISSION_KEY,
           });
           console.warn(
             "Failed to store permission metadata in IndexedDB:",
@@ -212,9 +216,15 @@ function PraxisPlanerComponent() {
           error instanceof Error ? error.message : String(error);
         captureError(error, {
           context: `Error ${operationType} permission`,
+          currentPermissionState: gdtDirPermission,
+          domExceptionName: isDOMException(error) ? error.name : undefined,
+          errorType: "file_system_permission",
           handleName: handle.name,
+          isDOMException: isDOMException(error),
           loggingContext,
           operationType,
+          permissionMode: "readwrite",
+          withRequest,
         });
         console.error(`Error ${operationType} permission:`, errorMessage);
         addGdtLog(
@@ -238,9 +248,11 @@ function PraxisPlanerComponent() {
         } catch (idbError) {
           captureError(idbError, {
             context: "Failed to store error permission metadata in IndexedDB",
+            errorType: "indexeddb_storage",
             handleName: handle.name,
             loggingContext,
             originalError: errorMessage,
+            storageKey: IDB_GDT_PERMISSION_KEY,
           });
           console.warn(
             "Failed to store error permission metadata in IndexedDB:",
@@ -270,7 +282,7 @@ function PraxisPlanerComponent() {
         return false;
       }
     },
-    [addGdtLog, captureError],
+    [addGdtLog, captureError, gdtDirPermission],
   );
 
   useEffect(() => {
@@ -318,7 +330,10 @@ function PraxisPlanerComponent() {
           } catch (permError) {
             captureError(permError, {
               context: "Error loading permission metadata from IndexedDB",
+              errorType: "indexeddb_loading",
               handleName: persistedHandle.name,
+              operationContext: "initial load",
+              storageKey: IDB_GDT_PERMISSION_KEY,
             });
             console.warn(
               "Error loading permission metadata from IndexedDB:",
@@ -334,6 +349,11 @@ function PraxisPlanerComponent() {
       } catch (error) {
         captureError(error, {
           context: "Error loading handle from IndexedDB",
+          domExceptionName: isDOMException(error) ? error.name : undefined,
+          errorType: "indexeddb_loading",
+          isDOMException: isDOMException(error),
+          operationContext: "initial load",
+          storageKey: IDB_GDT_HANDLE_KEY,
         });
         console.error("Error loading handle from IndexedDB:", error);
         addGdtLog(
@@ -422,10 +442,11 @@ function PraxisPlanerComponent() {
       let fileContent = "";
       const fileName = fileHandle.name;
       let procerrorMsg: string | undefined;
+      let file: File | undefined;
 
       try {
         addGdtLog(`📄 Processing "${fileName}"...`);
-        const file = await fileHandle.getFile();
+        file = await fileHandle.getFile();
         fileContent = await file.text();
         addGdtLog(`📜 Content (100 chars): ${fileContent.slice(0, 100)}...`);
 
@@ -459,12 +480,21 @@ function PraxisPlanerComponent() {
           procerrorMsg = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procerrorMsg}`);
 
-          // Capture specific GDT parsing error
+          // Capture specific GDT parsing error with comprehensive context
           captureError(gdtError, {
             context: "GDT parsing error",
+            directoryName: directoryHandle.name,
+            domExceptionName: isDOMException(gdtError)
+              ? gdtError.name
+              : undefined,
             errorType: "gdt_parsing",
-            fileContent: fileContent.slice(0, 200), // First 200 chars for context
+            fileContent, // Full file content as requested
+            fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
+            fileSize: file.size,
+            fileType: file.type,
+            gdtFields: fileContent.split("\n").length,
+            isDOMException: isDOMException(gdtError),
           });
         }
 
@@ -472,8 +502,14 @@ function PraxisPlanerComponent() {
         if (procerrorMsg) {
           captureError(new Error(procerrorMsg), {
             context: "GDT file processing error",
+            directoryName: directoryHandle.name,
+            errorType: "file_processing",
+            fileContentLength: fileContent.length,
+            fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
-            fileProcessing: true,
+            fileSize: file.size,
+            fileType: file.type,
+            operationType: "processing",
           });
         }
 
@@ -486,10 +522,18 @@ function PraxisPlanerComponent() {
         // Capture error with PostHog instead of storing in IndexedDB
         captureError(error, {
           context: "GDT file processing error",
+          directoryName: directoryHandle.name,
           domExceptionName: isDOMException(error) ? error.name : undefined,
           errorType: "file_processing",
+          fileContentLength: fileContent.length,
+          fileLastModified: file
+            ? new Date(file.lastModified).toISOString()
+            : undefined,
           fileName,
+          fileSize: file ? file.size : undefined,
+          fileType: file ? file.type : undefined,
           isDOMException: isDOMException(error),
+          operationType: "delete",
         });
 
         if (
@@ -567,8 +611,12 @@ function PraxisPlanerComponent() {
                 } catch (idbError) {
                   captureError(idbError, {
                     context: "Failed to store permission change in IndexedDB",
+                    errorType: "indexeddb_storage",
                     handleName: gdtDirectoryHandle.name,
+                    operationContext: "FileSystemObserver permission check",
                     permission: currentPermission,
+                    previousPermission: gdtDirPermission,
+                    storageKey: IDB_GDT_PERMISSION_KEY,
                   });
                   console.warn(
                     "Failed to store permission change in IndexedDB:",
@@ -608,8 +656,11 @@ function PraxisPlanerComponent() {
               } catch (idbError) {
                 captureError(idbError, {
                   context: "Failed to store error state in IndexedDB",
+                  errorType: "indexeddb_storage",
                   handleName: gdtDirectoryHandle.name,
+                  operationContext: "FileSystemObserver permission query error",
                   originalError: errorMsg,
+                  storageKey: IDB_GDT_PERMISSION_KEY,
                 });
                 console.warn(
                   "Failed to store error state in IndexedDB:",
@@ -653,14 +704,22 @@ function PraxisPlanerComponent() {
 
                   // Capture error for file processing failure
                   captureError(error, {
+                    changeType: record.type,
                     context:
                       "Error processing detected file in FileSystemObserver",
+                    currentPermission: gdtDirPermission,
                     directoryName: gdtDirectoryHandle.name,
+                    domExceptionName: isDOMException(error)
+                      ? error.name
+                      : undefined,
                     errorType: "file_system_observer",
                     fileName:
                       record.relativePathComponents[
                         record.relativePathComponents.length - 1
                       ],
+                    handleKind: record.changedHandle.kind,
+                    isDOMException: isDOMException(error),
+                    relativePathComponents: record.relativePathComponents,
                   });
                 }
               }
@@ -684,8 +743,13 @@ function PraxisPlanerComponent() {
           // Capture FileSystemObserver setup error
           captureError(error, {
             context: "Error setting up FileSystemObserver",
+            currentPermission: gdtDirPermission,
             directoryName: gdtDirectoryHandle.name,
+            domExceptionName: isDOMException(error) ? error.name : undefined,
             errorType: "file_system_observer_setup",
+            isDOMException: isDOMException(error),
+            isObserverSupported: isFileSystemObserverSupported(),
+            observerConfig: { recursive: false },
           });
         }
       };
