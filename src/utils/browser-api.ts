@@ -89,6 +89,10 @@ export class SafeFileSystemObserver {
       captureErrorGlobal(error, {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
+        featureName: "FileSystemObserver",
+        isSecureContext: globalThis.isSecureContext,
+        hasFileSystemAPI: "showDirectoryPicker" in globalThis,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       });
       throw error;
     }
@@ -135,6 +139,9 @@ export class SafeFileSystemObserver {
       captureErrorGlobal(error, {
         context: "FileSystemObserver observe called without initialization",
         errorType: "browser_api",
+        operation: "observe",
+        handleName: handle.name,
+        options,
       });
       throw error;
     }
@@ -152,6 +159,8 @@ export class SafeFileSystemObserver {
       captureErrorGlobal(error, {
         context: "FileSystemObserver unobserve called without initialization",
         errorType: "browser_api",
+        operation: "unobserve",
+        handleName: handle.name,
       });
       throw error;
     }

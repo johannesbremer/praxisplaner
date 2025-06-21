@@ -31,6 +31,9 @@ export function createRouter() {
     captureErrorGlobal(new Error(errorMessage), {
       context: "Missing CONVEX_URL environment variable",
       errorType: "configuration",
+      envVarName: "VITE_CONVEX_URL",
+      availableEnvVars: Object.keys((import.meta as { env: Record<string, string> }).env),
+      nodeEnv: (import.meta as { env: Record<string, string> }).env["NODE_ENV"],
     });
     console.error("missing envar CONVEX_URL");
     throw new Error(errorMessage);
@@ -45,7 +48,7 @@ export function createRouter() {
       },
     },
     mutationCache: new MutationCache({
-      onError: (error) => {
+      onError: (error, variables, context, mutation) => {
         const errorMessage =
           error instanceof Error ? error.message : "An unknown error occurred";
 
@@ -53,6 +56,12 @@ export function createRouter() {
         captureErrorGlobal(error, {
           context: "React Query mutation error",
           errorType: "mutation",
+          mutationKey: mutation.options.mutationKey,
+          mutationFn: mutation.options.mutationFn ? "present" : "missing",
+          variablesType: typeof variables,
+          hasContext: context !== undefined,
+          networkError: error instanceof Error && error.name === "NetworkError",
+          errorName: error instanceof Error ? error.name : undefined,
         });
 
         toast(errorMessage, { className: "bg-red-500 text-white" });
