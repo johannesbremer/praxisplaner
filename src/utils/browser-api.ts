@@ -1,5 +1,7 @@
 // src/utils/browser-api.ts
 
+import { captureErrorGlobal } from "./error-tracking";
+
 /**
  * Utility functions for safely using browser APIs that may not be available in all environments.
  */
@@ -81,9 +83,14 @@ export class SafeFileSystemObserver {
     ) => Promise<void> | void,
   ) {
     if (!isFileSystemObserverSupported()) {
-      throw new Error(
+      const error = new Error(
         "FileSystemObserver is not supported in this environment",
       );
+      captureErrorGlobal(error, {
+        context: "FileSystemObserver not supported",
+        errorType: "browser_compatibility",
+      });
+      throw error;
     }
 
     // Create the observer with proper error handling
@@ -124,7 +131,12 @@ export class SafeFileSystemObserver {
     options?: import("../types").FileSystemObserverOptions,
   ): Promise<void> {
     if (!this.observer) {
-      throw new Error("Observer not initialized");
+      const error = new Error("Observer not initialized");
+      captureErrorGlobal(error, {
+        context: "FileSystemObserver observe called without initialization",
+        errorType: "browser_api",
+      });
+      throw error;
     }
     return this.observer.observe(
       handle as unknown as FileSystemDirectoryHandle,
@@ -136,7 +148,12 @@ export class SafeFileSystemObserver {
     handle: import("../types").FileSystemDirectoryHandle,
   ): Promise<void> {
     if (!this.observer) {
-      throw new Error("Observer not initialized");
+      const error = new Error("Observer not initialized");
+      captureErrorGlobal(error, {
+        context: "FileSystemObserver unobserve called without initialization",
+        errorType: "browser_api",
+      });
+      throw error;
     }
     return this.observer.unobserve(
       handle as unknown as FileSystemDirectoryHandle,

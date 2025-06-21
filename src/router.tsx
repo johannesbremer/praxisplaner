@@ -16,7 +16,7 @@ import { ConvexProvider } from "convex/react";
 import toast from "react-hot-toast";
 
 import { routeTree } from "./routeTree.gen";
-// import * as React from "react"; // Removed: Not needed with modern JSX transform
+import { captureErrorGlobal } from "./utils/error-tracking";
 
 export function createRouter() {
   if (typeof document !== "undefined") {
@@ -27,8 +27,13 @@ export function createRouter() {
     "VITE_CONVEX_URL"
   ];
   if (!CONVEX_URL) {
+    const errorMessage = "VITE_CONVEX_URL environment variable is required";
+    captureErrorGlobal(new Error(errorMessage), {
+      context: "Missing CONVEX_URL environment variable",
+      errorType: "configuration",
+    });
     console.error("missing envar CONVEX_URL");
-    throw new Error("VITE_CONVEX_URL environment variable is required");
+    throw new Error(errorMessage);
   }
   const convexQueryClient = new ConvexQueryClient(CONVEX_URL);
 
@@ -43,6 +48,13 @@ export function createRouter() {
       onError: (error) => {
         const errorMessage =
           error instanceof Error ? error.message : "An unknown error occurred";
+
+        // Capture mutation errors with PostHog
+        captureErrorGlobal(error, {
+          context: "React Query mutation error",
+          errorType: "mutation",
+        });
+
         toast(errorMessage, { className: "bg-red-500 text-white" });
       },
     }),
