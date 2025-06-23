@@ -32,12 +32,10 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
 **Struktur gemäß "GDT 3.5 Datensatzbeschreibung", Seite 36 (Tabelle für SA 6310):**
 
 1.  **Satzidentifikation (Muss)**
-
     - FK `8000`, Inhalt: `6310`
     - Beispiel: `01380006310` (Länge von "6310" (4) + 9 = 13)
 
 2.  **Obj_Kopfdaten_GDT (Muss-Objekt)** (GDT 3.5 Datensatzbeschreibung, S. 41)
-
     - Eingeleitet durch Objektattribut FK `8133` (Inhalt: `Kopfdaten_GDT`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0033`.
     - Enthält wichtige Metadaten zur Übertragung:
@@ -48,7 +46,6 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     - Endet mit FK `8003`, Inhalt: `Obj_0033`.
 
 3.  **Obj_Patient (Muss-Objekt)** (GDT 3.5 Datensatzbeschreibung, S. 40)
-
     - Eingeleitet durch Objektattribut FK `8145` (Inhalt: `Patient`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0045`.
     - **Enthält gemäß unserer Annahme immer:**
@@ -65,7 +62,6 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     - Endet mit FK `8003`, Inhalt: `Obj_0045`.
 
 4.  **Obj_Anforderung (Muss-Objekt)** (GDT 3.5 Datensatzbeschreibung, S. 36, S. 41)
-
     - Eingeleitet durch Objektattribut FK `8112` (Inhalt: `Anforderung`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0012`.
     - Dient zur Referenzierung einer vorherigen Untersuchungsanforderung (SA 6302) oder zur Beschreibung der aktuell durchgeführten Untersuchung.
@@ -79,7 +75,6 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     - _Hinweis: Obwohl als "Muss" in der Tabelle für SA 6310 gelistet, hängt die genaue Befüllung davon ab, ob eine explizite Anforderung vom AIS vorlag oder das GERÄT eigenständig Daten sendet. In der Praxis ist es oft die Referenz auf die Anforderung._
 
 5.  **Obj_Untersuchungsergebnis_GDT (Optionales Objekt)** (GDT 3.5 Datensatzbeschreibung, S. 42)
-
     - Eingeleitet durch Objektattribut FK `8157` (Inhalt: `Untersuchungsergebnis_GDT`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0057`.
     - Dies ist das Kernstück und enthält die eigentlichen Messwerte und Befunde.
@@ -115,7 +110,6 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     - _Hinweis: Es können mehrere `Obj_Untersuchungsergebnis_GDT` Objekte für verschiedene Parameter derselben Untersuchung gesendet werden._
 
 6.  **Obj_Koerperkenngroessen (Optionales Objekt)** (GDT 3.5 Anhang, S. 14; LDT Referenz für Obj_0069)
-
     - Eingeleitet durch Objektattribut FK `8169` (Inhalt: `Koerperkenngroessen`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0069`.
     - Übermittelt Körpermaße, die zum Untersuchungszeitpunkt relevant waren.
@@ -127,7 +121,6 @@ Eine GDT-Datei mit Satzart 6310 beginnt immer mit der Satzidentifikation und end
     - Endet mit FK `8003`, Inhalt: `Obj_0069`.
 
 7.  **Obj_Anhang (Optionales Objekt)** (GDT 3.5 Datensatzbeschreibung, S. 36)
-
     - Eingeleitet durch Objektattribut FK `8110` (Inhalt: `Anhang`).
     - Beginnt mit FK `8002`, Inhalt: `Obj_0010`.
     - Dient zur Übermittlung von binären Anhängen (z.B. PDF-Berichte, Bilder).
