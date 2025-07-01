@@ -89,7 +89,9 @@ const formatRuleDescription = (rule: FlatRule): string => {
 export default function LogicView() {
   // Get or initialize a practice for development
   const practicesQuery = useQuery(api.practices.getAllPractices);
-  const initializePracticeMutation = useMutation(api.practices.initializeDefaultPractice);
+  const initializePracticeMutation = useMutation(
+    api.practices.initializeDefaultPractice,
+  );
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
@@ -106,7 +108,8 @@ export default function LogicView() {
       await initializePracticeMutation();
     } catch (error) {
       toast.error("Fehler beim Initialisieren der Praxis", {
-        description: error instanceof Error ? error.message : "Unbekannter Fehler",
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
       });
     } finally {
       setIsInitializingPractice(false);
@@ -114,8 +117,9 @@ export default function LogicView() {
   }, [initializePracticeMutation]);
 
   // If no practice exists and we haven't tried to initialize, do it automatically
-  const shouldInitialize = practicesQuery !== undefined && practicesQuery.length === 0;
-  
+  const shouldInitialize =
+    practicesQuery !== undefined && practicesQuery.length === 0;
+
   React.useEffect(() => {
     if (shouldInitialize && !isInitializingPractice) {
       void handleInitializePractice();
@@ -149,7 +153,9 @@ export default function LogicView() {
       <div className="container mx-auto p-6">
         <div className="text-center py-8">
           <div className="text-lg text-muted-foreground">
-            {isInitializingPractice ? "Initialisiere Praxis..." : "Lade Daten..."}
+            {isInitializingPractice
+              ? "Initialisiere Praxis..."
+              : "Lade Daten..."}
           </div>
         </div>
       </div>
@@ -164,7 +170,10 @@ export default function LogicView() {
           <div className="text-lg text-destructive">
             Fehler beim Laden der Praxis
           </div>
-          <Button className="mt-4" onClick={() => void handleInitializePractice()}>
+          <Button
+            className="mt-4"
+            onClick={() => void handleInitializePractice()}
+          >
             Praxis initialisieren
           </Button>
         </div>

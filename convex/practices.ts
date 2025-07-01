@@ -66,19 +66,19 @@ export const initializeDefaultPractice = mutation({
   handler: async (ctx) => {
     // Check if any practice already exists
     const existingPractices = await ctx.db.query("practices").collect();
-    
+
     if (existingPractices.length > 0) {
       const firstPractice = existingPractices[0];
       if (firstPractice) {
         return firstPractice._id;
       }
     }
-    
+
     // Create a default practice
     const practiceId = await ctx.db.insert("practices", {
       name: "Standardpraxis",
     });
-    
+
     return practiceId;
   },
   returns: v.id("practices"),
