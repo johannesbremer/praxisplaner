@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const createDraftFromActive = mutation({
@@ -192,7 +192,7 @@ export const deleteRule = mutation({
   },
 });
 
-export const getRuleSets = mutation({
+export const getRuleSets = query({
   args: {
     practiceId: v.id("practices"),
   },
@@ -211,7 +211,7 @@ export const getRuleSets = mutation({
   },
 });
 
-export const getRules = mutation({
+export const getRules = query({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
