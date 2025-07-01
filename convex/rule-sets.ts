@@ -34,11 +34,13 @@ export const createDraftFromActive = mutation({
     if (!practice.currentActiveRuleSetId) {
       throw new Error("No active rule set found to copy from");
     }
-    
+
     const activeRules = await ctx.db
       .query("rules")
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", practice.currentActiveRuleSetId!))
+      .withIndex("by_ruleSetId", (q) =>
+        q.eq("ruleSetId", practice.currentActiveRuleSetId!),
+      )
       .collect();
 
     for (const rule of activeRules) {
@@ -81,17 +83,21 @@ export const updateRule = mutation({
     updates: v.object({
       description: v.optional(v.string()),
       priority: v.optional(v.number()),
-      ruleType: v.optional(v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT"))),
-      
+      ruleType: v.optional(
+        v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
+      ),
+
       // Block rule parameters
       block_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
       block_dateRangeEnd: v.optional(v.optional(v.string())),
       block_dateRangeStart: v.optional(v.optional(v.string())),
       block_daysOfWeek: v.optional(v.optional(v.array(v.number()))),
-      block_exceptForPractitionerTags: v.optional(v.optional(v.array(v.string()))),
+      block_exceptForPractitionerTags: v.optional(
+        v.optional(v.array(v.string())),
+      ),
       block_timeRangeEnd: v.optional(v.optional(v.string())),
       block_timeRangeStart: v.optional(v.optional(v.string())),
-      
+
       // Limit rule parameters
       limit_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
       limit_atLocation: v.optional(v.optional(v.id("locations"))),
@@ -113,7 +119,9 @@ export const updateRule = mutation({
 
     const practice = await ctx.db.get(ruleSet.practiceId);
     if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
-      throw new Error("Cannot edit rules in active rule set. Create a draft first.");
+      throw new Error(
+        "Cannot edit rules in active rule set. Create a draft first.",
+      );
     }
 
     // Filter out undefined values to avoid patch issues
@@ -135,7 +143,7 @@ export const createRule = mutation({
     priority: v.number(),
     ruleSetId: v.id("ruleSets"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
-    
+
     // Block rule parameters
     block_appointmentTypes: v.optional(v.array(v.string())),
     block_dateRangeEnd: v.optional(v.string()),
@@ -144,7 +152,7 @@ export const createRule = mutation({
     block_exceptForPractitionerTags: v.optional(v.array(v.string())),
     block_timeRangeEnd: v.optional(v.string()),
     block_timeRangeStart: v.optional(v.string()),
-    
+
     // Limit rule parameters
     limit_appointmentTypes: v.optional(v.array(v.string())),
     limit_atLocation: v.optional(v.id("locations")),
@@ -160,7 +168,9 @@ export const createRule = mutation({
     // Verify the rule set is not active (only allow editing drafts)
     const practice = await ctx.db.get(ruleSet.practiceId);
     if (practice?.currentActiveRuleSetId === args.ruleSetId) {
-      throw new Error("Cannot add rules to active rule set. Create a draft first.");
+      throw new Error(
+        "Cannot add rules to active rule set. Create a draft first.",
+      );
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -192,7 +202,9 @@ export const deleteRule = mutation({
 
     const practice = await ctx.db.get(ruleSet.practiceId);
     if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
-      throw new Error("Cannot delete rules from active rule set. Create a draft first.");
+      throw new Error(
+        "Cannot delete rules from active rule set. Create a draft first.",
+      );
     }
 
     await ctx.db.delete(args.ruleId);
@@ -211,8 +223,8 @@ export const getRuleSets = query({
       .collect();
 
     const practice = await ctx.db.get(args.practiceId);
-    
-    return ruleSets.map(ruleSet => ({
+
+    return ruleSets.map((ruleSet) => ({
       ...ruleSet,
       isActive: practice?.currentActiveRuleSetId === ruleSet._id,
     }));

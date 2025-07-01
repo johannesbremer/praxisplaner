@@ -50,7 +50,9 @@ export default function DebugView() {
   });
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedRuleSetId, setSelectedRuleSetId] = useState<Id<"ruleSets"> | undefined>();
+  const [selectedRuleSetId, setSelectedRuleSetId] = useState<
+    Id<"ruleSets"> | undefined
+  >();
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
 
   // Mock practice ID - in a real app this would come from auth/context
@@ -63,7 +65,9 @@ export default function DebugView() {
   };
 
   // Fetch available rule sets for the practice
-  const ruleSetsQuery = useQuery(api["rule-sets"].getRuleSets, { practiceId: mockPracticeId });
+  const ruleSetsQuery = useQuery(api["rule-sets"].getRuleSets, {
+    practiceId: mockPracticeId,
+  });
 
   const resetSimulation = () => {
     setSimulatedContext({
@@ -105,7 +109,11 @@ export default function DebugView() {
                 <Label htmlFor="rule-set">Regelset</Label>
                 <Select
                   onValueChange={(value) => {
-                    setSelectedRuleSetId(value === "active" ? undefined : value as Id<"ruleSets">);
+                    setSelectedRuleSetId(
+                      value === "active"
+                        ? undefined
+                        : (value as Id<"ruleSets">),
+                    );
                   }}
                   value={selectedRuleSetId || "active"}
                 >
@@ -114,12 +122,19 @@ export default function DebugView() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Aktives Regelset</SelectItem>
-                    {ruleSetsQuery?.map((ruleSet: { _id: string; description: string; isActive: boolean; version: number; }) => (
-                      <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                        v{ruleSet.version} - {ruleSet.description}
-                        {ruleSet.isActive && " (aktiv)"}
-                      </SelectItem>
-                    ))}
+                    {ruleSetsQuery?.map(
+                      (ruleSet: {
+                        _id: string;
+                        description: string;
+                        isActive: boolean;
+                        version: number;
+                      }) => (
+                        <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                          v{ruleSet.version} - {ruleSet.description}
+                          {ruleSet.isActive && " (aktiv)"}
+                        </SelectItem>
+                      ),
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -164,9 +179,7 @@ export default function DebugView() {
                     <SelectItem value="Nachuntersuchung">
                       Nachuntersuchung
                     </SelectItem>
-                    <SelectItem value="Grippeimpfung">
-                      Grippeimpfung
-                    </SelectItem>
+                    <SelectItem value="Grippeimpfung">Grippeimpfung</SelectItem>
                     <SelectItem value="Vorsorge">
                       Vorsorgeuntersuchung
                     </SelectItem>
@@ -192,7 +205,11 @@ export default function DebugView() {
                 />
               </div>
 
-              <Button className="w-full" onClick={resetSimulation} variant="outline">
+              <Button
+                className="w-full"
+                onClick={resetSimulation}
+                variant="outline"
+              >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Zurücksetzen
               </Button>
@@ -216,7 +233,9 @@ export default function DebugView() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Terminart:</span>
-                <span className="font-medium">{simulatedContext.appointmentType}</span>
+                <span className="font-medium">
+                  {simulatedContext.appointmentType}
+                </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Datum:</span>
@@ -260,34 +279,44 @@ export default function DebugView() {
                   <div>
                     <Label className="text-sm font-medium">Zeit</Label>
                     <div className="text-lg font-semibold">
-                      {format(new Date(selectedSlot.startTime), "HH:mm", { locale: de })}
+                      {format(new Date(selectedSlot.startTime), "HH:mm", {
+                        locale: de,
+                      })}
                     </div>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm font-medium">Arzt</Label>
                     <div>{selectedSlot.practitionerName}</div>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm font-medium">Dauer</Label>
                     <div>{selectedSlot.duration} Minuten</div>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm font-medium">Status</Label>
                     <div>
                       <Badge
-                        variant={selectedSlot.status === "AVAILABLE" ? "default" : "destructive"}
+                        variant={
+                          selectedSlot.status === "AVAILABLE"
+                            ? "default"
+                            : "destructive"
+                        }
                       >
-                        {selectedSlot.status === "AVAILABLE" ? "Verfügbar" : "Blockiert"}
+                        {selectedSlot.status === "AVAILABLE"
+                          ? "Verfügbar"
+                          : "Blockiert"}
                       </Badge>
                     </div>
                   </div>
-                  
+
                   {selectedSlot.blockedByRuleId && (
                     <div>
-                      <Label className="text-sm font-medium">Blockiert durch Regel</Label>
+                      <Label className="text-sm font-medium">
+                        Blockiert durch Regel
+                      </Label>
                       <div className="text-sm text-muted-foreground">
                         ID: {selectedSlot.blockedByRuleId}
                       </div>

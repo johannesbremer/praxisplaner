@@ -15,7 +15,7 @@ import {
 import { api } from "@/convex/_generated/api";
 
 interface PatientBookingFlowProps {
-  dateRange: { end: string; start: string; };
+  dateRange: { end: string; start: string };
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
     duration: number;
@@ -40,17 +40,20 @@ export function PatientBookingFlow({
   ruleSetId,
   simulatedContext,
 }: PatientBookingFlowProps) {
-  const slotsResult = useQuery(api.scheduling.getAvailableSlots, 
-    ruleSetId ? {
-      dateRange,
-      practiceId,
-      ruleSetId,
-      simulatedContext,
-    } : {
-      dateRange,
-      practiceId,
-      simulatedContext,
-    }
+  const slotsResult = useQuery(
+    api.scheduling.getAvailableSlots,
+    ruleSetId
+      ? {
+          dateRange,
+          practiceId,
+          ruleSetId,
+          simulatedContext,
+        }
+      : {
+          dateRange,
+          practiceId,
+          simulatedContext,
+        },
   );
 
   if (!slotsResult) {
@@ -69,8 +72,12 @@ export function PatientBookingFlow({
     );
   }
 
-  const availableSlots = slotsResult.slots.filter((slot) => slot.status === "AVAILABLE");
-  const blockedSlots = slotsResult.slots.filter((slot) => slot.status === "BLOCKED");
+  const availableSlots = slotsResult.slots.filter(
+    (slot) => slot.status === "AVAILABLE",
+  );
+  const blockedSlots = slotsResult.slots.filter(
+    (slot) => slot.status === "BLOCKED",
+  );
 
   // Group slots by date
   const slotsByDate = new Map<string, typeof slotsResult.slots>();
@@ -85,8 +92,8 @@ export function PatientBookingFlow({
     }
   }
 
-  const sortedDates = [...slotsByDate.keys()].sort((a, b) => 
-    new Date(a).getTime() - new Date(b).getTime()
+  const sortedDates = [...slotsByDate.keys()].sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
 
   return (
@@ -95,8 +102,10 @@ export function PatientBookingFlow({
         <CardHeader>
           <CardTitle>Terminbuchung - Patientensicht</CardTitle>
           <CardDescription>
-            Terminart: {simulatedContext.appointmentType} | 
-            Patient: {simulatedContext.patient.isNew ? "Neuer Patient" : "Bestandspatient"}
+            Terminart: {simulatedContext.appointmentType} | Patient:{" "}
+            {simulatedContext.patient.isNew
+              ? "Neuer Patient"
+              : "Bestandspatient"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -120,11 +129,11 @@ export function PatientBookingFlow({
               {sortedDates.map((dateString) => {
                 const date = new Date(dateString);
                 const daySlots = slotsByDate.get(dateString);
-                
+
                 if (!daySlots) {
                   return null;
                 }
-                
+
                 return (
                   <div key={dateString}>
                     <h3 className="font-semibold mb-3">
@@ -132,11 +141,15 @@ export function PatientBookingFlow({
                     </h3>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                       {daySlots
-                        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+                        .sort(
+                          (a, b) =>
+                            new Date(a.startTime).getTime() -
+                            new Date(b.startTime).getTime(),
+                        )
                         .map((slot) => {
                           const slotTime = new Date(slot.startTime);
                           const timeString = format(slotTime, "HH:mm");
-                          
+
                           return (
                             <div
                               className={`p-3 border rounded-lg cursor-pointer transition-colors ${
@@ -151,9 +164,15 @@ export function PatientBookingFlow({
                                 <div className="font-medium">{timeString}</div>
                                 <Badge
                                   className="text-xs"
-                                  variant={slot.status === "AVAILABLE" ? "default" : "destructive"}
+                                  variant={
+                                    slot.status === "AVAILABLE"
+                                      ? "default"
+                                      : "destructive"
+                                  }
                                 >
-                                  {slot.status === "AVAILABLE" ? "Frei" : "Blockiert"}
+                                  {slot.status === "AVAILABLE"
+                                    ? "Frei"
+                                    : "Blockiert"}
                                 </Badge>
                               </div>
                               <div className="text-sm text-muted-foreground mt-1">
@@ -178,7 +197,9 @@ export function PatientBookingFlow({
         <Card>
           <CardHeader>
             <CardTitle>Regelverarbeitung</CardTitle>
-            <CardDescription>Detaillierte Logs der Terminverfügbarkeit</CardDescription>
+            <CardDescription>
+              Detaillierte Logs der Terminverfügbarkeit
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-1 font-mono text-sm">

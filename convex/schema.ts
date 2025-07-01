@@ -3,10 +3,14 @@ import { v } from "convex/values";
 
 export default defineSchema({
   baseSchedules: defineTable({
-    breakTimes: v.optional(v.array(v.object({
-      end: v.string(),
-      start: v.string(),
-    }))),
+    breakTimes: v.optional(
+      v.array(
+        v.object({
+          end: v.string(),
+          start: v.string(),
+        }),
+      ),
+    ),
     dayOfWeek: v.number(), // 0 = Sunday, 1 = Monday, etc.
     endTime: v.string(), // "17:00"
     practitionerId: v.id("practitioners"),
@@ -77,6 +81,5 @@ export default defineSchema({
     limit_atLocation: v.optional(v.id("locations")),
     limit_count: v.optional(v.number()),
     limit_perPractitioner: v.optional(v.boolean()),
-
   }).index("by_ruleSetId", ["ruleSetId"]),
 });
