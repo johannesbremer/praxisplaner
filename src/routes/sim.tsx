@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { useQuery } from "convex/react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -25,21 +25,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PatientBookingFlow } from "../components/patient-booking-flow";
 import { api } from "@/convex/_generated/api";
+
+import { PatientBookingFlow } from "../components/patient-booking-flow";
 
 export const Route = createFileRoute("/sim")({
   component: DebugView,
 });
 
 interface SlotDetails {
-  startTime: string;
-  practitionerId: Id<"practitioners">;
-  status: "AVAILABLE" | "BLOCKED";
-  blockedByRuleId?: Id<"rules">;
-  practitionerName: string;
+  blockedByRuleId?: Id<"rules"> | undefined;
   duration: number;
-  locationId?: Id<"locations">;
+  locationId?: Id<"locations"> | undefined;
+  practitionerId: Id<"practitioners">;
+  practitionerName: string;
+  startTime: string;
+  status: "AVAILABLE" | "BLOCKED";
 }
 
 export default function DebugView() {
@@ -49,20 +50,20 @@ export default function DebugView() {
   });
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedRuleSetId, setSelectedRuleSetId] = useState<Id<"ruleSets"> | undefined>(undefined);
-  const [selectedSlot, setSelectedSlot] = useState<SlotDetails | null>(null);
+  const [selectedRuleSetId, setSelectedRuleSetId] = useState<Id<"ruleSets"> | undefined>();
+  const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
 
   // Mock practice ID - in a real app this would come from auth/context
   const mockPracticeId = "practice123" as Id<"practices">;
 
   // Calculate date range (selected date only for now)
   const dateRange = {
-    start: selectedDate.toISOString(),
     end: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    start: selectedDate.toISOString(),
   };
 
   // Fetch available rule sets for the practice
-  const ruleSetsQuery = useQuery(api.ruleSets.getRuleSets, { practiceId: mockPracticeId });
+  const ruleSetsQuery = useQuery(api["rule-sets"].getRuleSets, { practiceId: mockPracticeId });
 
   const resetSimulation = () => {
     setSimulatedContext({
@@ -113,7 +114,7 @@ export default function DebugView() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Aktives Regelset</SelectItem>
-                    {ruleSetsQuery?.map((ruleSet: { _id: string; version: number; description: string; isActive: boolean }) => (
+                    {ruleSetsQuery?.map((ruleSet: { _id: string; description: string; isActive: boolean; version: number; }) => (
                       <SelectItem key={ruleSet._id} value={ruleSet._id}>
                         v{ruleSet.version} - {ruleSet.description}
                         {ruleSet.isActive && " (aktiv)"}
@@ -191,7 +192,7 @@ export default function DebugView() {
                 />
               </div>
 
-              <Button onClick={resetSimulation} variant="outline" className="w-full">
+              <Button className="w-full" onClick={resetSimulation} variant="outline">
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Zurücksetzen
               </Button>
@@ -236,11 +237,11 @@ export default function DebugView() {
         {/* Center Panel - Patient Booking Flow Simulation */}
         <div className="lg:col-span-6">
           <PatientBookingFlow
+            dateRange={dateRange}
+            onSlotClick={handleSlotClick}
             practiceId={mockPracticeId}
             ruleSetId={selectedRuleSetId}
             simulatedContext={simulatedContext}
-            dateRange={dateRange}
-            onSlotClick={handleSlotClick}
           />
         </div>
 

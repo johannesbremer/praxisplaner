@@ -15,40 +15,40 @@ import {
 import { api } from "@/convex/_generated/api";
 
 interface PatientBookingFlowProps {
+  dateRange: { end: string; start: string; };
+  onSlotClick?: (slot: {
+    blockedByRuleId?: Id<"rules"> | undefined;
+    duration: number;
+    locationId?: Id<"locations"> | undefined;
+    practitionerId: Id<"practitioners">;
+    practitionerName: string;
+    startTime: string;
+    status: "AVAILABLE" | "BLOCKED";
+  }) => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets"> | undefined;
   simulatedContext: {
     appointmentType: string;
     patient: { isNew: boolean };
   };
-  dateRange: { start: string; end: string };
-  onSlotClick?: (slot: {
-    startTime: string;
-    practitionerId: Id<"practitioners">;
-    status: "AVAILABLE" | "BLOCKED";
-    blockedByRuleId?: Id<"rules">;
-    practitionerName: string;
-    duration: number;
-    locationId?: Id<"locations">;
-  }) => void;
 }
 
 export function PatientBookingFlow({
+  dateRange,
+  onSlotClick,
   practiceId,
   ruleSetId,
   simulatedContext,
-  dateRange,
-  onSlotClick,
 }: PatientBookingFlowProps) {
   const slotsResult = useQuery(api.scheduling.getAvailableSlots, 
     ruleSetId ? {
+      dateRange,
       practiceId,
       ruleSetId,
-      dateRange,
       simulatedContext,
     } : {
-      practiceId,
       dateRange,
+      practiceId,
       simulatedContext,
     }
   );
@@ -79,10 +79,13 @@ export function PatientBookingFlow({
     if (!slotsByDate.has(date)) {
       slotsByDate.set(date, []);
     }
-    slotsByDate.get(date)!.push(slot);
+    const dateSlots = slotsByDate.get(date);
+    if (dateSlots) {
+      dateSlots.push(slot);
+    }
   }
 
-  const sortedDates = Array.from(slotsByDate.keys()).sort((a, b) => 
+  const sortedDates = [...slotsByDate.keys()].sort((a, b) => 
     new Date(a).getTime() - new Date(b).getTime()
   );
 
@@ -116,7 +119,11 @@ export function PatientBookingFlow({
             <div className="space-y-6">
               {sortedDates.map((dateString) => {
                 const date = new Date(dateString);
-                const daySlots = slotsByDate.get(dateString)!;
+                const daySlots = slotsByDate.get(dateString);
+                
+                if (!daySlots) {
+                  return null;
+                }
                 
                 return (
                   <div key={dateString}>
@@ -132,19 +139,19 @@ export function PatientBookingFlow({
                           
                           return (
                             <div
-                              key={`${slot.practitionerId}-${slot.startTime}`}
                               className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                                 slot.status === "AVAILABLE"
                                   ? "hover:bg-green-50 border-green-200 bg-green-25"
                                   : "hover:bg-red-50 border-red-200 bg-red-25 opacity-75"
                               }`}
+                              key={`${slot.practitionerId}-${slot.startTime}`}
                               onClick={() => onSlotClick?.(slot)}
                             >
                               <div className="flex items-center justify-between">
                                 <div className="font-medium">{timeString}</div>
                                 <Badge
-                                  variant={slot.status === "AVAILABLE" ? "default" : "destructive"}
                                   className="text-xs"
+                                  variant={slot.status === "AVAILABLE" ? "default" : "destructive"}
                                 >
                                   {slot.status === "AVAILABLE" ? "Frei" : "Blockiert"}
                                 </Badge>
@@ -176,7 +183,7 @@ export function PatientBookingFlow({
           <CardContent>
             <div className="space-y-1 font-mono text-sm">
               {slotsResult.log.map((logEntry, index) => (
-                <div key={index} className="text-muted-foreground">
+                <div className="text-muted-foreground" key={index}>
                   {logEntry}
                 </div>
               ))}

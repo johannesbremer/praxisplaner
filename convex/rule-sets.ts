@@ -1,10 +1,11 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+
+import { mutation, query } from "./_generated/server";
 
 export const createDraftFromActive = mutation({
   args: {
-    practiceId: v.id("practices"),
     description: v.string(),
+    practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
     // Get the current active rule set
@@ -22,21 +23,27 @@ export const createDraftFromActive = mutation({
     // Create new draft rule set
     const newVersion = activeRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
-      practiceId: args.practiceId,
-      version: newVersion,
-      description: args.description,
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
+      description: args.description,
+      practiceId: args.practiceId,
+      version: newVersion,
     });
 
     // Copy all rules from active set to new draft
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("No active rule set found to copy from");
+    }
+    
     const activeRules = await ctx.db
       .query("rules")
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", practice.currentActiveRuleSetId!))
       .collect();
 
     for (const rule of activeRules) {
-      const { _id, _creationTime, ruleSetId, ...ruleData } = rule;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _creationTime, _id, ruleSetId, ...ruleData } = rule;
       await ctx.db.insert("rules", {
         ...ruleData,
         ruleSetId: newRuleSetId,
@@ -72,23 +79,23 @@ export const updateRule = mutation({
   args: {
     ruleId: v.id("rules"),
     updates: v.object({
-      priority: v.optional(v.number()),
       description: v.optional(v.string()),
+      priority: v.optional(v.number()),
       ruleType: v.optional(v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT"))),
       
       // Block rule parameters
-      block_daysOfWeek: v.optional(v.optional(v.array(v.number()))),
       block_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
-      block_exceptForPractitionerTags: v.optional(v.optional(v.array(v.string()))),
-      block_timeRangeStart: v.optional(v.optional(v.string())),
-      block_timeRangeEnd: v.optional(v.optional(v.string())),
-      block_dateRangeStart: v.optional(v.optional(v.string())),
       block_dateRangeEnd: v.optional(v.optional(v.string())),
+      block_dateRangeStart: v.optional(v.optional(v.string())),
+      block_daysOfWeek: v.optional(v.optional(v.array(v.number()))),
+      block_exceptForPractitionerTags: v.optional(v.optional(v.array(v.string()))),
+      block_timeRangeEnd: v.optional(v.optional(v.string())),
+      block_timeRangeStart: v.optional(v.optional(v.string())),
       
       // Limit rule parameters
-      limit_count: v.optional(v.optional(v.number())),
       limit_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
       limit_atLocation: v.optional(v.optional(v.id("locations"))),
+      limit_count: v.optional(v.optional(v.number())),
       limit_perPractitioner: v.optional(v.optional(v.boolean())),
     }),
   },
@@ -124,24 +131,24 @@ export const updateRule = mutation({
 
 export const createRule = mutation({
   args: {
-    ruleSetId: v.id("ruleSets"),
-    priority: v.number(),
     description: v.string(),
+    priority: v.number(),
+    ruleSetId: v.id("ruleSets"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
     
     // Block rule parameters
-    block_daysOfWeek: v.optional(v.array(v.number())),
     block_appointmentTypes: v.optional(v.array(v.string())),
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeStart: v.optional(v.string()),
-    block_timeRangeEnd: v.optional(v.string()),
-    block_dateRangeStart: v.optional(v.string()),
     block_dateRangeEnd: v.optional(v.string()),
+    block_dateRangeStart: v.optional(v.string()),
+    block_daysOfWeek: v.optional(v.array(v.number())),
+    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
+    block_timeRangeEnd: v.optional(v.string()),
+    block_timeRangeStart: v.optional(v.string()),
     
     // Limit rule parameters
-    limit_count: v.optional(v.number()),
     limit_appointmentTypes: v.optional(v.array(v.string())),
     limit_atLocation: v.optional(v.id("locations")),
+    limit_count: v.optional(v.number()),
     limit_perPractitioner: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -156,6 +163,7 @@ export const createRule = mutation({
       throw new Error("Cannot add rules to active rule set. Create a draft first.");
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { ruleSetId, ...ruleData } = args;
     const ruleId = await ctx.db.insert("rules", {
       ruleSetId: args.ruleSetId,

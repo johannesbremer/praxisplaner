@@ -1,28 +1,19 @@
-import { query } from "./_generated/server";
 import { v } from "convex/values";
+
+import type { Id } from "./_generated/dataModel";
+
+import { query } from "./_generated/server";
 
 export const getAvailableSlots = query({
   args: {
+    dateRange: v.object({ end: v.string(), start: v.string() }),
     practiceId: v.id("practices"),
     ruleSetId: v.optional(v.id("ruleSets")), // Null for active set, specified for drafts
-    dateRange: v.object({ start: v.string(), end: v.string() }),
     simulatedContext: v.object({
       appointmentType: v.string(),
       patient: v.object({ isNew: v.boolean() }),
     }),
   },
-  returns: v.object({
-    log: v.array(v.string()),
-    slots: v.array(v.object({
-      startTime: v.string(),
-      practitionerId: v.id("practitioners"),
-      status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
-      blockedByRuleId: v.optional(v.id("rules")),
-      practitionerName: v.string(),
-      duration: v.number(),
-      locationId: v.optional(v.id("locations")),
-    })),
-  }),
   handler: async (ctx, args) => {
     const log: string[] = [];
     
@@ -53,15 +44,15 @@ export const getAvailableSlots = query({
     log.push(`Found ${practitioners.length} practitioners`);
 
     // 3. Generate all "candidate slots" in memory for the date range
-    const candidateSlots: Array<{
-      startTime: string;
-      practitionerId: string;
-      practitionerName: string;
-      status: "AVAILABLE" | "BLOCKED";
+    const candidateSlots: {
       blockedByRuleId?: string;
       duration: number;
       locationId?: string;
-    }> = [];
+      practitionerId: string;
+      practitionerName: string;
+      startTime: string;
+      status: "AVAILABLE" | "BLOCKED";
+    }[] = [];
 
     const startDate = new Date(args.dateRange.start);
     const endDate = new Date(args.dateRange.end);
@@ -99,15 +90,15 @@ export const getAvailableSlots = query({
             const timeString = `${slotTime.getHours().toString().padStart(2, '0')}:${slotTime.getMinutes().toString().padStart(2, '0')}`;
             const isBreakTime = schedule.breakTimes?.some(breakTime => 
               timeString >= breakTime.start && timeString < breakTime.end
-            );
+            ) ?? false;
             
             if (!isBreakTime) {
               candidateSlots.push({
-                startTime: slotTime.toISOString(),
+                duration: schedule.slotDuration,
                 practitionerId: practitioner._id,
                 practitionerName: practitioner.name,
+                startTime: slotTime.toISOString(),
                 status: "AVAILABLE",
-                duration: schedule.slotDuration,
               });
             }
           }
@@ -134,20 +125,21 @@ export const getAvailableSlots = query({
           if (rule.block_daysOfWeek && rule.block_daysOfWeek.length > 0) {
             const slotDate = new Date(slot.startTime);
             const dayOfWeek = slotDate.getDay();
-            shouldBlock = shouldBlock && rule.block_daysOfWeek.includes(dayOfWeek);
+            shouldBlock &&= rule.block_daysOfWeek.includes(dayOfWeek);
           }
           
           // Check appointment type condition
           if (rule.block_appointmentTypes && rule.block_appointmentTypes.length > 0) {
-            shouldBlock = shouldBlock && rule.block_appointmentTypes.includes(args.simulatedContext.appointmentType);
+            shouldBlock &&= rule.block_appointmentTypes.includes(args.simulatedContext.appointmentType);
           }
           
           // Check practitioner tags exception
           if (rule.block_exceptForPractitionerTags && rule.block_exceptForPractitionerTags.length > 0) {
             const practitioner = practitioners.find(p => p._id === slot.practitionerId);
             const hasExceptionTag = practitioner?.tags?.some(tag => 
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
               rule.block_exceptForPractitionerTags!.includes(tag)
-            );
+            ) ?? false;
             if (hasExceptionTag) {
               shouldBlock = false;
             }
@@ -157,7 +149,7 @@ export const getAvailableSlots = query({
           if (rule.block_timeRangeStart && rule.block_timeRangeEnd) {
             const slotDate = new Date(slot.startTime);
             const slotTime = `${slotDate.getHours().toString().padStart(2, '0')}:${slotDate.getMinutes().toString().padStart(2, '0')}`;
-            shouldBlock = shouldBlock && (slotTime >= rule.block_timeRangeStart && slotTime < rule.block_timeRangeEnd);
+            shouldBlock &&= (slotTime >= rule.block_timeRangeStart && slotTime < rule.block_timeRangeEnd);
           }
           
           // Check date range condition
@@ -165,7 +157,7 @@ export const getAvailableSlots = query({
             const slotDate = new Date(slot.startTime);
             const startDate = new Date(rule.block_dateRangeStart);
             const endDate = new Date(rule.block_dateRangeEnd);
-            shouldBlock = shouldBlock && (slotDate >= startDate && slotDate <= endDate);
+            shouldBlock &&= (slotDate >= startDate && slotDate <= endDate);
           }
           
           if (shouldBlock) {
@@ -173,7 +165,7 @@ export const getAvailableSlots = query({
             slot.blockedByRuleId = rule._id;
           }
         }
-      } else if (rule.ruleType === "LIMIT_CONCURRENT") {
+      } else {
         // Implementation for concurrent limit rules
         if (rule.limit_count && rule.limit_appointmentTypes?.includes(args.simulatedContext.appointmentType)) {
           const availableSlots = candidateSlots.filter(s => s.status === "AVAILABLE");
@@ -185,11 +177,12 @@ export const getAvailableSlots = query({
               if (!practitionerGroups.has(slot.practitionerId)) {
                 practitionerGroups.set(slot.practitionerId, []);
               }
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
               practitionerGroups.get(slot.practitionerId)!.push(slot);
             }
             
             for (const [, slots] of practitionerGroups) {
-              if (slots.length > rule.limit_count) {
+              if (rule.limit_count && slots.length > rule.limit_count) {
                 // Block excess slots (keeping first N)
                 for (let i = rule.limit_count; i < slots.length; i++) {
                   const slot = slots[i];
@@ -202,7 +195,7 @@ export const getAvailableSlots = query({
             }
           } else {
             // Global limit
-            if (availableSlots.length > rule.limit_count) {
+            if (rule.limit_count && availableSlots.length > rule.limit_count) {
               for (let i = rule.limit_count; i < availableSlots.length; i++) {
                 const slot = availableSlots[i];
                 if (slot) {
@@ -223,17 +216,29 @@ export const getAvailableSlots = query({
 
     // 5. Return the full list of candidate slots with their final status
     const finalSlots = candidateSlots.map(slot => ({
-      startTime: slot.startTime,
-      practitionerId: slot.practitionerId as any, // Type assertion for ID
-      status: slot.status,
-      blockedByRuleId: slot.blockedByRuleId as any, // Type assertion for optional ID
-      practitionerName: slot.practitionerName,
+      blockedByRuleId: slot.blockedByRuleId as Id<"rules"> | undefined,
       duration: slot.duration,
-      locationId: slot.locationId as any, // Type assertion for optional ID
+      locationId: slot.locationId as Id<"locations"> | undefined,
+      practitionerId: slot.practitionerId as Id<"practitioners">,
+      practitionerName: slot.practitionerName,
+      startTime: slot.startTime,
+      status: slot.status,
     }));
 
     log.push(`Final result: ${finalSlots.filter(s => s.status === "AVAILABLE").length} available slots, ${finalSlots.filter(s => s.status === "BLOCKED").length} blocked slots`);
 
     return { log, slots: finalSlots };
   },
+  returns: v.object({
+    log: v.array(v.string()),
+    slots: v.array(v.object({
+      blockedByRuleId: v.optional(v.id("rules")),
+      duration: v.number(),
+      locationId: v.optional(v.id("locations")),
+      practitionerId: v.id("practitioners"),
+      practitionerName: v.string(),
+      startTime: v.string(),
+      status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
+    })),
+  }),
 });
