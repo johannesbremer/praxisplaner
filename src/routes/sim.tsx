@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import React, { useCallback, useState } from "react";
+import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -55,8 +56,36 @@ export default function DebugView() {
   >();
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
 
-  // Mock practice ID - in a real app this would come from auth/context
-  const mockPracticeId = "practice123" as Id<"practices">;
+  // Get or initialize a practice for development
+  const practicesQuery = useQuery(api.practices.getAllPractices);
+  const initializePracticeMutation = useMutation(api.practices.initializeDefaultPractice);
+  const [isInitializingPractice, setIsInitializingPractice] = useState(false);
+
+  // Use the first available practice or initialize one
+  const currentPractice = practicesQuery?.[0];
+
+  // Initialize practice if none exists
+  const handleInitializePractice = useCallback(async () => {
+    try {
+      setIsInitializingPractice(true);
+      await initializePracticeMutation();
+    } catch (error) {
+      toast.error("Fehler beim Initialisieren der Praxis", {
+        description: error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    } finally {
+      setIsInitializingPractice(false);
+    }
+  }, [initializePracticeMutation]);
+
+  // If no practice exists and we haven't tried to initialize, do it automatically
+  const shouldInitialize = practicesQuery !== undefined && practicesQuery.length === 0;
+  
+  React.useEffect(() => {
+    if (shouldInitialize && !isInitializingPractice) {
+      void handleInitializePractice();
+    }
+  }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
 
   // Calculate date range (selected date only for now)
   const dateRange = {
@@ -65,9 +94,39 @@ export default function DebugView() {
   };
 
   // Fetch available rule sets for the practice
-  const ruleSetsQuery = useQuery(api.rulesets.getRuleSets, {
-    practiceId: mockPracticeId,
-  });
+  const ruleSetsQuery = useQuery(
+    api.rulesets.getRuleSets,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
+
+  // Show loading state if practice is being initialized
+  if (practicesQuery === undefined || isInitializingPractice) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <div className="text-lg text-muted-foreground">
+            {isInitializingPractice ? "Initialisiere Praxis..." : "Lade Daten..."}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if no practice could be loaded
+  if (!currentPractice) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <div className="text-lg text-destructive">
+            Fehler beim Laden der Praxis
+          </div>
+          <Button className="mt-4" onClick={() => void handleInitializePractice()}>
+            Praxis initialisieren
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const resetSimulation = () => {
     setSimulatedContext({
@@ -258,7 +317,7 @@ export default function DebugView() {
           <PatientBookingFlow
             dateRange={dateRange}
             onSlotClick={handleSlotClick}
-            practiceId={mockPracticeId}
+            practiceId={currentPractice._id}
             ruleSetId={selectedRuleSetId}
             simulatedContext={simulatedContext}
           />

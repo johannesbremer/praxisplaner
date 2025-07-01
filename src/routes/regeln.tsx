@@ -2,7 +2,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { GitBranch, Save } from "lucide-react";
-import { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -87,17 +87,46 @@ const formatRuleDescription = (rule: FlatRule): string => {
 };
 
 export default function LogicView() {
-  // Mock practice ID - in a real app this would come from auth/context
-  const mockPracticeId = "practice123" as Id<"practices">;
+  // Get or initialize a practice for development
+  const practicesQuery = useQuery(api.practices.getAllPractices);
+  const initializePracticeMutation = useMutation(api.practices.initializeDefaultPractice);
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+  const [isInitializingPractice, setIsInitializingPractice] = useState(false);
+
+  // Use the first available practice or initialize one
+  const currentPractice = practicesQuery?.[0];
+
+  // Initialize practice if none exists
+  const handleInitializePractice = useCallback(async () => {
+    try {
+      setIsInitializingPractice(true);
+      await initializePracticeMutation();
+    } catch (error) {
+      toast.error("Fehler beim Initialisieren der Praxis", {
+        description: error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    } finally {
+      setIsInitializingPractice(false);
+    }
+  }, [initializePracticeMutation]);
+
+  // If no practice exists and we haven't tried to initialize, do it automatically
+  const shouldInitialize = practicesQuery !== undefined && practicesQuery.length === 0;
+  
+  React.useEffect(() => {
+    if (shouldInitialize && !isInitializingPractice) {
+      void handleInitializePractice();
+    }
+  }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
 
   // Fetch rule sets for this practice
-  const ruleSetsQuery = useQuery(api.rulesets.getRuleSets, {
-    practiceId: mockPracticeId,
-  });
+  const ruleSetsQuery = useQuery(
+    api.rulesets.getRuleSets,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
 
   // Fetch rules for the selected rule set
   const rulesQuery = useQuery(
@@ -114,6 +143,35 @@ export default function LogicView() {
   );
   const activeRuleSet = ruleSetsQuery?.find((rs) => rs.isActive);
 
+  // Show loading state if practice is being initialized
+  if (practicesQuery === undefined || isInitializingPractice) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <div className="text-lg text-muted-foreground">
+            {isInitializingPractice ? "Initialisiere Praxis..." : "Lade Daten..."}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if no practice could be loaded
+  if (!currentPractice) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <div className="text-lg text-destructive">
+            Fehler beim Laden der Praxis
+          </div>
+          <Button className="mt-4" onClick={() => void handleInitializePractice()}>
+            Praxis initialisieren
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const handleCreateDraft = async () => {
     if (!activeRuleSet) {
       toast.error("Kein aktives Regelset gefunden");
@@ -124,7 +182,7 @@ export default function LogicView() {
       setIsCreatingDraft(true);
       const newRuleSetId = await createDraftMutation({
         description: `Draft basierend auf v${activeRuleSet.version}`,
-        practiceId: mockPracticeId,
+        practiceId: currentPractice._id,
       });
 
       setSelectedRuleSetId(newRuleSetId);
@@ -144,7 +202,7 @@ export default function LogicView() {
   const handleActivateRuleSet = async (ruleSetId: Id<"ruleSets">) => {
     try {
       await activateRuleSetMutation({
-        practiceId: mockPracticeId,
+        practiceId: currentPractice._id,
         ruleSetId,
       });
 
