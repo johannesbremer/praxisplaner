@@ -65,7 +65,7 @@ export default function DebugView() {
   };
 
   // Fetch available rule sets for the practice
-  const ruleSetsQuery = useQuery(api["rule-sets"].getRuleSets, {
+  const ruleSetsQuery = useQuery(api.rulesets.getRuleSets, {
     practiceId: mockPracticeId,
   });
 

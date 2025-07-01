@@ -35,12 +35,11 @@ export const createDraftFromActive = mutation({
       throw new Error("No active rule set found to copy from");
     }
 
+    const activeRuleSetId = practice.currentActiveRuleSetId;
     const activeRules = await ctx.db
       .query("rules")
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      .withIndex("by_ruleSetId", (q) =>
-        q.eq("ruleSetId", practice.currentActiveRuleSetId!),
-      )
+
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", activeRuleSetId))
       .collect();
 
     for (const rule of activeRules) {

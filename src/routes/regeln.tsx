@@ -95,21 +95,19 @@ export default function LogicView() {
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
 
   // Fetch rule sets for this practice
-  const ruleSetsQuery = useQuery(api["rule-sets"].getRuleSets, {
+  const ruleSetsQuery = useQuery(api.rulesets.getRuleSets, {
     practiceId: mockPracticeId,
   });
 
   // Fetch rules for the selected rule set
   const rulesQuery = useQuery(
-    api["rule-sets"].getRules,
+    api.rulesets.getRules,
     selectedRuleSetId ? { ruleSetId: selectedRuleSetId } : "skip",
   );
 
   // Mutations
-  const createDraftMutation = useMutation(
-    api["rule-sets"].createDraftFromActive,
-  );
-  const activateRuleSetMutation = useMutation(api["rule-sets"].activateRuleSet);
+  const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
+  const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
 
   const selectedRuleSet = ruleSetsQuery?.find(
     (rs) => rs._id === selectedRuleSetId,
