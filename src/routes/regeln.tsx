@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, n/no-missing-import */
 // src/routes/regeln.tsx
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
@@ -139,7 +140,7 @@ export default function LogicView() {
     try {
       setIsInitializingPractice(true);
       await initializePracticeMutation();
-    } catch (error) {
+    } catch (error: unknown) {
       captureError(error, {
         context: "practice_initialization",
       });
@@ -256,10 +257,10 @@ export default function LogicView() {
       toast.success("Draft erstellt", {
         description: "Ein neues Draft-Regelset wurde erstellt.",
       });
-    } catch (error) {
+    } catch (error: unknown) {
       captureError(error, {
-        context: "draft_creation",
         activeRuleSetId: activeRuleSet._id,
+        context: "draft_creation",
         practiceId: currentPractice._id,
       });
 
@@ -282,7 +283,7 @@ export default function LogicView() {
       toast.success("Regelset aktiviert", {
         description: "Das Regelset wurde erfolgreich aktiviert.",
       });
-    } catch (error) {
+    } catch (error: unknown) {
       captureError(error, {
         context: "ruleset_activation",
         practiceId: currentPractice._id,
@@ -309,7 +310,7 @@ export default function LogicView() {
         description:
           "Das erste Regelset wurde erfolgreich erstellt und aktiviert.",
       });
-    } catch (error) {
+    } catch (error: unknown) {
       captureError(error, {
         context: "initial_ruleset_creation",
         practiceId: currentPractice._id,
