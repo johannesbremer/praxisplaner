@@ -1,19 +1,20 @@
 // src/components/rule-creation-form.tsx
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
-import React, { useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Id } from "../convex/_generated/dataModel";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from "../components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -21,23 +22,48 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { api } from "@/convex/_generated/api";
+} from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
+import { api } from "../convex/_generated/api";
+import { useErrorTracking } from "../utils/error-tracking";
 
 interface RuleCreationFormProps {
   onRuleCreated?: () => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
+}
+
+interface RuleFormData {
+  description: string;
+  priority: number;
+  ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+
+  // Practitioner application
+  appliesTo: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
+  specificPractitioners: Id<"practitioners">[];
+
+  // Block rule parameters
+  block_appointmentTypes: string[];
+  block_dateRangeEnd: string;
+  block_dateRangeStart: string;
+  block_daysOfWeek: number[];
+  block_exceptForPractitionerTags: string[];
+  block_timeRangeEnd: string;
+  block_timeRangeStart: string;
+
+  // Limit rule parameters
+  limit_appointmentTypes: string[];
+  limit_count: number;
+  limit_perPractitioner: boolean;
 }
 
 export default function RuleCreationForm({
@@ -46,137 +72,110 @@ export default function RuleCreationForm({
   ruleSetId,
 }: RuleCreationFormProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [formData, setFormData] = useState({
-    description: "",
-    priority: 100,
-    ruleType: "BLOCK" as "BLOCK" | "LIMIT_CONCURRENT",
-
-    // Practitioner application
-    appliesTo: "ALL_PRACTITIONERS" as
-      | "ALL_PRACTITIONERS"
-      | "SPECIFIC_PRACTITIONERS",
-    specificPractitioners: [] as Id<"practitioners">[],
-
-    // Block rule parameters
-    block_appointmentTypes: [] as string[],
-    block_dateRangeEnd: "",
-    block_dateRangeStart: "",
-    block_daysOfWeek: [] as number[],
-    block_exceptForPractitionerTags: [] as string[],
-    block_timeRangeEnd: "",
-    block_timeRangeStart: "",
-
-    // Limit rule parameters
-    limit_appointmentTypes: [] as string[],
-    limit_count: 1,
-    limit_perPractitioner: false,
-  });
+  const { captureError } = useErrorTracking();
 
   const createRuleMutation = useMutation(api.rulesets.createRule);
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm({
+    defaultValues: {
+      description: "",
+      priority: 100,
+      ruleType: "BLOCK",
+      appliesTo: "ALL_PRACTITIONERS",
+      specificPractitioners: [],
+      block_appointmentTypes: [],
+      block_dateRangeEnd: "",
+      block_dateRangeStart: "",
+      block_daysOfWeek: [],
+      block_exceptForPractitionerTags: [],
+      block_timeRangeEnd: "",
+      block_timeRangeStart: "",
+      limit_appointmentTypes: [],
+      limit_count: 1,
+      limit_perPractitioner: false,
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        const ruleData: Record<string, unknown> = {
+          appliesTo: value.appliesTo,
+          description: value.description,
+          priority: value.priority,
+          ruleSetId,
+          ruleType: value.ruleType,
+        };
 
-    if (!formData.description.trim()) {
-      toast.error("Beschreibung ist erforderlich");
-      return;
-    }
+        // Add specific practitioners if applicable
+        if (
+          value.appliesTo === "SPECIFIC_PRACTITIONERS" &&
+          value.specificPractitioners.length > 0
+        ) {
+          ruleData["specificPractitioners"] = value.specificPractitioners;
+        }
 
-    try {
-      setIsCreating(true);
+        // Add rule-type specific parameters
+        if (value.ruleType === "BLOCK") {
+          if (value.block_appointmentTypes.length > 0) {
+            ruleData["block_appointmentTypes"] = value.block_appointmentTypes;
+          }
+          if (value.block_dateRangeStart) {
+            ruleData["block_dateRangeStart"] = value.block_dateRangeStart;
+          }
+          if (value.block_dateRangeEnd) {
+            ruleData["block_dateRangeEnd"] = value.block_dateRangeEnd;
+          }
+          if (value.block_daysOfWeek.length > 0) {
+            ruleData["block_daysOfWeek"] = value.block_daysOfWeek;
+          }
+          if (value.block_timeRangeStart) {
+            ruleData["block_timeRangeStart"] = value.block_timeRangeStart;
+          }
+          if (value.block_timeRangeEnd) {
+            ruleData["block_timeRangeEnd"] = value.block_timeRangeEnd;
+          }
+          if (value.block_exceptForPractitionerTags.length > 0) {
+            ruleData["block_exceptForPractitionerTags"] =
+              value.block_exceptForPractitionerTags;
+          }
+        } else {
+          if (value.limit_appointmentTypes.length > 0) {
+            ruleData["limit_appointmentTypes"] = value.limit_appointmentTypes;
+          }
+          if (value.limit_count > 0) {
+            ruleData["limit_count"] = value.limit_count;
+          }
+          ruleData["limit_perPractitioner"] = value.limit_perPractitioner;
+        }
 
-      const ruleData: Record<string, unknown> = {
-        appliesTo: formData.appliesTo,
-        description: formData.description,
-        priority: formData.priority,
-        ruleSetId,
-        ruleType: formData.ruleType,
-      };
+        await createRuleMutation(
+          ruleData as Parameters<typeof createRuleMutation>[0],
+        );
 
-      // Add specific practitioners if applicable
-      if (
-        formData.appliesTo === "SPECIFIC_PRACTITIONERS" &&
-        formData.specificPractitioners.length > 0
-      ) {
-        ruleData["specificPractitioners"] = formData.specificPractitioners;
+        toast.success("Regel erstellt", {
+          description: "Die neue Regel wurde erfolgreich erstellt.",
+        });
+
+        // Reset form
+        form.reset();
+        setIsOpen(false);
+        onRuleCreated?.();
+      } catch (error) {
+        captureError(error, {
+          context: "rule_creation",
+          formData: value,
+          practiceId,
+          ruleSetId,
+        });
+
+        toast.error("Fehler beim Erstellen der Regel", {
+          description:
+            error instanceof Error ? error.message : "Unbekannter Fehler",
+        });
       }
-
-      // Add rule-type specific parameters
-      if (formData.ruleType === "BLOCK") {
-        if (formData.block_appointmentTypes.length > 0) {
-          ruleData["block_appointmentTypes"] = formData.block_appointmentTypes;
-        }
-        if (formData.block_dateRangeStart) {
-          ruleData["block_dateRangeStart"] = formData.block_dateRangeStart;
-        }
-        if (formData.block_dateRangeEnd) {
-          ruleData["block_dateRangeEnd"] = formData.block_dateRangeEnd;
-        }
-        if (formData.block_daysOfWeek.length > 0) {
-          ruleData["block_daysOfWeek"] = formData.block_daysOfWeek;
-        }
-        if (formData.block_timeRangeStart) {
-          ruleData["block_timeRangeStart"] = formData.block_timeRangeStart;
-        }
-        if (formData.block_timeRangeEnd) {
-          ruleData["block_timeRangeEnd"] = formData.block_timeRangeEnd;
-        }
-        if (formData.block_exceptForPractitionerTags.length > 0) {
-          ruleData["block_exceptForPractitionerTags"] =
-            formData.block_exceptForPractitionerTags;
-        }
-      } else {
-        if (formData.limit_appointmentTypes.length > 0) {
-          ruleData["limit_appointmentTypes"] = formData.limit_appointmentTypes;
-        }
-        if (formData.limit_count > 0) {
-          ruleData["limit_count"] = formData.limit_count;
-        }
-        ruleData["limit_perPractitioner"] = formData.limit_perPractitioner;
-      }
-
-      await createRuleMutation(
-        ruleData as Parameters<typeof createRuleMutation>[0],
-      );
-
-      toast.success("Regel erstellt", {
-        description: "Die neue Regel wurde erfolgreich erstellt.",
-      });
-
-      // Reset form
-      setFormData({
-        appliesTo: "ALL_PRACTITIONERS",
-        block_appointmentTypes: [],
-        block_dateRangeEnd: "",
-        block_dateRangeStart: "",
-        block_daysOfWeek: [],
-        block_exceptForPractitionerTags: [],
-        block_timeRangeEnd: "",
-        block_timeRangeStart: "",
-        description: "",
-        limit_appointmentTypes: [],
-        limit_count: 1,
-        limit_perPractitioner: false,
-        priority: 100,
-        ruleType: "BLOCK",
-        specificPractitioners: [],
-      });
-
-      setIsOpen(false);
-      onRuleCreated?.();
-    } catch (error) {
-      toast.error("Fehler beim Erstellen der Regel", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-    } finally {
-      setIsCreating(false);
-    }
-  };
+    },
+  });
 
   const dayOfWeekOptions = [
     { label: "Sonntag", value: 0 },
@@ -208,7 +207,8 @@ export default function RuleCreationForm({
           className="space-y-6"
           onSubmit={(e) => {
             e.preventDefault();
-            void handleSubmit(e);
+            e.stopPropagation();
+            form.handleSubmit();
           }}
         >
           {/* Basic Information */}
@@ -217,56 +217,79 @@ export default function RuleCreationForm({
               <CardTitle className="text-lg">Grundinformationen</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="description">Beschreibung *</Label>
-                <Input
-                  id="description"
-                  onChange={(e) => {
-                    setFormData({ ...formData, description: e.target.value });
-                  }}
-                  placeholder="z.B. Keine Termine am Freitagnachmittag"
-                  required
-                  value={formData.description}
-                />
-              </div>
+              <form.Field
+                name="description"
+                validators={{
+                  onChange: ({ value }) =>
+                    !value || value.trim() === ""
+                      ? "Beschreibung ist erforderlich"
+                      : undefined,
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-2">
+                    <Label htmlFor={field.name}>Beschreibung *</Label>
+                    <Input
+                      id={field.name}
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      placeholder="z.B. Keine Termine am Freitagnachmittag"
+                      value={field.state.value}
+                    />
+                    {field.state.meta.errors.length > 0 && (
+                      <p className="text-sm text-destructive">
+                        {field.state.meta.errors[0]}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </form.Field>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="priority">Priorität</Label>
-                  <Input
-                    id="priority"
-                    max="999"
-                    min="1"
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        priority: Number.parseInt(e.target.value) || 0,
-                      });
-                    }}
-                    type="number"
-                    value={formData.priority}
-                  />
-                </div>
+                <form.Field name="priority">
+                  {(field) => (
+                    <div className="space-y-2">
+                      <Label htmlFor={field.name}>Priorität</Label>
+                      <Input
+                        id={field.name}
+                        max="999"
+                        min="1"
+                        name={field.name}
+                        onBlur={field.handleBlur}
+                        onChange={(e) =>
+                          field.handleChange(Number.parseInt(e.target.value) || 0)
+                        }
+                        type="number"
+                        value={field.state.value}
+                      />
+                    </div>
+                  )}
+                </form.Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="ruleType">Regeltyp</Label>
-                  <Select
-                    onValueChange={(value: "BLOCK" | "LIMIT_CONCURRENT") => {
-                      setFormData({ ...formData, ruleType: value });
-                    }}
-                    value={formData.ruleType}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BLOCK">Blockieren</SelectItem>
-                      <SelectItem value="LIMIT_CONCURRENT">
-                        Anzahl limitieren
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <form.Field name="ruleType">
+                  {(field) => (
+                    <div className="space-y-2">
+                      <Label htmlFor={field.name}>Regeltyp</Label>
+                      <Select
+                        onValueChange={(value: "BLOCK" | "LIMIT_CONCURRENT") =>
+                          field.handleChange(value)
+                        }
+                        value={field.state.value}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="BLOCK">Blockieren</SelectItem>
+                          <SelectItem value="LIMIT_CONCURRENT">
+                            Anzahl limitieren
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </form.Field>
               </div>
             </CardContent>
           </Card>
@@ -280,301 +303,347 @@ export default function RuleCreationForm({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="appliesTo">Gilt für</Label>
-                <Select
-                  onValueChange={(
-                    value: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS",
-                  ) => {
-                    setFormData({
-                      ...formData,
-                      appliesTo: value,
-                      specificPractitioners:
-                        value === "ALL_PRACTITIONERS"
-                          ? []
-                          : formData.specificPractitioners,
-                    });
-                  }}
-                  value={formData.appliesTo}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL_PRACTITIONERS">
-                      Alle Ärzte
-                    </SelectItem>
-                    <SelectItem value="SPECIFIC_PRACTITIONERS">
-                      Bestimmte Ärzte
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <form.Field name="appliesTo">
+                {(field) => (
+                  <div className="space-y-2">
+                    <Label htmlFor={field.name}>Gilt für</Label>
+                    <Select
+                      onValueChange={(
+                        value: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS",
+                      ) => {
+                        field.handleChange(value);
+                        // Reset specific practitioners when changing to ALL_PRACTITIONERS
+                        if (value === "ALL_PRACTITIONERS") {
+                          form.setFieldValue("specificPractitioners", []);
+                        }
+                      }}
+                      value={field.state.value}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL_PRACTITIONERS">
+                          Alle Ärzte
+                        </SelectItem>
+                        <SelectItem value="SPECIFIC_PRACTITIONERS">
+                          Bestimmte Ärzte
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </form.Field>
 
-              {formData.appliesTo === "SPECIFIC_PRACTITIONERS" && (
-                <div className="space-y-2">
-                  <Label>Spezifische Ärzte auswählen</Label>
-                  {practitionersQuery ? (
-                    practitionersQuery.length === 0 ? (
-                      <div className="text-sm text-muted-foreground p-4 border rounded">
-                        Keine Ärzte verfügbar. Bitte erstellen Sie zuerst Ärzte
-                        in der Ärztevertaltung.
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
-                        {practitionersQuery.map((practitioner) => (
-                          <label
-                            className="flex items-center space-x-2"
-                            key={practitioner._id}
-                          >
-                            <input
-                              checked={formData.specificPractitioners.includes(
-                                practitioner._id,
-                              )}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData({
-                                    ...formData,
-                                    specificPractitioners: [
-                                      ...formData.specificPractitioners,
-                                      practitioner._id,
-                                    ],
-                                  });
-                                } else {
-                                  setFormData({
-                                    ...formData,
-                                    specificPractitioners:
-                                      formData.specificPractitioners.filter(
-                                        (id) => id !== practitioner._id,
-                                      ),
-                                  });
-                                }
-                              }}
-                              type="checkbox"
-                            />
-                            <span className="text-sm">{practitioner.name}</span>
-                            {practitioner.tags &&
-                              practitioner.tags.length > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  ({practitioner.tags.join(", ")})
-                                </span>
-                              )}
-                          </label>
-                        ))}
-                      </div>
-                    )
-                  ) : (
-                    <div className="text-sm text-muted-foreground">
-                      Lade Ärzte...
-                    </div>
-                  )}
-                </div>
-              )}
+              <form.Field name="appliesTo">
+                {(field) =>
+                  field.state.value === "SPECIFIC_PRACTITIONERS" && (
+                    <form.Field name="specificPractitioners">
+                      {(practitionersField) => (
+                        <div className="space-y-2">
+                          <Label>Spezifische Ärzte auswählen</Label>
+                          {practitionersQuery ? (
+                            practitionersQuery.length === 0 ? (
+                              <div className="text-sm text-muted-foreground p-4 border rounded">
+                                Keine Ärzte verfügbar. Bitte erstellen Sie zuerst
+                                Ärzte in der Ärztevertaltung.
+                              </div>
+                            ) : (
+                              <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
+                                {practitionersQuery.map((practitioner) => (
+                                  <label
+                                    className="flex items-center space-x-2"
+                                    key={practitioner._id}
+                                  >
+                                    <input
+                                      checked={practitionersField.state.value.includes(
+                                        practitioner._id,
+                                      )}
+                                      onChange={(e) => {
+                                        const currentIds =
+                                          practitionersField.state.value;
+                                        if (e.target.checked) {
+                                          practitionersField.handleChange([
+                                            ...currentIds,
+                                            practitioner._id,
+                                          ]);
+                                        } else {
+                                          practitionersField.handleChange(
+                                            currentIds.filter(
+                                              (id) => id !== practitioner._id,
+                                            ),
+                                          );
+                                        }
+                                      }}
+                                      type="checkbox"
+                                    />
+                                    <span className="text-sm">
+                                      {practitioner.name}
+                                    </span>
+                                    {practitioner.tags &&
+                                      practitioner.tags.length > 0 && (
+                                        <span className="text-xs text-muted-foreground">
+                                          ({practitioner.tags.join(", ")})
+                                        </span>
+                                      )}
+                                  </label>
+                                ))}
+                              </div>
+                            )
+                          ) : (
+                            <div className="text-sm text-muted-foreground">
+                              Lade Ärzte...
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </form.Field>
+                  )
+                }
+              </form.Field>
             </CardContent>
           </Card>
 
           {/* Rule Type Specific Settings */}
-          {formData.ruleType === "BLOCK" && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Blockier-Regeln</CardTitle>
-                <CardDescription>
-                  Konfigurieren Sie, wann Termine blockiert werden sollen.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="block_appointmentTypes">
-                    Terminarten (kommagetrennt)
-                  </Label>
-                  <Input
-                    id="block_appointmentTypes"
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        block_appointmentTypes: e.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      });
-                    }}
-                    placeholder="z.B. Beratung, Untersuchung"
-                    value={formData.block_appointmentTypes.join(", ")}
-                  />
-                </div>
+          <form.Field name="ruleType">
+            {(field) =>
+              field.state.value === "BLOCK" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Blockier-Regeln</CardTitle>
+                    <CardDescription>
+                      Konfigurieren Sie, wann Termine blockiert werden sollen.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <form.Field name="block_appointmentTypes">
+                      {(appointmentTypesField) => (
+                        <div className="space-y-2">
+                          <Label htmlFor={appointmentTypesField.name}>
+                            Terminarten (kommagetrennt)
+                          </Label>
+                          <Input
+                            id={appointmentTypesField.name}
+                            name={appointmentTypesField.name}
+                            onBlur={appointmentTypesField.handleBlur}
+                            onChange={(e) => {
+                              appointmentTypesField.handleChange(
+                                e.target.value
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              );
+                            }}
+                            placeholder="z.B. Beratung, Untersuchung"
+                            value={appointmentTypesField.state.value.join(", ")}
+                          />
+                        </div>
+                      )}
+                    </form.Field>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="block_timeRangeStart">Startzeit</Label>
-                    <Input
-                      id="block_timeRangeStart"
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData,
-                          block_timeRangeStart: e.target.value,
-                        });
-                      }}
-                      type="time"
-                      value={formData.block_timeRangeStart}
-                    />
-                  </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <form.Field name="block_timeRangeStart">
+                        {(timeStartField) => (
+                          <div className="space-y-2">
+                            <Label htmlFor={timeStartField.name}>Startzeit</Label>
+                            <Input
+                              id={timeStartField.name}
+                              name={timeStartField.name}
+                              onBlur={timeStartField.handleBlur}
+                              onChange={(e) =>
+                                timeStartField.handleChange(e.target.value)
+                              }
+                              type="time"
+                              value={timeStartField.state.value}
+                            />
+                          </div>
+                        )}
+                      </form.Field>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="block_timeRangeEnd">Endzeit</Label>
-                    <Input
-                      id="block_timeRangeEnd"
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData,
-                          block_timeRangeEnd: e.target.value,
-                        });
-                      }}
-                      type="time"
-                      value={formData.block_timeRangeEnd}
-                    />
-                  </div>
-                </div>
+                      <form.Field name="block_timeRangeEnd">
+                        {(timeEndField) => (
+                          <div className="space-y-2">
+                            <Label htmlFor={timeEndField.name}>Endzeit</Label>
+                            <Input
+                              id={timeEndField.name}
+                              name={timeEndField.name}
+                              onBlur={timeEndField.handleBlur}
+                              onChange={(e) =>
+                                timeEndField.handleChange(e.target.value)
+                              }
+                              type="time"
+                              value={timeEndField.state.value}
+                            />
+                          </div>
+                        )}
+                      </form.Field>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="block_dateRangeStart">Startdatum</Label>
-                    <Input
-                      id="block_dateRangeStart"
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData,
-                          block_dateRangeStart: e.target.value,
-                        });
-                      }}
-                      type="date"
-                      value={formData.block_dateRangeStart}
-                    />
-                  </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <form.Field name="block_dateRangeStart">
+                        {(dateStartField) => (
+                          <div className="space-y-2">
+                            <Label htmlFor={dateStartField.name}>Startdatum</Label>
+                            <Input
+                              id={dateStartField.name}
+                              name={dateStartField.name}
+                              onBlur={dateStartField.handleBlur}
+                              onChange={(e) =>
+                                dateStartField.handleChange(e.target.value)
+                              }
+                              type="date"
+                              value={dateStartField.state.value}
+                            />
+                          </div>
+                        )}
+                      </form.Field>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="block_dateRangeEnd">Enddatum</Label>
-                    <Input
-                      id="block_dateRangeEnd"
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData,
-                          block_dateRangeEnd: e.target.value,
-                        });
-                      }}
-                      type="date"
-                      value={formData.block_dateRangeEnd}
-                    />
-                  </div>
-                </div>
+                      <form.Field name="block_dateRangeEnd">
+                        {(dateEndField) => (
+                          <div className="space-y-2">
+                            <Label htmlFor={dateEndField.name}>Enddatum</Label>
+                            <Input
+                              id={dateEndField.name}
+                              name={dateEndField.name}
+                              onBlur={dateEndField.handleBlur}
+                              onChange={(e) =>
+                                dateEndField.handleChange(e.target.value)
+                              }
+                              type="date"
+                              value={dateEndField.state.value}
+                            />
+                          </div>
+                        )}
+                      </form.Field>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label>Wochentage</Label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {dayOfWeekOptions.map((day) => (
-                      <label
-                        className="flex items-center space-x-2"
-                        key={day.value}
-                      >
-                        <input
-                          checked={formData.block_daysOfWeek.includes(
-                            day.value,
-                          )}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData({
-                                ...formData,
-                                block_daysOfWeek: [
-                                  ...formData.block_daysOfWeek,
-                                  day.value,
-                                ],
-                              });
-                            } else {
-                              setFormData({
-                                ...formData,
-                                block_daysOfWeek:
-                                  formData.block_daysOfWeek.filter(
-                                    (d) => d !== day.value,
-                                  ),
-                              });
+                    <form.Field name="block_daysOfWeek">
+                      {(daysField) => (
+                        <div className="space-y-2">
+                          <Label>Wochentage</Label>
+                          <div className="grid grid-cols-4 gap-2">
+                            {dayOfWeekOptions.map((day) => (
+                              <label
+                                className="flex items-center space-x-2"
+                                key={day.value}
+                              >
+                                <input
+                                  checked={daysField.state.value.includes(
+                                    day.value,
+                                  )}
+                                  onChange={(e) => {
+                                    const currentDays = daysField.state.value;
+                                    if (e.target.checked) {
+                                      daysField.handleChange([
+                                        ...currentDays,
+                                        day.value,
+                                      ]);
+                                    } else {
+                                      daysField.handleChange(
+                                        currentDays.filter(
+                                          (d) => d !== day.value,
+                                        ),
+                                      );
+                                    }
+                                  }}
+                                  type="checkbox"
+                                />
+                                <span className="text-sm">{day.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </form.Field>
+                  </CardContent>
+                </Card>
+              )
+            }
+          </form.Field>
+
+          <form.Field name="ruleType">
+            {(field) =>
+              field.state.value === "LIMIT_CONCURRENT" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Limitierungs-Regeln</CardTitle>
+                    <CardDescription>
+                      Begrenzen Sie die Anzahl paralleler Termine.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <form.Field name="limit_appointmentTypes">
+                      {(appointmentTypesField) => (
+                        <div className="space-y-2">
+                          <Label htmlFor={appointmentTypesField.name}>
+                            Terminarten (kommagetrennt)
+                          </Label>
+                          <Input
+                            id={appointmentTypesField.name}
+                            name={appointmentTypesField.name}
+                            onBlur={appointmentTypesField.handleBlur}
+                            onChange={(e) => {
+                              appointmentTypesField.handleChange(
+                                e.target.value
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              );
+                            }}
+                            placeholder="z.B. Beratung, Untersuchung"
+                            value={appointmentTypesField.state.value.join(", ")}
+                          />
+                        </div>
+                      )}
+                    </form.Field>
+
+                    <form.Field name="limit_count">
+                      {(countField) => (
+                        <div className="space-y-2">
+                          <Label htmlFor={countField.name}>Maximale Anzahl</Label>
+                          <Input
+                            id={countField.name}
+                            max="100"
+                            min="1"
+                            name={countField.name}
+                            onBlur={countField.handleBlur}
+                            onChange={(e) =>
+                              countField.handleChange(
+                                Number.parseInt(e.target.value) || 1,
+                              )
                             }
-                          }}
-                          type="checkbox"
-                        />
-                        <span className="text-sm">{day.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                            type="number"
+                            value={countField.state.value}
+                          />
+                        </div>
+                      )}
+                    </form.Field>
 
-          {formData.ruleType === "LIMIT_CONCURRENT" && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Limitierungs-Regeln</CardTitle>
-                <CardDescription>
-                  Begrenzen Sie die Anzahl paralleler Termine.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="limit_appointmentTypes">
-                    Terminarten (kommagetrennt)
-                  </Label>
-                  <Input
-                    id="limit_appointmentTypes"
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        limit_appointmentTypes: e.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      });
-                    }}
-                    placeholder="z.B. Beratung, Untersuchung"
-                    value={formData.limit_appointmentTypes.join(", ")}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="limit_count">Maximale Anzahl</Label>
-                  <Input
-                    id="limit_count"
-                    max="100"
-                    min="1"
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        limit_count: Number.parseInt(e.target.value) || 1,
-                      });
-                    }}
-                    type="number"
-                    value={formData.limit_count}
-                  />
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    checked={formData.limit_perPractitioner}
-                    id="limit_perPractitioner"
-                    onCheckedChange={(checked) => {
-                      setFormData({
-                        ...formData,
-                        limit_perPractitioner: checked,
-                      });
-                    }}
-                  />
-                  <Label htmlFor="limit_perPractitioner">Pro Arzt</Label>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    <form.Field name="limit_perPractitioner">
+                      {(perPractitionerField) => (
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            checked={perPractitionerField.state.value}
+                            id={perPractitionerField.name}
+                            onCheckedChange={(checked) =>
+                              perPractitionerField.handleChange(checked)
+                            }
+                          />
+                          <Label htmlFor={perPractitionerField.name}>
+                            Pro Arzt
+                          </Label>
+                        </div>
+                      )}
+                    </form.Field>
+                  </CardContent>
+                </Card>
+              )
+            }
+          </form.Field>
 
           <div className="flex justify-end space-x-2">
             <Button
-              disabled={isCreating}
+              disabled={form.state.isSubmitting}
               onClick={() => {
                 setIsOpen(false);
               }}
@@ -583,8 +652,8 @@ export default function RuleCreationForm({
             >
               Abbrechen
             </Button>
-            <Button disabled={isCreating} type="submit">
-              {isCreating ? "Erstelle..." : "Regel erstellen"}
+            <Button disabled={form.state.isSubmitting} type="submit">
+              {form.state.isSubmitting ? "Erstelle..." : "Regel erstellen"}
             </Button>
           </div>
         </form>

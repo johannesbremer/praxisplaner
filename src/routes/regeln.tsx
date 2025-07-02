@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
+import { useErrorTracking } from "../utils/error-tracking";
 
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
@@ -111,6 +112,7 @@ export default function LogicView() {
   const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
+  const { captureError } = useErrorTracking();
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
@@ -138,6 +140,10 @@ export default function LogicView() {
       setIsInitializingPractice(true);
       await initializePracticeMutation();
     } catch (error) {
+      captureError(error, {
+        context: "practice_initialization",
+      });
+
       toast.error("Fehler beim Initialisieren der Praxis", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -145,7 +151,7 @@ export default function LogicView() {
     } finally {
       setIsInitializingPractice(false);
     }
-  }, [initializePracticeMutation]);
+  }, [initializePracticeMutation, captureError]);
 
   // Simulation helper functions (from sim.tsx)
   const dateRange = {
@@ -251,6 +257,12 @@ export default function LogicView() {
         description: "Ein neues Draft-Regelset wurde erstellt.",
       });
     } catch (error) {
+      captureError(error, {
+        context: "draft_creation",
+        activeRuleSetId: activeRuleSet._id,
+        practiceId: currentPractice._id,
+      });
+
       toast.error("Fehler beim Erstellen des Drafts", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -271,6 +283,12 @@ export default function LogicView() {
         description: "Das Regelset wurde erfolgreich aktiviert.",
       });
     } catch (error) {
+      captureError(error, {
+        context: "ruleset_activation",
+        practiceId: currentPractice._id,
+        ruleSetId,
+      });
+
       toast.error("Fehler beim Aktivieren", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -292,6 +310,11 @@ export default function LogicView() {
           "Das erste Regelset wurde erfolgreich erstellt und aktiviert.",
       });
     } catch (error) {
+      captureError(error, {
+        context: "initial_ruleset_creation",
+        practiceId: currentPractice._id,
+      });
+
       toast.error("Fehler beim Erstellen des Regelsets", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
