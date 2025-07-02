@@ -182,4 +182,11 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Allow camelCase filenames in Convex directory
+    files: ["convex/**/*.{js,ts}"],
+    rules: {
+      "unicorn/filename-case": "off",
+    },
+  },
 );

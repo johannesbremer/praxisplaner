@@ -47,7 +47,7 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { Bug, Calendar, Clock, FileText, Settings } from "lucide-react";
+import { Calendar, Clock, FileText, Settings } from "lucide-react";
 
 import {
   Card,
@@ -165,36 +165,16 @@ export function PraxisplanerHomePageContent() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5" />
-                Regelverwaltung
+                Regelverwaltung & Simulation
               </CardTitle>
               <CardDescription>
-                Konfigurieren Sie Verfügbarkeitsregeln für Ihre Praxis
+                Konfigurieren und testen Sie Verfügbarkeitsregeln
               </CardDescription>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 Erstellen und verwalten Sie komplexe Regeln für die
-                Terminvergabe
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/sim">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bug className="h-5 w-5" />
-                Regelsimulation
-              </CardTitle>
-              <CardDescription>
-                Testen Sie Ihre Regelkonfiguration
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Simulieren Sie Patientenszenarien und überprüfen Sie die
-                Verfügbarkeit
+                Terminvergabe und testen diese in der Simulation
               </p>
             </CardContent>
           </Card>
