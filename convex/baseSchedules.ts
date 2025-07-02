@@ -4,7 +4,6 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
-import { convexTypes } from "./types";
 
 // Helper function to parse time string to minutes
 function timeToMinutes(time: string): number {
@@ -18,7 +17,21 @@ function timeToMinutes(time: string): number {
 }
 
 export const createBaseSchedule = mutation({
-  args: convexTypes.baseScheduleData,
+  args: {
+    breakTimes: v.optional(
+      v.array(
+        v.object({
+          end: v.string(),
+          start: v.string(),
+        }),
+      ),
+    ),
+    dayOfWeek: v.number(),
+    endTime: v.string(),
+    practitionerId: v.id("practitioners"),
+    slotDuration: v.number(),
+    startTime: v.string(),
+  },
   handler: async (ctx, args) => {
     // Validate day of week
     if (args.dayOfWeek < 0 || args.dayOfWeek > 6) {
@@ -116,7 +129,20 @@ export const createBaseSchedule = mutation({
 });
 
 export const updateBaseSchedule = mutation({
-  args: convexTypes.baseScheduleUpdates,
+  args: {
+    breakTimes: v.optional(
+      v.array(
+        v.object({
+          end: v.string(),
+          start: v.string(),
+        }),
+      ),
+    ),
+    endTime: v.string(),
+    scheduleId: v.id("baseSchedules"),
+    slotDuration: v.number(),
+    startTime: v.string(),
+  },
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleId);
     if (!schedule) {
@@ -217,7 +243,6 @@ export const getBaseSchedulesByPractitioner = query({
 
     return schedules.sort((a, b) => a.dayOfWeek - b.dayOfWeek);
   },
-  returns: v.array(convexTypes.baseScheduleDetails),
 });
 
 export const getAllBaseSchedules = query({
@@ -257,5 +282,4 @@ export const getAllBaseSchedules = query({
       return a.dayOfWeek - b.dayOfWeek;
     });
   },
-  returns: v.array(convexTypes.baseScheduleWithPractitioner),
 });

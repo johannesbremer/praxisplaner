@@ -1,4 +1,3 @@
- 
 // src/routes/regeln.tsx
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";

@@ -1,4 +1,3 @@
-
 // src/components/rule-creation-form.tsx
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
@@ -60,20 +59,20 @@ export default function RuleCreationForm({
   const form = useForm({
     defaultValues: {
       appliesTo: "ALL_PRACTITIONERS",
-      block_appointmentTypes: [],
+      block_appointmentTypes: [] as string[],
       block_dateRangeEnd: "",
       block_dateRangeStart: "",
-      block_daysOfWeek: [],
-      block_exceptForPractitionerTags: [],
+      block_daysOfWeek: [] as number[],
+      block_exceptForPractitionerTags: [] as string[],
       block_timeRangeEnd: "",
       block_timeRangeStart: "",
       description: "",
-      limit_appointmentTypes: [],
+      limit_appointmentTypes: [] as string[],
       limit_count: 1,
       limit_perPractitioner: false,
       priority: 100,
       ruleType: "BLOCK",
-      specificPractitioners: [],
+      specificPractitioners: [] as Id<"practitioners">[],
     },
     onSubmit: async ({ value }) => {
       try {
@@ -211,7 +210,9 @@ export default function RuleCreationForm({
                       id={field.name}
                       name={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => { field.handleChange(e.target.value); }}
+                      onChange={(e) => {
+                        field.handleChange(e.target.value);
+                      }}
                       placeholder="z.B. Keine Termine am Freitagnachmittag"
                       value={field.state.value}
                     />
@@ -235,9 +236,11 @@ export default function RuleCreationForm({
                         min="1"
                         name={field.name}
                         onBlur={field.handleBlur}
-                        onChange={(e) =>
-                          { field.handleChange(Number.parseInt(e.target.value) || 0); }
-                        }
+                        onChange={(e) => {
+                          field.handleChange(
+                            Number.parseInt(e.target.value) || 0,
+                          );
+                        }}
                         type="number"
                         value={field.state.value}
                       />
@@ -250,9 +253,11 @@ export default function RuleCreationForm({
                     <div className="space-y-2">
                       <Label htmlFor={field.name}>Regeltyp</Label>
                       <Select
-                        onValueChange={(value: "BLOCK" | "LIMIT_CONCURRENT") =>
-                          { field.handleChange(value); }
-                        }
+                        onValueChange={(
+                          value: "BLOCK" | "LIMIT_CONCURRENT",
+                        ) => {
+                          field.handleChange(value);
+                        }}
                         value={field.state.value}
                       >
                         <SelectTrigger>
@@ -323,8 +328,8 @@ export default function RuleCreationForm({
                           {practitionersQuery ? (
                             practitionersQuery.length === 0 ? (
                               <div className="text-sm text-muted-foreground p-4 border rounded">
-                                Keine Ärzte verfügbar. Bitte erstellen Sie zuerst
-                                Ärzte in der Ärztevertaltung.
+                                Keine Ärzte verfügbar. Bitte erstellen Sie
+                                zuerst Ärzte in der Ärztevertaltung.
                               </div>
                             ) : (
                               <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
@@ -348,7 +353,8 @@ export default function RuleCreationForm({
                                         } else {
                                           practitionersField.handleChange(
                                             currentIds.filter(
-                                              (id) => id !== practitioner._id,
+                                              (id: string) =>
+                                                id !== practitioner._id,
                                             ),
                                           );
                                         }
@@ -405,7 +411,6 @@ export default function RuleCreationForm({
                             name={appointmentTypesField.name}
                             onBlur={appointmentTypesField.handleBlur}
                             onChange={(e) => {
-                               
                               appointmentTypesField.handleChange(
                                 e.target.value
                                   .split(",")
@@ -424,14 +429,16 @@ export default function RuleCreationForm({
                       <form.Field name="block_timeRangeStart">
                         {(timeStartField) => (
                           <div className="space-y-2">
-                            <Label htmlFor={timeStartField.name}>Startzeit</Label>
+                            <Label htmlFor={timeStartField.name}>
+                              Startzeit
+                            </Label>
                             <Input
                               id={timeStartField.name}
                               name={timeStartField.name}
                               onBlur={timeStartField.handleBlur}
-                              onChange={(e) =>
-                                { timeStartField.handleChange(e.target.value); }
-                              }
+                              onChange={(e) => {
+                                timeStartField.handleChange(e.target.value);
+                              }}
                               type="time"
                               value={timeStartField.state.value}
                             />
@@ -447,9 +454,9 @@ export default function RuleCreationForm({
                               id={timeEndField.name}
                               name={timeEndField.name}
                               onBlur={timeEndField.handleBlur}
-                              onChange={(e) =>
-                                { timeEndField.handleChange(e.target.value); }
-                              }
+                              onChange={(e) => {
+                                timeEndField.handleChange(e.target.value);
+                              }}
                               type="time"
                               value={timeEndField.state.value}
                             />
@@ -462,14 +469,16 @@ export default function RuleCreationForm({
                       <form.Field name="block_dateRangeStart">
                         {(dateStartField) => (
                           <div className="space-y-2">
-                            <Label htmlFor={dateStartField.name}>Startdatum</Label>
+                            <Label htmlFor={dateStartField.name}>
+                              Startdatum
+                            </Label>
                             <Input
                               id={dateStartField.name}
                               name={dateStartField.name}
                               onBlur={dateStartField.handleBlur}
-                              onChange={(e) =>
-                                { dateStartField.handleChange(e.target.value); }
-                              }
+                              onChange={(e) => {
+                                dateStartField.handleChange(e.target.value);
+                              }}
                               type="date"
                               value={dateStartField.state.value}
                             />
@@ -485,9 +494,9 @@ export default function RuleCreationForm({
                               id={dateEndField.name}
                               name={dateEndField.name}
                               onBlur={dateEndField.handleBlur}
-                              onChange={(e) =>
-                                { dateEndField.handleChange(e.target.value); }
-                              }
+                              onChange={(e) => {
+                                dateEndField.handleChange(e.target.value);
+                              }}
                               type="date"
                               value={dateEndField.state.value}
                             />
@@ -520,7 +529,7 @@ export default function RuleCreationForm({
                                     } else {
                                       daysField.handleChange(
                                         currentDays.filter(
-                                          (d) => d !== day.value,
+                                          (d: number) => d !== day.value,
                                         ),
                                       );
                                     }
@@ -545,7 +554,9 @@ export default function RuleCreationForm({
               field.state.value === "LIMIT_CONCURRENT" && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Limitierungs-Regeln</CardTitle>
+                    <CardTitle className="text-lg">
+                      Limitierungs-Regeln
+                    </CardTitle>
                     <CardDescription>
                       Begrenzen Sie die Anzahl paralleler Termine.
                     </CardDescription>
@@ -562,7 +573,6 @@ export default function RuleCreationForm({
                             name={appointmentTypesField.name}
                             onBlur={appointmentTypesField.handleBlur}
                             onChange={(e) => {
-                               
                               appointmentTypesField.handleChange(
                                 e.target.value
                                   .split(",")
@@ -580,18 +590,20 @@ export default function RuleCreationForm({
                     <form.Field name="limit_count">
                       {(countField) => (
                         <div className="space-y-2">
-                          <Label htmlFor={countField.name}>Maximale Anzahl</Label>
+                          <Label htmlFor={countField.name}>
+                            Maximale Anzahl
+                          </Label>
                           <Input
                             id={countField.name}
                             max="100"
                             min="1"
                             name={countField.name}
                             onBlur={countField.handleBlur}
-                            onChange={(e) =>
-                              { countField.handleChange(
+                            onChange={(e) => {
+                              countField.handleChange(
                                 Number.parseInt(e.target.value) || 1,
-                              ); }
-                            }
+                              );
+                            }}
                             type="number"
                             value={countField.state.value}
                           />
@@ -605,9 +617,9 @@ export default function RuleCreationForm({
                           <Switch
                             checked={perPractitionerField.state.value}
                             id={perPractitionerField.name}
-                            onCheckedChange={(checked) =>
-                              { perPractitionerField.handleChange(checked); }
-                            }
+                            onCheckedChange={(checked) => {
+                              perPractitionerField.handleChange(checked);
+                            }}
                           />
                           <Label htmlFor={perPractitionerField.name}>
                             Pro Arzt

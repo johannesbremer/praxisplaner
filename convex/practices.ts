@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { convexTypes } from "./types";
 
 /**
  * Create a new practice with the given name.
@@ -27,7 +26,6 @@ export const getAllPractices = query({
   handler: async (ctx) => {
     return await ctx.db.query("practices").collect();
   },
-  returns: v.array(convexTypes.practiceDetails),
 });
 
 /**
@@ -40,7 +38,6 @@ export const getPractice = query({
   handler: async (ctx, args) => {
     return await ctx.db.get(args.practiceId);
   },
-  returns: v.union(convexTypes.practiceDetails, v.null()),
 });
 
 /**

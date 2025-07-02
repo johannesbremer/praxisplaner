@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { convexTypes } from "./types";
 
 export const createDraftFromActive = mutation({
   args: {
@@ -80,7 +79,41 @@ export const activateRuleSet = mutation({
 export const updateRule = mutation({
   args: {
     ruleId: v.id("rules"),
-    updates: convexTypes.ruleUpdates,
+    updates: v.object({
+      description: v.optional(v.string()),
+      priority: v.optional(v.number()),
+      ruleType: v.optional(
+        v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
+      ),
+
+      // Practitioner application
+      appliesTo: v.optional(
+        v.union(
+          v.literal("ALL_PRACTITIONERS"),
+          v.literal("SPECIFIC_PRACTITIONERS"),
+        ),
+      ),
+      specificPractitioners: v.optional(
+        v.optional(v.array(v.id("practitioners"))),
+      ),
+
+      // Block rule parameters
+      block_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
+      block_dateRangeEnd: v.optional(v.optional(v.string())),
+      block_dateRangeStart: v.optional(v.optional(v.string())),
+      block_daysOfWeek: v.optional(v.optional(v.array(v.number()))),
+      block_exceptForPractitionerTags: v.optional(
+        v.optional(v.array(v.string())),
+      ),
+      block_timeRangeEnd: v.optional(v.optional(v.string())),
+      block_timeRangeStart: v.optional(v.optional(v.string())),
+
+      // Limit rule parameters
+      limit_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
+      limit_atLocation: v.optional(v.optional(v.id("locations"))),
+      limit_count: v.optional(v.optional(v.number())),
+      limit_perPractitioner: v.optional(v.optional(v.boolean())),
+    }),
   },
   handler: async (ctx, args) => {
     const rule = await ctx.db.get(args.ruleId);
