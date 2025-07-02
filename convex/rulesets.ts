@@ -243,3 +243,40 @@ export const getRules = query({
     return rules.sort((a, b) => a.priority - b.priority);
   },
 });
+
+export const createInitialRuleSet = mutation({
+  args: {
+    description: v.string(),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    // Check if practice already has any rule sets
+    const existingRuleSets = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    if (existingRuleSets.length > 0) {
+      throw new Error(
+        "Practice already has rule sets. Use createDraftFromActive instead.",
+      );
+    }
+
+    // Create the first rule set with version 1
+    const newRuleSetId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      createdBy: "system", // TODO: Replace with actual user when auth is implemented
+      description: args.description,
+      practiceId: args.practiceId,
+      version: 1,
+    });
+
+    // Activate this rule set as the first one
+    await ctx.db.patch(args.practiceId, {
+      currentActiveRuleSetId: newRuleSetId,
+    });
+
+    return newRuleSetId;
+  },
+  returns: v.id("ruleSets"),
+});

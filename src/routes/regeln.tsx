@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
+import RuleCreationForm from "../components/rule-creation-form";
+
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
 });
@@ -96,6 +98,7 @@ export default function LogicView() {
   const [selectedRuleSetId, setSelectedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+  const [isCreatingInitial, setIsCreatingInitial] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
 
   // Use the first available practice or initialize one
@@ -140,6 +143,7 @@ export default function LogicView() {
 
   // Mutations
   const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
+  const createInitialMutation = useMutation(api.rulesets.createInitialRuleSet);
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
 
   const selectedRuleSet = ruleSetsQuery?.find(
@@ -226,6 +230,29 @@ export default function LogicView() {
     }
   };
 
+  const handleCreateInitial = async () => {
+    try {
+      setIsCreatingInitial(true);
+      const newRuleSetId = await createInitialMutation({
+        description: "Erstes Regelset",
+        practiceId: currentPractice._id,
+      });
+
+      setSelectedRuleSetId(newRuleSetId);
+      toast.success("Erstes Regelset erstellt", {
+        description:
+          "Das erste Regelset wurde erfolgreich erstellt und aktiviert.",
+      });
+    } catch (error) {
+      toast.error("Fehler beim Erstellen des Regelsets", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    } finally {
+      setIsCreatingInitial(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
@@ -245,7 +272,9 @@ export default function LogicView() {
             <CardHeader>
               <CardTitle>Regelset Auswahl</CardTitle>
               <CardDescription>
-                Wählen Sie ein Regelset aus oder erstellen Sie ein neues Draft
+                {ruleSetsQuery && ruleSetsQuery.length === 0
+                  ? "Noch keine Regelsets vorhanden. Erstellen Sie das erste Regelset für Ihre Praxis."
+                  : "Wählen Sie ein Regelset aus oder erstellen Sie ein neues Draft"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -280,16 +309,31 @@ export default function LogicView() {
               </div>
 
               <div className="flex gap-2">
-                <Button
-                  disabled={isCreatingDraft || !activeRuleSet}
-                  onClick={() => void handleCreateDraft()}
-                  variant="outline"
-                >
-                  <GitBranch className="h-4 w-4 mr-2" />
-                  {isCreatingDraft
-                    ? "Erstelle Draft..."
-                    : "Neues Draft erstellen"}
-                </Button>
+                {ruleSetsQuery && ruleSetsQuery.length === 0 ? (
+                  // Show "Create Initial Rule Set" when no rule sets exist
+                  <Button
+                    disabled={isCreatingInitial}
+                    onClick={() => void handleCreateInitial()}
+                    variant="default"
+                  >
+                    <GitBranch className="h-4 w-4 mr-2" />
+                    {isCreatingInitial
+                      ? "Erstelle erstes Regelset..."
+                      : "Erstes Regelset erstellen"}
+                  </Button>
+                ) : (
+                  // Show "Create Draft" when rule sets exist
+                  <Button
+                    disabled={isCreatingDraft || !activeRuleSet}
+                    onClick={() => void handleCreateDraft()}
+                    variant="outline"
+                  >
+                    <GitBranch className="h-4 w-4 mr-2" />
+                    {isCreatingDraft
+                      ? "Erstelle Draft..."
+                      : "Neues Draft erstellen"}
+                  </Button>
+                )}
 
                 {selectedRuleSet && !selectedRuleSet.isActive && (
                   <Button
@@ -312,15 +356,29 @@ export default function LogicView() {
           {selectedRuleSet && (
             <Card>
               <CardHeader>
-                <CardTitle>
-                  Regeln in v{selectedRuleSet.version}
-                  {selectedRuleSet.isActive && (
-                    <Badge className="ml-2" variant="default">
-                      AKTIV
-                    </Badge>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle>
+                      Regeln in v{selectedRuleSet.version}
+                      {selectedRuleSet.isActive && (
+                        <Badge className="ml-2" variant="default">
+                          AKTIV
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription>
+                      {selectedRuleSet.description}
+                    </CardDescription>
+                  </div>
+                  {!selectedRuleSet.isActive && selectedRuleSetId && (
+                    <RuleCreationForm
+                      onRuleCreated={() => {
+                        // Rules will auto-refresh via Convex reactivity
+                      }}
+                      ruleSetId={selectedRuleSetId}
+                    />
                   )}
-                </CardTitle>
-                <CardDescription>{selectedRuleSet.description}</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
                 {rulesQuery ? (
@@ -384,8 +442,21 @@ export default function LogicView() {
             <CardContent>
               {ruleSetsQuery ? (
                 ruleSetsQuery.length === 0 ? (
-                  <div className="text-muted-foreground">
-                    Keine Regelsets gefunden.
+                  <div className="text-center py-8">
+                    <div className="text-muted-foreground mb-4">
+                      Noch keine Regelsets vorhanden.
+                    </div>
+                    <Button
+                      disabled={isCreatingInitial}
+                      onClick={() => void handleCreateInitial()}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <GitBranch className="h-4 w-4 mr-2" />
+                      {isCreatingInitial
+                        ? "Erstelle..."
+                        : "Erstes Regelset erstellen"}
+                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-2">
