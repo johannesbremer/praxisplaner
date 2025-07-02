@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
+import BaseScheduleManagement from "../components/base-schedule-management";
 import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationForm from "../components/rule-creation-form";
 
@@ -435,6 +436,9 @@ export default function LogicView() {
 
           {/* Practitioner Management */}
           <PractitionerManagement practiceId={currentPractice._id} />
+
+          {/* Base Schedule Management */}
+          <BaseScheduleManagement practiceId={currentPractice._id} />
         </div>
 
         {/* Sidebar */}
