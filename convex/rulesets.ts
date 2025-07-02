@@ -86,6 +86,17 @@ export const updateRule = mutation({
         v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
       ),
 
+      // Practitioner application
+      appliesTo: v.optional(
+        v.union(
+          v.literal("ALL_PRACTITIONERS"),
+          v.literal("SPECIFIC_PRACTITIONERS"),
+        ),
+      ),
+      specificPractitioners: v.optional(
+        v.optional(v.array(v.id("practitioners"))),
+      ),
+
       // Block rule parameters
       block_appointmentTypes: v.optional(v.optional(v.array(v.string()))),
       block_dateRangeEnd: v.optional(v.optional(v.string())),
@@ -142,6 +153,13 @@ export const createRule = mutation({
     priority: v.number(),
     ruleSetId: v.id("ruleSets"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
+
+    // Practitioner application
+    appliesTo: v.union(
+      v.literal("ALL_PRACTITIONERS"),
+      v.literal("SPECIFIC_PRACTITIONERS"),
+    ),
+    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
 
     // Block rule parameters
     block_appointmentTypes: v.optional(v.array(v.string())),

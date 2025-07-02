@@ -67,6 +67,13 @@ export default defineSchema({
     ruleSetId: v.id("ruleSets"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
 
+    // --- General rule application ---
+    appliesTo: v.union(
+      v.literal("ALL_PRACTITIONERS"),
+      v.literal("SPECIFIC_PRACTITIONERS"),
+    ),
+    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
+
     // --- Parameters for 'BLOCK' rules ---
     block_appointmentTypes: v.optional(v.array(v.string())),
     block_dateRangeEnd: v.optional(v.string()), // ISO date string

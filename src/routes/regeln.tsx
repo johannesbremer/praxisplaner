@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
+import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationForm from "../components/rule-creation-form";
 
 export const Route = createFileRoute("/regeln")({
@@ -375,6 +376,7 @@ export default function LogicView() {
                       onRuleCreated={() => {
                         // Rules will auto-refresh via Convex reactivity
                       }}
+                      practiceId={currentPractice._id}
                       ruleSetId={selectedRuleSetId}
                     />
                   )}
@@ -430,6 +432,9 @@ export default function LogicView() {
               </CardContent>
             </Card>
           )}
+
+          {/* Practitioner Management */}
+          <PractitionerManagement practiceId={currentPractice._id} />
         </div>
 
         {/* Sidebar */}

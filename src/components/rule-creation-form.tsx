@@ -1,5 +1,5 @@
 // src/components/rule-creation-form.tsx
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -36,11 +36,13 @@ import { api } from "@/convex/_generated/api";
 
 interface RuleCreationFormProps {
   onRuleCreated?: () => void;
+  practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
 
 export default function RuleCreationForm({
   onRuleCreated,
+  practiceId,
   ruleSetId,
 }: RuleCreationFormProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -49,6 +51,12 @@ export default function RuleCreationForm({
     description: "",
     priority: 100,
     ruleType: "BLOCK" as "BLOCK" | "LIMIT_CONCURRENT",
+
+    // Practitioner application
+    appliesTo: "ALL_PRACTITIONERS" as
+      | "ALL_PRACTITIONERS"
+      | "SPECIFIC_PRACTITIONERS",
+    specificPractitioners: [] as Id<"practitioners">[],
 
     // Block rule parameters
     block_appointmentTypes: [] as string[],
@@ -66,6 +74,9 @@ export default function RuleCreationForm({
   });
 
   const createRuleMutation = useMutation(api.rulesets.createRule);
+  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
+    practiceId,
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,11 +90,20 @@ export default function RuleCreationForm({
       setIsCreating(true);
 
       const ruleData: Record<string, unknown> = {
+        appliesTo: formData.appliesTo,
         description: formData.description,
         priority: formData.priority,
         ruleSetId,
         ruleType: formData.ruleType,
       };
+
+      // Add specific practitioners if applicable
+      if (
+        formData.appliesTo === "SPECIFIC_PRACTITIONERS" &&
+        formData.specificPractitioners.length > 0
+      ) {
+        ruleData["specificPractitioners"] = formData.specificPractitioners;
+      }
 
       // Add rule-type specific parameters
       if (formData.ruleType === "BLOCK") {
@@ -129,6 +149,7 @@ export default function RuleCreationForm({
 
       // Reset form
       setFormData({
+        appliesTo: "ALL_PRACTITIONERS",
         block_appointmentTypes: [],
         block_dateRangeEnd: "",
         block_dateRangeStart: "",
@@ -142,6 +163,7 @@ export default function RuleCreationForm({
         limit_perPractitioner: false,
         priority: 100,
         ruleType: "BLOCK",
+        specificPractitioners: [],
       });
 
       setIsOpen(false);
@@ -246,6 +268,108 @@ export default function RuleCreationForm({
                   </Select>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Practitioner Application */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Anwendung auf Ärzte</CardTitle>
+              <CardDescription>
+                Bestimmen Sie, für welche Ärzte diese Regel gelten soll.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="appliesTo">Gilt für</Label>
+                <Select
+                  onValueChange={(
+                    value: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS",
+                  ) => {
+                    setFormData({
+                      ...formData,
+                      appliesTo: value,
+                      specificPractitioners:
+                        value === "ALL_PRACTITIONERS"
+                          ? []
+                          : formData.specificPractitioners,
+                    });
+                  }}
+                  value={formData.appliesTo}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL_PRACTITIONERS">
+                      Alle Ärzte
+                    </SelectItem>
+                    <SelectItem value="SPECIFIC_PRACTITIONERS">
+                      Bestimmte Ärzte
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.appliesTo === "SPECIFIC_PRACTITIONERS" && (
+                <div className="space-y-2">
+                  <Label>Spezifische Ärzte auswählen</Label>
+                  {practitionersQuery ? (
+                    practitionersQuery.length === 0 ? (
+                      <div className="text-sm text-muted-foreground p-4 border rounded">
+                        Keine Ärzte verfügbar. Bitte erstellen Sie zuerst Ärzte
+                        in der Ärztevertaltung.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
+                        {practitionersQuery.map((practitioner) => (
+                          <label
+                            className="flex items-center space-x-2"
+                            key={practitioner._id}
+                          >
+                            <input
+                              checked={formData.specificPractitioners.includes(
+                                practitioner._id,
+                              )}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({
+                                    ...formData,
+                                    specificPractitioners: [
+                                      ...formData.specificPractitioners,
+                                      practitioner._id,
+                                    ],
+                                  });
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    specificPractitioners:
+                                      formData.specificPractitioners.filter(
+                                        (id) => id !== practitioner._id,
+                                      ),
+                                  });
+                                }
+                              }}
+                              type="checkbox"
+                            />
+                            <span className="text-sm">{practitioner.name}</span>
+                            {practitioner.tags &&
+                              practitioner.tags.length > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({practitioner.tags.join(", ")})
+                                </span>
+                              )}
+                          </label>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      Lade Ärzte...
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
