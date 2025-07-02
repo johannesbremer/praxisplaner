@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { convexTypes } from "./types";
 
 export const createPractitioner = mutation({
   args: {
@@ -34,10 +35,7 @@ export const createPractitioner = mutation({
 export const updatePractitioner = mutation({
   args: {
     practitionerId: v.id("practitioners"),
-    updates: v.object({
-      name: v.optional(v.string()),
-      tags: v.optional(v.array(v.string())),
-    }),
+    updates: convexTypes.practitionerUpdates,
   },
   handler: async (ctx, args) => {
     const practitioner = await ctx.db.get(args.practitionerId);
@@ -101,13 +99,5 @@ export const getPractitioners = query({
 
     return practitioners.sort((a, b) => a.name.localeCompare(b.name));
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("practitioners"),
-      name: v.string(),
-      practiceId: v.id("practices"),
-      tags: v.optional(v.array(v.string())),
-    }),
-  ),
+  returns: v.array(convexTypes.practitionerDetails),
 });

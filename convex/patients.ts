@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { convexTypes } from "./types";
 
 /** Create or update a patient from GDT data */
 export const upsertPatient = mutation({
@@ -58,11 +59,7 @@ export const upsertPatient = mutation({
       success: true,
     };
   },
-  returns: v.object({
-    isNewPatient: v.boolean(),
-    patientId: v.number(),
-    success: v.boolean(),
-  }),
+  returns: convexTypes.patientProcessingResult,
 });
 
 /** List patients with flexible ordering options */

@@ -1,7 +1,10 @@
 // convex/baseSchedules.ts
 import { v } from "convex/values";
 
+import type { Id } from "./_generated/dataModel";
+
 import { mutation, query } from "./_generated/server";
+import { convexTypes } from "./types";
 
 // Helper function to parse time string to minutes
 function timeToMinutes(time: string): number {
@@ -15,21 +18,7 @@ function timeToMinutes(time: string): number {
 }
 
 export const createBaseSchedule = mutation({
-  args: {
-    breakTimes: v.optional(
-      v.array(
-        v.object({
-          end: v.string(),
-          start: v.string(),
-        }),
-      ),
-    ),
-    dayOfWeek: v.number(),
-    endTime: v.string(),
-    practitionerId: v.id("practitioners"),
-    slotDuration: v.number(),
-    startTime: v.string(),
-  },
+  args: convexTypes.baseScheduleData,
   handler: async (ctx, args) => {
     // Validate day of week
     if (args.dayOfWeek < 0 || args.dayOfWeek > 6) {
@@ -101,27 +90,33 @@ export const createBaseSchedule = mutation({
       );
     }
 
-    const scheduleId = await ctx.db.insert("baseSchedules", args);
+    const insertData: {
+      breakTimes?: { end: string; start: string }[];
+      dayOfWeek: number;
+      endTime: string;
+      practitionerId: Id<"practitioners">;
+      slotDuration: number;
+      startTime: string;
+    } = {
+      dayOfWeek: args.dayOfWeek,
+      endTime: args.endTime,
+      practitionerId: args.practitionerId,
+      slotDuration: args.slotDuration,
+      startTime: args.startTime,
+    };
+
+    if (args.breakTimes !== undefined) {
+      insertData.breakTimes = args.breakTimes;
+    }
+
+    const scheduleId = await ctx.db.insert("baseSchedules", insertData);
     return scheduleId;
   },
   returns: v.id("baseSchedules"),
 });
 
 export const updateBaseSchedule = mutation({
-  args: {
-    breakTimes: v.optional(
-      v.array(
-        v.object({
-          end: v.string(),
-          start: v.string(),
-        }),
-      ),
-    ),
-    endTime: v.string(),
-    scheduleId: v.id("baseSchedules"),
-    slotDuration: v.number(),
-    startTime: v.string(),
-  },
+  args: convexTypes.baseScheduleUpdates,
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleId);
     if (!schedule) {
@@ -222,25 +217,7 @@ export const getBaseSchedulesByPractitioner = query({
 
     return schedules.sort((a, b) => a.dayOfWeek - b.dayOfWeek);
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("baseSchedules"),
-      breakTimes: v.optional(
-        v.array(
-          v.object({
-            end: v.string(),
-            start: v.string(),
-          }),
-        ),
-      ),
-      dayOfWeek: v.number(),
-      endTime: v.string(),
-      practitionerId: v.id("practitioners"),
-      slotDuration: v.number(),
-      startTime: v.string(),
-    }),
-  ),
+  returns: v.array(convexTypes.baseScheduleDetails),
 });
 
 export const getAllBaseSchedules = query({
@@ -280,24 +257,5 @@ export const getAllBaseSchedules = query({
       return a.dayOfWeek - b.dayOfWeek;
     });
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("baseSchedules"),
-      breakTimes: v.optional(
-        v.array(
-          v.object({
-            end: v.string(),
-            start: v.string(),
-          }),
-        ),
-      ),
-      dayOfWeek: v.number(),
-      endTime: v.string(),
-      practitionerId: v.id("practitioners"),
-      practitionerName: v.string(),
-      slotDuration: v.number(),
-      startTime: v.string(),
-    }),
-  ),
+  returns: v.array(convexTypes.baseScheduleWithPractitioner),
 });
