@@ -19,6 +19,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -119,6 +127,10 @@ export default function LogicView() {
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [isCreatingInitial, setIsCreatingInitial] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [showCreateDraftDialog, setShowCreateDraftDialog] = useState(false);
+  const [initialRuleSetName, setInitialRuleSetName] = useState("");
+  const [showInitialDialog, setShowInitialDialog] = useState(false);
 
   // Simulation state (from sim.tsx)
   const [simulatedContext, setSimulatedContext] = useState({
@@ -245,16 +257,24 @@ export default function LogicView() {
       return;
     }
 
+    if (!draftName.trim()) {
+      toast.error("Bitte geben Sie einen Namen für das Draft ein");
+      return;
+    }
+
     try {
       setIsCreatingDraft(true);
       const newRuleSetId = await createDraftMutation({
-        description: `Draft basierend auf v${activeRuleSet.version}`,
+        description: `Draft basierend auf ${activeRuleSet.name}`,
+        name: draftName.trim(),
         practiceId: currentPractice._id,
       });
 
       setSelectedRuleSetId(newRuleSetId);
+      setDraftName("");
+      setShowCreateDraftDialog(false);
       toast.success("Draft erstellt", {
-        description: "Ein neues Draft-Regelset wurde erstellt.",
+        description: `Draft "${draftName.trim()}" wurde erfolgreich erstellt.`,
       });
     } catch (error: unknown) {
       captureError(error, {
@@ -297,17 +317,24 @@ export default function LogicView() {
   };
 
   const handleCreateInitial = async () => {
+    if (!initialRuleSetName.trim()) {
+      toast.error("Bitte geben Sie einen Namen für das Regelset ein");
+      return;
+    }
+
     try {
       setIsCreatingInitial(true);
       const newRuleSetId = await createInitialMutation({
         description: "Erstes Regelset",
+        name: initialRuleSetName.trim(),
         practiceId: currentPractice._id,
       });
 
       setSelectedRuleSetId(newRuleSetId);
+      setInitialRuleSetName("");
+      setShowInitialDialog(false);
       toast.success("Erstes Regelset erstellt", {
-        description:
-          "Das erste Regelset wurde erfolgreich erstellt und aktiviert.",
+        description: `Regelset "${initialRuleSetName.trim()}" wurde erfolgreich erstellt und aktiviert.`,
       });
     } catch (error: unknown) {
       captureError(error, {
@@ -371,7 +398,7 @@ export default function LogicView() {
                           <SelectItem key={ruleSet._id} value={ruleSet._id}>
                             <div className="flex items-center gap-2">
                               <span>
-                                v{ruleSet.version} - {ruleSet.description}
+                                {ruleSet.name} - {ruleSet.description}
                               </span>
                               {ruleSet.isActive && (
                                 <Badge className="text-xs" variant="default">
@@ -390,7 +417,9 @@ export default function LogicView() {
                       // Show "Create Initial Rule Set" when no rule sets exist
                       <Button
                         disabled={isCreatingInitial}
-                        onClick={() => void handleCreateInitial()}
+                        onClick={() => {
+                          setShowInitialDialog(true);
+                        }}
                         variant="default"
                       >
                         <GitBranch className="h-4 w-4 mr-2" />
@@ -402,7 +431,9 @@ export default function LogicView() {
                       // Show "Create Draft" when rule sets exist
                       <Button
                         disabled={isCreatingDraft || !activeRuleSet}
-                        onClick={() => void handleCreateDraft()}
+                        onClick={() => {
+                          setShowCreateDraftDialog(true);
+                        }}
                         variant="outline"
                       >
                         <GitBranch className="h-4 w-4 mr-2" />
@@ -436,7 +467,7 @@ export default function LogicView() {
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle>
-                          Regeln in v{selectedRuleSet.version}
+                          Regeln in &ldquo;{selectedRuleSet.name}&rdquo;
                           {selectedRuleSet.isActive && (
                             <Badge className="ml-2" variant="default">
                               AKTIV
@@ -447,7 +478,7 @@ export default function LogicView() {
                           {selectedRuleSet.description}
                         </CardDescription>
                       </div>
-                      {!selectedRuleSet.isActive && selectedRuleSetId && (
+                      {selectedRuleSetId && (
                         <RuleCreationForm
                           onRuleCreated={() => {
                             // Rules will auto-refresh via Convex reactivity
@@ -817,9 +848,13 @@ export default function LogicView() {
                       <div>
                         <Label className="text-sm font-medium">Zeit</Label>
                         <div className="text-lg font-semibold">
-                          {format(new Date(selectedSlot.startTime), "HH:mm", {
-                            locale: de,
-                          })}
+                          {format(
+                            new Date(selectedSlot.startTime),
+                            "HH 'Uhr'",
+                            {
+                              locale: de,
+                            },
+                          )}
                         </div>
                       </div>
 
@@ -872,6 +907,91 @@ export default function LogicView() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Create Draft Dialog */}
+      <Dialog
+        onOpenChange={setShowCreateDraftDialog}
+        open={showCreateDraftDialog}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Neues Draft erstellen</DialogTitle>
+            <DialogDescription>
+              Erstellen Sie ein neues Draft basierend auf dem aktiven Regelset.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="draft-name">Name des Drafts</Label>
+              <Input
+                id="draft-name"
+                onChange={(e) => {
+                  setDraftName(e.target.value);
+                }}
+                placeholder="z.B. feature-neue-regel"
+                value={draftName}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                onClick={() => {
+                  setShowCreateDraftDialog(false);
+                }}
+                variant="outline"
+              >
+                Abbrechen
+              </Button>
+              <Button
+                disabled={isCreatingDraft || !draftName.trim()}
+                onClick={() => void handleCreateDraft()}
+              >
+                {isCreatingDraft ? "Erstelle..." : "Draft erstellen"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Initial Rule Set Dialog */}
+      <Dialog onOpenChange={setShowInitialDialog} open={showInitialDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Erstes Regelset erstellen</DialogTitle>
+            <DialogDescription>
+              Erstellen Sie das erste Regelset für Ihre Praxis.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="initial-name">Name des Regelsets</Label>
+              <Input
+                id="initial-name"
+                onChange={(e) => {
+                  setInitialRuleSetName(e.target.value);
+                }}
+                placeholder="z.B. main oder production"
+                value={initialRuleSetName}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                onClick={() => {
+                  setShowInitialDialog(false);
+                }}
+                variant="outline"
+              >
+                Abbrechen
+              </Button>
+              <Button
+                disabled={isCreatingInitial || !initialRuleSetName.trim()}
+                onClick={() => void handleCreateInitial()}
+              >
+                {isCreatingInitial ? "Erstelle..." : "Regelset erstellen"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
