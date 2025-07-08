@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
+import { breakTimesValidator } from "./validators";
 
 // Helper function to parse time string to minutes
 function timeToMinutes(time: string): number {
@@ -18,14 +19,7 @@ function timeToMinutes(time: string): number {
 
 export const createBaseSchedule = mutation({
   args: {
-    breakTimes: v.optional(
-      v.array(
-        v.object({
-          end: v.string(),
-          start: v.string(),
-        }),
-      ),
-    ),
+    breakTimes: breakTimesValidator,
     dayOfWeek: v.number(),
     endTime: v.string(),
     practitionerId: v.id("practitioners"),
@@ -130,14 +124,7 @@ export const createBaseSchedule = mutation({
 
 export const updateBaseSchedule = mutation({
   args: {
-    breakTimes: v.optional(
-      v.array(
-        v.object({
-          end: v.string(),
-          start: v.string(),
-        }),
-      ),
-    ),
+    breakTimes: breakTimesValidator,
     endTime: v.string(),
     scheduleId: v.id("baseSchedules"),
     slotDuration: v.number(),

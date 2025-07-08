@@ -3,19 +3,18 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { query } from "./_generated/server";
+import {
+  availableSlotsResultValidator,
+  dateRangeValidator,
+  simulatedContextValidator,
+} from "./validators";
 
 export const getAvailableSlots = query({
   args: {
-    dateRange: v.object({
-      end: v.string(),
-      start: v.string(),
-    }),
+    dateRange: dateRangeValidator,
     practiceId: v.id("practices"),
     ruleSetId: v.optional(v.id("ruleSets")), // Null for active set, specified for drafts
-    simulatedContext: v.object({
-      appointmentType: v.string(),
-      patient: v.object({ isNew: v.boolean() }),
-    }),
+    simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
     const log: string[] = [];
@@ -281,18 +280,5 @@ export const getAvailableSlots = query({
 
     return { log, slots: finalSlots };
   },
-  returns: v.object({
-    log: v.array(v.string()),
-    slots: v.array(
-      v.object({
-        blockedByRuleId: v.optional(v.id("rules")),
-        duration: v.number(),
-        locationId: v.optional(v.id("locations")),
-        practitionerId: v.id("practitioners"),
-        practitionerName: v.string(),
-        startTime: v.string(),
-        status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
-      }),
-    ),
-  }),
+  returns: availableSlotsResultValidator,
 });

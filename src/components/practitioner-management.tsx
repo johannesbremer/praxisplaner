@@ -1,7 +1,8 @@
 // src/components/practitioner-management.tsx
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2, User } from "lucide-react";
-import React, { useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -26,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
+import { useErrorTracking } from "../utils/error-tracking";
+
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -37,11 +40,6 @@ interface PractitionerDialogProps {
         name: string;
         tags?: string[];
       };
-}
-
-interface PractitionerFormData {
-  name: string;
-  tags: string[];
 }
 
 interface PractitionerManagementProps {
@@ -60,6 +58,8 @@ export default function PractitionerManagement({
         tags?: string[];
       }
   >();
+
+  const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
@@ -83,7 +83,13 @@ export default function PractitionerManagement({
     try {
       await deleteMutation({ practitionerId });
       toast.success("Arzt gelöscht");
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "practitioner_delete",
+        practiceId,
+        practitionerId,
+      });
+
       toast.error("Fehler beim Löschen", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -212,58 +218,57 @@ function PractitionerDialog({
   practiceId,
   practitioner,
 }: PractitionerDialogProps) {
-  const [formData, setFormData] = useState<PractitionerFormData>({
-    name: practitioner?.name ?? "",
-    tags: practitioner?.tags ?? [],
-  });
-  const [isSaving, setIsSaving] = useState(false);
+  const { captureError } = useErrorTracking();
 
   const createMutation = useMutation(api.practitioners.createPractitioner);
   const updateMutation = useMutation(api.practitioners.updatePractitioner);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm({
+    defaultValues: {
+      name: practitioner?.name ?? "",
+      tags: practitioner?.tags ?? [],
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        if (practitioner) {
+          // Update existing practitioner
+          await updateMutation({
+            practitionerId: practitioner._id,
+            updates: {
+              name: value.name,
+              tags: value.tags.length > 0 ? value.tags : undefined,
+            },
+          });
+          toast.success("Arzt aktualisiert");
+        } else {
+          // Create new practitioner
+          const createData = {
+            name: value.name,
+            practiceId,
+            ...(value.tags.length > 0 && { tags: value.tags }),
+          };
+          await createMutation(createData);
+          toast.success("Arzt erstellt");
+        }
 
-    if (!formData.name.trim()) {
-      toast.error("Name ist erforderlich");
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-
-      if (practitioner) {
-        // Update existing practitioner
-        await updateMutation({
-          practitionerId: practitioner._id,
-          updates: {
-            name: formData.name,
-            tags: formData.tags.length > 0 ? formData.tags : undefined,
-          },
-        });
-        toast.success("Arzt aktualisiert");
-      } else {
-        // Create new practitioner
-        const createData = {
-          name: formData.name,
+        onClose();
+        form.reset();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "practitioner_save",
+          formData: value,
+          isUpdate: !!practitioner,
           practiceId,
-          ...(formData.tags.length > 0 && { tags: formData.tags }),
-        };
-        await createMutation(createData);
-        toast.success("Arzt erstellt");
-      }
+          practitionerId: practitioner?._id,
+        });
 
-      onClose();
-      setFormData({ name: "", tags: [] });
-    } catch (error) {
-      toast.error("Fehler beim Speichern", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
+        toast.error("Fehler beim Speichern", {
+          description:
+            error instanceof Error ? error.message : "Unbekannter Fehler",
+        });
+      }
+    },
+  });
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
@@ -282,59 +287,70 @@ function PractitionerDialog({
         <form
           className="space-y-4"
           onSubmit={(e) => {
-            void handleSubmit(e);
+            e.preventDefault();
+            e.stopPropagation();
+            void form.handleSubmit();
           }}
         >
-          <div className="space-y-2">
-            <Label htmlFor="name">Name *</Label>
-            <Input
-              id="name"
-              onChange={(e) => {
-                setFormData({ ...formData, name: e.target.value });
-              }}
-              placeholder="Dr. Max Mustermann"
-              required
-              value={formData.name}
-            />
-          </div>
+          <form.Field
+            name="name"
+            validators={{
+              onChange: ({ value }) =>
+                value.trim() ? undefined : "Name ist erforderlich",
+            }}
+          >
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  onBlur={field.handleBlur}
+                  onChange={(e) => {
+                    field.handleChange(e.target.value);
+                  }}
+                  placeholder="Dr. Max Mustermann"
+                  required
+                  value={field.state.value}
+                />
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-500">
+                    {field.state.meta.errors[0]}
+                  </p>
+                )}
+              </div>
+            )}
+          </form.Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="tags">Tags (kommagetrennt)</Label>
-            <Input
-              id="tags"
-              onChange={(e) => {
-                setFormData({
-                  ...formData,
-                  tags: e.target.value
-                    .split(",")
-                    .map((tag) => tag.trim())
-                    .filter(Boolean),
-                });
-              }}
-              placeholder="z.B. Spezialist, Senior, Chirurg"
-              value={formData.tags.join(", ")}
-            />
-            <div className="text-sm text-muted-foreground">
-              Tags helfen bei der Kategorisierung und können in Regeln verwendet
-              werden.
-            </div>
-          </div>
+          <form.Field name="tags">
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="tags">Tags (kommagetrennt)</Label>
+                <Input
+                  id="tags"
+                  onChange={(e) => {
+                    const tags = e.target.value
+                      .split(",")
+                      .map((tag) => tag.trim())
+                      .filter(Boolean);
+                    field.handleChange(tags);
+                  }}
+                  placeholder="z.B. Spezialist, Senior, Chirurg"
+                  value={field.state.value.join(", ")}
+                />
+                <div className="text-sm text-muted-foreground">
+                  Tags helfen bei der Kategorisierung und können in Regeln
+                  verwendet werden.
+                </div>
+              </div>
+            )}
+          </form.Field>
 
           <div className="flex justify-end space-x-2 pt-4">
-            <Button
-              disabled={isSaving}
-              onClick={onClose}
-              type="button"
-              variant="outline"
-            >
+            <Button onClick={onClose} type="button" variant="outline">
               Abbrechen
             </Button>
-            <Button disabled={isSaving} type="submit">
-              {isSaving
-                ? "Speichere..."
-                : practitioner
-                  ? "Speichern"
-                  : "Erstellen"}
+            <Button type="submit">
+              {practitioner ? "Speichern" : "Erstellen"}
             </Button>
           </div>
         </form>

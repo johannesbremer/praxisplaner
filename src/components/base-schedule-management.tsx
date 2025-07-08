@@ -1,7 +1,8 @@
 // src/components/base-schedule-management.tsx
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Calendar, Clock, Edit, Plus, Trash2 } from "lucide-react";
-import React, { useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -32,6 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+
+import { useErrorTracking } from "../utils/error-tracking";
 
 const DAYS_OF_WEEK = [
   { label: "Montag", value: 1 },
@@ -68,15 +71,6 @@ interface BaseScheduleDialogProps {
       };
 }
 
-interface BaseScheduleFormData {
-  breakTimes: { end: string; start: string }[];
-  dayOfWeek: number;
-  endTime: string;
-  practitionerId: string;
-  slotDuration: number;
-  startTime: string;
-}
-
 interface BaseScheduleManagementProps {
   practiceId: Id<"practices">;
 }
@@ -98,6 +92,8 @@ export default function BaseScheduleManagement({
         startTime: string;
       }
   >();
+
+  const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
@@ -133,8 +129,13 @@ export default function BaseScheduleManagement({
     try {
       await deleteScheduleMutation({ scheduleId });
       toast.success("Arbeitszeit erfolgreich gelöscht");
-    } catch (error) {
-      console.error("Error deleting schedule:", error);
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "base_schedule_delete",
+        practiceId,
+        scheduleId,
+      });
+
       toast.error("Fehler beim Löschen der Arbeitszeit");
     }
   };
@@ -267,17 +268,7 @@ function BaseScheduleDialog({
   practiceId,
   schedule,
 }: BaseScheduleDialogProps) {
-  const [formData, setFormData] = useState<BaseScheduleFormData>({
-    breakTimes: schedule?.breakTimes ?? [],
-    dayOfWeek: schedule?.dayOfWeek ?? 1,
-    endTime: schedule?.endTime ?? "17:00",
-    practitionerId: schedule?.practitionerId ?? "",
-    slotDuration: schedule?.slotDuration ?? 30,
-    startTime: schedule?.startTime ?? "08:00",
-  });
-
-  const [newBreakStart, setNewBreakStart] = useState("");
-  const [newBreakEnd, setNewBreakEnd] = useState("");
+  const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
@@ -290,98 +281,84 @@ function BaseScheduleDialog({
     api.baseSchedules.updateBaseSchedule,
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm({
+    defaultValues: {
+      breakTimes: schedule?.breakTimes ?? [],
+      dayOfWeek: schedule?.dayOfWeek ?? 1,
+      endTime: schedule?.endTime ?? "17:00",
+      practitionerId: schedule?.practitionerId ?? "",
+      slotDuration: schedule?.slotDuration ?? 30,
+      startTime: schedule?.startTime ?? "08:00",
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        if (schedule) {
+          // Update existing schedule
+          const updateData: {
+            breakTimes?: { end: string; start: string }[];
+            endTime: string;
+            scheduleId: Id<"baseSchedules">;
+            slotDuration: number;
+            startTime: string;
+          } = {
+            endTime: value.endTime,
+            scheduleId: schedule._id,
+            slotDuration: value.slotDuration,
+            startTime: value.startTime,
+          };
 
-    if (!formData.practitionerId) {
-      toast.error("Bitte wählen Sie einen Arzt aus");
-      return;
-    }
+          if (value.breakTimes.length > 0) {
+            updateData.breakTimes = value.breakTimes;
+          }
 
-    try {
-      if (schedule) {
-        // Update existing schedule
-        const updateData: {
-          breakTimes?: { end: string; start: string }[];
-          endTime: string;
-          scheduleId: Id<"baseSchedules">;
-          slotDuration: number;
-          startTime: string;
-        } = {
-          endTime: formData.endTime,
-          scheduleId: schedule._id,
-          slotDuration: formData.slotDuration,
-          startTime: formData.startTime,
-        };
+          await updateScheduleMutation(updateData);
+          toast.success("Arbeitszeit erfolgreich aktualisiert");
+        } else {
+          // Create new schedule
+          if (!value.practitionerId) {
+            throw new Error("Bitte wählen Sie einen Arzt aus");
+          }
 
-        if (formData.breakTimes.length > 0) {
-          updateData.breakTimes = formData.breakTimes;
+          const createData: {
+            breakTimes?: { end: string; start: string }[];
+            dayOfWeek: number;
+            endTime: string;
+            practitionerId: Id<"practitioners">;
+            slotDuration: number;
+            startTime: string;
+          } = {
+            dayOfWeek: value.dayOfWeek,
+            endTime: value.endTime,
+            practitionerId: value.practitionerId as Id<"practitioners">,
+            slotDuration: value.slotDuration,
+            startTime: value.startTime,
+          };
+
+          if (value.breakTimes.length > 0) {
+            createData.breakTimes = value.breakTimes;
+          }
+
+          await createScheduleMutation(createData);
+          toast.success("Arbeitszeit erfolgreich erstellt");
         }
+        onClose();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "base_schedule_save",
+          formData: value,
+          isUpdate: !!schedule,
+          practiceId,
+          scheduleId: schedule?._id,
+        });
 
-        await updateScheduleMutation(updateData);
-        toast.success("Arbeitszeit erfolgreich aktualisiert");
-      } else {
-        // Create new schedule
-        const createData: {
-          breakTimes?: { end: string; start: string }[];
-          dayOfWeek: number;
-          endTime: string;
-          practitionerId: Id<"practitioners">;
-          slotDuration: number;
-          startTime: string;
-        } = {
-          dayOfWeek: formData.dayOfWeek,
-          endTime: formData.endTime,
-          practitionerId: formData.practitionerId as Id<"practitioners">,
-          slotDuration: formData.slotDuration,
-          startTime: formData.startTime,
-        };
-
-        if (formData.breakTimes.length > 0) {
-          createData.breakTimes = formData.breakTimes;
-        }
-
-        await createScheduleMutation(createData);
-        toast.success("Arbeitszeit erfolgreich erstellt");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Fehler beim Speichern der Arbeitszeit",
+        );
       }
-      onClose();
-    } catch (error) {
-      console.error("Error saving schedule:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Fehler beim Speichern der Arbeitszeit",
-      );
-    }
-  };
-
-  const addBreakTime = () => {
-    if (!newBreakStart || !newBreakEnd) {
-      toast.error("Bitte füllen Sie beide Pausenzeiten aus");
-      return;
-    }
-
-    if (newBreakStart >= newBreakEnd) {
-      toast.error("Die Pausenstart-Zeit muss vor der Pausenend-Zeit liegen");
-      return;
-    }
-
-    const newBreak = { end: newBreakEnd, start: newBreakStart };
-    setFormData((prev) => ({
-      ...prev,
-      breakTimes: [...prev.breakTimes, newBreak],
-    }));
-
-    setNewBreakStart("");
-    setNewBreakEnd("");
-  };
-
-  const removeBreakTime = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      breakTimes: prev.breakTimes.filter((_, i) => i !== index),
-    }));
-  };
+    },
+  });
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
@@ -400,167 +377,176 @@ function BaseScheduleDialog({
         <form
           className="space-y-6"
           onSubmit={(e) => {
-            void handleSubmit(e);
+            e.preventDefault();
+            e.stopPropagation();
+            void form.handleSubmit();
           }}
         >
           {!schedule && (
-            <div className="space-y-2">
-              <Label htmlFor="practitioner">Arzt</Label>
-              <Select
-                onValueChange={(value) => {
-                  setFormData((prev) => ({ ...prev, practitionerId: value }));
-                }}
-                value={formData.practitionerId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Arzt auswählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {practitionersQuery?.map((practitioner) => (
-                    <SelectItem key={practitioner._id} value={practitioner._id}>
-                      {practitioner.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <form.Field
+              name="practitionerId"
+              validators={{
+                onChange: ({ value }) =>
+                  value ? undefined : "Bitte wählen Sie einen Arzt aus",
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor="practitioner">Arzt</Label>
+                  <Select
+                    onValueChange={field.handleChange}
+                    value={field.state.value}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Arzt auswählen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {practitionersQuery?.map((practitioner) => (
+                        <SelectItem
+                          key={practitioner._id}
+                          value={practitioner._id}
+                        >
+                          {practitioner.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {field.state.meta.errors.length > 0 && (
+                    <p className="text-sm text-red-500">
+                      {field.state.meta.errors[0]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
           )}
 
           {!schedule && (
-            <div className="space-y-2">
-              <Label htmlFor="dayOfWeek">Wochentag</Label>
-              <Select
-                onValueChange={(value) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    dayOfWeek: Number.parseInt(value),
-                  }));
-                }}
-                value={formData.dayOfWeek.toString()}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Wochentag auswählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DAYS_OF_WEEK.map((day) => (
-                    <SelectItem key={day.value} value={day.value.toString()}>
-                      {day.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <form.Field name="dayOfWeek">
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor="dayOfWeek">Wochentag</Label>
+                  <Select
+                    onValueChange={(value) => {
+                      field.handleChange(Number.parseInt(value));
+                    }}
+                    value={field.state.value.toString()}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Wochentag auswählen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DAYS_OF_WEEK.map((day) => (
+                        <SelectItem
+                          key={day.value}
+                          value={day.value.toString()}
+                        >
+                          {day.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </form.Field>
           )}
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="startTime">Arbeitsbeginn</Label>
-              <Input
-                id="startTime"
-                onChange={(e) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    startTime: e.target.value,
-                  }));
-                }}
-                required
-                type="time"
-                value={formData.startTime}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="endTime">Arbeitsende</Label>
-              <Input
-                id="endTime"
-                onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, endTime: e.target.value }));
-                }}
-                required
-                type="time"
-                value={formData.endTime}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="slotDuration">Terminlänge</Label>
-            <Select
-              onValueChange={(value) => {
-                setFormData((prev) => ({
-                  ...prev,
-                  slotDuration: Number.parseInt(value),
-                }));
+            <form.Field
+              name="startTime"
+              validators={{
+                onChange: ({ value }) =>
+                  value ? undefined : "Arbeitsbeginn ist erforderlich",
               }}
-              value={formData.slotDuration.toString()}
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Terminlänge auswählen" />
-              </SelectTrigger>
-              <SelectContent>
-                {SLOT_DURATIONS.map((duration) => (
-                  <SelectItem
-                    key={duration.value}
-                    value={duration.value.toString()}
-                  >
-                    {duration.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor="startTime">Arbeitsbeginn</Label>
+                  <Input
+                    id="startTime"
+                    onBlur={field.handleBlur}
+                    onChange={(e) => {
+                      field.handleChange(e.target.value);
+                    }}
+                    required
+                    type="time"
+                    value={field.state.value}
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p className="text-sm text-red-500">
+                      {field.state.meta.errors[0]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="endTime"
+              validators={{
+                onChange: ({ value }) =>
+                  value ? undefined : "Arbeitsende ist erforderlich",
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor="endTime">Arbeitsende</Label>
+                  <Input
+                    id="endTime"
+                    onBlur={field.handleBlur}
+                    onChange={(e) => {
+                      field.handleChange(e.target.value);
+                    }}
+                    required
+                    type="time"
+                    value={field.state.value}
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p className="text-sm text-red-500">
+                      {field.state.meta.errors[0]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
           </div>
 
-          <div className="space-y-4">
-            <Label>Pausenzeiten</Label>
-
-            {formData.breakTimes.length > 0 && (
+          <form.Field name="slotDuration">
+            {(field) => (
               <div className="space-y-2">
-                {formData.breakTimes.map((breakTime, index) => (
-                  <div
-                    className="flex items-center gap-2 p-2 border rounded"
-                    key={index}
-                  >
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="flex-1">
-                      {breakTime.start} - {breakTime.end}
-                    </span>
-                    <Button
-                      onClick={() => {
-                        removeBreakTime(index);
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+                <Label htmlFor="slotDuration">Terminlänge</Label>
+                <Select
+                  onValueChange={(value) => {
+                    field.handleChange(Number.parseInt(value));
+                  }}
+                  value={field.state.value.toString()}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Terminlänge auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SLOT_DURATIONS.map((duration) => (
+                      <SelectItem
+                        key={duration.value}
+                        value={duration.value.toString()}
+                      >
+                        {duration.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
+          </form.Field>
 
-            <div className="flex gap-2">
-              <Input
-                onChange={(e) => {
-                  setNewBreakStart(e.target.value);
-                }}
-                placeholder="Pausenbeginn"
-                type="time"
-                value={newBreakStart}
+          <form.Field name="breakTimes">
+            {(field) => (
+              <BreakTimesField
+                onBreakTimesChange={field.handleChange}
+                value={field.state.value}
               />
-              <Input
-                onChange={(e) => {
-                  setNewBreakEnd(e.target.value);
-                }}
-                placeholder="Pausenende"
-                type="time"
-                value={newBreakEnd}
-              />
-              <Button onClick={addBreakTime} type="button" variant="outline">
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+            )}
+          </form.Field>
 
           <div className="flex justify-end gap-2">
             <Button onClick={onClose} type="button" variant="outline">
@@ -573,6 +559,94 @@ function BaseScheduleDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Separate component for managing break times within TanStack Form
+function BreakTimesField({
+  onBreakTimesChange,
+  value,
+}: {
+  onBreakTimesChange: (breakTimes: { end: string; start: string }[]) => void;
+  value: { end: string; start: string }[];
+}) {
+  const [newBreakStart, setNewBreakStart] = useState("");
+  const [newBreakEnd, setNewBreakEnd] = useState("");
+
+  const addBreakTime = () => {
+    if (!newBreakStart || !newBreakEnd) {
+      toast.error("Bitte füllen Sie beide Pausenzeiten aus");
+      return;
+    }
+
+    if (newBreakStart >= newBreakEnd) {
+      toast.error("Die Pausenstart-Zeit muss vor der Pausenend-Zeit liegen");
+      return;
+    }
+
+    const newBreak = { end: newBreakEnd, start: newBreakStart };
+    onBreakTimesChange([...value, newBreak]);
+
+    setNewBreakStart("");
+    setNewBreakEnd("");
+  };
+
+  const removeBreakTime = (index: number) => {
+    onBreakTimesChange(value.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="space-y-4">
+      <Label>Pausenzeiten</Label>
+
+      {value.length > 0 && (
+        <div className="space-y-2">
+          {value.map((breakTime, index) => (
+            <div
+              className="flex items-center gap-2 p-2 border rounded"
+              key={index}
+            >
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1">
+                {breakTime.start} - {breakTime.end}
+              </span>
+              <Button
+                onClick={() => {
+                  removeBreakTime(index);
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Input
+          onChange={(e) => {
+            setNewBreakStart(e.target.value);
+          }}
+          placeholder="Pausenbeginn"
+          type="time"
+          value={newBreakStart}
+        />
+        <Input
+          onChange={(e) => {
+            setNewBreakEnd(e.target.value);
+          }}
+          placeholder="Pausenende"
+          type="time"
+          value={newBreakEnd}
+        />
+        <Button onClick={addBreakTime} type="button" variant="outline">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
