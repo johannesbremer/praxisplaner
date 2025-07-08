@@ -71,8 +71,8 @@ export const getAvailableSlots = query({
       // Generate slots for each day in the date range
       for (
         let date = new Date(startDate);
-        date <= endDate;
-        date.setDate(date.getDate() + 1)
+        date < endDate;
+        date = new Date(date.getTime() + 24 * 60 * 60 * 1000) // Use time addition to avoid date mutation issues
       ) {
         const dayOfWeek = date.getDay();
         const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
