@@ -155,13 +155,12 @@ export default function RuleCreationForm({
   });
 
   const dayOfWeekOptions = [
-    { label: "Sonntag", value: 0 },
     { label: "Montag", value: 1 },
     { label: "Dienstag", value: 2 },
     { label: "Mittwoch", value: 3 },
     { label: "Donnerstag", value: 4 },
     { label: "Freitag", value: 5 },
-    { label: "Samstag", value: 6 },
+    // Removed Samstag (6) and Sonntag (0) as requested in issue #3
   ];
 
   return (

@@ -125,7 +125,9 @@ export const createBaseSchedule = mutation({
 export const updateBaseSchedule = mutation({
   args: {
     breakTimes: breakTimesValidator,
+    dayOfWeek: v.optional(v.number()), // Allow updating day of week
     endTime: v.string(),
+    practitionerId: v.optional(v.id("practitioners")), // Allow updating practitioner
     scheduleId: v.id("baseSchedules"),
     slotDuration: v.number(),
     startTime: v.string(),
@@ -155,6 +157,14 @@ export const updateBaseSchedule = mutation({
       throw new Error("Slot duration must be between 1 and 480 minutes");
     }
 
+    // Validate day of week if provided
+    if (
+      args.dayOfWeek !== undefined &&
+      (args.dayOfWeek < 0 || args.dayOfWeek > 6)
+    ) {
+      throw new Error("Day of week must be between 0 and 6");
+    }
+
     // Validate break times
     if (args.breakTimes) {
       for (const breakTime of args.breakTimes) {
@@ -180,7 +190,9 @@ export const updateBaseSchedule = mutation({
 
     const updateData: {
       breakTimes?: { end: string; start: string }[];
+      dayOfWeek?: number;
       endTime: string;
+      practitionerId?: Id<"practitioners">;
       slotDuration: number;
       startTime: string;
     } = {
@@ -191,6 +203,14 @@ export const updateBaseSchedule = mutation({
 
     if (args.breakTimes !== undefined) {
       updateData.breakTimes = args.breakTimes;
+    }
+
+    if (args.dayOfWeek !== undefined) {
+      updateData.dayOfWeek = args.dayOfWeek;
+    }
+
+    if (args.practitionerId !== undefined) {
+      updateData.practitionerId = args.practitionerId;
     }
 
     await ctx.db.patch(args.scheduleId, updateData);

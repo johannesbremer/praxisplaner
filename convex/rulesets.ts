@@ -6,6 +6,7 @@ import { ruleUpdateValidator } from "./validators";
 export const createDraftFromActive = mutation({
   args: {
     description: v.string(),
+    name: v.string(), // Add name parameter for git-like naming
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
@@ -21,12 +22,24 @@ export const createDraftFromActive = mutation({
       throw new Error("Active rule set not found");
     }
 
-    // Create new draft rule set
+    // Check if name is already taken
+    const existingRuleSetWithName = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .filter((q) => q.eq(q.field("name"), args.name))
+      .first();
+
+    if (existingRuleSetWithName) {
+      throw new Error(`A rule set with the name "${args.name}" already exists`);
+    }
+
+    // Create new draft rule set with next version
     const newVersion = activeRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      name: args.name,
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -88,18 +101,13 @@ export const updateRule = mutation({
       throw new Error("Rule not found");
     }
 
-    // Verify the rule set is not active (only allow editing drafts)
-    const ruleSet = await ctx.db.get(rule.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-
-    const practice = await ctx.db.get(ruleSet.practiceId);
-    if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
-      throw new Error(
-        "Cannot edit rules in active rule set. Create a draft first.",
-      );
-    }
+    // Verify the rule set is not active (only allow editing drafts) - REMOVED: Allow editing active rules per issue #2
+    // const practice = await ctx.db.get(ruleSet.practiceId);
+    // if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
+    //   throw new Error(
+    //     "Cannot edit rules in active rule set. Create a draft first.",
+    //   );
+    // }
 
     // Filter out undefined values to avoid patch issues
     const filteredUpdates: Record<string, unknown> = {};
@@ -149,13 +157,13 @@ export const createRule = mutation({
       throw new Error("Rule set not found");
     }
 
-    // Verify the rule set is not active (only allow editing drafts)
-    const practice = await ctx.db.get(ruleSet.practiceId);
-    if (practice?.currentActiveRuleSetId === args.ruleSetId) {
-      throw new Error(
-        "Cannot add rules to active rule set. Create a draft first.",
-      );
-    }
+    // Verify the rule set is not active (only allow editing drafts) - REMOVED: Allow adding rules to active sets per issue #2
+    // const practice = await ctx.db.get(ruleSet.practiceId);
+    // if (practice?.currentActiveRuleSetId === args.ruleSetId) {
+    //   throw new Error(
+    //     "Cannot add rules to active rule set. Create a draft first.",
+    //   );
+    // }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { ruleSetId, ...ruleData } = args;
@@ -184,12 +192,13 @@ export const deleteRule = mutation({
       throw new Error("Rule set not found");
     }
 
-    const practice = await ctx.db.get(ruleSet.practiceId);
-    if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
-      throw new Error(
-        "Cannot delete rules from active rule set. Create a draft first.",
-      );
-    }
+    // Verify the rule set is not active (only allow editing drafts) - REMOVED: Allow deleting rules from active sets per issue #2
+    // const practice = await ctx.db.get(ruleSet.practiceId);
+    // if (practice?.currentActiveRuleSetId === rule.ruleSetId) {
+    //   throw new Error(
+    //     "Cannot delete rules from active rule set. Create a draft first.",
+    //   );
+    // }
 
     await ctx.db.delete(args.ruleId);
     return { success: true };
@@ -232,6 +241,7 @@ export const getRules = query({
 export const createInitialRuleSet = mutation({
   args: {
     description: v.string(),
+    name: v.string(), // Add name parameter
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
@@ -252,6 +262,7 @@ export const createInitialRuleSet = mutation({
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      name: args.name,
       practiceId: args.practiceId,
       version: 1,
     });

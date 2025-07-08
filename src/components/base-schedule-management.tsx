@@ -293,10 +293,12 @@ function BaseScheduleDialog({
     onSubmit: async ({ value }) => {
       try {
         if (schedule) {
-          // Update existing schedule
+          // Update existing schedule - now supports all fields
           const updateData: {
             breakTimes?: { end: string; start: string }[];
+            dayOfWeek?: number;
             endTime: string;
+            practitionerId?: Id<"practitioners">;
             scheduleId: Id<"baseSchedules">;
             slotDuration: number;
             startTime: string;
@@ -309,6 +311,16 @@ function BaseScheduleDialog({
 
           if (value.breakTimes.length > 0) {
             updateData.breakTimes = value.breakTimes;
+          }
+
+          // Allow updating practitioner and day of week in edit mode
+          if (value.practitionerId !== schedule.practitionerId) {
+            updateData.practitionerId =
+              value.practitionerId as Id<"practitioners">;
+          }
+
+          if (value.dayOfWeek !== schedule.dayOfWeek) {
+            updateData.dayOfWeek = value.dayOfWeek;
           }
 
           await updateScheduleMutation(updateData);
@@ -382,74 +394,70 @@ function BaseScheduleDialog({
             void form.handleSubmit();
           }}
         >
-          {!schedule && (
-            <form.Field
-              name="practitionerId"
-              validators={{
-                onChange: ({ value }) =>
-                  value ? undefined : "Bitte wählen Sie einen Arzt aus",
-              }}
-            >
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="practitioner">Arzt</Label>
-                  <Select
-                    onValueChange={field.handleChange}
-                    value={field.state.value}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Arzt auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {practitionersQuery?.map((practitioner) => (
-                        <SelectItem
-                          key={practitioner._id}
-                          value={practitioner._id}
-                        >
-                          {practitioner.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">
-                      {field.state.meta.errors[0]}
-                    </p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-          )}
+          <form.Field
+            name="practitionerId"
+            validators={{
+              onChange: ({ value }) =>
+                value ? undefined : "Bitte wählen Sie einen Arzt aus",
+            }}
+          >
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="practitioner">Arzt</Label>
+                <Select
+                  onValueChange={field.handleChange}
+                  value={field.state.value}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Arzt auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {practitionersQuery?.map((practitioner) => (
+                      <SelectItem
+                        key={practitioner._id}
+                        value={practitioner._id}
+                      >
+                        {practitioner.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-500">
+                    {field.state.meta.errors[0]}
+                  </p>
+                )}
+              </div>
+            )}
+          </form.Field>
 
-          {!schedule && (
-            <form.Field name="dayOfWeek">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="dayOfWeek">Wochentag</Label>
-                  <Select
-                    onValueChange={(value) => {
-                      field.handleChange(Number.parseInt(value));
-                    }}
-                    value={field.state.value.toString()}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Wochentag auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DAYS_OF_WEEK.map((day) => (
-                        <SelectItem
-                          key={day.value}
-                          value={day.value.toString()}
-                        >
-                          {day.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+          <form.Field name="dayOfWeek">
+            {(field) => (
+              <div className="space-y-2">
+                <Label>Wochentag</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {DAYS_OF_WEEK.map((day) => (
+                    <label
+                      className="flex items-center space-x-2"
+                      key={day.value}
+                    >
+                      <input
+                        checked={field.state.value === day.value}
+                        name="dayOfWeek"
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            field.handleChange(day.value);
+                          }
+                        }}
+                        type="radio"
+                      />
+                      <span className="text-sm">{day.label}</span>
+                    </label>
+                  ))}
                 </div>
-              )}
-            </form.Field>
-          )}
+              </div>
+            )}
+          </form.Field>
 
           <div className="grid grid-cols-2 gap-4">
             <form.Field

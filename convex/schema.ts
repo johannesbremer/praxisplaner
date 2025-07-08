@@ -56,8 +56,9 @@ export default defineSchema({
     createdAt: v.number(),
     createdBy: v.string(),
     description: v.string(),
+    name: v.string(), // Named rule sets like git branches
     practiceId: v.id("practices"),
-    version: v.number(),
+    version: v.number(), // Keep version for backward compatibility but will phase out
   }).index("by_practiceId", ["practiceId"]),
 
   // Flat, immutable rules table
