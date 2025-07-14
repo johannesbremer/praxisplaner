@@ -166,10 +166,21 @@ export default function LogicView() {
     }
   }, [initializePracticeMutation, captureError]);
 
-  // Simulation helper functions (from sim.tsx)
+  // Simulation helper functions (from sim.tsx)  
+  // Create date range representing a full calendar day without timezone issues
+  // We want the selected date in the user's timezone, regardless of server timezone
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const date = selectedDate.getDate();
+  
+  // Create start of day and end of day in UTC, but representing the local calendar day
+  // This avoids timezone conversion issues by working with the calendar date directly
+  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
+  
   const dateRange = {
-    end: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    start: selectedDate.toISOString(),
+    end: endOfDay.toISOString(),
+    start: startOfDay.toISOString(),
   };
 
   const resetSimulation = () => {

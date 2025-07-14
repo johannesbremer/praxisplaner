@@ -106,6 +106,7 @@ export const getAvailableSlots = query({
             slotTime = new Date(slotTime.getTime() + schedule.slotDuration * 60 * 1000)
           ) {
             // Skip break times
+            // Extract local time components for comparison with stored break times
             const timeString = `${slotTime.getHours().toString().padStart(2, "0")}:${slotTime.getMinutes().toString().padStart(2, "0")}`;
             const isBreakTime =
               schedule.breakTimes?.some(
