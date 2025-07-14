@@ -58,6 +58,7 @@ export const createDraftFromActive = mutation({
 
 export const activateRuleSet = mutation({
   args: {
+    name: v.string(),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
   },
@@ -67,6 +68,11 @@ export const activateRuleSet = mutation({
     if (!ruleSet || ruleSet.practiceId !== args.practiceId) {
       throw new Error("Rule set not found or doesn't belong to this practice");
     }
+
+    // Update the rule set description with the new name
+    await ctx.db.patch(args.ruleSetId, {
+      description: args.name,
+    });
 
     // Update the practice's active rule set
     await ctx.db.patch(args.practiceId, {

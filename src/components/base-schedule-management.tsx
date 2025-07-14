@@ -282,7 +282,7 @@ function BaseScheduleDialog({
   const form = useForm({
     defaultValues: {
       breakTimes: schedule?.breakTimes ?? [],
-      dayOfWeek: schedule?.dayOfWeek ?? 1,
+      daysOfWeek: schedule ? [schedule.dayOfWeek] : [],
       endTime: schedule?.endTime ?? "17:00",
       practitionerId: schedule?.practitionerId ?? "",
       slotDuration: schedule?.slotDuration ?? 30,
@@ -312,32 +312,39 @@ function BaseScheduleDialog({
           await updateScheduleMutation(updateData);
           toast.success("Arbeitszeit erfolgreich aktualisiert");
         } else {
-          // Create new schedule
+          // Create new schedule(s) - one for each selected day
           if (!value.practitionerId) {
             throw new Error("Bitte wählen Sie einen Arzt aus");
           }
 
-          const createData: {
-            breakTimes?: { end: string; start: string }[];
-            dayOfWeek: number;
-            endTime: string;
-            practitionerId: Id<"practitioners">;
-            slotDuration: number;
-            startTime: string;
-          } = {
-            dayOfWeek: value.dayOfWeek,
-            endTime: value.endTime,
-            practitionerId: value.practitionerId as Id<"practitioners">,
-            slotDuration: value.slotDuration,
-            startTime: value.startTime,
-          };
-
-          if (value.breakTimes.length > 0) {
-            createData.breakTimes = value.breakTimes;
+          if (value.daysOfWeek.length === 0) {
+            throw new Error("Bitte wählen Sie mindestens einen Wochentag aus");
           }
 
-          await createScheduleMutation(createData);
-          toast.success("Arbeitszeit erfolgreich erstellt");
+          for (const dayOfWeek of value.daysOfWeek) {
+            const createData: {
+              breakTimes?: { end: string; start: string }[];
+              dayOfWeek: number;
+              endTime: string;
+              practitionerId: Id<"practitioners">;
+              slotDuration: number;
+              startTime: string;
+            } = {
+              dayOfWeek,
+              endTime: value.endTime,
+              practitionerId: value.practitionerId as Id<"practitioners">,
+              slotDuration: value.slotDuration,
+              startTime: value.startTime,
+            };
+
+            if (value.breakTimes.length > 0) {
+              createData.breakTimes = value.breakTimes;
+            }
+
+            await createScheduleMutation(createData);
+          }
+          
+          toast.success(`Arbeitszeit${value.daysOfWeek.length > 1 ? 'en' : ''} erfolgreich erstellt`);
         }
         onClose();
       } catch (error: unknown) {
@@ -423,34 +430,52 @@ function BaseScheduleDialog({
             )}
           </form.Field>
 
-          <form.Field name="dayOfWeek">
+          <form.Field
+            name="daysOfWeek"
+            validators={{
+              onChange: ({ value }) =>
+                value.length > 0 ? undefined : "Bitte wählen Sie mindestens einen Wochentag aus",
+            }}
+          >
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="dayOfWeek">Wochentag</Label>
-                <Select
-                  disabled={!!schedule}
-                  onValueChange={(value) => {
-                    field.handleChange(Number.parseInt(value));
-                  }}
-                  value={field.state.value.toString()}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Wochentag auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
+                <Label>Wochentage</Label>
+                {schedule ? (
+                  <div className="p-2 border rounded-lg bg-muted">
+                    <Badge variant="outline">{getDayName(schedule.dayOfWeek)}</Badge>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Wochentag kann bei der Bearbeitung nicht geändert werden
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
                     {DAYS_OF_WEEK.map((day) => (
-                      <SelectItem
+                      <label
+                        className="flex items-center space-x-2"
                         key={day.value}
-                        value={day.value.toString()}
                       >
-                        {day.label}
-                      </SelectItem>
+                        <input
+                          checked={field.state.value.includes(day.value)}
+                          onChange={(e) => {
+                            const currentDays = field.state.value;
+                            if (e.target.checked) {
+                              field.handleChange([...currentDays, day.value]);
+                            } else {
+                              field.handleChange(
+                                currentDays.filter((d: number) => d !== day.value),
+                              );
+                            }
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="text-sm">{day.label}</span>
+                      </label>
                     ))}
-                  </SelectContent>
-                </Select>
-                {schedule && (
-                  <p className="text-xs text-muted-foreground">
-                    Wochentag kann bei der Bearbeitung nicht geändert werden
+                  </div>
+                )}
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-500">
+                    {field.state.meta.errors[0]}
                   </p>
                 )}
               </div>

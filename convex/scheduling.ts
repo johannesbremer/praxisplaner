@@ -103,7 +103,7 @@ export const getAvailableSlots = query({
           for (
             let slotTime = new Date(dayStart);
             slotTime < dayEnd;
-            slotTime.setMinutes(slotTime.getMinutes() + schedule.slotDuration)
+            slotTime = new Date(slotTime.getTime() + schedule.slotDuration * 60 * 1000)
           ) {
             // Skip break times
             const timeString = `${slotTime.getHours().toString().padStart(2, "0")}:${slotTime.getMinutes().toString().padStart(2, "0")}`;

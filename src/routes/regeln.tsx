@@ -19,6 +19,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -120,6 +129,8 @@ export default function LogicView() {
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [isCreatingInitial, setIsCreatingInitial] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
+  const [isActivationDialogOpen, setIsActivationDialogOpen] = useState(false);
+  const [activationName, setActivationName] = useState("");
 
   // Simulation state (from sim.tsx)
   const [simulatedContext, setSimulatedContext] = useState({
@@ -274,9 +285,10 @@ export default function LogicView() {
     }
   };
 
-  const handleActivateRuleSet = async (ruleSetId: Id<"ruleSets">) => {
+  const handleActivateRuleSet = async (ruleSetId: Id<"ruleSets">, name: string) => {
     try {
       await activateRuleSetMutation({
+        name: name.trim(),
         practiceId: currentPractice._id,
         ruleSetId,
       });
@@ -284,6 +296,9 @@ export default function LogicView() {
       toast.success("Regelset aktiviert", {
         description: "Das Regelset wurde erfolgreich aktiviert.",
       });
+      
+      setIsActivationDialogOpen(false);
+      setActivationName("");
     } catch (error: unknown) {
       captureError(error, {
         context: "ruleset_activation",
@@ -295,6 +310,13 @@ export default function LogicView() {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
+    }
+  };
+
+  const handleOpenActivationDialog = () => {
+    if (selectedRuleSet) {
+      setActivationName(`${selectedRuleSet.description} - Aktiviert`);
+      setIsActivationDialogOpen(true);
     }
   };
 
@@ -436,11 +458,7 @@ export default function LogicView() {
 
                     {selectedRuleSet && !selectedRuleSet.isActive && (
                       <Button
-                        onClick={() => {
-                          if (selectedRuleSetId) {
-                            void handleActivateRuleSet(selectedRuleSetId);
-                          }
-                        }}
+                        onClick={handleOpenActivationDialog}
                         variant="default"
                       >
                         <Save className="h-4 w-4 mr-2" />
@@ -913,6 +931,51 @@ export default function LogicView() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Activation Dialog */}
+      <Dialog onOpenChange={setIsActivationDialogOpen} open={isActivationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regelset aktivieren</DialogTitle>
+            <DialogDescription>
+              Geben Sie einen eindeutigen Namen für dieses Regelset ein, um es zu aktivieren.
+              Das aktuelle aktive Regelset wird dadurch ersetzt.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="activation-name">Name für das Regelset</Label>
+              <Input
+                id="activation-name"
+                onChange={(e) => { setActivationName(e.target.value); }}
+                placeholder="z.B. Wintersprechzeiten 2024"
+                value={activationName}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setIsActivationDialogOpen(false);
+                setActivationName("");
+              }}
+              variant="outline"
+            >
+              Abbrechen
+            </Button>
+            <Button
+              disabled={!activationName.trim()}
+              onClick={() => {
+                if (selectedRuleSetId && activationName.trim()) {
+                  void handleActivateRuleSet(selectedRuleSetId, activationName);
+                }
+              }}
+            >
+              Aktivieren
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
