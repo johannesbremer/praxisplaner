@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { Edit, GitBranch, RefreshCw, Save, Trash2 } from "lucide-react";
+import { GitBranch, RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ import BaseScheduleManagement from "../components/base-schedule-management";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationForm from "../components/rule-creation-form";
+import RuleEditForm from "../components/rule-edit-form";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -199,6 +200,7 @@ export default function LogicView() {
   const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
   const createInitialMutation = useMutation(api.rulesets.createInitialRuleSet);
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
+  const deleteRuleMutation = useMutation(api.rulesets.deleteRule);
 
   const selectedRuleSet = ruleSetsQuery?.find(
     (rs) => rs._id === selectedRuleSetId,
@@ -290,6 +292,26 @@ export default function LogicView() {
       });
 
       toast.error("Fehler beim Aktivieren", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: Id<"rules">) => {
+    try {
+      await deleteRuleMutation({ ruleId });
+      toast.success("Regel gelöscht", {
+        description: "Die Regel wurde erfolgreich gelöscht.",
+      });
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "rule_deletion",
+        practiceId: currentPractice._id,
+        ruleId,
+      });
+
+      toast.error("Fehler beim Löschen der Regel", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
@@ -497,21 +519,14 @@ export default function LogicView() {
                                 </div>
                                 {!selectedRuleSet.isActive && (
                                   <div className="flex gap-2 ml-4">
-                                    <Button
-                                      onClick={() => {
-                                        // TODO: Implement edit functionality
-                                        toast.info("Bearbeitung wird implementiert");
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
+                                    <RuleEditForm
+                                      practiceId={currentPractice._id}
+                                      rule={rule}
+                                    />
                                     <Button
                                       onClick={() => {
                                         if (confirm("Sind Sie sicher, dass Sie diese Regel löschen möchten?")) {
-                                          // TODO: Implement delete functionality
-                                          toast.info("Löschen wird implementiert");
+                                          void handleDeleteRule(rule._id);
                                         }
                                       }}
                                       size="sm"
