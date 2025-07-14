@@ -42,8 +42,6 @@ const DAYS_OF_WEEK = [
   { label: "Mittwoch", value: 3 },
   { label: "Donnerstag", value: 4 },
   { label: "Freitag", value: 5 },
-  { label: "Samstag", value: 6 },
-  { label: "Sonntag", value: 0 },
 ];
 
 const SLOT_DURATIONS = [
@@ -382,74 +380,82 @@ function BaseScheduleDialog({
             void form.handleSubmit();
           }}
         >
-          {!schedule && (
-            <form.Field
-              name="practitionerId"
-              validators={{
-                onChange: ({ value }) =>
-                  value ? undefined : "Bitte wählen Sie einen Arzt aus",
-              }}
-            >
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="practitioner">Arzt</Label>
-                  <Select
-                    onValueChange={field.handleChange}
-                    value={field.state.value}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Arzt auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {practitionersQuery?.map((practitioner) => (
-                        <SelectItem
-                          key={practitioner._id}
-                          value={practitioner._id}
-                        >
-                          {practitioner.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">
-                      {field.state.meta.errors[0]}
-                    </p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-          )}
+          <form.Field
+            name="practitionerId"
+            validators={{
+              onChange: ({ value }) =>
+                value ? undefined : "Bitte wählen Sie einen Arzt aus",
+            }}
+          >
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="practitioner">Arzt</Label>
+                <Select
+                  disabled={!!schedule}
+                  onValueChange={field.handleChange}
+                  value={field.state.value}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Arzt auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {practitionersQuery?.map((practitioner) => (
+                      <SelectItem
+                        key={practitioner._id}
+                        value={practitioner._id}
+                      >
+                        {practitioner.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-500">
+                    {field.state.meta.errors[0]}
+                  </p>
+                )}
+                {schedule && (
+                  <p className="text-xs text-muted-foreground">
+                    Arzt kann bei der Bearbeitung nicht geändert werden
+                  </p>
+                )}
+              </div>
+            )}
+          </form.Field>
 
-          {!schedule && (
-            <form.Field name="dayOfWeek">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="dayOfWeek">Wochentag</Label>
-                  <Select
-                    onValueChange={(value) => {
-                      field.handleChange(Number.parseInt(value));
-                    }}
-                    value={field.state.value.toString()}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Wochentag auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DAYS_OF_WEEK.map((day) => (
-                        <SelectItem
-                          key={day.value}
-                          value={day.value.toString()}
-                        >
-                          {day.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </form.Field>
-          )}
+          <form.Field name="dayOfWeek">
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="dayOfWeek">Wochentag</Label>
+                <Select
+                  disabled={!!schedule}
+                  onValueChange={(value) => {
+                    field.handleChange(Number.parseInt(value));
+                  }}
+                  value={field.state.value.toString()}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Wochentag auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <SelectItem
+                        key={day.value}
+                        value={day.value.toString()}
+                      >
+                        {day.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {schedule && (
+                  <p className="text-xs text-muted-foreground">
+                    Wochentag kann bei der Bearbeitung nicht geändert werden
+                  </p>
+                )}
+              </div>
+            )}
+          </form.Field>
 
           <div className="grid grid-cols-2 gap-4">
             <form.Field

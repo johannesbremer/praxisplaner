@@ -155,13 +155,11 @@ export default function RuleCreationForm({
   });
 
   const dayOfWeekOptions = [
-    { label: "Sonntag", value: 0 },
     { label: "Montag", value: 1 },
     { label: "Dienstag", value: 2 },
     { label: "Mittwoch", value: 3 },
     { label: "Donnerstag", value: 4 },
     { label: "Freitag", value: 5 },
-    { label: "Samstag", value: 6 },
   ];
 
   return (
@@ -509,7 +507,7 @@ export default function RuleCreationForm({
                       {(daysField) => (
                         <div className="space-y-2">
                           <Label>Wochentage</Label>
-                          <div className="grid grid-cols-4 gap-2">
+                          <div className="grid grid-cols-2 gap-2">
                             {dayOfWeekOptions.map((day) => (
                               <label
                                 className="flex items-center space-x-2"

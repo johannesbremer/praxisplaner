@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { GitBranch, RefreshCw, Save } from "lucide-react";
+import { Edit, GitBranch, RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -495,6 +495,32 @@ export default function LogicView() {
                                     Priorität: {rule.priority}
                                   </div>
                                 </div>
+                                {!selectedRuleSet.isActive && (
+                                  <div className="flex gap-2 ml-4">
+                                    <Button
+                                      onClick={() => {
+                                        // TODO: Implement edit functionality
+                                        toast.info("Bearbeitung wird implementiert");
+                                      }}
+                                      size="sm"
+                                      variant="ghost"
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      onClick={() => {
+                                        if (confirm("Sind Sie sicher, dass Sie diese Regel löschen möchten?")) {
+                                          // TODO: Implement delete functionality
+                                          toast.info("Löschen wird implementiert");
+                                        }
+                                      }}
+                                      size="sm"
+                                      variant="ghost"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))}
