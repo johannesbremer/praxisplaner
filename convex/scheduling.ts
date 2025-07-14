@@ -70,11 +70,11 @@ export const getAvailableSlots = query({
 
       // Generate slots for each day in the date range
       for (
-        let date = new Date(startDate);
-        date <= endDate;
-        date.setDate(date.getDate() + 1)
+        let currentDate = new Date(startDate);
+        currentDate <= endDate;
+        currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000)
       ) {
-        const dayOfWeek = date.getDay();
+        const dayOfWeek = currentDate.getDay();
         const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
 
         if (schedule) {
@@ -93,10 +93,10 @@ export const getAvailableSlots = query({
             continue; // Skip invalid time format
           }
 
-          const dayStart = new Date(date);
+          const dayStart = new Date(currentDate);
           dayStart.setHours(startHour, startMinute, 0, 0);
 
-          const dayEnd = new Date(date);
+          const dayEnd = new Date(currentDate);
           dayEnd.setHours(endHour, endMinute, 0, 0);
 
           // Generate slots every slotDuration minutes
