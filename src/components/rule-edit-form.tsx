@@ -66,11 +66,12 @@ interface FlatRule {
 }
 
 interface RuleEditFormProps {
+  onRuleEdited?: () => Promise<void> | void;
   practiceId: Id<"practices">;
   rule: FlatRule;
 }
 
-export default function RuleEditForm({ practiceId, rule }: RuleEditFormProps) {
+export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEditFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { captureError } = useErrorTracking();
 
@@ -179,6 +180,9 @@ export default function RuleEditForm({ practiceId, rule }: RuleEditFormProps) {
         });
 
         setIsOpen(false);
+        if (onRuleEdited) {
+          await onRuleEdited();
+        }
       } catch (error: unknown) {
         captureError(error, {
           context: "rule_update",
