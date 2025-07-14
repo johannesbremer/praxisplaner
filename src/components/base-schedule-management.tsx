@@ -278,6 +278,9 @@ function BaseScheduleDialog({
   const updateScheduleMutation = useMutation(
     api.baseSchedules.updateBaseSchedule,
   );
+  const deleteScheduleMutation = useMutation(
+    api.baseSchedules.deleteBaseSchedule,
+  );
 
   const form = useForm({
     defaultValues: {
@@ -294,16 +297,18 @@ function BaseScheduleDialog({
           // Check if weekday was changed
           const selectedDays = value.daysOfWeek;
           const originalDay = schedule.dayOfWeek;
-          
+
           if (selectedDays.length !== 1) {
-            throw new Error("Beim Bearbeiten kann nur ein Wochentag ausgewählt werden");
+            throw new Error(
+              "Beim Bearbeiten kann nur ein Wochentag ausgewählt werden",
+            );
           }
-          
+
           const newDay = selectedDays[0];
           if (newDay === undefined) {
             throw new Error("Kein Wochentag ausgewählt");
           }
-          
+
           if (newDay === originalDay) {
             // Same weekday - just update the existing schedule
             const updateData: {
@@ -327,9 +332,9 @@ function BaseScheduleDialog({
             toast.success("Arbeitszeit erfolgreich aktualisiert");
           } else {
             // Weekday changed - delete old schedule and create new one
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+             
             await deleteScheduleMutation({ scheduleId: schedule._id });
-            
+
             const createData: {
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
@@ -350,7 +355,9 @@ function BaseScheduleDialog({
             }
 
             await createScheduleMutation(createData);
-            toast.success("Arbeitszeit erfolgreich aktualisiert (Wochentag geändert)");
+            toast.success(
+              "Arbeitszeit erfolgreich aktualisiert (Wochentag geändert)",
+            );
           }
         } else {
           // Create new schedule(s) - one for each selected day
@@ -384,8 +391,10 @@ function BaseScheduleDialog({
 
             await createScheduleMutation(createData);
           }
-          
-          toast.success(`Arbeitszeit${value.daysOfWeek.length > 1 ? 'en' : ''} erfolgreich erstellt`);
+
+          toast.success(
+            `Arbeitszeit${value.daysOfWeek.length > 1 ? "en" : ""} erfolgreich erstellt`,
+          );
         }
         onClose();
       } catch (error: unknown) {
@@ -477,10 +486,14 @@ function BaseScheduleDialog({
               onChange: ({ value }) => {
                 if (schedule) {
                   // When editing, exactly one day must be selected
-                  return value.length === 1 ? undefined : "Beim Bearbeiten muss genau ein Wochentag ausgewählt werden";
+                  return value.length === 1
+                    ? undefined
+                    : "Beim Bearbeiten muss genau ein Wochentag ausgewählt werden";
                 } else {
                   // When creating, at least one day must be selected
-                  return value.length > 0 ? undefined : "Bitte wählen Sie mindestens einen Wochentag aus";
+                  return value.length > 0
+                    ? undefined
+                    : "Bitte wählen Sie mindestens einen Wochentag aus";
                 }
               },
             }}
@@ -502,7 +515,9 @@ function BaseScheduleDialog({
                             field.handleChange([...currentDays, day.value]);
                           } else {
                             field.handleChange(
-                              currentDays.filter((d: number) => d !== day.value),
+                              currentDays.filter(
+                                (d: number) => d !== day.value,
+                              ),
                             );
                           }
                         }}

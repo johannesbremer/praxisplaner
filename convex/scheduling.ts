@@ -103,7 +103,9 @@ export const getAvailableSlots = query({
           for (
             let slotTime = new Date(dayStart);
             slotTime < dayEnd;
-            slotTime = new Date(slotTime.getTime() + schedule.slotDuration * 60 * 1000)
+            slotTime = new Date(
+              slotTime.getTime() + schedule.slotDuration * 60 * 1000,
+            )
           ) {
             // Skip break times
             // Extract local time components for comparison with stored break times

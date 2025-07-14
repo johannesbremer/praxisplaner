@@ -71,7 +71,11 @@ interface RuleEditFormProps {
   rule: FlatRule;
 }
 
-export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEditFormProps) {
+export default function RuleEditForm({
+  onRuleEdited,
+  practiceId,
+  rule,
+}: RuleEditFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { captureError } = useErrorTracking();
 
@@ -87,7 +91,8 @@ export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEdi
       block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
       block_dateRangeStart: rule.block_dateRangeStart ?? "",
       block_daysOfWeek: rule.block_daysOfWeek ?? [],
-      block_exceptForPractitionerTags: rule.block_exceptForPractitionerTags ?? [],
+      block_exceptForPractitionerTags:
+        rule.block_exceptForPractitionerTags ?? [],
       block_timeRangeEnd: rule.block_timeRangeEnd ?? "",
       block_timeRangeStart: rule.block_timeRangeStart ?? "",
       description: rule.description,
@@ -105,44 +110,52 @@ export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEdi
 
         // Compare each field and only include if changed
         if (value.description !== rule.description) {
-          updates['description'] = value.description;
+          updates["description"] = value.description;
         }
         if (value.priority !== rule.priority) {
-          updates['priority'] = value.priority;
+          updates["priority"] = value.priority;
         }
         if (value.ruleType !== rule.ruleType) {
-          updates['ruleType'] = value.ruleType;
+          updates["ruleType"] = value.ruleType;
         }
         if (value.appliesTo !== (rule.appliesTo ?? "ALL_PRACTITIONERS")) {
-          updates['appliesTo'] = value.appliesTo;
+          updates["appliesTo"] = value.appliesTo;
         }
 
         // Handle specific practitioners
         const originalPractitioners = rule.specificPractitioners ?? [];
         const newPractitioners = value.specificPractitioners;
-        if (JSON.stringify(originalPractitioners) !== JSON.stringify(newPractitioners)) {
-          updates['specificPractitioners'] = newPractitioners.length > 0 ? newPractitioners : undefined;
+        if (
+          JSON.stringify(originalPractitioners) !==
+          JSON.stringify(newPractitioners)
+        ) {
+          updates["specificPractitioners"] =
+            newPractitioners.length > 0 ? newPractitioners : undefined;
         }
 
         // Handle block rule parameters
         if (value.ruleType === "BLOCK") {
           const blockFields = [
-            'block_appointmentTypes',
-            'block_dateRangeStart',
-            'block_dateRangeEnd',
-            'block_daysOfWeek',
-            'block_timeRangeStart',
-            'block_timeRangeEnd',
-            'block_exceptForPractitionerTags'
+            "block_appointmentTypes",
+            "block_dateRangeStart",
+            "block_dateRangeEnd",
+            "block_daysOfWeek",
+            "block_timeRangeStart",
+            "block_timeRangeEnd",
+            "block_exceptForPractitionerTags",
           ] as const;
 
           for (const field of blockFields) {
             const currentValue = value[field];
             const originalValue = rule[field];
-            
+
             if (Array.isArray(currentValue)) {
-              if (JSON.stringify(currentValue) !== JSON.stringify(originalValue ?? [])) {
-                updates[field] = currentValue.length > 0 ? currentValue : undefined;
+              if (
+                JSON.stringify(currentValue) !==
+                JSON.stringify(originalValue ?? [])
+              ) {
+                updates[field] =
+                  currentValue.length > 0 ? currentValue : undefined;
               }
             } else if (currentValue !== (originalValue ?? "")) {
               updates[field] = currentValue || undefined;
@@ -152,14 +165,23 @@ export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEdi
 
         // Handle limit rule parameters
         if (value.ruleType === "LIMIT_CONCURRENT") {
-          if (JSON.stringify(value.limit_appointmentTypes) !== JSON.stringify(rule.limit_appointmentTypes ?? [])) {
-            updates['limit_appointmentTypes'] = value.limit_appointmentTypes.length > 0 ? value.limit_appointmentTypes : undefined;
+          if (
+            JSON.stringify(value.limit_appointmentTypes) !==
+            JSON.stringify(rule.limit_appointmentTypes ?? [])
+          ) {
+            updates["limit_appointmentTypes"] =
+              value.limit_appointmentTypes.length > 0
+                ? value.limit_appointmentTypes
+                : undefined;
           }
           if (value.limit_count !== (rule.limit_count ?? 1)) {
-            updates['limit_count'] = value.limit_count;
+            updates["limit_count"] = value.limit_count;
           }
-          if (value.limit_perPractitioner !== (rule.limit_perPractitioner ?? false)) {
-            updates['limit_perPractitioner'] = value.limit_perPractitioner;
+          if (
+            value.limit_perPractitioner !==
+            (rule.limit_perPractitioner ?? false)
+          ) {
+            updates["limit_perPractitioner"] = value.limit_perPractitioner;
           }
         }
 
@@ -687,7 +709,9 @@ export default function RuleEditForm({ onRuleEdited, practiceId, rule }: RuleEdi
               Abbrechen
             </Button>
             <Button disabled={form.state.isSubmitting} type="submit">
-              {form.state.isSubmitting ? "Speichere..." : "Änderungen speichern"}
+              {form.state.isSubmitting
+                ? "Speichere..."
+                : "Änderungen speichern"}
             </Button>
           </div>
         </form>

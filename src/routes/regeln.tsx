@@ -126,7 +126,7 @@ export default function LogicView() {
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
-  const [unsavedRuleSetId, setUnsavedRuleSetId] = 
+  const [unsavedRuleSetId, setUnsavedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
   const [isCreatingInitial, setIsCreatingInitial] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
@@ -166,18 +166,18 @@ export default function LogicView() {
     }
   }, [initializePracticeMutation, captureError]);
 
-  // Simulation helper functions (from sim.tsx)  
+  // Simulation helper functions (from sim.tsx)
   // Create date range representing a full calendar day without timezone issues
   // We want the selected date in the user's timezone, regardless of server timezone
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const date = selectedDate.getDate();
-  
+
   // Create start of day and end of day in UTC, but representing the local calendar day
   // This avoids timezone conversion issues by working with the calendar date directly
   const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
   const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
-  
+
   const dateRange = {
     end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
@@ -213,6 +213,16 @@ export default function LogicView() {
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
+  const selectedRuleSet = ruleSetsQuery?.find(
+    (rs) => rs._id === selectedRuleSetId,
+  );
+  const unsavedRuleSet = ruleSetsQuery?.find(
+    (rs) => rs._id === unsavedRuleSetId,
+  );
+
+  // Use unsaved rule set if available, otherwise selected rule set
+  const currentWorkingRuleSet = unsavedRuleSet ?? selectedRuleSet;
+
   // Fetch rules for the current working rule set
   const rulesQuery = useQuery(
     api.rulesets.getRules,
@@ -225,30 +235,25 @@ export default function LogicView() {
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
   const deleteRuleMutation = useMutation(api.rulesets.deleteRule);
 
-  const selectedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === selectedRuleSetId,
-  );
-  const unsavedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === unsavedRuleSetId,
-  );
-  
-  // Use unsaved rule set if available, otherwise selected rule set
-  const currentWorkingRuleSet = unsavedRuleSet ?? selectedRuleSet;
-
   // Function to create an unsaved copy when modifying a saved rule set
   const createUnsavedCopy = async (baseRuleSetId: Id<"ruleSets">) => {
+    if (!currentPractice) {
+      toast.error("Keine Praxis gefunden");
+      return;
+    }
+
     try {
       const newRuleSetId = await createDraftMutation({
         description: "Ungespeicherte Änderungen",
         practiceId: currentPractice._id,
       });
-      
+
       setUnsavedRuleSetId(newRuleSetId);
       return newRuleSetId;
     } catch (error: unknown) {
       captureError(error, {
         baseRuleSetId,
-        context: "unsaved_copy_creation", 
+        context: "unsaved_copy_creation",
         practiceId: currentPractice._id,
       });
 
@@ -294,7 +299,10 @@ export default function LogicView() {
     );
   }
 
-  const handleActivateRuleSet = async (ruleSetId: Id<"ruleSets">, name: string) => {
+  const handleActivateRuleSet = async (
+    ruleSetId: Id<"ruleSets">,
+    name: string,
+  ) => {
     try {
       await activateRuleSetMutation({
         name: name.trim(),
@@ -303,9 +311,10 @@ export default function LogicView() {
       });
 
       toast.success("Regelset aktiviert", {
-        description: "Das Regelset wurde erfolgreich gespeichert und aktiviert.",
+        description:
+          "Das Regelset wurde erfolgreich gespeichert und aktiviert.",
       });
-      
+
       setIsActivationDialogOpen(false);
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
@@ -326,7 +335,9 @@ export default function LogicView() {
 
   const handleOpenActivationDialog = () => {
     if (currentWorkingRuleSet) {
-      setActivationName(unsavedRuleSet ? "" : `${currentWorkingRuleSet.description} - Kopie`);
+      setActivationName(
+        unsavedRuleSet ? "" : `${currentWorkingRuleSet.description} - Kopie`,
+      );
       setIsActivationDialogOpen(true);
     }
   };
@@ -407,8 +418,8 @@ export default function LogicView() {
                     {ruleSetsQuery && ruleSetsQuery.length === 0
                       ? "Noch keine Regelsets vorhanden. Erstellen Sie das erste Regelset für Ihre Praxis."
                       : unsavedRuleSet
-                      ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
-                      : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
+                        ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
+                        : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -424,7 +435,9 @@ export default function LogicView() {
                           setUnsavedRuleSetId(null); // Clear unsaved changes
                         }
                       }}
-                      value={unsavedRuleSet ? "unsaved" : selectedRuleSetId || ""}
+                      value={
+                        unsavedRuleSet ? "unsaved" : selectedRuleSetId || ""
+                      }
                     >
                       <SelectTrigger id="rule-set-select">
                         <SelectValue placeholder="Regelset auswählen" />
@@ -440,18 +453,20 @@ export default function LogicView() {
                             </div>
                           </SelectItem>
                         )}
-                        {ruleSetsQuery?.filter(rs => rs.isActive || !unsavedRuleSet).map((ruleSet) => (
-                          <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                            <div className="flex items-center gap-2">
-                              <span>{ruleSet.description}</span>
-                              {ruleSet.isActive && (
-                                <Badge className="text-xs" variant="default">
-                                  AKTIV
-                                </Badge>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
+                        {ruleSetsQuery
+                          ?.filter((rs) => rs.isActive || !unsavedRuleSet)
+                          .map((ruleSet) => (
+                            <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                              <div className="flex items-center gap-2">
+                                <span>{ruleSet.description}</span>
+                                {ruleSet.isActive && (
+                                  <Badge className="text-xs" variant="default">
+                                    AKTIV
+                                  </Badge>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -477,7 +492,9 @@ export default function LogicView() {
                           variant="default"
                         >
                           <Save className="h-4 w-4 mr-2" />
-                          {unsavedRuleSet ? "Speichern & Aktivieren" : "Aktivieren"}
+                          {unsavedRuleSet
+                            ? "Speichern & Aktivieren"
+                            : "Aktivieren"}
                         </Button>
                       )
                     )}
@@ -505,13 +522,13 @@ export default function LogicView() {
                           )}
                         </CardTitle>
                         <CardDescription>
-                          {unsavedRuleSet 
+                          {unsavedRuleSet
                             ? "Ungespeicherte Änderungen - speichern Sie das Regelset um die Änderungen zu übernehmen"
                             : currentWorkingRuleSet.description}
                         </CardDescription>
                       </div>
-                      {currentWorkingRuleSet._id && (
-                        unsavedRuleSet ? (
+                      {currentWorkingRuleSet._id &&
+                        (unsavedRuleSet ? (
                           <RuleCreationForm
                             onRuleCreated={() => {
                               // Rules will auto-refresh via Convex reactivity
@@ -524,7 +541,9 @@ export default function LogicView() {
                             onClick={() => {
                               void (async () => {
                                 if (currentWorkingRuleSet.isActive) {
-                                  await createUnsavedCopy(currentWorkingRuleSet._id);
+                                  await createUnsavedCopy(
+                                    currentWorkingRuleSet._id,
+                                  );
                                 }
                                 // After creating unsaved copy, the form will be available
                               })();
@@ -535,8 +554,7 @@ export default function LogicView() {
                             <Plus className="h-4 w-4 mr-2" />
                             Neue Regel
                           </Button>
-                        )
-                      )}
+                        ))}
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -585,7 +603,11 @@ export default function LogicView() {
                                       />
                                       <Button
                                         onClick={() => {
-                                          if (confirm("Sind Sie sicher, dass Sie diese Regel löschen möchten?")) {
+                                          if (
+                                            confirm(
+                                              "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
+                                            )
+                                          ) {
                                             void handleDeleteRule(rule._id);
                                           }
                                         }}
@@ -600,8 +622,12 @@ export default function LogicView() {
                                       <Button
                                         onClick={() => {
                                           void (async () => {
-                                            if (currentWorkingRuleSet.isActive) {
-                                              await createUnsavedCopy(currentWorkingRuleSet._id);
+                                            if (
+                                              currentWorkingRuleSet.isActive
+                                            ) {
+                                              await createUnsavedCopy(
+                                                currentWorkingRuleSet._id,
+                                              );
                                             }
                                             // The edit form will be available after unsaved copy is created
                                           })();
@@ -613,10 +639,18 @@ export default function LogicView() {
                                       </Button>
                                       <Button
                                         onClick={() => {
-                                          if (confirm("Sind Sie sicher, dass Sie diese Regel löschen möchten?")) {
+                                          if (
+                                            confirm(
+                                              "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
+                                            )
+                                          ) {
                                             void (async () => {
-                                              if (currentWorkingRuleSet.isActive) {
-                                                await createUnsavedCopy(currentWorkingRuleSet._id);
+                                              if (
+                                                currentWorkingRuleSet.isActive
+                                              ) {
+                                                await createUnsavedCopy(
+                                                  currentWorkingRuleSet._id,
+                                                );
                                               }
                                               void handleDeleteRule(rule._id);
                                             })();
@@ -691,7 +725,9 @@ export default function LogicView() {
                                   Ungespeicherte Änderungen
                                 </div>
                                 <div className="text-sm text-muted-foreground">
-                                  Basiert auf: {selectedRuleSet?.description || "Aktivem Regelset"}
+                                  Basiert auf:{" "}
+                                  {selectedRuleSet?.description ||
+                                    "Aktivem Regelset"}
                                 </div>
                               </div>
                               <Badge className="text-xs" variant="secondary">
@@ -701,12 +737,13 @@ export default function LogicView() {
                           </div>
                         )}
                         {ruleSetsQuery
-                          .filter(rs => rs.isActive || !unsavedRuleSet) // Hide inactive sets when working on unsaved
+                          .filter((rs) => rs.isActive || !unsavedRuleSet) // Hide inactive sets when working on unsaved
                           .sort((a, b) => b.version - a.version)
                           .map((ruleSet) => (
                             <div
                               className={`p-3 border rounded cursor-pointer transition-colors ${
-                                selectedRuleSetId === ruleSet._id && !unsavedRuleSet
+                                selectedRuleSetId === ruleSet._id &&
+                                !unsavedRuleSet
                                   ? "border-blue-500 bg-blue-50"
                                   : "hover:bg-accent"
                               }`}
@@ -722,7 +759,10 @@ export default function LogicView() {
                                     {ruleSet.description}
                                   </div>
                                   <div className="text-sm text-muted-foreground">
-                                    Erstellt: {new Date(ruleSet.createdAt).toLocaleDateString("de-DE")}
+                                    Erstellt:{" "}
+                                    {new Date(
+                                      ruleSet.createdAt,
+                                    ).toLocaleDateString("de-DE")}
                                   </div>
                                 </div>
                                 {ruleSet.isActive && (
@@ -759,14 +799,18 @@ export default function LogicView() {
                       <span className="text-muted-foreground">Status:</span>
                       <Badge
                         variant={
-                          unsavedRuleSet 
+                          unsavedRuleSet
                             ? "secondary"
-                            : currentWorkingRuleSet.isActive 
-                            ? "default" 
-                            : "secondary"
+                            : currentWorkingRuleSet.isActive
+                              ? "default"
+                              : "secondary"
                         }
                       >
-                        {unsavedRuleSet ? "Ungespeichert" : currentWorkingRuleSet.isActive ? "Aktiv" : "Gespeichert"}
+                        {unsavedRuleSet
+                          ? "Ungespeichert"
+                          : currentWorkingRuleSet.isActive
+                            ? "Aktiv"
+                            : "Gespeichert"}
                       </Badge>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -778,9 +822,9 @@ export default function LogicView() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Erstellt:</span>
                       <span className="font-medium">
-                        {new Date(currentWorkingRuleSet.createdAt).toLocaleDateString(
-                          "de-DE",
-                        )}
+                        {new Date(
+                          currentWorkingRuleSet.createdAt,
+                        ).toLocaleDateString("de-DE")}
                       </span>
                     </div>
                   </CardContent>
@@ -1034,13 +1078,16 @@ export default function LogicView() {
       </Tabs>
 
       {/* Activation Dialog */}
-      <Dialog onOpenChange={setIsActivationDialogOpen} open={isActivationDialogOpen}>
+      <Dialog
+        onOpenChange={setIsActivationDialogOpen}
+        open={isActivationDialogOpen}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Regelset aktivieren</DialogTitle>
             <DialogDescription>
-              Geben Sie einen eindeutigen Namen für dieses Regelset ein, um es zu aktivieren.
-              Das aktuelle aktive Regelset wird dadurch ersetzt.
+              Geben Sie einen eindeutigen Namen für dieses Regelset ein, um es
+              zu aktivieren. Das aktuelle aktive Regelset wird dadurch ersetzt.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1048,7 +1095,9 @@ export default function LogicView() {
               <Label htmlFor="activation-name">Name für das Regelset</Label>
               <Input
                 id="activation-name"
-                onChange={(e) => { setActivationName(e.target.value); }}
+                onChange={(e) => {
+                  setActivationName(e.target.value);
+                }}
                 placeholder="z.B. Wintersprechzeiten 2024"
                 value={activationName}
               />
@@ -1068,7 +1117,10 @@ export default function LogicView() {
               disabled={!activationName.trim()}
               onClick={() => {
                 if (currentWorkingRuleSet && activationName.trim()) {
-                  void handleActivateRuleSet(currentWorkingRuleSet._id, activationName);
+                  void handleActivateRuleSet(
+                    currentWorkingRuleSet._id,
+                    activationName,
+                  );
                 }
               }}
             >

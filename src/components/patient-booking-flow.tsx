@@ -148,7 +148,9 @@ export function PatientBookingFlow({
                         )
                         .map((slot) => {
                           const slotTime = new Date(slot.startTime);
-                          const timeString = format(slotTime, "HH:mm", { locale: de });
+                          const timeString = format(slotTime, "HH:mm", {
+                            locale: de,
+                          });
 
                           return (
                             <div
