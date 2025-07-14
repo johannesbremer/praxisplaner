@@ -291,26 +291,67 @@ function BaseScheduleDialog({
     onSubmit: async ({ value }) => {
       try {
         if (schedule) {
-          // Update existing schedule
-          const updateData: {
-            breakTimes?: { end: string; start: string }[];
-            endTime: string;
-            scheduleId: Id<"baseSchedules">;
-            slotDuration: number;
-            startTime: string;
-          } = {
-            endTime: value.endTime,
-            scheduleId: schedule._id,
-            slotDuration: value.slotDuration,
-            startTime: value.startTime,
-          };
-
-          if (value.breakTimes.length > 0) {
-            updateData.breakTimes = value.breakTimes;
+          // Check if weekday was changed
+          const selectedDays = value.daysOfWeek;
+          const originalDay = schedule.dayOfWeek;
+          
+          if (selectedDays.length !== 1) {
+            throw new Error("Beim Bearbeiten kann nur ein Wochentag ausgewählt werden");
           }
+          
+          const newDay = selectedDays[0];
+          if (newDay === undefined) {
+            throw new Error("Kein Wochentag ausgewählt");
+          }
+          
+          if (newDay === originalDay) {
+            // Same weekday - just update the existing schedule
+            const updateData: {
+              breakTimes?: { end: string; start: string }[];
+              endTime: string;
+              scheduleId: Id<"baseSchedules">;
+              slotDuration: number;
+              startTime: string;
+            } = {
+              endTime: value.endTime,
+              scheduleId: schedule._id,
+              slotDuration: value.slotDuration,
+              startTime: value.startTime,
+            };
 
-          await updateScheduleMutation(updateData);
-          toast.success("Arbeitszeit erfolgreich aktualisiert");
+            if (value.breakTimes.length > 0) {
+              updateData.breakTimes = value.breakTimes;
+            }
+
+            await updateScheduleMutation(updateData);
+            toast.success("Arbeitszeit erfolgreich aktualisiert");
+          } else {
+            // Weekday changed - delete old schedule and create new one
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+            await deleteScheduleMutation({ scheduleId: schedule._id });
+            
+            const createData: {
+              breakTimes?: { end: string; start: string }[];
+              dayOfWeek: number;
+              endTime: string;
+              practitionerId: Id<"practitioners">;
+              slotDuration: number;
+              startTime: string;
+            } = {
+              dayOfWeek: newDay,
+              endTime: value.endTime,
+              practitionerId: schedule.practitionerId,
+              slotDuration: value.slotDuration,
+              startTime: value.startTime,
+            };
+
+            if (value.breakTimes.length > 0) {
+              createData.breakTimes = value.breakTimes;
+            }
+
+            await createScheduleMutation(createData);
+            toast.success("Arbeitszeit erfolgreich aktualisiert (Wochentag geändert)");
+          }
         } else {
           // Create new schedule(s) - one for each selected day
           if (!value.practitionerId) {
@@ -433,46 +474,44 @@ function BaseScheduleDialog({
           <form.Field
             name="daysOfWeek"
             validators={{
-              onChange: ({ value }) =>
-                value.length > 0 ? undefined : "Bitte wählen Sie mindestens einen Wochentag aus",
+              onChange: ({ value }) => {
+                if (schedule) {
+                  // When editing, exactly one day must be selected
+                  return value.length === 1 ? undefined : "Beim Bearbeiten muss genau ein Wochentag ausgewählt werden";
+                } else {
+                  // When creating, at least one day must be selected
+                  return value.length > 0 ? undefined : "Bitte wählen Sie mindestens einen Wochentag aus";
+                }
+              },
             }}
           >
             {(field) => (
               <div className="space-y-2">
                 <Label>Wochentage</Label>
-                {schedule ? (
-                  <div className="p-2 border rounded-lg bg-muted">
-                    <Badge variant="outline">{getDayName(schedule.dayOfWeek)}</Badge>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Wochentag kann bei der Bearbeitung nicht geändert werden
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {DAYS_OF_WEEK.map((day) => (
-                      <label
-                        className="flex items-center space-x-2"
-                        key={day.value}
-                      >
-                        <input
-                          checked={field.state.value.includes(day.value)}
-                          onChange={(e) => {
-                            const currentDays = field.state.value;
-                            if (e.target.checked) {
-                              field.handleChange([...currentDays, day.value]);
-                            } else {
-                              field.handleChange(
-                                currentDays.filter((d: number) => d !== day.value),
-                              );
-                            }
-                          }}
-                          type="checkbox"
-                        />
-                        <span className="text-sm">{day.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {DAYS_OF_WEEK.map((day) => (
+                    <label
+                      className="flex items-center space-x-2"
+                      key={day.value}
+                    >
+                      <input
+                        checked={field.state.value.includes(day.value)}
+                        onChange={(e) => {
+                          const currentDays = field.state.value;
+                          if (e.target.checked) {
+                            field.handleChange([...currentDays, day.value]);
+                          } else {
+                            field.handleChange(
+                              currentDays.filter((d: number) => d !== day.value),
+                            );
+                          }
+                        }}
+                        type="checkbox"
+                      />
+                      <span className="text-sm">{day.label}</span>
+                    </label>
+                  ))}
+                </div>
                 {field.state.meta.errors.length > 0 && (
                   <p className="text-sm text-red-500">
                     {field.state.meta.errors[0]}
