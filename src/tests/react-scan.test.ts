@@ -11,15 +11,15 @@ describe("React Scan Integration", () => {
 
     // Dynamically import the module to test
     const reactScanModule = await import("react-scan");
-    
+
     expect(reactScanModule.scan).toBeDefined();
     expect(typeof reactScanModule.scan).toBe("function");
   });
 
-  it("should verify react-scan package is available", () => {
+  it("should verify react-scan package is available", async () => {
     // This test verifies that react-scan package is installed and available
-    expect(() => {
-      require("react-scan");
-    }).not.toThrow();
+    const reactScanModule = await import("react-scan");
+    expect(reactScanModule).toBeDefined();
+    expect(reactScanModule.scan).toBeDefined();
   });
 });
