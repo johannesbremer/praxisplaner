@@ -134,10 +134,10 @@ export function MiniCalendarDay({ className, date }: MiniCalendarDayProps) {
       size="sm"
       variant={isSelected ? "default" : "ghost"}
     >
-      <span className="text-xs font-medium">
+      <span className="text-xs font-medium leading-none">
         {date.toLocaleDateString("de-DE", { weekday: "short" })}
       </span>
-      <span className="text-sm font-semibold">{date.getDate()}</span>
+      <span className="text-sm font-semibold leading-none">{date.getDate()}</span>
     </Button>
   );
 }
