@@ -168,9 +168,9 @@ export function PatientFocusedView({
             <CardTitle className="text-base">Verfügbare Tage</CardTitle>
           </CardHeader>
           <CardContent>
-            <MiniCalendar days={5}>
+            <MiniCalendar days={5} startDate={new Date(dateRange.start)}>
               <MiniCalendarNavigation direction="prev" />
-              <MiniCalendarDays>
+              <MiniCalendarDays className="flex-1 min-w-0">
                 {(date) => (
                   <MiniCalendarDay
                     className={

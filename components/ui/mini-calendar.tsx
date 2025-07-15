@@ -98,19 +98,19 @@ export function MiniCalendar({
 
   return (
     <MiniCalendarContext.Provider value={contextValue}>
-      <div className={cn("flex items-center gap-2", className)}>{children}</div>
+      <div className={cn("flex items-center gap-1", className)}>{children}</div>
     </MiniCalendarContext.Provider>
   );
 }
 
 export function MiniCalendarDay({ className, date }: MiniCalendarDayProps) {
-  const { onValueChange, selectedDate } = useMiniCalendar();
+  const { currentStartDate, onValueChange, selectedDate } = useMiniCalendar();
 
-  const today = new Date();
-  const isToday =
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
+  // Check if this date is the simulation start date (first day of mini-calendar)
+  const isSimulationDate =
+    date.getDate() === currentStartDate.getDate() &&
+    date.getMonth() === currentStartDate.getMonth() &&
+    date.getFullYear() === currentStartDate.getFullYear();
 
   const isSelected =
     selectedDate &&
@@ -126,8 +126,8 @@ export function MiniCalendarDay({ className, date }: MiniCalendarDayProps) {
     <Button
       aria-label={`Select ${date.toLocaleDateString()}`}
       className={cn(
-        "h-12 w-12 p-0 flex flex-col items-center justify-center text-xs",
-        isToday && !isSelected && "bg-accent text-accent-foreground",
+        "h-10 w-10 p-0 flex flex-col items-center justify-center text-xs",
+        isSimulationDate && !isSelected && "bg-accent text-accent-foreground",
         className,
       )}
       onClick={handleClick}
@@ -155,7 +155,7 @@ export function MiniCalendarDays({
   });
 
   return (
-    <div className={cn("flex gap-1", className)}>
+    <div className={cn("flex gap-0.5", className)}>
       {dates.map((date) => children(date))}
     </div>
   );
@@ -176,15 +176,15 @@ export function MiniCalendarNavigation({
 
   return (
     <Button
-      className={cn("h-8 w-8 p-0", className)}
+      className={cn("h-6 w-6 p-0", className)}
       onClick={handleClick}
       size="sm"
       variant="outline"
     >
       {direction === "prev" ? (
-        <ChevronLeft className="h-4 w-4" />
+        <ChevronLeft className="h-3 w-3" />
       ) : (
-        <ChevronRight className="h-4 w-4" />
+        <ChevronRight className="h-3 w-3" />
       )}
       <span className="sr-only">
         {direction === "prev" ? "Previous" : "Next"} {days} days
