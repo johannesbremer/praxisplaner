@@ -88,7 +88,7 @@ export function PatientView({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-4">
+      <div className="p-4 pt-12">
         <div className="mb-4">
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
           <div className="text-sm text-muted-foreground mb-3">

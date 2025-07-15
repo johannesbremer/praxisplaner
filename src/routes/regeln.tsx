@@ -1,7 +1,6 @@
 // src/routes/regeln.tsx
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Edit, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useState } from "react";
@@ -750,244 +749,124 @@ export default function LogicView() {
             </p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-12">
-            {/* Controls */}
-            <div className="lg:col-span-5 space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Simulation Controls</CardTitle>
-                  <CardDescription>
-                    Konfigurieren Sie den Kontext für die Simulation
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="rule-set">Regelset</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        setSimulationRuleSetId(
-                          value === "active"
-                            ? undefined
-                            : (value as Id<"ruleSets">),
-                        );
-                      }}
-                      value={simulationRuleSetId || "active"}
-                    >
-                      <SelectTrigger id="rule-set">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Aktives Regelset</SelectItem>
-                        {ruleSetsQuery?.map((ruleSet) => (
-                          <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                            v{ruleSet.version} - {ruleSet.description}
-                            {ruleSet.isActive && " (aktiv)"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="patient-type">Patiententyp</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        setSimulatedContext({
-                          ...simulatedContext,
-                          patient: { isNew: value === "new" },
-                        });
-                      }}
-                      value={
-                        simulatedContext.patient.isNew ? "new" : "existing"
-                      }
-                    >
-                      <SelectTrigger id="patient-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new">Neuer Patient</SelectItem>
-                        <SelectItem value="existing">
-                          Bestandspatient
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="appointment-type">Terminart</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        setSimulatedContext({
-                          ...simulatedContext,
-                          appointmentType: value,
-                        });
-                      }}
-                      value={simulatedContext.appointmentType}
-                    >
-                      <SelectTrigger id="appointment-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Erstberatung">
-                          Erstberatung
-                        </SelectItem>
-                        <SelectItem value="Nachuntersuchung">
-                          Nachuntersuchung
-                        </SelectItem>
-                        <SelectItem value="Grippeimpfung">
-                          Grippeimpfung
-                        </SelectItem>
-                        <SelectItem value="Vorsorge">
-                          Vorsorgeuntersuchung
-                        </SelectItem>
-                        <SelectItem value="Akutsprechstunde">
-                          Akutsprechstunde
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Datum auswählen</Label>
-                    <Calendar
-                      className="rounded-md border"
-                      locale={de}
-                      mode="single"
-                      onSelect={(date) => {
-                        if (date) {
-                          setSelectedDate(date);
-                        }
-                      }}
-                      selected={selectedDate}
-                    />
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={resetSimulation}
-                    variant="outline"
+          <div className="space-y-6">
+            {/* Simulation Controls */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Simulation Controls</CardTitle>
+                <CardDescription>
+                  Konfigurieren Sie den Kontext für die Simulation
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="rule-set">Regelset</Label>
+                  <Select
+                    onValueChange={(value) => {
+                      setSimulationRuleSetId(
+                        value === "active"
+                          ? undefined
+                          : (value as Id<"ruleSets">),
+                      );
+                    }}
+                    value={simulationRuleSetId || "active"}
                   >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Zurücksetzen
-                  </Button>
-                </CardContent>
-              </Card>
+                    <SelectTrigger id="rule-set">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Aktives Regelset</SelectItem>
+                      {ruleSetsQuery?.map((ruleSet) => (
+                        <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                          v{ruleSet.version} - {ruleSet.description}
+                          {ruleSet.isActive && " (aktiv)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Simulationsdetails</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Patiententyp:</span>
-                    <Badge
-                      variant={
-                        simulatedContext.patient.isNew ? "default" : "secondary"
+                <div className="space-y-2">
+                  <Label htmlFor="patient-type">Patiententyp</Label>
+                  <Select
+                    onValueChange={(value) => {
+                      setSimulatedContext({
+                        ...simulatedContext,
+                        patient: { isNew: value === "new" },
+                      });
+                    }}
+                    value={simulatedContext.patient.isNew ? "new" : "existing"}
+                  >
+                    <SelectTrigger id="patient-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">Neuer Patient</SelectItem>
+                      <SelectItem value="existing">Bestandspatient</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-type">Terminart</Label>
+                  <Select
+                    onValueChange={(value) => {
+                      setSimulatedContext({
+                        ...simulatedContext,
+                        appointmentType: value,
+                      });
+                    }}
+                    value={simulatedContext.appointmentType}
+                  >
+                    <SelectTrigger id="appointment-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Erstberatung">Erstberatung</SelectItem>
+                      <SelectItem value="Nachuntersuchung">
+                        Nachuntersuchung
+                      </SelectItem>
+                      <SelectItem value="Grippeimpfung">
+                        Grippeimpfung
+                      </SelectItem>
+                      <SelectItem value="Vorsorge">
+                        Vorsorgeuntersuchung
+                      </SelectItem>
+                      <SelectItem value="Akutsprechstunde">
+                        Akutsprechstunde
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Datum auswählen</Label>
+                  <Calendar
+                    className="rounded-md border"
+                    locale={de}
+                    mode="single"
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedDate(date);
                       }
-                    >
-                      {simulatedContext.patient.isNew ? "Neu" : "Bestand"}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Terminart:</span>
-                    <span className="font-medium">
-                      {simulatedContext.appointmentType}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Datum:</span>
-                    <span className="font-medium">
-                      {format(selectedDate, "dd.MM.yyyy", { locale: de })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Regelset:</span>
-                    <span className="font-medium">
-                      {simulationRuleSetId ? "Draft" : "Aktiv"}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+                    }}
+                    selected={selectedDate}
+                  />
+                </div>
 
-              {/* Slot Inspector */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Slot Inspector</CardTitle>
-                  <CardDescription>
-                    Klicken Sie auf einen Termin für Details
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {selectedSlot ? (
-                    <div className="space-y-3">
-                      <div>
-                        <Label className="text-sm font-medium">Zeit</Label>
-                        <div className="text-lg font-semibold">
-                          {/* Always display time as German time by extracting UTC components */}
-                          {(() => {
-                            const date = new Date(selectedSlot.startTime);
-                            const hours = date
-                              .getUTCHours()
-                              .toString()
-                              .padStart(2, "0");
-                            const minutes = date
-                              .getUTCMinutes()
-                              .toString()
-                              .padStart(2, "0");
-                            return `${hours}:${minutes}`;
-                          })()}
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-medium">Arzt</Label>
-                        <div>{selectedSlot.practitionerName}</div>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-medium">Dauer</Label>
-                        <div>{selectedSlot.duration} Minuten</div>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-medium">Status</Label>
-                        <div>
-                          <Badge
-                            variant={
-                              selectedSlot.status === "AVAILABLE"
-                                ? "default"
-                                : "destructive"
-                            }
-                          >
-                            {selectedSlot.status === "AVAILABLE"
-                              ? "Verfügbar"
-                              : "Blockiert"}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      {selectedSlot.blockedByRuleId && (
-                        <div>
-                          <Label className="text-sm font-medium">
-                            Blockiert durch Regel
-                          </Label>
-                          <div className="text-sm text-muted-foreground">
-                            ID: {selectedSlot.blockedByRuleId}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Wählen Sie einen Termin aus, um Details anzuzeigen.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                <Button
+                  className="w-full"
+                  onClick={resetSimulation}
+                  variant="outline"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Zurücksetzen
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* Smartphone Device with Patient View */}
-            <div className="lg:col-span-7 flex justify-center">
+            <div className="flex justify-center">
               <PatientBookingFlow
                 dateRange={dateRange}
                 onSlotClick={handleSlotClick}
@@ -996,6 +875,82 @@ export default function LogicView() {
                 simulatedContext={simulatedContext}
               />
             </div>
+
+            {/* Slot Inspector */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Slot Inspector</CardTitle>
+                <CardDescription>
+                  Klicken Sie auf einen Termin für Details
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {selectedSlot ? (
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-sm font-medium">Zeit</Label>
+                      <div className="text-lg font-semibold">
+                        {/* Always display time as German time by extracting UTC components */}
+                        {(() => {
+                          const date = new Date(selectedSlot.startTime);
+                          const hours = date
+                            .getUTCHours()
+                            .toString()
+                            .padStart(2, "0");
+                          const minutes = date
+                            .getUTCMinutes()
+                            .toString()
+                            .padStart(2, "0");
+                          return `${hours}:${minutes}`;
+                        })()}
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">Arzt</Label>
+                      <div>{selectedSlot.practitionerName}</div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">Dauer</Label>
+                      <div>{selectedSlot.duration} Minuten</div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">Status</Label>
+                      <div>
+                        <Badge
+                          variant={
+                            selectedSlot.status === "AVAILABLE"
+                              ? "default"
+                              : "destructive"
+                          }
+                        >
+                          {selectedSlot.status === "AVAILABLE"
+                            ? "Verfügbar"
+                            : "Blockiert"}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {selectedSlot.blockedByRuleId && (
+                      <div>
+                        <Label className="text-sm font-medium">
+                          Blockiert durch Regel
+                        </Label>
+                        <div className="text-sm text-muted-foreground">
+                          ID: {selectedSlot.blockedByRuleId}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Wählen Sie einen Termin aus, um Details anzuzeigen.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
