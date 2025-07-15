@@ -105,11 +105,20 @@ export default function BaseScheduleManagement({
       return;
     }
 
+    // Get the first schedule ID and day (we know they exist due to the check above)
+    const firstScheduleId = scheduleGroup.scheduleIds[0];
+    const firstDayOfWeek = scheduleGroup.daysOfWeek[0];
+
+    if (!firstScheduleId || firstDayOfWeek === undefined) {
+      toast.error("Fehler: Ungültige Zeitplan-Daten");
+      return;
+    }
+
     // Create a representative schedule object for editing
     const representativeSchedule: ExtendedSchedule = {
-      _id: scheduleGroup.scheduleIds[0], // Use first ID for form processing
+      _id: firstScheduleId, // Use first ID for form processing
       ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
-      dayOfWeek: scheduleGroup.daysOfWeek[0], // This will be overridden by the form
+      dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
       practitionerId: scheduleGroup.practitionerId,
       startTime: scheduleGroup.startTime,
