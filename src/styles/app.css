@@ -1,7 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* iPhone 14 Pro Device CSS */
+/*
+This iPhone 14 Pro Device CSS is forked from the following MIT licensed repo:
+https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e068d6147/src/_iphone-14-pro.scss
+*/
+
 .device-iphone-14-pro {
   height: 868px;
   width: 428px;
