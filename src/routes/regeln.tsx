@@ -266,15 +266,6 @@ export default function LogicView() {
     ruleSetsQuery,
   ]);
 
-  // Function to ensure an unsaved rule set exists - called when user starts making changes
-  const ensureUnsavedRuleSet = React.useCallback(async () => {
-    if (unsavedRuleSetId) {
-      return unsavedRuleSetId; // Already have an unsaved rule set
-    }
-
-    return await createInitialUnsaved();
-  }, [unsavedRuleSetId, createInitialUnsaved]);
-
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
     if (
@@ -304,34 +295,57 @@ export default function LogicView() {
   );
 
   // Function to create an unsaved copy when modifying a saved rule set
-  const createUnsavedCopy = async (baseRuleSetId: Id<"ruleSets">) => {
-    if (!currentPractice) {
-      toast.error("Keine Praxis gefunden");
-      return;
+  const createUnsavedCopy = React.useCallback(
+    async (baseRuleSetId: Id<"ruleSets">) => {
+      if (!currentPractice) {
+        toast.error("Keine Praxis gefunden");
+        return;
+      }
+
+      try {
+        const newRuleSetId = await createDraftMutation({
+          description: "Ungespeicherte Änderungen",
+          practiceId: currentPractice._id,
+        });
+
+        setUnsavedRuleSetId(newRuleSetId);
+        return newRuleSetId;
+      } catch (error: unknown) {
+        captureError(error, {
+          baseRuleSetId,
+          context: "unsaved_copy_creation",
+          practiceId: currentPractice._id,
+        });
+
+        toast.error("Fehler beim Erstellen der Arbeitskopie", {
+          description:
+            error instanceof Error ? error.message : "Unbekannter Fehler",
+        });
+        return null;
+      }
+    },
+    [currentPractice, createDraftMutation, captureError],
+  );
+
+  // Function to ensure an unsaved rule set exists - called when user starts making changes
+  const ensureUnsavedRuleSet = React.useCallback(async () => {
+    if (unsavedRuleSetId) {
+      return unsavedRuleSetId; // Already have an unsaved rule set
     }
 
-    try {
-      const newRuleSetId = await createDraftMutation({
-        description: "Ungespeicherte Änderungen",
-        practiceId: currentPractice._id,
-      });
-
-      setUnsavedRuleSetId(newRuleSetId);
-      return newRuleSetId;
-    } catch (error: unknown) {
-      captureError(error, {
-        baseRuleSetId,
-        context: "unsaved_copy_creation",
-        practiceId: currentPractice._id,
-      });
-
-      toast.error("Fehler beim Erstellen der Arbeitskopie", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-      return null;
+    // If we have a selected active rule set, create an unsaved copy of it
+    if (selectedRuleSet?.isActive) {
+      return await createUnsavedCopy(selectedRuleSet._id);
     }
-  };
+
+    // Otherwise create initial unsaved rule set
+    return await createInitialUnsaved();
+  }, [
+    unsavedRuleSetId,
+    selectedRuleSet,
+    createUnsavedCopy,
+    createInitialUnsaved,
+  ]);
 
   // Show loading state if practice is being initialized
   if (practicesQuery === undefined || isInitializingPractice) {
@@ -570,7 +584,7 @@ export default function LogicView() {
                       {!currentWorkingRuleSet?.isActive ||
                       unsavedRuleSet ||
                       (ruleSetsQuery && ruleSetsQuery.length === 0) ? (
-                        // Show form if we have an unsaved rule set
+                        // Show form if we have an unsaved rule set OR if we're creating the first rule set
                         unsavedRuleSet ? (
                           <RuleCreationForm
                             onRuleCreated={() => {
@@ -602,15 +616,7 @@ export default function LogicView() {
                       ) : (
                         <Button
                           onClick={() => {
-                            void (async () => {
-                              if (currentWorkingRuleSet.isActive) {
-                                await createUnsavedCopy(
-                                  currentWorkingRuleSet._id,
-                                );
-                              } else {
-                                await ensureUnsavedRuleSet();
-                              }
-                            })();
+                            void ensureUnsavedRuleSet();
                           }}
                           size="sm"
                           variant="outline"
@@ -687,16 +693,7 @@ export default function LogicView() {
                                     <>
                                       <Button
                                         onClick={() => {
-                                          void (async () => {
-                                            if (
-                                              currentWorkingRuleSet?.isActive
-                                            ) {
-                                              await createUnsavedCopy(
-                                                currentWorkingRuleSet._id,
-                                              );
-                                            }
-                                            // The edit form will be available after unsaved copy is created
-                                          })();
+                                          void ensureUnsavedRuleSet();
                                         }}
                                         size="sm"
                                         variant="ghost"
@@ -711,13 +708,7 @@ export default function LogicView() {
                                             )
                                           ) {
                                             void (async () => {
-                                              if (
-                                                currentWorkingRuleSet?.isActive
-                                              ) {
-                                                await createUnsavedCopy(
-                                                  currentWorkingRuleSet._id,
-                                                );
-                                              }
+                                              await ensureUnsavedRuleSet();
                                               void handleDeleteRule(rule._id);
                                             })();
                                           }
