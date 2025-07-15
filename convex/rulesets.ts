@@ -58,6 +58,7 @@ export const createDraftFromActive = mutation({
 
 export const activateRuleSet = mutation({
   args: {
+    name: v.string(),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
   },
@@ -67,6 +68,11 @@ export const activateRuleSet = mutation({
     if (!ruleSet || ruleSet.practiceId !== args.practiceId) {
       throw new Error("Rule set not found or doesn't belong to this practice");
     }
+
+    // Update the rule set description with the new name
+    await ctx.db.patch(args.ruleSetId, {
+      description: args.name,
+    });
 
     // Update the practice's active rule set
     await ctx.db.patch(args.practiceId, {
@@ -247,7 +253,8 @@ export const createInitialRuleSet = mutation({
       );
     }
 
-    // Create the first rule set with version 1
+    // Create the first rule set with version 1 but DON'T activate it
+    // User should be able to add rules before activating
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
@@ -256,10 +263,8 @@ export const createInitialRuleSet = mutation({
       version: 1,
     });
 
-    // Activate this rule set as the first one
-    await ctx.db.patch(args.practiceId, {
-      currentActiveRuleSetId: newRuleSetId,
-    });
+    // Don't activate automatically - let user add rules and then activate
+    // The rule set remains as a draft until user explicitly activates it
 
     return newRuleSetId;
   },

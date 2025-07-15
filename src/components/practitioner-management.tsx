@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,7 +37,6 @@ interface PractitionerDialogProps {
     | {
         _id: Id<"practitioners">;
         name: string;
-        tags?: string[];
       };
 }
 
@@ -55,7 +53,6 @@ export default function PractitionerManagement({
     | {
         _id: Id<"practitioners">;
         name: string;
-        tags?: string[];
       }
   >();
 
@@ -69,7 +66,6 @@ export default function PractitionerManagement({
   const handleEdit = (practitioner: {
     _id: Id<"practitioners">;
     name: string;
-    tags?: string[];
   }) => {
     setEditingPractitioner(practitioner);
     setIsDialogOpen(true);
@@ -156,19 +152,6 @@ export default function PractitionerManagement({
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="font-medium">{practitioner.name}</div>
-                      {practitioner.tags && practitioner.tags.length > 0 && (
-                        <div className="flex gap-1 mt-2">
-                          {practitioner.tags.map((tag) => (
-                            <Badge
-                              className="text-xs"
-                              key={tag}
-                              variant="secondary"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -226,7 +209,6 @@ function PractitionerDialog({
   const form = useForm({
     defaultValues: {
       name: practitioner?.name ?? "",
-      tags: practitioner?.tags ?? [],
     },
     onSubmit: async ({ value }) => {
       try {
@@ -236,7 +218,6 @@ function PractitionerDialog({
             practitionerId: practitioner._id,
             updates: {
               name: value.name,
-              tags: value.tags.length > 0 ? value.tags : undefined,
             },
           });
           toast.success("Arzt aktualisiert");
@@ -245,7 +226,6 @@ function PractitionerDialog({
           const createData = {
             name: value.name,
             practiceId,
-            ...(value.tags.length > 0 && { tags: value.tags }),
           };
           await createMutation(createData);
           toast.success("Arzt erstellt");
@@ -317,30 +297,6 @@ function PractitionerDialog({
                     {field.state.meta.errors[0]}
                   </p>
                 )}
-              </div>
-            )}
-          </form.Field>
-
-          <form.Field name="tags">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor="tags">Tags (kommagetrennt)</Label>
-                <Input
-                  id="tags"
-                  onChange={(e) => {
-                    const tags = e.target.value
-                      .split(",")
-                      .map((tag) => tag.trim())
-                      .filter(Boolean);
-                    field.handleChange(tags);
-                  }}
-                  placeholder="z.B. Spezialist, Senior, Chirurg"
-                  value={field.state.value.join(", ")}
-                />
-                <div className="text-sm text-muted-foreground">
-                  Tags helfen bei der Kategorisierung und können in Regeln
-                  verwendet werden.
-                </div>
               </div>
             )}
           </form.Field>

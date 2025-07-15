@@ -70,11 +70,11 @@ export const getAvailableSlots = query({
 
       // Generate slots for each day in the date range
       for (
-        let date = new Date(startDate);
-        date <= endDate;
-        date.setDate(date.getDate() + 1)
+        let currentDate = new Date(startDate);
+        currentDate <= endDate;
+        currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000)
       ) {
-        const dayOfWeek = date.getDay();
+        const dayOfWeek = currentDate.getDay();
         const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
 
         if (schedule) {
@@ -93,20 +93,26 @@ export const getAvailableSlots = query({
             continue; // Skip invalid time format
           }
 
-          const dayStart = new Date(date);
-          dayStart.setHours(startHour, startMinute, 0, 0);
+          // Create time objects using UTC to avoid timezone issues
+          // Since currentDate is already in UTC representing the calendar day,
+          // we need to set the hours in UTC as well to maintain consistency
+          const dayStart = new Date(currentDate);
+          dayStart.setUTCHours(startHour, startMinute, 0, 0);
 
-          const dayEnd = new Date(date);
-          dayEnd.setHours(endHour, endMinute, 0, 0);
+          const dayEnd = new Date(currentDate);
+          dayEnd.setUTCHours(endHour, endMinute, 0, 0);
 
-          // Generate slots every slotDuration minutes
+          // Generate slots every 30 minutes (default duration)
+          const slotDuration = 30;
           for (
             let slotTime = new Date(dayStart);
             slotTime < dayEnd;
-            slotTime.setMinutes(slotTime.getMinutes() + schedule.slotDuration)
+            slotTime = new Date(slotTime.getTime() + slotDuration * 60 * 1000)
           ) {
             // Skip break times
-            const timeString = `${slotTime.getHours().toString().padStart(2, "0")}:${slotTime.getMinutes().toString().padStart(2, "0")}`;
+            // Extract UTC time components for comparison with stored break times
+            // This ensures consistent time handling regardless of server timezone
+            const timeString = `${slotTime.getUTCHours().toString().padStart(2, "0")}:${slotTime.getUTCMinutes().toString().padStart(2, "0")}`;
             const isBreakTime =
               schedule.breakTimes?.some(
                 (breakTime) =>
@@ -115,7 +121,7 @@ export const getAvailableSlots = query({
 
             if (!isBreakTime) {
               candidateSlots.push({
-                duration: schedule.slotDuration,
+                duration: slotDuration,
                 practitionerId: practitioner._id,
                 practitionerName: practitioner.name,
                 startTime: slotTime.toISOString(),
@@ -163,23 +169,7 @@ export const getAvailableSlots = query({
             );
           }
 
-          // Check practitioner tags exception
-          if (
-            rule.block_exceptForPractitionerTags &&
-            rule.block_exceptForPractitionerTags.length > 0
-          ) {
-            const practitioner = practitioners.find(
-              (p) => p._id === slot.practitionerId,
-            );
-            const hasExceptionTag =
-              practitioner?.tags?.some((tag) =>
-                // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                rule.block_exceptForPractitionerTags!.includes(tag),
-              ) ?? false;
-            if (hasExceptionTag) {
-              shouldBlock = false;
-            }
-          }
+          // Practitioner tags feature has been removed
 
           // Check time range condition
           if (rule.block_timeRangeStart && rule.block_timeRangeEnd) {

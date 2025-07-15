@@ -1,7 +1,7 @@
-// src/components/rule-creation-form.tsx
+// src/components/rule-edit-form.tsx
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
-import { Plus } from "lucide-react";
+import { Edit } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -37,111 +37,179 @@ import { api } from "@/convex/_generated/api";
 
 import { useErrorTracking } from "../utils/error-tracking";
 
-interface RuleCreationFormProps {
-  onRuleCreated?: () => void;
-  practiceId: Id<"practices">;
+interface FlatRule {
+  _creationTime: number;
+  _id: Id<"rules">;
+  description: string;
+  priority: number;
   ruleSetId: Id<"ruleSets">;
+  ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+
+  // Practitioner application
+  appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
+  specificPractitioners?: Id<"practitioners">[];
+
+  // Block rule parameters
+  block_appointmentTypes?: string[];
+  block_dateRangeEnd?: string;
+  block_dateRangeStart?: string;
+  block_daysOfWeek?: number[];
+  block_timeRangeEnd?: string;
+  block_timeRangeStart?: string;
+
+  // Limit rule parameters
+  limit_appointmentTypes?: string[];
+  limit_atLocation?: Id<"locations">;
+  limit_count?: number;
+  limit_perPractitioner?: boolean;
 }
 
-export default function RuleCreationForm({
-  onRuleCreated,
+interface RuleEditFormProps {
+  onRuleEdited?: () => Promise<void> | void;
+  practiceId: Id<"practices">;
+  rule: FlatRule;
+}
+
+export default function RuleEditForm({
+  onRuleEdited,
   practiceId,
-  ruleSetId,
-}: RuleCreationFormProps) {
+  rule,
+}: RuleEditFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { captureError } = useErrorTracking();
 
-  const createRuleMutation = useMutation(api.rulesets.createRule);
+  const updateRuleMutation = useMutation(api.rulesets.updateRule);
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
 
   const form = useForm({
     defaultValues: {
-      appliesTo: "ALL_PRACTITIONERS",
-      block_appointmentTypes: [] as string[],
-      block_dateRangeEnd: "",
-      block_dateRangeStart: "",
-      block_daysOfWeek: [] as number[],
-      block_timeRangeEnd: "",
-      block_timeRangeStart: "",
-      description: "",
-      limit_appointmentTypes: [] as string[],
-      limit_count: 1,
-      limit_perPractitioner: false,
-      priority: 100,
-      ruleType: "BLOCK",
-      specificPractitioners: [] as Id<"practitioners">[],
+      appliesTo: rule.appliesTo ?? "ALL_PRACTITIONERS",
+      block_appointmentTypes: rule.block_appointmentTypes ?? [],
+      block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
+      block_dateRangeStart: rule.block_dateRangeStart ?? "",
+      block_daysOfWeek: rule.block_daysOfWeek ?? [],
+      block_timeRangeEnd: rule.block_timeRangeEnd ?? "",
+      block_timeRangeStart: rule.block_timeRangeStart ?? "",
+      description: rule.description,
+      limit_appointmentTypes: rule.limit_appointmentTypes ?? [],
+      limit_count: rule.limit_count ?? 1,
+      limit_perPractitioner: rule.limit_perPractitioner ?? false,
+      priority: rule.priority,
+      ruleType: rule.ruleType,
+      specificPractitioners: rule.specificPractitioners ?? [],
     },
     onSubmit: async ({ value }) => {
       try {
-        const ruleData: Record<string, unknown> = {
-          appliesTo: value.appliesTo,
-          description: value.description,
-          priority: value.priority,
-          ruleSetId,
-          ruleType: value.ruleType,
-        };
+        // Build update object with only changed values
+        const updates: Record<string, unknown> = {};
 
-        // Add specific practitioners if applicable
+        // Compare each field and only include if changed
+        if (value.description !== rule.description) {
+          updates["description"] = value.description;
+        }
+        if (value.priority !== rule.priority) {
+          updates["priority"] = value.priority;
+        }
+        if (value.ruleType !== rule.ruleType) {
+          updates["ruleType"] = value.ruleType;
+        }
+        if (value.appliesTo !== (rule.appliesTo ?? "ALL_PRACTITIONERS")) {
+          updates["appliesTo"] = value.appliesTo;
+        }
+
+        // Handle specific practitioners
+        const originalPractitioners = rule.specificPractitioners ?? [];
+        const newPractitioners = value.specificPractitioners;
         if (
-          value.appliesTo === "SPECIFIC_PRACTITIONERS" &&
-          value.specificPractitioners.length > 0
+          JSON.stringify(originalPractitioners) !==
+          JSON.stringify(newPractitioners)
         ) {
-          ruleData["specificPractitioners"] = value.specificPractitioners;
+          updates["specificPractitioners"] =
+            newPractitioners.length > 0 ? newPractitioners : undefined;
         }
 
-        // Add rule-type specific parameters
+        // Handle block rule parameters
         if (value.ruleType === "BLOCK") {
-          if (value.block_appointmentTypes.length > 0) {
-            ruleData["block_appointmentTypes"] = value.block_appointmentTypes;
+          const blockFields = [
+            "block_appointmentTypes",
+            "block_dateRangeStart",
+            "block_dateRangeEnd",
+            "block_daysOfWeek",
+            "block_timeRangeStart",
+            "block_timeRangeEnd",
+          ] as const;
+
+          for (const field of blockFields) {
+            const currentValue = value[field];
+            const originalValue = rule[field];
+
+            if (Array.isArray(currentValue)) {
+              if (
+                JSON.stringify(currentValue) !==
+                JSON.stringify(originalValue ?? [])
+              ) {
+                updates[field] =
+                  currentValue.length > 0 ? currentValue : undefined;
+              }
+            } else if (currentValue !== (originalValue ?? "")) {
+              updates[field] = currentValue || undefined;
+            }
           }
-          if (value.block_dateRangeStart) {
-            ruleData["block_dateRangeStart"] = value.block_dateRangeStart;
-          }
-          if (value.block_dateRangeEnd) {
-            ruleData["block_dateRangeEnd"] = value.block_dateRangeEnd;
-          }
-          if (value.block_daysOfWeek.length > 0) {
-            ruleData["block_daysOfWeek"] = value.block_daysOfWeek;
-          }
-          if (value.block_timeRangeStart) {
-            ruleData["block_timeRangeStart"] = value.block_timeRangeStart;
-          }
-          if (value.block_timeRangeEnd) {
-            ruleData["block_timeRangeEnd"] = value.block_timeRangeEnd;
-          }
-        } else {
-          if (value.limit_appointmentTypes.length > 0) {
-            ruleData["limit_appointmentTypes"] = value.limit_appointmentTypes;
-          }
-          if (value.limit_count > 0) {
-            ruleData["limit_count"] = value.limit_count;
-          }
-          ruleData["limit_perPractitioner"] = value.limit_perPractitioner;
         }
 
-        await createRuleMutation(
-          ruleData as Parameters<typeof createRuleMutation>[0],
-        );
+        // Handle limit rule parameters
+        if (value.ruleType === "LIMIT_CONCURRENT") {
+          if (
+            JSON.stringify(value.limit_appointmentTypes) !==
+            JSON.stringify(rule.limit_appointmentTypes ?? [])
+          ) {
+            updates["limit_appointmentTypes"] =
+              value.limit_appointmentTypes.length > 0
+                ? value.limit_appointmentTypes
+                : undefined;
+          }
+          if (value.limit_count !== (rule.limit_count ?? 1)) {
+            updates["limit_count"] = value.limit_count;
+          }
+          if (
+            value.limit_perPractitioner !==
+            (rule.limit_perPractitioner ?? false)
+          ) {
+            updates["limit_perPractitioner"] = value.limit_perPractitioner;
+          }
+        }
 
-        toast.success("Regel erstellt", {
-          description: "Die neue Regel wurde erfolgreich erstellt.",
+        // Only update if there are actual changes
+        if (Object.keys(updates).length === 0) {
+          toast.info("Keine Änderungen zu speichern");
+          setIsOpen(false);
+          return;
+        }
+
+        await updateRuleMutation({
+          ruleId: rule._id,
+          updates,
         });
 
-        // Reset form
-        form.reset();
+        toast.success("Regel aktualisiert", {
+          description: "Die Regel wurde erfolgreich aktualisiert.",
+        });
+
         setIsOpen(false);
-        onRuleCreated?.();
+        if (onRuleEdited) {
+          await onRuleEdited();
+        }
       } catch (error: unknown) {
         captureError(error, {
-          context: "rule_creation",
+          context: "rule_update",
           formData: value,
           practiceId,
-          ruleSetId,
+          ruleId: rule._id,
         });
 
-        toast.error("Fehler beim Erstellen der Regel", {
+        toast.error("Fehler beim Aktualisieren der Regel", {
           description:
             error instanceof Error ? error.message : "Unbekannter Fehler",
         });
@@ -160,16 +228,15 @@ export default function RuleCreationForm({
   return (
     <Dialog onOpenChange={setIsOpen} open={isOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <Plus className="h-4 w-4 mr-2" />
-          Neue Regel
+        <Button size="sm" variant="ghost">
+          <Edit className="h-4 w-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Neue Regel erstellen</DialogTitle>
+          <DialogTitle>Regel bearbeiten</DialogTitle>
           <DialogDescription>
-            Erstellen Sie eine neue Regel für das ausgewählte Regelset.
+            Bearbeiten Sie die ausgewählte Regel.
           </DialogDescription>
         </DialogHeader>
 
@@ -632,7 +699,9 @@ export default function RuleCreationForm({
               Abbrechen
             </Button>
             <Button disabled={form.state.isSubmitting} type="submit">
-              {form.state.isSubmitting ? "Erstelle..." : "Regel erstellen"}
+              {form.state.isSubmitting
+                ? "Speichere..."
+                : "Änderungen speichern"}
             </Button>
           </div>
         </form>
