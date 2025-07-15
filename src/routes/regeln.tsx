@@ -212,34 +212,6 @@ export default function LogicView() {
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
-  // Auto-create an initial unsaved rule set when no rule sets exist
-  React.useEffect(() => {
-    if (
-      currentPractice &&
-      ruleSetsQuery &&
-      ruleSetsQuery.length === 0 &&
-      !unsavedRuleSetId
-    ) {
-      void createInitialUnsaved();
-    }
-  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
-
-  const selectedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === selectedRuleSetId,
-  );
-  const unsavedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === unsavedRuleSetId,
-  );
-
-  // Use unsaved rule set if available, otherwise selected rule set
-  const currentWorkingRuleSet = unsavedRuleSet ?? selectedRuleSet;
-
-  // Fetch rules for the current working rule set
-  const rulesQuery = useQuery(
-    api.rulesets.getRules,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
-  );
-
   // Mutations
   const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
@@ -272,6 +244,34 @@ export default function LogicView() {
       return null;
     }
   }, [currentPractice, createDraftMutation, captureError]);
+
+  // Auto-create an initial unsaved rule set when no rule sets exist
+  React.useEffect(() => {
+    if (
+      currentPractice &&
+      ruleSetsQuery &&
+      ruleSetsQuery.length === 0 &&
+      !unsavedRuleSetId
+    ) {
+      void createInitialUnsaved();
+    }
+  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
+
+  const selectedRuleSet = ruleSetsQuery?.find(
+    (rs) => rs._id === selectedRuleSetId,
+  );
+  const unsavedRuleSet = ruleSetsQuery?.find(
+    (rs) => rs._id === unsavedRuleSetId,
+  );
+
+  // Use unsaved rule set if available, otherwise selected rule set
+  const currentWorkingRuleSet = unsavedRuleSet ?? selectedRuleSet;
+
+  // Fetch rules for the current working rule set
+  const rulesQuery = useQuery(
+    api.rulesets.getRules,
+    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+  );
 
   // Function to create an unsaved copy when modifying a saved rule set
   const createUnsavedCopy = async (baseRuleSetId: Id<"ruleSets">) => {
