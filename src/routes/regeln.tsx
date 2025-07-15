@@ -214,6 +214,9 @@ export default function LogicView() {
 
   // Mutations
   const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
+  const createInitialRuleSetMutation = useMutation(
+    api.rulesets.createInitialRuleSet,
+  );
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
   const deleteRuleMutation = useMutation(api.rulesets.deleteRule);
 
@@ -224,10 +227,22 @@ export default function LogicView() {
     }
 
     try {
-      const newRuleSetId = await createDraftMutation({
-        description: "Neues Regelset",
-        practiceId: currentPractice._id,
-      });
+      let newRuleSetId: Id<"ruleSets">;
+
+      // Check if this practice has any rule sets
+      if (!ruleSetsQuery || ruleSetsQuery.length === 0) {
+        // No rule sets exist, create the first one
+        newRuleSetId = await createInitialRuleSetMutation({
+          description: "Neues Regelset",
+          practiceId: currentPractice._id,
+        });
+      } else {
+        // Rule sets exist, create a draft from the active one
+        newRuleSetId = await createDraftMutation({
+          description: "Neues Regelset",
+          practiceId: currentPractice._id,
+        });
+      }
 
       setUnsavedRuleSetId(newRuleSetId);
       return newRuleSetId;
@@ -243,7 +258,13 @@ export default function LogicView() {
       });
       return null;
     }
-  }, [currentPractice, createDraftMutation, captureError]);
+  }, [
+    currentPractice,
+    createDraftMutation,
+    createInitialRuleSetMutation,
+    captureError,
+    ruleSetsQuery,
+  ]);
 
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
