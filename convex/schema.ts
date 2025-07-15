@@ -14,7 +14,6 @@ export default defineSchema({
     dayOfWeek: v.number(), // 0 = Sunday, 1 = Monday, etc.
     endTime: v.string(), // "17:00"
     practitionerId: v.id("practitioners"),
-    slotDuration: v.number(), // minutes
     startTime: v.string(), // "08:00"
   }).index("by_practitionerId", ["practitionerId"]),
 
@@ -49,7 +48,6 @@ export default defineSchema({
   practitioners: defineTable({
     name: v.string(),
     practiceId: v.id("practices"),
-    tags: v.optional(v.array(v.string())), // e.g., ["specialist", "senior"]
   }).index("by_practiceId", ["practiceId"]),
 
   ruleSets: defineTable({

@@ -23,7 +23,6 @@ export const createBaseSchedule = mutation({
     dayOfWeek: v.number(),
     endTime: v.string(),
     practitionerId: v.id("practitioners"),
-    slotDuration: v.number(),
     startTime: v.string(),
   },
   handler: async (ctx, args) => {
@@ -46,11 +45,6 @@ export const createBaseSchedule = mutation({
 
     if (startMinutes >= endMinutes) {
       throw new Error("Start time must be before end time");
-    }
-
-    // Validate slot duration
-    if (args.slotDuration <= 0 || args.slotDuration > 480) {
-      throw new Error("Slot duration must be between 1 and 480 minutes");
     }
 
     // Validate break times
@@ -102,13 +96,11 @@ export const createBaseSchedule = mutation({
       dayOfWeek: number;
       endTime: string;
       practitionerId: Id<"practitioners">;
-      slotDuration: number;
       startTime: string;
     } = {
       dayOfWeek: args.dayOfWeek,
       endTime: args.endTime,
       practitionerId: args.practitionerId,
-      slotDuration: args.slotDuration,
       startTime: args.startTime,
     };
 
@@ -127,7 +119,6 @@ export const updateBaseSchedule = mutation({
     breakTimes: breakTimesValidator,
     endTime: v.string(),
     scheduleId: v.id("baseSchedules"),
-    slotDuration: v.number(),
     startTime: v.string(),
   },
   handler: async (ctx, args) => {
@@ -148,11 +139,6 @@ export const updateBaseSchedule = mutation({
 
     if (startMinutes >= endMinutes) {
       throw new Error("Start time must be before end time");
-    }
-
-    // Validate slot duration
-    if (args.slotDuration <= 0 || args.slotDuration > 480) {
-      throw new Error("Slot duration must be between 1 and 480 minutes");
     }
 
     // Validate break times
@@ -181,11 +167,9 @@ export const updateBaseSchedule = mutation({
     const updateData: {
       breakTimes?: { end: string; start: string }[];
       endTime: string;
-      slotDuration: number;
       startTime: string;
     } = {
       endTime: args.endTime,
-      slotDuration: args.slotDuration,
       startTime: args.startTime,
     };
 

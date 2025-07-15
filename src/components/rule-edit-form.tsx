@@ -54,7 +54,6 @@ interface FlatRule {
   block_dateRangeEnd?: string;
   block_dateRangeStart?: string;
   block_daysOfWeek?: number[];
-  block_exceptForPractitionerTags?: string[];
   block_timeRangeEnd?: string;
   block_timeRangeStart?: string;
 
@@ -91,8 +90,6 @@ export default function RuleEditForm({
       block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
       block_dateRangeStart: rule.block_dateRangeStart ?? "",
       block_daysOfWeek: rule.block_daysOfWeek ?? [],
-      block_exceptForPractitionerTags:
-        rule.block_exceptForPractitionerTags ?? [],
       block_timeRangeEnd: rule.block_timeRangeEnd ?? "",
       block_timeRangeStart: rule.block_timeRangeStart ?? "",
       description: rule.description,
@@ -142,7 +139,6 @@ export default function RuleEditForm({
             "block_daysOfWeek",
             "block_timeRangeStart",
             "block_timeRangeEnd",
-            "block_exceptForPractitionerTags",
           ] as const;
 
           for (const field of blockFields) {
@@ -428,12 +424,6 @@ export default function RuleEditForm({
                                     <span className="text-sm">
                                       {practitioner.name}
                                     </span>
-                                    {practitioner.tags &&
-                                      practitioner.tags.length > 0 && (
-                                        <span className="text-xs text-muted-foreground">
-                                          ({practitioner.tags.join(", ")})
-                                        </span>
-                                      )}
                                   </label>
                                 ))}
                               </div>

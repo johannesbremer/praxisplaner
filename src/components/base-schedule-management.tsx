@@ -2,7 +2,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Calendar, Clock, Edit, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -44,14 +44,6 @@ const DAYS_OF_WEEK = [
   { label: "Freitag", value: 5 },
 ];
 
-const SLOT_DURATIONS = [
-  { label: "15 Minuten", value: 15 },
-  { label: "20 Minuten", value: 20 },
-  { label: "30 Minuten", value: 30 },
-  { label: "45 Minuten", value: 45 },
-  { label: "60 Minuten", value: 60 },
-];
-
 interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -64,7 +56,6 @@ interface BaseScheduleDialogProps {
         dayOfWeek: number;
         endTime: string;
         practitionerId: Id<"practitioners">;
-        slotDuration: number;
         startTime: string;
       };
 }
@@ -86,7 +77,6 @@ export default function BaseScheduleManagement({
         dayOfWeek: number;
         endTime: string;
         practitionerId: Id<"practitioners">;
-        slotDuration: number;
         startTime: string;
       }
   >();
@@ -110,7 +100,6 @@ export default function BaseScheduleManagement({
     dayOfWeek: number;
     endTime: string;
     practitionerId: Id<"practitioners">;
-    slotDuration: number;
     startTime: string;
   }) => {
     setEditingSchedule(schedule);
@@ -212,9 +201,6 @@ export default function BaseScheduleManagement({
                             <span className="font-medium">
                               {schedule.startTime} - {schedule.endTime}
                             </span>
-                            <Badge variant="secondary">
-                              {schedule.slotDuration} Min.
-                            </Badge>
                           </div>
                           <div className="text-sm text-muted-foreground">
                             Pausen: {formatBreakTimes(schedule.breakTimes)}
@@ -275,9 +261,6 @@ function BaseScheduleDialog({
   const createScheduleMutation = useMutation(
     api.baseSchedules.createBaseSchedule,
   );
-  const updateScheduleMutation = useMutation(
-    api.baseSchedules.updateBaseSchedule,
-  );
   const deleteScheduleMutation = useMutation(
     api.baseSchedules.deleteBaseSchedule,
   );
@@ -288,65 +271,33 @@ function BaseScheduleDialog({
       daysOfWeek: schedule ? [schedule.dayOfWeek] : [],
       endTime: schedule?.endTime ?? "17:00",
       practitionerId: schedule?.practitionerId ?? "",
-      slotDuration: schedule?.slotDuration ?? 30,
       startTime: schedule?.startTime ?? "08:00",
     },
     onSubmit: async ({ value }) => {
       try {
         if (schedule) {
-          // Check if weekday was changed
+          // When editing, always delete the old schedule and create new ones for selected days
           const selectedDays = value.daysOfWeek;
-          const originalDay = schedule.dayOfWeek;
 
-          if (selectedDays.length !== 1) {
-            throw new Error(
-              "Beim Bearbeiten kann nur ein Wochentag ausgewählt werden",
-            );
+          if (selectedDays.length === 0) {
+            throw new Error("Bitte wählen Sie mindestens einen Wochentag aus");
           }
 
-          const newDay = selectedDays[0];
-          if (newDay === undefined) {
-            throw new Error("Kein Wochentag ausgewählt");
-          }
+          // Delete the existing schedule
+          await deleteScheduleMutation({ scheduleId: schedule._id });
 
-          if (newDay === originalDay) {
-            // Same weekday - just update the existing schedule
-            const updateData: {
-              breakTimes?: { end: string; start: string }[];
-              endTime: string;
-              scheduleId: Id<"baseSchedules">;
-              slotDuration: number;
-              startTime: string;
-            } = {
-              endTime: value.endTime,
-              scheduleId: schedule._id,
-              slotDuration: value.slotDuration,
-              startTime: value.startTime,
-            };
-
-            if (value.breakTimes.length > 0) {
-              updateData.breakTimes = value.breakTimes;
-            }
-
-            await updateScheduleMutation(updateData);
-            toast.success("Arbeitszeit erfolgreich aktualisiert");
-          } else {
-            // Weekday changed - delete old schedule and create new one
-             
-            await deleteScheduleMutation({ scheduleId: schedule._id });
-
+          // Create new schedules for each selected day
+          for (const dayOfWeek of selectedDays) {
             const createData: {
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
               endTime: string;
               practitionerId: Id<"practitioners">;
-              slotDuration: number;
               startTime: string;
             } = {
-              dayOfWeek: newDay,
+              dayOfWeek,
               endTime: value.endTime,
               practitionerId: schedule.practitionerId,
-              slotDuration: value.slotDuration,
               startTime: value.startTime,
             };
 
@@ -355,10 +306,11 @@ function BaseScheduleDialog({
             }
 
             await createScheduleMutation(createData);
-            toast.success(
-              "Arbeitszeit erfolgreich aktualisiert (Wochentag geändert)",
-            );
           }
+
+          toast.success(
+            `Arbeitszeit${selectedDays.length > 1 ? "en" : ""} erfolgreich aktualisiert`,
+          );
         } else {
           // Create new schedule(s) - one for each selected day
           if (!value.practitionerId) {
@@ -375,13 +327,11 @@ function BaseScheduleDialog({
               dayOfWeek: number;
               endTime: string;
               practitionerId: Id<"practitioners">;
-              slotDuration: number;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
               practitionerId: value.practitionerId as Id<"practitioners">,
-              slotDuration: value.slotDuration,
               startTime: value.startTime,
             };
 
@@ -484,17 +434,10 @@ function BaseScheduleDialog({
             name="daysOfWeek"
             validators={{
               onChange: ({ value }) => {
-                if (schedule) {
-                  // When editing, exactly one day must be selected
-                  return value.length === 1
-                    ? undefined
-                    : "Beim Bearbeiten muss genau ein Wochentag ausgewählt werden";
-                } else {
-                  // When creating, at least one day must be selected
-                  return value.length > 0
-                    ? undefined
-                    : "Bitte wählen Sie mindestens einen Wochentag aus";
-                }
+                // Always require at least one day to be selected
+                return value.length > 0
+                  ? undefined
+                  : "Bitte wählen Sie mindestens einen Wochentag aus";
               },
             }}
           >
@@ -596,38 +539,13 @@ function BaseScheduleDialog({
             </form.Field>
           </div>
 
-          <form.Field name="slotDuration">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor="slotDuration">Terminlänge</Label>
-                <Select
-                  onValueChange={(value) => {
-                    field.handleChange(Number.parseInt(value));
-                  }}
-                  value={field.state.value.toString()}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Terminlänge auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SLOT_DURATIONS.map((duration) => (
-                      <SelectItem
-                        key={duration.value}
-                        value={duration.value.toString()}
-                      >
-                        {duration.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </form.Field>
-
           <form.Field name="breakTimes">
             {(field) => (
               <BreakTimesField
                 onBreakTimesChange={field.handleChange}
+                onValidationError={() => {
+                  // Could store validation error state if needed for warnings
+                }}
                 value={field.state.value}
               />
             )}
@@ -650,13 +568,48 @@ function BaseScheduleDialog({
 // Separate component for managing break times within TanStack Form
 function BreakTimesField({
   onBreakTimesChange,
+  onValidationError,
   value,
 }: {
   onBreakTimesChange: (breakTimes: { end: string; start: string }[]) => void;
+  onValidationError?: (hasError: boolean) => void;
   value: { end: string; start: string }[];
 }) {
   const [newBreakStart, setNewBreakStart] = useState("");
   const [newBreakEnd, setNewBreakEnd] = useState("");
+
+  // Auto-save partial break time when form is submitted
+  React.useEffect(() => {
+    if (newBreakStart && newBreakEnd) {
+      if (newBreakStart < newBreakEnd) {
+        const newBreak = { end: newBreakEnd, start: newBreakStart };
+        if (
+          !value.some(
+            (bt) => bt.start === newBreakStart && bt.end === newBreakEnd,
+          )
+        ) {
+          onBreakTimesChange([...value, newBreak]);
+          setNewBreakStart("");
+          setNewBreakEnd("");
+        }
+      } else {
+        onValidationError?.(true);
+      }
+    } else if (
+      (newBreakStart || newBreakEnd) &&
+      !(newBreakStart && newBreakEnd)
+    ) {
+      onValidationError?.(true); // Incomplete break time
+    } else {
+      onValidationError?.(false);
+    }
+  }, [
+    newBreakStart,
+    newBreakEnd,
+    value,
+    onBreakTimesChange,
+    onValidationError,
+  ]);
 
   const addBreakTime = () => {
     if (!newBreakStart || !newBreakEnd) {

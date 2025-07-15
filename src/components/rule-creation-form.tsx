@@ -63,7 +63,6 @@ export default function RuleCreationForm({
       block_dateRangeEnd: "",
       block_dateRangeStart: "",
       block_daysOfWeek: [] as number[],
-      block_exceptForPractitionerTags: [] as string[],
       block_timeRangeEnd: "",
       block_timeRangeStart: "",
       description: "",
@@ -111,10 +110,6 @@ export default function RuleCreationForm({
           }
           if (value.block_timeRangeEnd) {
             ruleData["block_timeRangeEnd"] = value.block_timeRangeEnd;
-          }
-          if (value.block_exceptForPractitionerTags.length > 0) {
-            ruleData["block_exceptForPractitionerTags"] =
-              value.block_exceptForPractitionerTags;
           }
         } else {
           if (value.limit_appointmentTypes.length > 0) {
@@ -362,12 +357,6 @@ export default function RuleCreationForm({
                                     <span className="text-sm">
                                       {practitioner.name}
                                     </span>
-                                    {practitioner.tags &&
-                                      practitioner.tags.length > 0 && (
-                                        <span className="text-xs text-muted-foreground">
-                                          ({practitioner.tags.join(", ")})
-                                        </span>
-                                      )}
                                   </label>
                                 ))}
                               </div>
