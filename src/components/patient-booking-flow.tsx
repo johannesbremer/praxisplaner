@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { PatientView } from "./patient-view";
+import { PatientFocusedView } from "./patient-focused-view";
 import { SmartphoneDevice } from "./smartphone-device";
 
 interface PatientBookingFlowProps {
@@ -14,6 +14,10 @@ interface PatientBookingFlowProps {
     startTime: string;
     status: "AVAILABLE" | "BLOCKED";
   }) => void;
+  onUpdateSimulatedContext?: (context: {
+    appointmentType: string;
+    patient: { isNew: boolean };
+  }) => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets"> | undefined;
   simulatedContext: {
@@ -25,6 +29,7 @@ interface PatientBookingFlowProps {
 export function PatientBookingFlow({
   dateRange,
   onSlotClick,
+  onUpdateSimulatedContext,
   practiceId,
   ruleSetId,
   simulatedContext,
@@ -32,9 +37,10 @@ export function PatientBookingFlow({
   return (
     <div className="flex justify-center">
       <SmartphoneDevice>
-        <PatientView
+        <PatientFocusedView
           dateRange={dateRange}
           {...(onSlotClick && { onSlotClick })}
+          {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           practiceId={practiceId}
           ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}

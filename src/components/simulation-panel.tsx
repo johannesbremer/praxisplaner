@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { DebugView } from "./debug-view";
 import { PatientBookingFlow } from "./patient-booking-flow";
 
 interface SimulationPanelProps {
@@ -104,6 +105,7 @@ export function SimulationPanel({
           <PatientBookingFlow
             dateRange={dateRange}
             onSlotClick={handleSlotClick}
+            onUpdateSimulatedContext={setSimulatedContext}
             practiceId={practiceId}
             ruleSetId={simulationRuleSetId}
             simulatedContext={simulatedContext}
@@ -166,34 +168,6 @@ export function SimulationPanel({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="appointment-type">Terminart</Label>
-              <Select
-                onValueChange={(value) => {
-                  setSimulatedContext({
-                    ...simulatedContext,
-                    appointmentType: value,
-                  });
-                }}
-                value={simulatedContext.appointmentType}
-              >
-                <SelectTrigger id="appointment-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Erstberatung">Erstberatung</SelectItem>
-                  <SelectItem value="Nachuntersuchung">
-                    Nachuntersuchung
-                  </SelectItem>
-                  <SelectItem value="Grippeimpfung">Grippeimpfung</SelectItem>
-                  <SelectItem value="Vorsorge">Vorsorgeuntersuchung</SelectItem>
-                  <SelectItem value="Akutsprechstunde">
-                    Akutsprechstunde
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label>Datum auswählen</Label>
               <Calendar
                 className="rounded-md border"
@@ -218,6 +192,15 @@ export function SimulationPanel({
             </Button>
           </CardContent>
         </Card>
+
+        {/* Debug View */}
+        <DebugView
+          dateRange={dateRange}
+          onSlotClick={handleSlotClick}
+          practiceId={practiceId}
+          ruleSetId={simulationRuleSetId}
+          simulatedContext={simulatedContext}
+        />
 
         {/* Slot Inspector */}
         <Card>
