@@ -48,20 +48,24 @@ interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
   practiceId: Id<"practices">;
-  schedule?:
-    | undefined
-    | {
-        _id: Id<"baseSchedules">;
-        breakTimes?: { end: string; start: string }[];
-        dayOfWeek: number;
-        endTime: string;
-        practitionerId: Id<"practitioners">;
-        startTime: string;
-      };
+  schedule?: ExtendedSchedule | undefined;
 }
 
 interface BaseScheduleManagementProps {
   practiceId: Id<"practices">;
+}
+
+interface ExtendedSchedule {
+  _id: Id<"baseSchedules">;
+  breakTimes?: { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  practitionerId: Id<"practitioners">;
+  startTime: string;
+  // Group editing metadata
+  _groupDaysOfWeek?: number[];
+  _groupScheduleIds?: Id<"baseSchedules">[];
+  _isGroup?: boolean;
 }
 
 // Helper functions
@@ -69,17 +73,7 @@ export default function BaseScheduleManagement({
   practiceId,
 }: BaseScheduleManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<
-    | undefined
-    | {
-        _id: Id<"baseSchedules">;
-        breakTimes?: { end: string; start: string }[];
-        dayOfWeek: number;
-        endTime: string;
-        practitionerId: Id<"practitioners">;
-        startTime: string;
-      }
-  >();
+  const [editingSchedule, setEditingSchedule] = useState<ExtendedSchedule>();
 
   const { captureError } = useErrorTracking();
 
@@ -94,36 +88,65 @@ export default function BaseScheduleManagement({
     api.baseSchedules.deleteBaseSchedule,
   );
 
-  const handleEdit = (schedule: {
-    _id: Id<"baseSchedules">;
+  const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
-    dayOfWeek: number;
+    daysOfWeek: number[];
     endTime: string;
     practitionerId: Id<"practitioners">;
+    scheduleIds: Id<"baseSchedules">[];
     startTime: string;
   }) => {
-    setEditingSchedule(schedule);
+    // Ensure we have valid data
+    if (
+      scheduleGroup.scheduleIds.length === 0 ||
+      scheduleGroup.daysOfWeek.length === 0
+    ) {
+      toast.error("Fehler: Ungültige Zeitplan-Daten");
+      return;
+    }
+
+    // Create a representative schedule object for editing
+    const representativeSchedule: ExtendedSchedule = {
+      _id: scheduleGroup.scheduleIds[0], // Use first ID for form processing
+      ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
+      dayOfWeek: scheduleGroup.daysOfWeek[0], // This will be overridden by the form
+      endTime: scheduleGroup.endTime,
+      practitionerId: scheduleGroup.practitionerId,
+      startTime: scheduleGroup.startTime,
+      // Add metadata to track the full group
+      _groupDaysOfWeek: scheduleGroup.daysOfWeek,
+      _groupScheduleIds: scheduleGroup.scheduleIds,
+      _isGroup: true,
+    };
+
+    setEditingSchedule(representativeSchedule);
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (scheduleId: Id<"baseSchedules">) => {
+  const handleDeleteGroup = async (scheduleIds: Id<"baseSchedules">[]) => {
     if (
-      !confirm("Sind Sie sicher, dass Sie diese Arbeitszeit löschen möchten?")
+      !confirm(
+        `Sind Sie sicher, dass Sie diese ${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} löschen möchten?`,
+      )
     ) {
       return;
     }
 
     try {
-      await deleteScheduleMutation({ scheduleId });
-      toast.success("Arbeitszeit erfolgreich gelöscht");
+      for (const scheduleId of scheduleIds) {
+        await deleteScheduleMutation({ scheduleId });
+      }
+      toast.success(
+        `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
+      );
     } catch (error: unknown) {
       captureError(error, {
-        context: "base_schedule_delete",
+        context: "base_schedule_group_delete",
         practiceId,
-        scheduleId,
+        scheduleIds,
       });
 
-      toast.error("Fehler beim Löschen der Arbeitszeit");
+      toast.error("Fehler beim Löschen der Arbeitszeiten");
     }
   };
 
@@ -132,16 +155,74 @@ export default function BaseScheduleManagement({
     setEditingSchedule(undefined);
   };
 
-  // Group schedules by practitioner
+  // Group schedules by practitioner and then by schedule "signature" (time + breaks)
   const schedulesByPractitioner =
     schedulesQuery?.reduce(
-      (acc: Record<string, typeof schedulesQuery>, schedule) => {
+      (
+        acc: Record<
+          string,
+          {
+            practitionerName: string;
+            scheduleGroup: {
+              breakTimes?: { end: string; start: string }[];
+              daysOfWeek: number[];
+              endTime: string;
+              practitionerId: Id<"practitioners">;
+              scheduleIds: Id<"baseSchedules">[];
+              startTime: string;
+            };
+          }[]
+        >,
+        schedule,
+      ) => {
         const practitionerName = schedule.practitionerName;
         acc[practitionerName] ??= [];
-        acc[practitionerName].push(schedule);
+
+        // Look for existing group with same times and breaks
+        const existingGroup = acc[practitionerName].find(
+          (item) =>
+            item.scheduleGroup.startTime === schedule.startTime &&
+            item.scheduleGroup.endTime === schedule.endTime &&
+            JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
+              JSON.stringify(schedule.breakTimes ?? []),
+        );
+
+        if (existingGroup) {
+          // Add this day to existing group
+          existingGroup.scheduleGroup.daysOfWeek.push(schedule.dayOfWeek);
+          existingGroup.scheduleGroup.scheduleIds.push(schedule._id);
+          existingGroup.scheduleGroup.daysOfWeek.sort();
+        } else {
+          // Create new group
+          acc[practitionerName].push({
+            practitionerName,
+            scheduleGroup: {
+              ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+              daysOfWeek: [schedule.dayOfWeek],
+              endTime: schedule.endTime,
+              practitionerId: schedule.practitionerId,
+              scheduleIds: [schedule._id],
+              startTime: schedule.startTime,
+            },
+          });
+        }
+
         return acc;
       },
-      {} as Record<string, typeof schedulesQuery>,
+      {} as Record<
+        string,
+        {
+          practitionerName: string;
+          scheduleGroup: {
+            breakTimes?: { end: string; start: string }[];
+            daysOfWeek: number[];
+            endTime: string;
+            practitionerId: Id<"practitioners">;
+            scheduleIds: Id<"baseSchedules">[];
+            startTime: string;
+          };
+        }[]
+      >,
     ) ?? {};
 
   return (
@@ -184,32 +265,42 @@ export default function BaseScheduleManagement({
         ) : (
           <div className="space-y-6">
             {Object.entries(schedulesByPractitioner).map(
-              ([practitionerName, schedules]) => (
+              ([practitionerName, scheduleGroups]) => (
                 <div className="space-y-2" key={practitionerName}>
                   <h4 className="font-medium text-lg">{practitionerName}</h4>
                   <div className="grid gap-2">
-                    {schedules.map((schedule) => (
+                    {scheduleGroups.map((scheduleGroup, index) => (
                       <div
                         className="flex items-center justify-between p-3 border rounded-lg"
-                        key={schedule._id}
+                        key={`${practitionerName}-${index}`}
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="outline">
-                              {getDayName(schedule.dayOfWeek)}
-                            </Badge>
+                            <div className="flex gap-1">
+                              {scheduleGroup.scheduleGroup.daysOfWeek.map(
+                                (day) => (
+                                  <Badge key={day} variant="outline">
+                                    {getDayName(day)}
+                                  </Badge>
+                                ),
+                              )}
+                            </div>
                             <span className="font-medium">
-                              {schedule.startTime} - {schedule.endTime}
+                              {scheduleGroup.scheduleGroup.startTime} -{" "}
+                              {scheduleGroup.scheduleGroup.endTime}
                             </span>
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            Pausen: {formatBreakTimes(schedule.breakTimes)}
+                            Pausen:{" "}
+                            {formatBreakTimes(
+                              scheduleGroup.scheduleGroup.breakTimes,
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-2">
                           <Button
                             onClick={() => {
-                              handleEdit(schedule);
+                              handleEditGroup(scheduleGroup.scheduleGroup);
                             }}
                             size="sm"
                             variant="ghost"
@@ -218,7 +309,9 @@ export default function BaseScheduleManagement({
                           </Button>
                           <Button
                             onClick={() => {
-                              void handleDelete(schedule._id);
+                              void handleDeleteGroup(
+                                scheduleGroup.scheduleGroup.scheduleIds,
+                              );
                             }}
                             size="sm"
                             variant="ghost"
@@ -268,7 +361,11 @@ function BaseScheduleDialog({
   const form = useForm({
     defaultValues: {
       breakTimes: schedule?.breakTimes ?? [],
-      daysOfWeek: schedule ? [schedule.dayOfWeek] : [],
+      daysOfWeek: schedule
+        ? schedule._isGroup
+          ? (schedule._groupDaysOfWeek ?? [])
+          : [schedule.dayOfWeek]
+        : [],
       endTime: schedule?.endTime ?? "17:00",
       practitionerId: schedule?.practitionerId ?? "",
       startTime: schedule?.startTime ?? "08:00",
@@ -276,15 +373,22 @@ function BaseScheduleDialog({
     onSubmit: async ({ value }) => {
       try {
         if (schedule) {
-          // When editing, always delete the old schedule and create new ones for selected days
+          // When editing, check if it's a group edit
+          const isGroupEdit = schedule._isGroup ?? false;
+          const scheduleIdsToDelete = isGroupEdit
+            ? (schedule._groupScheduleIds ?? [])
+            : [schedule._id];
+
           const selectedDays = value.daysOfWeek;
 
           if (selectedDays.length === 0) {
             throw new Error("Bitte wählen Sie mindestens einen Wochentag aus");
           }
 
-          // Delete the existing schedule
-          await deleteScheduleMutation({ scheduleId: schedule._id });
+          // Delete all existing schedules in the group
+          for (const scheduleId of scheduleIdsToDelete) {
+            await deleteScheduleMutation({ scheduleId });
+          }
 
           // Create new schedules for each selected day
           for (const dayOfWeek of selectedDays) {
@@ -434,7 +538,6 @@ function BaseScheduleDialog({
             name="daysOfWeek"
             validators={{
               onChange: ({ value }) => {
-                // Always require at least one day to be selected
                 return value.length > 0
                   ? undefined
                   : "Bitte wählen Sie mindestens einen Wochentag aus";

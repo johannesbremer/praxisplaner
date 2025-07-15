@@ -266,6 +266,15 @@ export default function LogicView() {
     ruleSetsQuery,
   ]);
 
+  // Function to ensure an unsaved rule set exists - called when user starts making changes
+  const ensureUnsavedRuleSet = React.useCallback(async () => {
+    if (unsavedRuleSetId) {
+      return unsavedRuleSetId; // Already have an unsaved rule set
+    }
+
+    return await createInitialUnsaved();
+  }, [unsavedRuleSetId, createInitialUnsaved]);
+
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
     if (
@@ -444,15 +453,15 @@ export default function LogicView() {
                 <CardHeader>
                   <CardTitle>Regelset Auswahl</CardTitle>
                   <CardDescription>
-                    {ruleSetsQuery && ruleSetsQuery.length === 0
-                      ? "Noch keine Regelsets vorhanden. Erstellen Sie das erste Regelset für Ihre Praxis."
-                      : unsavedRuleSet
-                        ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
+                    {unsavedRuleSet
+                      ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
+                      : ruleSetsQuery && ruleSetsQuery.length === 0
+                        ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
                         : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Only show select when there are saved rule sets or both saved and unsaved */}
+                  {/* Show select when there are saved rule sets */}
                   {ruleSetsQuery && ruleSetsQuery.length > 0 && (
                     <div className="space-y-2">
                       <Label htmlFor="rule-set-select">Regelset</Label>
@@ -507,8 +516,11 @@ export default function LogicView() {
                   )}
 
                   <div className="flex gap-2">
-                    {/* Only show activation button for unsaved rule sets */}
-                    {unsavedRuleSet && (
+                    {/* Show activation button when we have an unsaved rule set or when creating the first one */}
+                    {(unsavedRuleSet ??
+                      (ruleSetsQuery &&
+                        ruleSetsQuery.length === 0 &&
+                        currentWorkingRuleSet)) && (
                       <Button
                         onClick={handleOpenActivationDialog}
                         variant="default"
@@ -522,32 +534,44 @@ export default function LogicView() {
               </Card>
 
               {/* Rules List */}
-              {currentWorkingRuleSet && (
+              {(currentWorkingRuleSet ??
+                (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
                 <Card>
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle>
-                          Regeln in {currentWorkingRuleSet.description}
-                          {currentWorkingRuleSet.isActive && (
-                            <Badge className="ml-2" variant="default">
-                              AKTIV
-                            </Badge>
-                          )}
-                          {unsavedRuleSet && (
-                            <Badge className="ml-2" variant="secondary">
-                              UNSAVED
-                            </Badge>
+                          {currentWorkingRuleSet ? (
+                            <>
+                              Regeln in {currentWorkingRuleSet.description}
+                              {currentWorkingRuleSet.isActive && (
+                                <Badge className="ml-2" variant="default">
+                                  AKTIV
+                                </Badge>
+                              )}
+                              {unsavedRuleSet && (
+                                <Badge className="ml-2" variant="secondary">
+                                  UNSAVED
+                                </Badge>
+                              )}
+                            </>
+                          ) : (
+                            "Regeln"
                           )}
                         </CardTitle>
                         <CardDescription>
                           {unsavedRuleSet
                             ? "Ungespeicherte Änderungen - speichern Sie das Regelset um die Änderungen zu übernehmen"
-                            : currentWorkingRuleSet.description}
+                            : currentWorkingRuleSet
+                              ? currentWorkingRuleSet.description
+                              : "Fügen Sie Ihre erste Regel hinzu"}
                         </CardDescription>
                       </div>
-                      {currentWorkingRuleSet._id &&
-                        (unsavedRuleSet ? (
+                      {!currentWorkingRuleSet?.isActive ||
+                      unsavedRuleSet ||
+                      (ruleSetsQuery && ruleSetsQuery.length === 0) ? (
+                        // Show form if we have an unsaved rule set
+                        unsavedRuleSet ? (
                           <RuleCreationForm
                             onRuleCreated={() => {
                               // Rules will auto-refresh via Convex reactivity
@@ -555,17 +579,18 @@ export default function LogicView() {
                             practiceId={currentPractice._id}
                             ruleSetId={unsavedRuleSet._id}
                           />
+                        ) : currentWorkingRuleSet ? (
+                          <RuleCreationForm
+                            onRuleCreated={() => {
+                              // Rules will auto-refresh via Convex reactivity
+                            }}
+                            practiceId={currentPractice._id}
+                            ruleSetId={currentWorkingRuleSet._id}
+                          />
                         ) : (
                           <Button
                             onClick={() => {
-                              void (async () => {
-                                if (currentWorkingRuleSet.isActive) {
-                                  await createUnsavedCopy(
-                                    currentWorkingRuleSet._id,
-                                  );
-                                }
-                                // After creating unsaved copy, the form will be available
-                              })();
+                              void ensureUnsavedRuleSet();
                             }}
                             size="sm"
                             variant="outline"
@@ -573,14 +598,36 @@ export default function LogicView() {
                             <Plus className="h-4 w-4 mr-2" />
                             Neue Regel
                           </Button>
-                        ))}
+                        )
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            void (async () => {
+                              if (currentWorkingRuleSet.isActive) {
+                                await createUnsavedCopy(
+                                  currentWorkingRuleSet._id,
+                                );
+                              } else {
+                                await ensureUnsavedRuleSet();
+                              }
+                            })();
+                          }}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Neue Regel
+                        </Button>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>
                     {rulesQuery ? (
                       rulesQuery.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
-                          Keine Regeln in diesem Regelset.
+                          {currentWorkingRuleSet
+                            ? "Keine Regeln in diesem Regelset."
+                            : "Fügen Sie Ihre erste Regel hinzu, um zu beginnen."}
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -642,7 +689,7 @@ export default function LogicView() {
                                         onClick={() => {
                                           void (async () => {
                                             if (
-                                              currentWorkingRuleSet.isActive
+                                              currentWorkingRuleSet?.isActive
                                             ) {
                                               await createUnsavedCopy(
                                                 currentWorkingRuleSet._id,
@@ -665,7 +712,7 @@ export default function LogicView() {
                                           ) {
                                             void (async () => {
                                               if (
-                                                currentWorkingRuleSet.isActive
+                                                currentWorkingRuleSet?.isActive
                                               ) {
                                                 await createUnsavedCopy(
                                                   currentWorkingRuleSet._id,
@@ -718,8 +765,8 @@ export default function LogicView() {
                     ruleSetsQuery.length === 0 && !unsavedRuleSetId ? (
                       <div className="text-center py-8">
                         <div className="text-muted-foreground">
-                          Beginnen Sie mit der Regelbearbeitung, um Ihr erstes
-                          Regelset zu erstellen.
+                          Fügen Sie Regeln, Ärzte oder Arbeitszeiten hinzu, um
+                          Ihr erstes Regelset zu erstellen.
                         </div>
                       </div>
                     ) : (
@@ -734,9 +781,9 @@ export default function LogicView() {
                                   Ungespeicherte Änderungen
                                 </div>
                                 <div className="text-sm text-muted-foreground">
-                                  Basiert auf:{" "}
-                                  {selectedRuleSet?.description ||
-                                    "Aktivem Regelset"}
+                                  {ruleSetsQuery.length > 0
+                                    ? `Basiert auf: ${selectedRuleSet?.description || "Aktivem Regelset"}`
+                                    : "Neues Regelset"}
                                 </div>
                               </div>
                               <Badge className="text-xs" variant="secondary">
