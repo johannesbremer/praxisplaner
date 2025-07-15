@@ -3,6 +3,7 @@ This is a `TanStack Start` + `Convex` project.
 ## Before You Start
 
 - I have a pretty strict linting setup. Please look at `tsconfig.json` and `eslint.config.js` to understand the rules.
+- Please run `npm i -g pnpm && pnpm i && pnpm gen` to install the dependencies and generate the Convex schema.
 
 ## Required Before Each Commit
 
