@@ -29,7 +29,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
 import BaseScheduleManagement from "../components/base-schedule-management";
@@ -455,7 +461,7 @@ export default function LogicView() {
               Verwalten Sie Regelsets und konfigurieren Sie die Logik
             </p>
           </div>
-          
+
           <div className="space-y-6">
             {/* Rule Set Selection */}
             <Card>
@@ -509,10 +515,7 @@ export default function LogicView() {
                               <div className="flex items-center gap-2">
                                 <span>{ruleSet.description}</span>
                                 {ruleSet.isActive && (
-                                  <Badge
-                                    className="text-xs"
-                                    variant="default"
-                                  >
+                                  <Badge className="text-xs" variant="default">
                                     AKTIV
                                   </Badge>
                                 )}
@@ -746,7 +749,7 @@ export default function LogicView() {
               Testen Sie Regelsets in der Patientensicht
             </p>
           </div>
-          
+
           <div className="grid gap-6 lg:grid-cols-12">
             {/* Controls */}
             <div className="lg:col-span-5 space-y-6">

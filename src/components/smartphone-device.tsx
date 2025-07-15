@@ -5,7 +5,10 @@ interface SmartphoneDeviceProps {
   className?: string;
 }
 
-export function SmartphoneDevice({ children, className = "" }: SmartphoneDeviceProps) {
+export function SmartphoneDevice({
+  children,
+  className = "",
+}: SmartphoneDeviceProps) {
   return (
     <div className={`device-iphone-14-pro ${className}`}>
       <div className="device-frame device-stripe device-home">
@@ -13,9 +16,7 @@ export function SmartphoneDevice({ children, className = "" }: SmartphoneDeviceP
         <div className="device-sensors"></div>
         <div className="device-btns"></div>
         <div className="device-power"></div>
-        <div className="device-screen">
-          {children}
-        </div>
+        <div className="device-screen">{children}</div>
       </div>
     </div>
   );

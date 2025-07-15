@@ -92,12 +92,12 @@ export function PatientView({
         <div className="mb-4">
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
           <div className="text-sm text-muted-foreground mb-3">
-            {simulatedContext.appointmentType} • {" "}
+            {simulatedContext.appointmentType} •{" "}
             {simulatedContext.patient.isNew
               ? "Neuer Patient"
               : "Bestandspatient"}
           </div>
-          
+
           <div className="flex gap-4 text-sm mb-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -192,7 +192,9 @@ export function PatientView({
 
         {showDebugInfo && slotsResult.log.length > 0 && (
           <div className="mt-6 p-3 bg-gray-50 rounded-lg">
-            <h4 className="font-semibold mb-2 text-sm">Debug: Regelverarbeitung</h4>
+            <h4 className="font-semibold mb-2 text-sm">
+              Debug: Regelverarbeitung
+            </h4>
             <div className="space-y-1 font-mono text-xs">
               {slotsResult.log.map((logEntry, index) => (
                 <div className="text-muted-foreground" key={index}>

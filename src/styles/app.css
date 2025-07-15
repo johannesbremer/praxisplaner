@@ -11,7 +11,9 @@
   background: #010101;
   border: 1px solid #1f1a2d;
   border-radius: 68px;
-  box-shadow: inset 0 0 4px 2px #8b7a9e, inset 0 0 0 6px #342c3f;
+  box-shadow:
+    inset 0 0 4px 2px #8b7a9e,
+    inset 0 0 0 6px #342c3f;
   height: 868px;
   padding: 19px;
   width: 428px;
@@ -74,8 +76,14 @@
 }
 
 .device-iphone-14-pro .device-sensors::before {
-  background: radial-gradient(farthest-corner at 20% 20%, #6074BF 0, transparent 40%),
-              radial-gradient(farthest-corner at 80% 80%, #513785 0, #24555E 20%, transparent 50%);
+  background:
+    radial-gradient(farthest-corner at 20% 20%, #6074bf 0, transparent 40%),
+    radial-gradient(
+      farthest-corner at 80% 80%,
+      #513785 0,
+      #24555e 20%,
+      transparent 50%
+    );
   box-shadow: 0 0 1px 1px rgba(255, 255, 255, 0.05);
   border-radius: 50%;
   height: 9px;
