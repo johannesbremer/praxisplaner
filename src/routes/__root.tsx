@@ -1,4 +1,5 @@
 // src/routes/__root.tsx
+// react-scan must be imported before React and TanStack Start
 import type { QueryClient } from "@tanstack/react-query";
 
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools/production";
@@ -13,6 +14,8 @@ import {
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
+import { useEffect } from "react";
+import { scan } from "react-scan";
 import { Toaster } from "sonner";
 
 import appCss from "../styles/app.css?url";
@@ -263,6 +266,13 @@ function RootComponent() {
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    // Make sure to run this only after hydration
+    scan({
+      enabled: true,
+    });
+  }, []);
+
   return (
     <html>
       <head>
