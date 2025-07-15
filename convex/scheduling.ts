@@ -93,11 +93,14 @@ export const getAvailableSlots = query({
             continue; // Skip invalid time format
           }
 
+          // Create time objects using UTC to avoid timezone issues
+          // Since currentDate is already in UTC representing the calendar day,
+          // we need to set the hours in UTC as well to maintain consistency
           const dayStart = new Date(currentDate);
-          dayStart.setHours(startHour, startMinute, 0, 0);
+          dayStart.setUTCHours(startHour, startMinute, 0, 0);
 
           const dayEnd = new Date(currentDate);
-          dayEnd.setHours(endHour, endMinute, 0, 0);
+          dayEnd.setUTCHours(endHour, endMinute, 0, 0);
 
           // Generate slots every 30 minutes (default duration)
           const slotDuration = 30;
@@ -107,8 +110,9 @@ export const getAvailableSlots = query({
             slotTime = new Date(slotTime.getTime() + slotDuration * 60 * 1000)
           ) {
             // Skip break times
-            // Extract local time components for comparison with stored break times
-            const timeString = `${slotTime.getHours().toString().padStart(2, "0")}:${slotTime.getMinutes().toString().padStart(2, "0")}`;
+            // Extract UTC time components for comparison with stored break times
+            // This ensures consistent time handling regardless of server timezone
+            const timeString = `${slotTime.getUTCHours().toString().padStart(2, "0")}:${slotTime.getUTCMinutes().toString().padStart(2, "0")}`;
             const isBreakTime =
               schedule.breakTimes?.some(
                 (breakTime) =>

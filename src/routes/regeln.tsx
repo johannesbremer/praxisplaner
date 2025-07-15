@@ -1077,9 +1077,19 @@ export default function LogicView() {
                       <div>
                         <Label className="text-sm font-medium">Zeit</Label>
                         <div className="text-lg font-semibold">
-                          {format(new Date(selectedSlot.startTime), "HH:mm", {
-                            locale: de,
-                          })}
+                          {/* Always display time as German time by extracting UTC components */}
+                          {(() => {
+                            const date = new Date(selectedSlot.startTime);
+                            const hours = date
+                              .getUTCHours()
+                              .toString()
+                              .padStart(2, "0");
+                            const minutes = date
+                              .getUTCMinutes()
+                              .toString()
+                              .padStart(2, "0");
+                            return `${hours}:${minutes}`;
+                          })()}
                         </div>
                       </div>
 

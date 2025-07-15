@@ -148,9 +148,16 @@ export function PatientBookingFlow({
                         )
                         .map((slot) => {
                           const slotTime = new Date(slot.startTime);
-                          const timeString = format(slotTime, "HH:mm", {
-                            locale: de,
-                          });
+                          // Always display time as German time by extracting UTC components
+                          const hours = slotTime
+                            .getUTCHours()
+                            .toString()
+                            .padStart(2, "0");
+                          const minutes = slotTime
+                            .getUTCMinutes()
+                            .toString()
+                            .padStart(2, "0");
+                          const timeString = `${hours}:${minutes}`;
 
                           return (
                             <div

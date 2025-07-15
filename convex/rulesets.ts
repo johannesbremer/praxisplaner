@@ -253,7 +253,8 @@ export const createInitialRuleSet = mutation({
       );
     }
 
-    // Create the first rule set with version 1
+    // Create the first rule set with version 1 but DON'T activate it
+    // User should be able to add rules before activating
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
@@ -262,10 +263,8 @@ export const createInitialRuleSet = mutation({
       version: 1,
     });
 
-    // Activate this rule set as the first one
-    await ctx.db.patch(args.practiceId, {
-      currentActiveRuleSetId: newRuleSetId,
-    });
+    // Don't activate automatically - let user add rules and then activate
+    // The rule set remains as a draft until user explicitly activates it
 
     return newRuleSetId;
   },
