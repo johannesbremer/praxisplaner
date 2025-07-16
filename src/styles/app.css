@@ -270,6 +270,232 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   --shadow-2xl: 3px 3px 0px 0px hsl(206.1538 28.0576% 27.2549% / 2.5);
 }
 
+/*
+iMac 24" (2021) Device CSS - Light Blue Edition
+Based on devices.css library
+*/
+
+// iMac 24" (2021)
+.device-imac {
+  height: 540px;
+  width: 640px;
+}
+
+.device-imac .device-frame {
+  background: #EDEEF0;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px #D4D5D7;
+  height: 440px;
+  padding: 16px 16px 80px 16px;
+  position: relative;
+  width: 640px;
+}
+
+.device-imac .device-frame::after {
+  background: #D4D5D7;
+  border-radius: 0 0 18px 18px;
+  bottom: 1px;
+  box-shadow: inset 0 0 18px 0 rgba(212, 213, 215, 0.95);
+  content: "";
+  height: 63px;
+  left: 1px;
+  position: absolute;
+  width: 638px;
+}
+
+.device-imac .device-frame::before {
+  background: rgba(13, 13, 13, 0.97);
+  border-radius: 50%;
+  content: "";
+  height: 6px;
+  left: 50%;
+  margin-left: -3px;
+  position: absolute;
+  text-align: center;
+  top: 6px;
+  width: 6px;
+  z-index: 9;
+}
+
+/* 4480-by-2520-pixel resolution */
+.device-imac .device-screen {
+  border: 2px solid rgba(13, 13, 13, 1.02);
+  border-radius: 2px;
+  height: 342px;
+  width: 608px;
+  overflow: hidden;
+  background: white;
+}
+
+.device-imac .device-power::after {
+  background: radial-gradient(circle at center, #D4D5D7 85%, rgba(212, 213, 215, 0.8) 100%);
+  border-top: 1px solid #D4D5D7;
+  content: "";
+  height: 6px;
+  margin: 0 auto;
+  position: relative;
+  width: 152px;
+}
+
+.device-imac .device-power::before {
+  background: linear-gradient(to bottom, rgba(212, 213, 215, 0.8) 0%, rgba(212, 213, 215, 0.95) 40%, rgba(212, 213, 215, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(212, 213, 215, 0.6) 100%);
+  content: "";
+  height: 92px;
+  margin: 0 auto;
+  position: relative;
+  width: 152px;
+}
+
+.device-imac .device-home {
+  background: transparent;
+  border-radius: 0 0 3px 3px;
+  bottom: 0;
+  box-shadow: -61px 0 #D4D5D7, 61px 0 #D4D5D7;
+  height: 2px;
+  left: 50%;
+  margin-left: -15px;
+  position: absolute;
+  width: 30px;
+}
+
+/* Blue edition */
+.device-imac.device-blue .device-frame {
+  box-shadow: inset 0 0 0 2px #B4C7DA;
+}
+
+.device-imac.device-blue .device-frame::after {
+  background: #B4C7DA;
+  box-shadow: inset 0 0 18px 0 rgba(180, 199, 218, 0.95);
+}
+
+.device-imac.device-blue .device-power::after {
+  background: radial-gradient(circle at center, #B4C7DA 85%, rgba(180, 199, 218, 0.8) 100%);
+  border-top-color: #B4C7DA;
+}
+
+.device-imac.device-blue .device-power::before {
+  background: linear-gradient(to bottom, rgba(180, 199, 218, 0.8) 0%, rgba(180, 199, 218, 0.95) 40%, rgba(180, 199, 218, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(180, 199, 218, 0.6) 100%);
+}
+
+.device-imac.device-blue .device-home {
+  box-shadow: -61px 0 #B4C7DA, 61px 0 #B4C7DA;
+}
+
+/* Green edition */
+.device-imac.device-green .device-frame {
+  box-shadow: inset 0 0 0 2px #BBD0C8;
+}
+
+.device-imac.device-green .device-frame::after {
+  background: #BBD0C8;
+  box-shadow: inset 0 0 18px 0 rgba(187, 208, 200, 0.95);
+}
+
+.device-imac.device-green .device-power::after {
+  background: radial-gradient(circle at center, #BBD0C8 85%, rgba(187, 208, 200, 0.8) 100%);
+  border-top-color: #BBD0C8;
+}
+
+.device-imac.device-green .device-power::before {
+  background: linear-gradient(to bottom, rgba(187, 208, 200, 0.8) 0%, rgba(187, 208, 200, 0.95) 40%, rgba(187, 208, 200, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(187, 208, 200, 0.6) 100%);
+}
+
+.device-imac.device-green .device-home {
+  box-shadow: -61px 0 #BBD0C8, 61px 0 #BBD0C8;
+}
+
+/* Pink edition */
+.device-imac.device-pink .device-frame {
+  box-shadow: inset 0 0 0 2px #EDCCC6;
+}
+
+.device-imac.device-pink .device-frame::after {
+  background: #EDCCC6;
+  box-shadow: inset 0 0 18px 0 rgba(237, 204, 198, 0.95);
+}
+
+.device-imac.device-pink .device-power::after {
+  background: radial-gradient(circle at center, #EDCCC6 85%, rgba(237, 204, 198, 0.8) 100%);
+  border-top-color: #EDCCC6;
+}
+
+.device-imac.device-pink .device-power::before {
+  background: linear-gradient(to bottom, rgba(237, 204, 198, 0.8) 0%, rgba(237, 204, 198, 0.95) 40%, rgba(237, 204, 198, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(237, 204, 198, 0.6) 100%);
+}
+
+.device-imac.device-pink .device-home {
+  box-shadow: -61px 0 #EDCCC6, 61px 0 #EDCCC6;
+}
+
+/* Yellow edition */
+.device-imac.device-yellow .device-frame {
+  box-shadow: inset 0 0 0 2px #F4D595;
+}
+
+.device-imac.device-yellow .device-frame::after {
+  background: #F4D595;
+  box-shadow: inset 0 0 18px 0 rgba(244, 213, 149, 0.95);
+}
+
+.device-imac.device-yellow .device-power::after {
+  background: radial-gradient(circle at center, #F4D595 85%, rgba(244, 213, 149, 0.8) 100%);
+  border-top-color: #F4D595;
+}
+
+.device-imac.device-yellow .device-power::before {
+  background: linear-gradient(to bottom, rgba(244, 213, 149, 0.8) 0%, rgba(244, 213, 149, 0.95) 40%, rgba(244, 213, 149, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(244, 213, 149, 0.6) 100%);
+}
+
+.device-imac.device-yellow .device-home {
+  box-shadow: -61px 0 #F4D595, 61px 0 #F4D595;
+}
+
+/* Orange edition */
+.device-imac.device-orange .device-frame {
+  box-shadow: inset 0 0 0 2px #E9B5A0;
+}
+
+.device-imac.device-orange .device-frame::after {
+  background: #E9B5A0;
+  box-shadow: inset 0 0 18px 0 rgba(233, 181, 160, 0.95);
+}
+
+.device-imac.device-orange .device-power::after {
+  background: radial-gradient(circle at center, #E9B5A0 85%, rgba(233, 181, 160, 0.8) 100%);
+  border-top-color: #E9B5A0;
+}
+
+.device-imac.device-orange .device-power::before {
+  background: linear-gradient(to bottom, rgba(233, 181, 160, 0.8) 0%, rgba(233, 181, 160, 0.95) 40%, rgba(233, 181, 160, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(233, 181, 160, 0.6) 100%);
+}
+
+.device-imac.device-orange .device-home {
+  box-shadow: -61px 0 #E9B5A0, 61px 0 #E9B5A0;
+}
+
+/* Purple edition */
+.device-imac.device-purple .device-frame {
+  box-shadow: inset 0 0 0 2px #C4C4E5;
+}
+
+.device-imac.device-purple .device-frame::after {
+  background: #C4C4E5;
+  box-shadow: inset 0 0 18px 0 rgba(196, 196, 229, 0.95);
+}
+
+.device-imac.device-purple .device-power::after {
+  background: radial-gradient(circle at center, #C4C4E5 85%, rgba(196, 196, 229, 0.8) 100%);
+  border-top-color: #C4C4E5;
+}
+
+.device-imac.device-purple .device-power::before {
+  background: linear-gradient(to bottom, rgba(196, 196, 229, 0.8) 0%, rgba(196, 196, 229, 0.95) 40%, rgba(196, 196, 229, 0.95) 85%, rgba(237, 238, 240, 1.15) 90%, rgba(196, 196, 229, 0.6) 100%);
+}
+
+.device-imac.device-purple .device-home {
+  box-shadow: -61px 0 #C4C4E5, 61px 0 #C4C4E5;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
