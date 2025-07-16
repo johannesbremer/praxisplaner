@@ -270,6 +270,97 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   --shadow-2xl: 3px 3px 0px 0px hsl(206.1538 28.0576% 27.2549% / 2.5);
 }
 
+/*
+This Pro Display XDR Device CSS is forked from the following MIT licensed repo:
+https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e068d6147/src/_pro-display-xdr.scss
+*/
+
+.device-pro-display-xdr {
+  width: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.device-pro-display-xdr .device-frame {
+  background: #101010;
+  border-radius: 4px;
+  box-shadow: inset 0 0 2px #d4d5d7;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 12px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.device-pro-display-xdr .device-frame::before {
+  background: #0a0a0a;
+  border-radius: 50%;
+  content: "";
+  height: 6px;
+  left: 50%;
+  margin-left: -3px;
+  position: absolute;
+  text-align: center;
+  top: 6px;
+  width: 6px;
+  z-index: 9;
+}
+
+/* 6016-by-3384-pixel resolution */
+.device-pro-display-xdr .device-screen {
+  border: 2px solid #0f0f0f;
+  border-radius: 2px;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: white;
+}
+
+.device-pro-display-xdr .device-power {
+  width: 152px;
+  height: 108px;
+  position: relative;
+  margin-top: 0;
+}
+
+.device-pro-display-xdr .device-power::before {
+  background: linear-gradient(
+    to bottom,
+    #aaabae 0%,
+    #c4c5c7 40%,
+    #c4c5c7 85%,
+    #fafbfc 90%,
+    #999a9e 100%
+  );
+  content: "";
+  height: 102px;
+  width: 152px;
+  display: block;
+}
+
+.device-pro-display-xdr .device-power::after {
+  background: radial-gradient(circle at center, #d4d5d7 85%, #aaabae 100%);
+  border-top: 1px solid #d4d5d7;
+  content: "";
+  height: 6px;
+  width: 152px;
+  display: block;
+}
+
+.device-pro-display-xdr .device-home {
+  background: transparent;
+  border-radius: 0 0 3px 3px;
+  box-shadow:
+    -61px 0 #999a9e,
+    61px 0 #999a9e;
+  height: 1px;
+  width: 30px;
+  position: relative;
+  margin-top: -1px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

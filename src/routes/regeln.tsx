@@ -2,7 +2,8 @@
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { Edit, Plus, Save, Trash2 } from "lucide-react";
+import { de } from "date-fns/locale";
+import { Edit, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -10,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Card,
   CardContent,
@@ -34,13 +36,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
 import BaseScheduleManagement from "../components/base-schedule-management";
+import { DebugView } from "../components/debug-view";
+import { MedicalStaffDisplay } from "../components/medical-staff-display";
+import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationForm from "../components/rule-creation-form";
 import RuleEditForm from "../components/rule-edit-form";
-import { SimulationPanel } from "../components/simulation-panel";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -69,6 +74,21 @@ interface FlatRule {
   limit_atLocation?: Id<"locations">;
   limit_count?: number;
   limit_perPractitioner?: boolean;
+}
+
+interface SimulatedContext {
+  appointmentType: string;
+  patient: { isNew: boolean };
+}
+
+interface SlotDetails {
+  blockedByRuleId?: Id<"rules"> | undefined;
+  duration: number;
+  locationId?: Id<"locations"> | undefined;
+  practitionerId: Id<"practitioners">;
+  practitionerName: string;
+  startTime: string;
+  status: "AVAILABLE" | "BLOCKED";
 }
 
 const formatRuleDescription = (rule: FlatRule): string => {
@@ -130,6 +150,44 @@ export default function LogicView() {
   const [pendingRuleSetId, setPendingRuleSetId] =
     useState<Id<"ruleSets"> | null>(null);
   const [activationName, setActivationName] = useState("");
+
+  // Simulation state - moved from SimulationPanel
+  const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
+    appointmentType: "Erstberatung",
+    patient: { isNew: true },
+  });
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
+  const [simulationRuleSetId, setSimulationRuleSetId] = useState<
+    Id<"ruleSets"> | undefined
+  >();
+
+  // Create date range representing a full calendar day without timezone issues
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const date = selectedDate.getDate();
+
+  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
+
+  const dateRange = {
+    end: endOfDay.toISOString(),
+    start: startOfDay.toISOString(),
+  };
+
+  const resetSimulation = () => {
+    setSimulatedContext({
+      appointmentType: "Erstberatung",
+      patient: { isNew: true },
+    });
+    setSelectedDate(new Date());
+    setSimulationRuleSetId(undefined);
+    setSelectedSlot(null);
+  };
+
+  const handleSlotClick = (slot: SlotDetails) => {
+    setSelectedSlot(slot);
+  };
 
   // Use the first available practice or initialize one
   const currentPractice = practicesQuery?.[0];
@@ -524,306 +582,403 @@ export default function LogicView() {
           Regelverwaltung & Simulation
         </h1>
         <p className="text-muted-foreground">
-          Verwalten Sie Regelsets und testen Sie diese in der Simulation
+          Verwalten Sie Regelsets und testen Sie diese in verschiedenen
+          Ansichten
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left Panel - Regelverwaltung */}
-        <div className="space-y-6">
-          <div className="border-b pb-4 mb-6">
-            <h2 className="text-xl font-semibold">Regelverwaltung</h2>
-            <p className="text-muted-foreground">
-              Verwalten Sie Regelsets und konfigurieren Sie die Logik
-            </p>
-          </div>
+      {/* Page-level Tabs */}
+      <Tabs className="space-y-6" defaultValue="rule-management">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="rule-management">
+            Regelverwaltung + Patientensicht
+          </TabsTrigger>
+          <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
+          <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
+        </TabsList>
 
-          <div className="space-y-6">
-            {/* Rule Set Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Regelset Auswahl</CardTitle>
-                <CardDescription>
-                  {unsavedRuleSet
-                    ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
-                    : ruleSetsQuery && ruleSetsQuery.length === 0
-                      ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
-                      : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Show select when there are saved rule sets */}
-                {ruleSetsQuery && ruleSetsQuery.length > 0 && (
-                  <div className="space-y-2">
-                    <Label htmlFor="rule-set-select">Regelset</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        if (value === "unsaved") {
-                          setSelectedRuleSetId(null);
-                          // Keep existing unsaved rule set if it exists
-                        } else {
-                          // If we have unsaved changes, show save dialog
-                          if (unsavedRuleSet) {
-                            setPendingRuleSetId(value as Id<"ruleSets">);
-                            setActivationName(""); // Clear name for new dialog
-                            setIsSaveDialogOpen(true);
-                          } else {
-                            setSelectedRuleSetId(value as Id<"ruleSets">);
-                            setUnsavedRuleSetId(null); // Clear unsaved changes
+        {/* Tab 1: Rule Management + Patient View */}
+        <TabsContent value="rule-management">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Left Panel - Regelverwaltung */}
+            <div className="space-y-6">
+              <div className="space-y-6">
+                {/* Rule Set Selection */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Regelset Auswahl</CardTitle>
+                    <CardDescription>
+                      {unsavedRuleSet
+                        ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
+                        : ruleSetsQuery && ruleSetsQuery.length === 0
+                          ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
+                          : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Show select when there are saved rule sets */}
+                    {ruleSetsQuery && ruleSetsQuery.length > 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="rule-set-select">Regelset</Label>
+                        <Select
+                          onValueChange={(value) => {
+                            if (value === "unsaved") {
+                              setSelectedRuleSetId(null);
+                              // Keep existing unsaved rule set if it exists
+                            } else {
+                              // If we have unsaved changes, show save dialog
+                              if (unsavedRuleSet) {
+                                setPendingRuleSetId(value as Id<"ruleSets">);
+                                setActivationName(""); // Clear name for new dialog
+                                setIsSaveDialogOpen(true);
+                              } else {
+                                setSelectedRuleSetId(value as Id<"ruleSets">);
+                                setUnsavedRuleSetId(null); // Clear unsaved changes
+                              }
+                            }
+                          }}
+                          value={
+                            unsavedRuleSet
+                              ? "unsaved"
+                              : selectedRuleSetId || activeRuleSet?._id || ""
                           }
-                        }
-                      }}
-                      value={
-                        unsavedRuleSet
-                          ? "unsaved"
-                          : selectedRuleSetId || activeRuleSet?._id || ""
-                      }
-                    >
-                      <SelectTrigger id="rule-set-select">
-                        <SelectValue placeholder="Regelset auswählen" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {unsavedRuleSet && (
-                          <SelectItem value="unsaved">
-                            <div className="flex items-center gap-2">
-                              <Badge className="text-xs" variant="secondary">
-                                Ungespeicherte Änderungen
-                              </Badge>
-                            </div>
-                          </SelectItem>
-                        )}
-                        {ruleSetsQuery
-                          .filter((rs) => rs._id !== unsavedRuleSet?._id)
-                          .map((ruleSet) => (
-                            <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                              <div className="flex items-center gap-2">
-                                <span>{ruleSet.description}</span>
-                                {ruleSet.isActive && (
-                                  <Badge className="text-xs" variant="default">
-                                    AKTIV
-                                  </Badge>
-                                )}
-                              </div>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  {/* Show activation button when we have an unsaved rule set or when creating the first one */}
-                  {(unsavedRuleSet ??
-                    (ruleSetsQuery &&
-                      ruleSetsQuery.length === 0 &&
-                      currentWorkingRuleSet)) && (
-                    <Button onClick={handleOpenSaveDialog} variant="default">
-                      <Save className="h-4 w-4 mr-2" />
-                      Speichern
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Rules List */}
-            {(currentWorkingRuleSet ??
-              (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle>
-                        {currentWorkingRuleSet ? (
-                          <>
-                            {unsavedRuleSet ? (
-                              <>
-                                Regeln in{" "}
-                                <Badge className="ml-2" variant="secondary">
-                                  Ungespeicherte Änderungen
-                                </Badge>
-                              </>
-                            ) : (
-                              <>
-                                Regeln in {currentWorkingRuleSet.description}
-                                {currentWorkingRuleSet.isActive && (
-                                  <Badge className="ml-2" variant="default">
-                                    AKTIV
-                                  </Badge>
-                                )}
-                              </>
-                            )}
-                          </>
-                        ) : (
-                          "Regeln"
-                        )}
-                      </CardTitle>
-                      <CardDescription>
-                        {unsavedRuleSet
-                          ? "Ungespeicherte Änderungen - speichern Sie das Regelset um die Änderungen zu übernehmen"
-                          : currentWorkingRuleSet
-                            ? currentWorkingRuleSet.description
-                            : "Fügen Sie Ihre erste Regel hinzu"}
-                      </CardDescription>
-                    </div>
-                    {unsavedRuleSet ? (
-                      // Show form if we have an unsaved rule set
-                      <RuleCreationForm
-                        onRuleCreated={() => {
-                          // Rules will auto-refresh via Convex reactivity
-                        }}
-                        practiceId={currentPractice._id}
-                        ruleSetId={unsavedRuleSet._id}
-                      />
-                    ) : ruleSetsQuery && ruleSetsQuery.length === 0 ? (
-                      // Show button if we're creating the first rule set (no rule sets exist)
-                      <Button
-                        onClick={() => {
-                          void ensureUnsavedRuleSet();
-                        }}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Neue Regel
-                      </Button>
-                    ) : (
-                      // Show button for any existing rule set (active or non-active)
-                      <Button
-                        onClick={() => {
-                          void ensureUnsavedRuleSet();
-                        }}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Neue Regel
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {rulesQuery ? (
-                    rulesQuery.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        {currentWorkingRuleSet
-                          ? "Keine Regeln in diesem Regelset."
-                          : "Fügen Sie Ihre erste Regel hinzu, um zu beginnen."}
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {rulesQuery.map((rule) => (
-                          <div
-                            className="p-4 border rounded-lg hover:bg-accent transition-colors"
-                            key={rule._id}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-medium">
-                                    {rule.description}
-                                  </span>
+                        >
+                          <SelectTrigger id="rule-set-select">
+                            <SelectValue placeholder="Regelset auswählen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {unsavedRuleSet && (
+                              <SelectItem value="unsaved">
+                                <div className="flex items-center gap-2">
                                   <Badge
                                     className="text-xs"
-                                    variant={
-                                      rule.ruleType === "BLOCK"
-                                        ? "destructive"
-                                        : "secondary"
-                                    }
+                                    variant="secondary"
                                   >
-                                    {rule.ruleType}
+                                    Ungespeicherte Änderungen
                                   </Badge>
                                 </div>
-                                <div className="text-sm text-muted-foreground">
-                                  {formatRuleDescription(rule)}
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-1">
-                                  Priorität: {rule.priority}
-                                </div>
-                              </div>
-                              <div className="flex gap-2 ml-4">
+                              </SelectItem>
+                            )}
+                            {ruleSetsQuery
+                              .filter((rs) => rs._id !== unsavedRuleSet?._id)
+                              .map((ruleSet) => (
+                                <SelectItem
+                                  key={ruleSet._id}
+                                  value={ruleSet._id}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span>{ruleSet.description}</span>
+                                    {ruleSet.isActive && (
+                                      <Badge
+                                        className="text-xs"
+                                        variant="default"
+                                      >
+                                        AKTIV
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      {/* Show activation button when we have an unsaved rule set or when creating the first one */}
+                      {(unsavedRuleSet ??
+                        (ruleSetsQuery &&
+                          ruleSetsQuery.length === 0 &&
+                          currentWorkingRuleSet)) && (
+                        <Button
+                          onClick={handleOpenSaveDialog}
+                          variant="default"
+                        >
+                          <Save className="h-4 w-4 mr-2" />
+                          Speichern
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Rules List */}
+                {(currentWorkingRuleSet ??
+                  (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
+                  <Card>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle>
+                            {currentWorkingRuleSet ? (
+                              <>
                                 {unsavedRuleSet ? (
                                   <>
-                                    <RuleEditForm
-                                      practiceId={currentPractice._id}
-                                      rule={rule}
-                                    />
-                                    <Button
-                                      onClick={() => {
-                                        if (
-                                          confirm(
-                                            "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
-                                          )
-                                        ) {
-                                          void handleDeleteRule(rule._id);
-                                        }
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                    Regeln in{" "}
+                                    <Badge className="ml-2" variant="secondary">
+                                      Ungespeicherte Änderungen
+                                    </Badge>
                                   </>
                                 ) : (
                                   <>
-                                    <Button
-                                      onClick={() => {
-                                        void ensureUnsavedRuleSet();
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      onClick={() => {
-                                        if (
-                                          confirm(
-                                            "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
-                                          )
-                                        ) {
-                                          void (async () => {
-                                            await ensureUnsavedRuleSet();
-                                            void handleDeleteRule(rule._id);
-                                          })();
-                                        }
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                    Regeln in{" "}
+                                    {currentWorkingRuleSet.description}
+                                    {currentWorkingRuleSet.isActive && (
+                                      <Badge className="ml-2" variant="default">
+                                        AKTIV
+                                      </Badge>
+                                    )}
                                   </>
                                 )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                              </>
+                            ) : (
+                              "Regeln"
+                            )}
+                          </CardTitle>
+                          <CardDescription>
+                            {unsavedRuleSet
+                              ? "Ungespeicherte Änderungen - speichern Sie das Regelset um die Änderungen zu übernehmen"
+                              : currentWorkingRuleSet
+                                ? currentWorkingRuleSet.description
+                                : "Fügen Sie Ihre erste Regel hinzu"}
+                          </CardDescription>
+                        </div>
+                        {unsavedRuleSet ? (
+                          // Show form if we have an unsaved rule set
+                          <RuleCreationForm
+                            onRuleCreated={() => {
+                              // Rules will auto-refresh via Convex reactivity
+                            }}
+                            practiceId={currentPractice._id}
+                            ruleSetId={unsavedRuleSet._id}
+                          />
+                        ) : ruleSetsQuery && ruleSetsQuery.length === 0 ? (
+                          // Show button if we're creating the first rule set (no rule sets exist)
+                          <Button
+                            onClick={() => {
+                              void ensureUnsavedRuleSet();
+                            }}
+                            size="sm"
+                            variant="outline"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Neue Regel
+                          </Button>
+                        ) : (
+                          // Show button for any existing rule set (active or non-active)
+                          <Button
+                            onClick={() => {
+                              void ensureUnsavedRuleSet();
+                            }}
+                            size="sm"
+                            variant="outline"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Neue Regel
+                          </Button>
+                        )}
                       </div>
-                    )
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      Lade Regeln...
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                    </CardHeader>
+                    <CardContent>
+                      {rulesQuery ? (
+                        rulesQuery.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            {currentWorkingRuleSet
+                              ? "Keine Regeln in diesem Regelset."
+                              : "Fügen Sie Ihre erste Regel hinzu, um zu beginnen."}
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {rulesQuery.map((rule) => (
+                              <div
+                                className="p-4 border rounded-lg hover:bg-accent transition-colors"
+                                key={rule._id}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="font-medium">
+                                        {rule.description}
+                                      </span>
+                                      <Badge
+                                        className="text-xs"
+                                        variant={
+                                          rule.ruleType === "BLOCK"
+                                            ? "destructive"
+                                            : "secondary"
+                                        }
+                                      >
+                                        {rule.ruleType}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">
+                                      {formatRuleDescription(rule)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      Priorität: {rule.priority}
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 ml-4">
+                                    {unsavedRuleSet ? (
+                                      <>
+                                        <RuleEditForm
+                                          practiceId={currentPractice._id}
+                                          rule={rule}
+                                        />
+                                        <Button
+                                          onClick={() => {
+                                            if (
+                                              confirm(
+                                                "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
+                                              )
+                                            ) {
+                                              void handleDeleteRule(rule._id);
+                                            }
+                                          }}
+                                          size="sm"
+                                          variant="ghost"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          onClick={() => {
+                                            void ensureUnsavedRuleSet();
+                                          }}
+                                          size="sm"
+                                          variant="ghost"
+                                        >
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          onClick={() => {
+                                            if (
+                                              confirm(
+                                                "Sind Sie sicher, dass Sie diese Regel löschen möchten?",
+                                              )
+                                            ) {
+                                              void (async () => {
+                                                await ensureUnsavedRuleSet();
+                                                void handleDeleteRule(rule._id);
+                                              })();
+                                            }
+                                          }}
+                                          size="sm"
+                                          variant="ghost"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                          Lade Regeln...
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
-            {/* Practitioner Management */}
-            <PractitionerManagement practiceId={currentPractice._id} />
+                {/* Practitioner Management */}
+                <PractitionerManagement practiceId={currentPractice._id} />
 
-            {/* Base Schedule Management */}
-            <BaseScheduleManagement practiceId={currentPractice._id} />
+                {/* Base Schedule Management */}
+                <BaseScheduleManagement practiceId={currentPractice._id} />
+              </div>
+            </div>
+
+            {/* Right Panel - Patient View + Simulation Controls */}
+            <div className="space-y-6">
+              <div className="flex justify-center">
+                <PatientBookingFlow
+                  dateRange={dateRange}
+                  onSlotClick={handleSlotClick}
+                  onUpdateSimulatedContext={setSimulatedContext}
+                  practiceId={currentPractice._id}
+                  ruleSetId={simulationRuleSetId}
+                  simulatedContext={simulatedContext}
+                />
+              </div>
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
+            </div>
           </div>
-        </div>
+        </TabsContent>
 
-        {/* Right Panel - Simulation */}
-        <SimulationPanel
-          practiceId={currentPractice._id}
-          ruleSetsQuery={ruleSetsQuery}
-        />
-      </div>
+        {/* Tab 2: Staff View Only */}
+        <TabsContent value="staff-view">
+          <div className="space-y-6">
+            <div className="space-y-6">
+              <MedicalStaffDisplay
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={setSimulatedContext}
+                practiceId={currentPractice._id}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={simulatedContext}
+              />
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Tab 3: Debug Views Only */}
+        <TabsContent value="debug-views">
+          <div className="space-y-6">
+            <div className="space-y-6">
+              <div className="space-y-6">
+                <DebugView
+                  dateRange={dateRange}
+                  onSlotClick={handleSlotClick}
+                  practiceId={currentPractice._id}
+                  ruleSetId={simulationRuleSetId}
+                  simulatedContext={simulatedContext}
+                />
+
+                <SlotInspector selectedSlot={selectedSlot} />
+              </div>
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Save Dialog */}
       <Dialog
@@ -994,5 +1149,192 @@ function SaveDialogForm({
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+// Simulation Controls Component - Extracted from SimulationPanel
+function SimulationControls({
+  onDateChange,
+  onResetSimulation,
+  onSimulatedContextChange,
+  onSimulationRuleSetChange,
+  ruleSetsQuery,
+  selectedDate,
+  simulatedContext,
+  simulationRuleSetId,
+}: {
+  onDateChange: (date: Date) => void;
+  onResetSimulation: () => void;
+  onSimulatedContextChange: (context: SimulatedContext) => void;
+  onSimulationRuleSetChange: (ruleSetId: Id<"ruleSets"> | undefined) => void;
+  ruleSetsQuery:
+    | undefined
+    | {
+        _id: Id<"ruleSets">;
+        description: string;
+        isActive: boolean;
+        version: number;
+      }[];
+  selectedDate: Date;
+  simulatedContext: SimulatedContext;
+  simulationRuleSetId: Id<"ruleSets"> | undefined;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Simulation Controls</CardTitle>
+        <CardDescription>
+          Konfigurieren Sie den Kontext für die Simulation
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="rule-set">Regelset</Label>
+          <Select
+            onValueChange={(value) => {
+              onSimulationRuleSetChange(
+                value === "active" ? undefined : (value as Id<"ruleSets">),
+              );
+            }}
+            value={simulationRuleSetId || "active"}
+          >
+            <SelectTrigger id="rule-set">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Aktives Regelset</SelectItem>
+              {ruleSetsQuery?.map((ruleSet) => (
+                <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                  v{ruleSet.version} - {ruleSet.description}
+                  {ruleSet.isActive && " (aktiv)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patient-type">Patiententyp</Label>
+          <Select
+            onValueChange={(value) => {
+              onSimulatedContextChange({
+                ...simulatedContext,
+                patient: { isNew: value === "new" },
+              });
+            }}
+            value={simulatedContext.patient.isNew ? "new" : "existing"}
+          >
+            <SelectTrigger id="patient-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="new">Neuer Patient</SelectItem>
+              <SelectItem value="existing">Bestandspatient</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Datum auswählen</Label>
+          <Calendar
+            className="rounded-md border"
+            locale={de}
+            mode="single"
+            onSelect={(date) => {
+              if (date) {
+                onDateChange(date);
+              }
+            }}
+            selected={selectedDate}
+          />
+        </div>
+
+        <Button
+          className="w-full"
+          onClick={onResetSimulation}
+          variant="outline"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Zurücksetzen
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Slot Inspector Component - Extracted from SimulationPanel
+function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Slot Inspector</CardTitle>
+        <CardDescription>
+          Klicken Sie auf einen Termin für Details
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {selectedSlot ? (
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Zeit</Label>
+              <div className="text-lg font-semibold">
+                {/* Always display time as German time by extracting UTC components */}
+                {(() => {
+                  const date = new Date(selectedSlot.startTime);
+                  const hours = date.getUTCHours().toString().padStart(2, "0");
+                  const minutes = date
+                    .getUTCMinutes()
+                    .toString()
+                    .padStart(2, "0");
+                  return `${hours}:${minutes}`;
+                })()}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium">Arzt</Label>
+              <div>{selectedSlot.practitionerName}</div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium">Dauer</Label>
+              <div>{selectedSlot.duration} Minuten</div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium">Status</Label>
+              <div>
+                <Badge
+                  variant={
+                    selectedSlot.status === "AVAILABLE"
+                      ? "default"
+                      : "destructive"
+                  }
+                >
+                  {selectedSlot.status === "AVAILABLE"
+                    ? "Verfügbar"
+                    : "Blockiert"}
+                </Badge>
+              </div>
+            </div>
+
+            {selectedSlot.blockedByRuleId && (
+              <div>
+                <Label className="text-sm font-medium">
+                  Blockiert durch Regel
+                </Label>
+                <div className="text-sm text-muted-foreground">
+                  ID: {selectedSlot.blockedByRuleId}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Wählen Sie einen Termin aus, um Details anzuzeigen.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
