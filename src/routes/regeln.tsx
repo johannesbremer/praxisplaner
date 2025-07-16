@@ -582,14 +582,17 @@ export default function LogicView() {
           Regelverwaltung & Simulation
         </h1>
         <p className="text-muted-foreground">
-          Verwalten Sie Regelsets und testen Sie diese in verschiedenen Ansichten
+          Verwalten Sie Regelsets und testen Sie diese in verschiedenen
+          Ansichten
         </p>
       </div>
 
       {/* Page-level Tabs */}
       <Tabs className="space-y-6" defaultValue="rule-management">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="rule-management">Regelverwaltung + Patientensicht</TabsTrigger>
+          <TabsTrigger value="rule-management">
+            Regelverwaltung + Patientensicht
+          </TabsTrigger>
           <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
           <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
         </TabsList>
@@ -654,7 +657,10 @@ export default function LogicView() {
                             {unsavedRuleSet && (
                               <SelectItem value="unsaved">
                                 <div className="flex items-center gap-2">
-                                  <Badge className="text-xs" variant="secondary">
+                                  <Badge
+                                    className="text-xs"
+                                    variant="secondary"
+                                  >
                                     Ungespeicherte Änderungen
                                   </Badge>
                                 </div>
@@ -663,11 +669,17 @@ export default function LogicView() {
                             {ruleSetsQuery
                               .filter((rs) => rs._id !== unsavedRuleSet?._id)
                               .map((ruleSet) => (
-                                <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                                <SelectItem
+                                  key={ruleSet._id}
+                                  value={ruleSet._id}
+                                >
                                   <div className="flex items-center gap-2">
                                     <span>{ruleSet.description}</span>
                                     {ruleSet.isActive && (
-                                      <Badge className="text-xs" variant="default">
+                                      <Badge
+                                        className="text-xs"
+                                        variant="default"
+                                      >
                                         AKTIV
                                       </Badge>
                                     )}
@@ -685,7 +697,10 @@ export default function LogicView() {
                         (ruleSetsQuery &&
                           ruleSetsQuery.length === 0 &&
                           currentWorkingRuleSet)) && (
-                        <Button onClick={handleOpenSaveDialog} variant="default">
+                        <Button
+                          onClick={handleOpenSaveDialog}
+                          variant="default"
+                        >
                           <Save className="h-4 w-4 mr-2" />
                           Speichern
                         </Button>
@@ -713,7 +728,8 @@ export default function LogicView() {
                                   </>
                                 ) : (
                                   <>
-                                    Regeln in {currentWorkingRuleSet.description}
+                                    Regeln in{" "}
+                                    {currentWorkingRuleSet.description}
                                     {currentWorkingRuleSet.isActive && (
                                       <Badge className="ml-2" variant="default">
                                         AKTIV
@@ -1276,7 +1292,7 @@ function SimulationControls({
   );
 }
 
-// Slot Inspector Component - Extracted from SimulationPanel  
+// Slot Inspector Component - Extracted from SimulationPanel
 function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
   return (
     <Card>
@@ -1295,10 +1311,7 @@ function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
                 {/* Always display time as German time by extracting UTC components */}
                 {(() => {
                   const date = new Date(selectedSlot.startTime);
-                  const hours = date
-                    .getUTCHours()
-                    .toString()
-                    .padStart(2, "0");
+                  const hours = date.getUTCHours().toString().padStart(2, "0");
                   const minutes = date
                     .getUTCMinutes()
                     .toString()
