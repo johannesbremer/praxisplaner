@@ -69,11 +69,10 @@ export function SimulationPanel({
   const date = selectedDate.getDate();
 
   const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
-  // Extend date range to cover 5 days for mini-calendar (today + 4 future days)
-  const endDate = new Date(Date.UTC(year, month, date + 4, 23, 59, 59, 999));
+  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
 
   const dateRange = {
-    end: endDate.toISOString(),
+    end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
   };
 

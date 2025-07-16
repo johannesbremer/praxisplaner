@@ -126,7 +126,7 @@ export function MiniCalendarDay({ className, date }: MiniCalendarDayProps) {
     <Button
       aria-label={`Select ${date.toLocaleDateString()}`}
       className={cn(
-        "h-10 w-10 p-0 flex flex-col items-center justify-center text-xs",
+        "h-11 w-11 p-1 flex flex-col items-center justify-center gap-0.5",
         isSimulationDate && !isSelected && "bg-accent text-accent-foreground",
         className,
       )}
@@ -134,10 +134,10 @@ export function MiniCalendarDay({ className, date }: MiniCalendarDayProps) {
       size="sm"
       variant={isSelected ? "default" : "ghost"}
     >
-      <span className="text-xs font-medium leading-none">
+      <span className="text-xs font-medium leading-tight text-center">
         {date.toLocaleDateString("de-DE", { weekday: "short" })}
       </span>
-      <span className="text-sm font-semibold leading-none">
+      <span className="text-sm font-semibold leading-tight text-center">
         {date.getDate()}
       </span>
     </Button>
@@ -178,15 +178,15 @@ export function MiniCalendarNavigation({
 
   return (
     <Button
-      className={cn("h-6 w-6 p-0", className)}
+      className={cn("h-8 w-8 p-0 shrink-0", className)}
       onClick={handleClick}
       size="sm"
       variant="outline"
     >
       {direction === "prev" ? (
-        <ChevronLeft className="h-3 w-3" />
+        <ChevronLeft className="h-4 w-4" />
       ) : (
-        <ChevronRight className="h-3 w-3" />
+        <ChevronRight className="h-4 w-4" />
       )}
       <span className="sr-only">
         {direction === "prev" ? "Previous" : "Next"} {days} days

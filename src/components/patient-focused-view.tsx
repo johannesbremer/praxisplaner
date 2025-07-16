@@ -1,6 +1,7 @@
 import { useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
+import { useEffect, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -53,17 +54,37 @@ export function PatientFocusedView({
   ruleSetId,
   simulatedContext,
 }: PatientFocusedViewProps) {
+  // Track calendar navigation independently from simulation dateRange
+  const [calendarStartDate, setCalendarStartDate] = useState(
+    new Date(dateRange.start),
+  );
+
+  // Sync calendar start date when simulation date changes
+  useEffect(() => {
+    setCalendarStartDate(new Date(dateRange.start));
+  }, [dateRange.start]);
+
+  // Create expanded date range for calendar (5 days from calendar start)
+  const calendarEndDate = new Date(calendarStartDate);
+  calendarEndDate.setDate(calendarEndDate.getDate() + 4);
+  calendarEndDate.setHours(23, 59, 59, 999);
+
+  const calendarDateRange = {
+    end: calendarEndDate.toISOString(),
+    start: calendarStartDate.toISOString(),
+  };
+
   const slotsResult = useQuery(
     api.scheduling.getAvailableSlots,
     ruleSetId
       ? {
-          dateRange,
+          dateRange: calendarDateRange,
           practiceId,
           ruleSetId,
           simulatedContext,
         }
       : {
-          dateRange,
+          dateRange: calendarDateRange,
           practiceId,
           simulatedContext,
         },
@@ -168,7 +189,11 @@ export function PatientFocusedView({
             <CardTitle className="text-base">Verfügbare Tage</CardTitle>
           </CardHeader>
           <CardContent>
-            <MiniCalendar days={5} startDate={new Date(dateRange.start)}>
+            <MiniCalendar
+              days={5}
+              onStartDateChange={setCalendarStartDate}
+              startDate={calendarStartDate}
+            >
               <MiniCalendarNavigation direction="prev" />
               <MiniCalendarDays className="flex-1 min-w-0">
                 {(date) => (
