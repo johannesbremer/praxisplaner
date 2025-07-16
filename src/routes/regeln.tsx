@@ -1,4 +1,5 @@
 // src/routes/regeln.tsx
+import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Save, Trash2 } from "lucide-react";
@@ -102,6 +103,16 @@ const formatRuleDescription = (rule: FlatRule): string => {
   }
 };
 
+interface SaveDialogFormProps {
+  activationName: string;
+  currentWorkingRuleSet: null | undefined | { _id: Id<"ruleSets"> };
+  onDiscard?: (() => void) | null;
+  onSaveAndActivate: (name: string) => void;
+  onSaveOnly: (name: string) => void;
+  practiceId: Id<"practices">;
+  setActivationName: (name: string) => void;
+}
+
 export default function LogicView() {
   // Get or initialize a practice for development
   const practicesQuery = useQuery(api.practices.getAllPractices);
@@ -115,7 +126,9 @@ export default function LogicView() {
   const [unsavedRuleSetId, setUnsavedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
-  const [isActivationDialogOpen, setIsActivationDialogOpen] = useState(false);
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [pendingRuleSetId, setPendingRuleSetId] =
+    useState<Id<"ruleSets"> | null>(null);
   const [activationName, setActivationName] = useState("");
 
   // Use the first available practice or initialize one
@@ -158,11 +171,15 @@ export default function LogicView() {
 
   // Mutations
   const createDraftMutation = useMutation(api.rulesets.createDraftFromActive);
+  const createDraftFromRuleSetMutation = useMutation(
+    api.rulesets.createDraftFromRuleSet,
+  );
   const createInitialRuleSetMutation = useMutation(
     api.rulesets.createInitialRuleSet,
   );
   const activateRuleSetMutation = useMutation(api.rulesets.activateRuleSet);
   const deleteRuleMutation = useMutation(api.rulesets.deleteRule);
+  const deleteRuleSetMutation = useMutation(api.rulesets.deleteRuleSet);
 
   // Function to create an initial unsaved rule set
   const createInitialUnsaved = React.useCallback(async () => {
@@ -175,15 +192,15 @@ export default function LogicView() {
 
       // Check if this practice has any rule sets
       if (!ruleSetsQuery || ruleSetsQuery.length === 0) {
-        // No rule sets exist, create the first one
+        // No rule sets exist, create the first one as an unsaved draft
         newRuleSetId = await createInitialRuleSetMutation({
-          description: "Neues Regelset",
+          description: "Ungespeicherte Änderungen",
           practiceId: currentPractice._id,
         });
       } else {
         // Rule sets exist, create a draft from the active one
         newRuleSetId = await createDraftMutation({
-          description: "Neues Regelset",
+          description: "Ungespeicherte Änderungen",
           practiceId: currentPractice._id,
         });
       }
@@ -210,6 +227,27 @@ export default function LogicView() {
     ruleSetsQuery,
   ]);
 
+  const activeRuleSet = ruleSetsQuery?.find((rs) => rs.isActive);
+  const selectedRuleSet = ruleSetsQuery?.find(
+    (rs) => rs._id === selectedRuleSetId,
+  );
+
+  // Find any existing unsaved rule set (not active and no explicit selection)
+  const existingUnsavedRuleSet = ruleSetsQuery?.find(
+    (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen",
+  );
+
+  const unsavedRuleSet =
+    ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId) ??
+    existingUnsavedRuleSet;
+
+  // Auto-detect existing unsaved rule set on load
+  React.useEffect(() => {
+    if (existingUnsavedRuleSet && !unsavedRuleSetId) {
+      setUnsavedRuleSetId(existingUnsavedRuleSet._id);
+    }
+  }, [existingUnsavedRuleSet, unsavedRuleSetId]);
+
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
     if (
@@ -222,15 +260,9 @@ export default function LogicView() {
     }
   }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
 
-  const selectedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === selectedRuleSetId,
-  );
-  const unsavedRuleSet = ruleSetsQuery?.find(
-    (rs) => rs._id === unsavedRuleSetId,
-  );
-
-  // Use unsaved rule set if available, otherwise selected rule set
-  const currentWorkingRuleSet = unsavedRuleSet ?? selectedRuleSet;
+  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
+  const currentWorkingRuleSet =
+    unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet;
 
   // Fetch rules for the current working rule set
   const rulesQuery = useQuery(
@@ -247,9 +279,10 @@ export default function LogicView() {
       }
 
       try {
-        const newRuleSetId = await createDraftMutation({
+        const newRuleSetId = await createDraftFromRuleSetMutation({
           description: "Ungespeicherte Änderungen",
           practiceId: currentPractice._id,
+          sourceRuleSetId: baseRuleSetId,
         });
 
         setUnsavedRuleSetId(newRuleSetId);
@@ -268,7 +301,7 @@ export default function LogicView() {
         return null;
       }
     },
-    [currentPractice, createDraftMutation, captureError],
+    [currentPractice, createDraftFromRuleSetMutation, captureError],
   );
 
   // Function to ensure an unsaved rule set exists - called when user starts making changes
@@ -277,16 +310,29 @@ export default function LogicView() {
       return unsavedRuleSetId; // Already have an unsaved rule set
     }
 
-    // If we have a selected active rule set, create an unsaved copy of it
-    if (selectedRuleSet?.isActive) {
+    // Check if there's already an existing unsaved rule set we can use
+    if (existingUnsavedRuleSet) {
+      setUnsavedRuleSetId(existingUnsavedRuleSet._id);
+      return existingUnsavedRuleSet._id;
+    }
+
+    // If we have a selected rule set (active or non-active), create an unsaved copy of it
+    if (selectedRuleSet) {
       return await createUnsavedCopy(selectedRuleSet._id);
+    }
+
+    // If we have an active rule set but no selected rule set, create copy of active
+    if (activeRuleSet) {
+      return await createUnsavedCopy(activeRuleSet._id);
     }
 
     // Otherwise create initial unsaved rule set
     return await createInitialUnsaved();
   }, [
     unsavedRuleSetId,
+    existingUnsavedRuleSet,
     selectedRuleSet,
+    activeRuleSet,
     createUnsavedCopy,
     createInitialUnsaved,
   ]);
@@ -341,10 +387,17 @@ export default function LogicView() {
           "Das Regelset wurde erfolgreich gespeichert und aktiviert.",
       });
 
-      setIsActivationDialogOpen(false);
+      setIsSaveDialogOpen(false);
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
-      setSelectedRuleSetId(ruleSetId); // Set the activated rule set as selected
+
+      // If we came from the save dialog, switch to the pending rule set
+      if (pendingRuleSetId) {
+        setSelectedRuleSetId(pendingRuleSetId);
+        setPendingRuleSetId(null);
+      } else {
+        setSelectedRuleSetId(ruleSetId); // Set the activated rule set as selected
+      }
     } catch (error: unknown) {
       captureError(error, {
         context: "ruleset_activation",
@@ -359,10 +412,10 @@ export default function LogicView() {
     }
   };
 
-  const handleOpenActivationDialog = () => {
+  const handleOpenSaveDialog = () => {
     if (currentWorkingRuleSet) {
       setActivationName(""); // Always start with empty name
-      setIsActivationDialogOpen(true);
+      setIsSaveDialogOpen(true);
     }
   };
 
@@ -383,6 +436,84 @@ export default function LogicView() {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
+    }
+  };
+
+  // Save dialog handlers
+  const handleSaveOnly = (name: string) => {
+    if (currentWorkingRuleSet && pendingRuleSetId) {
+      // Activate current working rule set with the given name, then switch to pending
+      void (async () => {
+        try {
+          await activateRuleSetMutation({
+            name,
+            practiceId: currentPractice._id,
+            ruleSetId: currentWorkingRuleSet._id,
+          });
+
+          setSelectedRuleSetId(pendingRuleSetId);
+          setUnsavedRuleSetId(null);
+          setPendingRuleSetId(null);
+          setIsSaveDialogOpen(false);
+          setActivationName("");
+          toast.success("Änderungen gespeichert");
+        } catch (error: unknown) {
+          captureError(error, {
+            context: "save_only",
+            practiceId: currentPractice._id,
+            ruleSetId: currentWorkingRuleSet._id,
+          });
+          toast.error("Fehler beim Speichern", {
+            description:
+              error instanceof Error ? error.message : "Unbekannter Fehler",
+          });
+        }
+      })();
+    } else if (currentWorkingRuleSet) {
+      // Just activate the current working rule set
+      void handleActivateRuleSet(currentWorkingRuleSet._id, name);
+    }
+  };
+
+  const handleSaveAndActivate = (name: string) => {
+    if (currentWorkingRuleSet) {
+      void handleActivateRuleSet(currentWorkingRuleSet._id, name);
+    }
+  };
+
+  const handleDiscardChanges = () => {
+    if (unsavedRuleSet) {
+      // Delete the unsaved rule set from the database
+      void (async () => {
+        try {
+          await deleteRuleSetMutation({
+            practiceId: currentPractice._id,
+            ruleSetId: unsavedRuleSet._id,
+          });
+
+          setUnsavedRuleSetId(null);
+
+          if (pendingRuleSetId) {
+            setSelectedRuleSetId(pendingRuleSetId);
+            setPendingRuleSetId(null);
+          }
+
+          setIsSaveDialogOpen(false);
+          setActivationName("");
+          toast.success("Änderungen verworfen");
+        } catch (error: unknown) {
+          captureError(error, {
+            context: "discard_changes",
+            practiceId: currentPractice._id,
+            ruleSetId: unsavedRuleSet._id,
+          });
+
+          toast.error("Fehler beim Verwerfen der Änderungen", {
+            description:
+              error instanceof Error ? error.message : "Unbekannter Fehler",
+          });
+        }
+      })();
     }
   };
 
@@ -431,12 +562,21 @@ export default function LogicView() {
                           setSelectedRuleSetId(null);
                           // Keep existing unsaved rule set if it exists
                         } else {
-                          setSelectedRuleSetId(value as Id<"ruleSets">);
-                          setUnsavedRuleSetId(null); // Clear unsaved changes
+                          // If we have unsaved changes, show save dialog
+                          if (unsavedRuleSet) {
+                            setPendingRuleSetId(value as Id<"ruleSets">);
+                            setActivationName(""); // Clear name for new dialog
+                            setIsSaveDialogOpen(true);
+                          } else {
+                            setSelectedRuleSetId(value as Id<"ruleSets">);
+                            setUnsavedRuleSetId(null); // Clear unsaved changes
+                          }
                         }
                       }}
                       value={
-                        unsavedRuleSet ? "unsaved" : selectedRuleSetId || ""
+                        unsavedRuleSet
+                          ? "unsaved"
+                          : selectedRuleSetId || activeRuleSet?._id || ""
                       }
                     >
                       <SelectTrigger id="rule-set-select">
@@ -446,15 +586,14 @@ export default function LogicView() {
                         {unsavedRuleSet && (
                           <SelectItem value="unsaved">
                             <div className="flex items-center gap-2">
-                              <span>Ungespeicherte Änderungen</span>
                               <Badge className="text-xs" variant="secondary">
-                                UNSAVED
+                                Ungespeicherte Änderungen
                               </Badge>
                             </div>
                           </SelectItem>
                         )}
                         {ruleSetsQuery
-                          .filter((rs) => rs.isActive || !unsavedRuleSet)
+                          .filter((rs) => rs._id !== unsavedRuleSet?._id)
                           .map((ruleSet) => (
                             <SelectItem key={ruleSet._id} value={ruleSet._id}>
                               <div className="flex items-center gap-2">
@@ -478,12 +617,9 @@ export default function LogicView() {
                     (ruleSetsQuery &&
                       ruleSetsQuery.length === 0 &&
                       currentWorkingRuleSet)) && (
-                    <Button
-                      onClick={handleOpenActivationDialog}
-                      variant="default"
-                    >
+                    <Button onClick={handleOpenSaveDialog} variant="default">
                       <Save className="h-4 w-4 mr-2" />
-                      Speichern & Aktivieren
+                      Speichern
                     </Button>
                   )}
                 </div>
@@ -500,16 +636,22 @@ export default function LogicView() {
                       <CardTitle>
                         {currentWorkingRuleSet ? (
                           <>
-                            Regeln in {currentWorkingRuleSet.description}
-                            {currentWorkingRuleSet.isActive && (
-                              <Badge className="ml-2" variant="default">
-                                AKTIV
-                              </Badge>
-                            )}
-                            {unsavedRuleSet && (
-                              <Badge className="ml-2" variant="secondary">
-                                UNSAVED
-                              </Badge>
+                            {unsavedRuleSet ? (
+                              <>
+                                Regeln in{" "}
+                                <Badge className="ml-2" variant="secondary">
+                                  Ungespeicherte Änderungen
+                                </Badge>
+                              </>
+                            ) : (
+                              <>
+                                Regeln in {currentWorkingRuleSet.description}
+                                {currentWorkingRuleSet.isActive && (
+                                  <Badge className="ml-2" variant="default">
+                                    AKTIV
+                                  </Badge>
+                                )}
+                              </>
                             )}
                           </>
                         ) : (
@@ -524,39 +666,29 @@ export default function LogicView() {
                             : "Fügen Sie Ihre erste Regel hinzu"}
                       </CardDescription>
                     </div>
-                    {!currentWorkingRuleSet?.isActive ||
-                    unsavedRuleSet ||
-                    (ruleSetsQuery && ruleSetsQuery.length === 0) ? (
-                      // Show form if we have an unsaved rule set OR if we're creating the first rule set
-                      unsavedRuleSet ? (
-                        <RuleCreationForm
-                          onRuleCreated={() => {
-                            // Rules will auto-refresh via Convex reactivity
-                          }}
-                          practiceId={currentPractice._id}
-                          ruleSetId={unsavedRuleSet._id}
-                        />
-                      ) : currentWorkingRuleSet ? (
-                        <RuleCreationForm
-                          onRuleCreated={() => {
-                            // Rules will auto-refresh via Convex reactivity
-                          }}
-                          practiceId={currentPractice._id}
-                          ruleSetId={currentWorkingRuleSet._id}
-                        />
-                      ) : (
-                        <Button
-                          onClick={() => {
-                            void ensureUnsavedRuleSet();
-                          }}
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Neue Regel
-                        </Button>
-                      )
+                    {unsavedRuleSet ? (
+                      // Show form if we have an unsaved rule set
+                      <RuleCreationForm
+                        onRuleCreated={() => {
+                          // Rules will auto-refresh via Convex reactivity
+                        }}
+                        practiceId={currentPractice._id}
+                        ruleSetId={unsavedRuleSet._id}
+                      />
+                    ) : ruleSetsQuery && ruleSetsQuery.length === 0 ? (
+                      // Show button if we're creating the first rule set (no rule sets exist)
+                      <Button
+                        onClick={() => {
+                          void ensureUnsavedRuleSet();
+                        }}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Neue Regel
+                      </Button>
                     ) : (
+                      // Show button for any existing rule set (active or non-active)
                       <Button
                         onClick={() => {
                           void ensureUnsavedRuleSet();
@@ -693,58 +825,174 @@ export default function LogicView() {
         />
       </div>
 
-      {/* Activation Dialog */}
+      {/* Save Dialog */}
       <Dialog
-        onOpenChange={setIsActivationDialogOpen}
-        open={isActivationDialogOpen}
+        onOpenChange={(open) => {
+          setIsSaveDialogOpen(open);
+          if (!open) {
+            setPendingRuleSetId(null);
+            setActivationName("");
+          }
+        }}
+        open={isSaveDialogOpen}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Regelset aktivieren</DialogTitle>
+            <DialogTitle>Regelset speichern</DialogTitle>
             <DialogDescription>
-              Geben Sie einen eindeutigen Namen für dieses Regelset ein, um es
-              zu aktivieren. Das aktuelle aktive Regelset wird dadurch ersetzt.
+              {pendingRuleSetId
+                ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
+                : "Geben Sie einen eindeutigen Namen für dieses Regelset ein."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="activation-name">Name für das Regelset</Label>
-              <Input
-                id="activation-name"
-                onChange={(e) => {
-                  setActivationName(e.target.value);
-                }}
-                placeholder="z.B. Wintersprechzeiten 2024"
-                value={activationName}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                setIsActivationDialogOpen(false);
-                setActivationName("");
-              }}
-              variant="outline"
-            >
-              Abbrechen
-            </Button>
-            <Button
-              disabled={!activationName.trim()}
-              onClick={() => {
-                if (currentWorkingRuleSet && activationName.trim()) {
-                  void handleActivateRuleSet(
-                    currentWorkingRuleSet._id,
-                    activationName,
-                  );
-                }
-              }}
-            >
-              Speichern & Aktivieren
-            </Button>
-          </DialogFooter>
+          <SaveDialogForm
+            activationName={activationName}
+            currentWorkingRuleSet={currentWorkingRuleSet}
+            onDiscard={pendingRuleSetId ? handleDiscardChanges : null}
+            onSaveAndActivate={handleSaveAndActivate}
+            onSaveOnly={handleSaveOnly}
+            practiceId={currentPractice._id}
+            setActivationName={setActivationName}
+          />
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function SaveDialogForm({
+  activationName,
+  currentWorkingRuleSet,
+  onDiscard,
+  onSaveAndActivate,
+  onSaveOnly,
+  practiceId,
+  setActivationName,
+}: SaveDialogFormProps) {
+  const validateRuleSetNameQuery = useQuery(
+    api.rulesets.validateRuleSetName,
+    activationName.trim()
+      ? {
+          name: activationName.trim(),
+          practiceId,
+          ...(currentWorkingRuleSet?._id && {
+            excludeRuleSetId: currentWorkingRuleSet._id,
+          }),
+        }
+      : "skip",
+  );
+
+  const form = useForm({
+    defaultValues: {
+      name: activationName,
+    },
+    onSubmit: async () => {
+      // This will be handled by individual button clicks
+    },
+  });
+
+  React.useEffect(() => {
+    form.setFieldValue("name", activationName);
+  }, [activationName, form]);
+
+  // Check if the current name is valid
+  const isValidName = React.useMemo(() => {
+    const trimmedName = form.getFieldValue("name").trim();
+    if (!trimmedName) {
+      return false;
+    }
+
+    // If validation is still loading, consider it invalid to prevent premature submission
+    if (validateRuleSetNameQuery === undefined) {
+      return false;
+    }
+
+    return validateRuleSetNameQuery.isUnique;
+  }, [form, validateRuleSetNameQuery]);
+
+  const validationError = React.useMemo(() => {
+    const trimmedName = form.getFieldValue("name").trim();
+    if (!trimmedName) {
+      return "Name ist erforderlich";
+    }
+
+    if (validateRuleSetNameQuery && !validateRuleSetNameQuery.isUnique) {
+      return validateRuleSetNameQuery.message;
+    }
+
+    return;
+  }, [form, validateRuleSetNameQuery]);
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <div className="space-y-4">
+        <form.Field
+          name="name"
+          validators={{
+            onSubmit: ({ value }) =>
+              value.trim() ? undefined : "Name ist erforderlich",
+          }}
+        >
+          {(field) => (
+            <div className="space-y-2">
+              <Label htmlFor={field.name}>Name für das Regelset</Label>
+              <Input
+                id={field.name}
+                onChange={(e) => {
+                  field.handleChange(e.target.value);
+                  setActivationName(e.target.value);
+                }}
+                placeholder="z.B. Wintersprechzeiten 2024"
+                required
+                value={field.state.value}
+              />
+              {validationError && (
+                <div className="text-sm text-destructive">
+                  {validationError}
+                </div>
+              )}
+            </div>
+          )}
+        </form.Field>
+      </div>
+      <DialogFooter className="flex gap-2 mt-6">
+        {onDiscard && (
+          <Button onClick={onDiscard} type="button" variant="outline">
+            Änderungen verwerfen
+          </Button>
+        )}
+        <Button
+          disabled={!isValidName}
+          onClick={() => {
+            const name = form.getFieldValue("name").trim();
+            if (isValidName && name) {
+              onSaveOnly(name);
+            }
+          }}
+          type="button"
+          variant="secondary"
+        >
+          Speichern
+        </Button>
+        <Button
+          disabled={!isValidName}
+          onClick={() => {
+            const name = form.getFieldValue("name").trim();
+            if (isValidName && name) {
+              onSaveAndActivate(name);
+            }
+          }}
+          type="button"
+          variant="default"
+        >
+          Speichern & Aktivieren
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

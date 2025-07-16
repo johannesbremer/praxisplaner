@@ -56,7 +56,9 @@ export default defineSchema({
     description: v.string(),
     practiceId: v.id("practices"),
     version: v.number(),
-  }).index("by_practiceId", ["practiceId"]),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_description", ["practiceId", "description"]),
 
   // Flat, immutable rules table
   rules: defineTable({

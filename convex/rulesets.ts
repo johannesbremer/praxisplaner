@@ -54,6 +54,55 @@ export const createDraftFromActive = mutation({
 
     return newRuleSetId;
   },
+  returns: v.id("ruleSets"),
+});
+
+export const createDraftFromRuleSet = mutation({
+  args: {
+    description: v.string(),
+    practiceId: v.id("practices"),
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Get the source rule set
+    const sourceRuleSet = await ctx.db.get(args.sourceRuleSetId);
+    if (!sourceRuleSet) {
+      throw new Error("Source rule set not found");
+    }
+
+    // Verify the rule set belongs to the practice
+    if (sourceRuleSet.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+
+    // Create new draft rule set
+    const newVersion = sourceRuleSet.version + 1;
+    const newRuleSetId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      createdBy: "system", // TODO: Replace with actual user when auth is implemented
+      description: args.description,
+      practiceId: args.practiceId,
+      version: newVersion,
+    });
+
+    // Copy all rules from source set to new draft
+    const sourceRules = await ctx.db
+      .query("rules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.sourceRuleSetId))
+      .collect();
+
+    for (const rule of sourceRules) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _creationTime, _id, ruleSetId, ...ruleData } = rule;
+      await ctx.db.insert("rules", {
+        ...ruleData,
+        ruleSetId: newRuleSetId,
+      });
+    }
+
+    return newRuleSetId;
+  },
+  returns: v.id("ruleSets"),
 });
 
 export const activateRuleSet = mutation({
@@ -81,6 +130,7 @@ export const activateRuleSet = mutation({
 
     return { success: true };
   },
+  returns: v.object({ success: v.boolean() }),
 });
 
 export const updateRule = mutation({
@@ -202,6 +252,42 @@ export const deleteRule = mutation({
   },
 });
 
+export const deleteRuleSet = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Verify the rule set belongs to this practice
+    const ruleSet = await ctx.db.get(args.ruleSetId);
+    if (!ruleSet || ruleSet.practiceId !== args.practiceId) {
+      throw new Error("Rule set not found or doesn't belong to this practice");
+    }
+
+    // Check if this is the active rule set
+    const practice = await ctx.db.get(args.practiceId);
+    if (practice?.currentActiveRuleSetId === args.ruleSetId) {
+      throw new Error("Cannot delete the currently active rule set");
+    }
+
+    // Delete all rules in this rule set first
+    const rules = await ctx.db
+      .query("rules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    for (const rule of rules) {
+      await ctx.db.delete(rule._id);
+    }
+
+    // Delete the rule set itself
+    await ctx.db.delete(args.ruleSetId);
+
+    return { success: true };
+  },
+  returns: v.object({ success: v.boolean() }),
+});
+
 export const getRuleSets = query({
   args: {
     practiceId: v.id("practices"),
@@ -269,4 +355,34 @@ export const createInitialRuleSet = mutation({
     return newRuleSetId;
   },
   returns: v.id("ruleSets"),
+});
+
+export const validateRuleSetName = query({
+  args: {
+    excludeRuleSetId: v.optional(v.id("ruleSets")),
+    name: v.string(),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const existingRuleSet = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId_description", (q) =>
+        q.eq("practiceId", args.practiceId).eq("description", args.name),
+      )
+      .first();
+
+    const isUnique =
+      !existingRuleSet || existingRuleSet._id === args.excludeRuleSetId;
+
+    return {
+      isUnique,
+      message: isUnique
+        ? undefined
+        : "Ein Regelset mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
+    };
+  },
+  returns: v.object({
+    isUnique: v.boolean(),
+    message: v.optional(v.string()),
+  }),
 });
