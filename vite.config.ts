@@ -9,13 +9,13 @@ export default defineConfig({
     tsconfigPaths({
       projects: ["./tsconfig.json"],
     }),
-    react(),
     tanstackStart({
       customViteReactPlugin: true,
       tsr: {
         srcDirectory: "src",
       },
     }),
+    react(),
     visualizer({
       filename: "bundle-analysis.json",
       template: "raw-data",
