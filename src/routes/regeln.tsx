@@ -911,17 +911,6 @@ export default function LogicView() {
                 </p>
               </div>
 
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
-
               <div className="flex justify-center">
                 <PatientBookingFlow
                   dateRange={dateRange}
@@ -932,6 +921,17 @@ export default function LogicView() {
                   simulatedContext={simulatedContext}
                 />
               </div>
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
             </div>
           </div>
         </TabsContent>
@@ -946,18 +946,7 @@ export default function LogicView() {
               </p>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
-
+            <div className="space-y-6">
               <div className="flex justify-center">
                 <MedicalStaffDisplay
                   dateRange={dateRange}
@@ -968,6 +957,17 @@ export default function LogicView() {
                   simulatedContext={simulatedContext}
                 />
               </div>
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
             </div>
           </div>
         </TabsContent>
@@ -982,18 +982,7 @@ export default function LogicView() {
               </p>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
-
+            <div className="space-y-6">
               <div className="space-y-6">
                 <DebugView
                   dateRange={dateRange}
@@ -1005,6 +994,17 @@ export default function LogicView() {
 
                 <SlotInspector selectedSlot={selectedSlot} />
               </div>
+
+              <SimulationControls
+                onDateChange={setSelectedDate}
+                onResetSimulation={resetSimulation}
+                onSimulatedContextChange={setSimulatedContext}
+                onSimulationRuleSetChange={setSimulationRuleSetId}
+                ruleSetsQuery={ruleSetsQuery}
+                selectedDate={selectedDate}
+                simulatedContext={simulatedContext}
+                simulationRuleSetId={simulationRuleSetId}
+              />
             </div>
           </div>
         </TabsContent>
