@@ -50,7 +50,7 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { Calendar, Clock, FileText, Settings } from "lucide-react";
+import { Clock, Settings } from "lucide-react";
 
 import {
   Card,
@@ -183,40 +183,6 @@ export function PraxisplanerHomePageContent() {
           </Card>
         </Link>
 
-        <Link to="/woche">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Wochenansicht
-              </CardTitle>
-              <CardDescription>Wöchentlicher Terminkalender</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Übersicht über alle Termine der aktuellen Woche
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/monat">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Monatsansicht
-              </CardTitle>
-              <CardDescription>Monatlicher Terminkalender</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Übersicht über alle Termine des aktuellen Monats
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
         <Link to="/praxisplaner">
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
@@ -229,23 +195,6 @@ export function PraxisplanerHomePageContent() {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/version">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Versionen
-              </CardTitle>
-              <CardDescription>Regelversionen verwalten</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Überblick über alle Regelkonfigurationen und deren Historie
               </p>
             </CardContent>
           </Card>
