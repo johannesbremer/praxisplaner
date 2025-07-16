@@ -1,7 +1,7 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { IMacDevice } from "./imac-device";
 import { MedicalStaffView } from "./medical-staff-view";
+import { XDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
   dateRange: { end: string; start: string };
@@ -36,7 +36,7 @@ export function MedicalStaffDisplay({
 }: MedicalStaffDisplayProps) {
   return (
     <div className="w-full px-6">
-      <IMacDevice color="blue">
+      <XDRDevice>
         <MedicalStaffView
           dateRange={dateRange}
           {...(onSlotClick && { onSlotClick })}
@@ -45,7 +45,7 @@ export function MedicalStaffDisplay({
           ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
         />
-      </IMacDevice>
+      </XDRDevice>
     </div>
   );
 }

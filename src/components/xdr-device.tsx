@@ -1,18 +1,16 @@
 import type { ReactNode } from "react";
 
-interface IMacDeviceProps {
+interface ProDisplayXDRDeviceProps {
   children: ReactNode;
   className?: string;
-  color?: "blue" | "green" | "orange" | "pink" | "purple" | "silver" | "yellow";
 }
 
-export function IMacDevice({
+export function ProDisplayXDRDevice({
   children,
   className = "",
-  color = "blue",
-}: IMacDeviceProps) {
+}: ProDisplayXDRDeviceProps) {
   return (
-    <div className={`device-imac device-${color} ${className}`}>
+    <div className={`device-pro-display-xdr ${className}`}>
       <div className="device-frame">
         <div className="device-screen">{children}</div>
       </div>
@@ -21,3 +19,6 @@ export function IMacDevice({
     </div>
   );
 }
+
+// Legacy export for backward compatibility
+export const XDRDevice = ProDisplayXDRDevice;
