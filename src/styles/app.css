@@ -277,7 +277,9 @@ Based on devices.css library
 
 .device-imac {
   height: 540px;
-  width: 640px;
+  width: 90%;
+  max-width: 1200px;
+  min-width: 640px;
   position: relative;
 }
 
@@ -288,7 +290,7 @@ Based on devices.css library
   height: 440px;
   padding: 16px 16px 80px 16px;
   position: relative;
-  width: 640px;
+  width: 100%;
 }
 
 .device-imac .device-frame::after {
@@ -300,7 +302,7 @@ Based on devices.css library
   height: 63px;
   left: 1px;
   position: absolute;
-  width: 638px;
+  width: calc(100% - 2px);
 }
 
 .device-imac .device-frame::before {
@@ -322,14 +324,14 @@ Based on devices.css library
   border: 2px solid rgba(13, 13, 13, 1.02);
   border-radius: 2px;
   height: 342px;
-  width: 608px;
+  width: calc(100% - 32px);
   overflow: hidden;
   background: white;
 }
 
 .device-imac .device-power {
   position: absolute;
-  bottom: -98px;
+  bottom: -40px;
   left: 50%;
   transform: translateX(-50%);
   width: 152px;

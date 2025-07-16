@@ -35,7 +35,7 @@ export function MedicalStaffDisplay({
   simulatedContext,
 }: MedicalStaffDisplayProps) {
   return (
-    <div className="flex justify-center">
+    <div className="w-full px-6">
       <IMacDevice color="blue">
         <MedicalStaffView
           dateRange={dateRange}

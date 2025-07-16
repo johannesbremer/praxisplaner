@@ -602,13 +602,6 @@ export default function LogicView() {
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Left Panel - Regelverwaltung */}
             <div className="space-y-6">
-              <div className="border-b pb-4 mb-6">
-                <h2 className="text-xl font-semibold">Regelverwaltung</h2>
-                <p className="text-muted-foreground">
-                  Verwalten Sie Regelsets und konfigurieren Sie die Logik
-                </p>
-              </div>
-
               <div className="space-y-6">
                 {/* Rule Set Selection */}
                 <Card>
@@ -904,13 +897,6 @@ export default function LogicView() {
 
             {/* Right Panel - Patient View + Simulation Controls */}
             <div className="space-y-6">
-              <div className="border-b pb-4 mb-6">
-                <h2 className="text-xl font-semibold">Patientensicht</h2>
-                <p className="text-muted-foreground">
-                  Smartphone-Mockup für die Patientenbuchung
-                </p>
-              </div>
-
               <div className="flex justify-center">
                 <PatientBookingFlow
                   dateRange={dateRange}
@@ -939,24 +925,15 @@ export default function LogicView() {
         {/* Tab 2: Staff View Only */}
         <TabsContent value="staff-view">
           <div className="space-y-6">
-            <div className="border-b pb-4 mb-6">
-              <h2 className="text-xl font-semibold">Praxismitarbeiter</h2>
-              <p className="text-muted-foreground">
-                iMac 24&quot; (Light Blue) für medizinisches Personal
-              </p>
-            </div>
-
             <div className="space-y-6">
-              <div className="flex justify-center">
-                <MedicalStaffDisplay
-                  dateRange={dateRange}
-                  onSlotClick={handleSlotClick}
-                  onUpdateSimulatedContext={setSimulatedContext}
-                  practiceId={currentPractice._id}
-                  ruleSetId={simulationRuleSetId}
-                  simulatedContext={simulatedContext}
-                />
-              </div>
+              <MedicalStaffDisplay
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={setSimulatedContext}
+                practiceId={currentPractice._id}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={simulatedContext}
+              />
 
               <SimulationControls
                 onDateChange={setSelectedDate}
@@ -975,13 +952,6 @@ export default function LogicView() {
         {/* Tab 3: Debug Views Only */}
         <TabsContent value="debug-views">
           <div className="space-y-6">
-            <div className="border-b pb-4 mb-6">
-              <h2 className="text-xl font-semibold">Debug Views</h2>
-              <p className="text-muted-foreground">
-                Entwickler-Tools für Analyse und Debugging
-              </p>
-            </div>
-
             <div className="space-y-6">
               <div className="space-y-6">
                 <DebugView
