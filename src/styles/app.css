@@ -278,6 +278,7 @@ Based on devices.css library
 .device-imac {
   height: 540px;
   width: 640px;
+  position: relative;
 }
 
 .device-imac .device-frame {
