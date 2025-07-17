@@ -143,178 +143,319 @@ export function PatientFocusedView({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-4 pt-12 lg:p-6 lg:pt-8">
-        {/* Header */}
-        <div className="mb-6 lg:mb-8">
-          <h2 className="text-lg lg:text-2xl font-semibold mb-2">
-            Terminbuchung
-          </h2>
-          <p className="text-sm lg:text-base text-muted-foreground">
-            Wählen Sie Ihre gewünschte Terminart und einen passenden Termin
-          </p>
-        </div>
+      {/* Mobile Layout (< 1024px) - Exactly like original */}
+      <div className="lg:hidden">
+        <div className="p-4 pt-12 space-y-6">
+          {/* Header */}
+          <div>
+            <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
+            <p className="text-sm text-muted-foreground">
+              Wählen Sie Ihre gewünschte Terminart und einen passenden Termin
+            </p>
+          </div>
 
-        {/* Desktop: Two-column layout, Mobile: Single-column */}
-        <div className="lg:grid lg:grid-cols-2 lg:gap-8 space-y-6 lg:space-y-0">
-          {/* Left Column: Controls (Desktop) / All Content (Mobile) */}
-          <div className="space-y-6">
-            {/* Terminart Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base lg:text-lg">
-                  Terminart wählen
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 lg:grid-cols-1 gap-2 lg:gap-3">
-                  {appointmentTypes.map((type) => (
-                    <Button
-                      className="justify-start text-left h-auto p-3 lg:p-4"
-                      key={type}
-                      onClick={() => {
-                        onUpdateSimulatedContext?.({
-                          ...simulatedContext,
-                          appointmentType: type,
-                        });
-                      }}
-                      size="sm"
-                      variant={
-                        simulatedContext.appointmentType === type
-                          ? "default"
-                          : "outline"
+          {/* Terminart Selection */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Terminart wählen</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-2">
+                {appointmentTypes.map((type) => (
+                  <Button
+                    className="justify-start text-left h-auto p-3"
+                    key={type}
+                    onClick={() => {
+                      onUpdateSimulatedContext?.({
+                        ...simulatedContext,
+                        appointmentType: type,
+                      });
+                    }}
+                    size="sm"
+                    variant={
+                      simulatedContext.appointmentType === type
+                        ? "default"
+                        : "outline"
+                    }
+                  >
+                    {type}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mini Calendar */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Verfügbare Tage</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MiniCalendar
+                days={5}
+                onStartDateChange={setCalendarStartDate}
+                startDate={calendarStartDate}
+              >
+                <MiniCalendarNavigation direction="prev" />
+                <MiniCalendarDays className="flex-1 min-w-0">
+                  {(date) => (
+                    <MiniCalendarDay
+                      className={
+                        shouldShowDate(date)
+                          ? ""
+                          : "opacity-25 cursor-not-allowed"
                       }
-                    >
-                      {type}
-                    </Button>
-                  ))}
+                      date={date}
+                      key={date.toISOString()}
+                    />
+                  )}
+                </MiniCalendarDays>
+                <MiniCalendarNavigation direction="next" />
+              </MiniCalendar>
+            </CardContent>
+          </Card>
+
+          {/* Available Appointments */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Verfügbare Termine</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sortedDates.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <p>Keine verfügbaren Termine gefunden.</p>
+                  <p className="text-sm mt-1">
+                    Bitte wählen Sie einen anderen Zeitraum.
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
+              ) : (
+                <div className="space-y-4">
+                  {sortedDates.map((dateString) => {
+                    const date = new Date(dateString);
+                    const daySlots = slotsByDate.get(dateString);
 
-            {/* Mini Calendar */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base lg:text-lg">
-                  Verfügbare Tage
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <MiniCalendar
-                  days={5}
-                  onStartDateChange={setCalendarStartDate}
-                  startDate={calendarStartDate}
-                >
-                  <MiniCalendarNavigation direction="prev" />
-                  <MiniCalendarDays className="flex-1 min-w-0">
-                    {(date) => (
-                      <MiniCalendarDay
-                        className={
-                          shouldShowDate(date)
-                            ? ""
-                            : "opacity-25 cursor-not-allowed"
+                    if (!daySlots) {
+                      return null;
+                    }
+
+                    return (
+                      <div key={dateString}>
+                        <h4 className="font-medium mb-2 text-sm">
+                          {format(date, "EEEE, d. MMMM", { locale: de })}
+                        </h4>
+                        <div className="grid gap-2 grid-cols-2">
+                          {daySlots
+                            .sort(
+                              (a, b) =>
+                                new Date(a.startTime).getTime() -
+                                new Date(b.startTime).getTime(),
+                            )
+                            .map((slot) => {
+                              const slotTime = new Date(slot.startTime);
+                              // Display time in German timezone
+                              const hours = slotTime
+                                .getUTCHours()
+                                .toString()
+                                .padStart(2, "0");
+                              const minutes = slotTime
+                                .getUTCMinutes()
+                                .toString()
+                                .padStart(2, "0");
+                              const timeString = `${hours}:${minutes}`;
+
+                              return (
+                                <Button
+                                  className="h-12 flex flex-col items-center justify-center"
+                                  key={`${slot.practitionerId}-${slot.startTime}`}
+                                  onClick={() => onSlotClick?.(slot)}
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  <span className="font-medium text-sm">
+                                    {timeString}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {slot.duration} Min.
+                                  </span>
+                                </Button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Book Appointment Button */}
+          <div className="pb-4">
+            <Button className="w-full h-12" size="lg">
+              Termin buchen
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Layout (>= 1024px) */}
+      <div className="hidden lg:block">
+        <div className="p-6 pt-8">
+          {/* Header */}
+          <div className="mb-8">
+            <h2 className="text-2xl font-semibold mb-2">Terminbuchung</h2>
+            <p className="text-base text-muted-foreground">
+              Wählen Sie Ihre gewünschte Terminart und einen passenden Termin
+            </p>
+          </div>
+
+          {/* Two-column layout for desktop */}
+          <div className="grid grid-cols-2 gap-8">
+            {/* Left Column: Controls */}
+            <div className="space-y-6">
+              {/* Terminart Selection */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Terminart wählen</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-3">
+                    {appointmentTypes.map((type) => (
+                      <Button
+                        className="justify-start text-left h-auto p-4"
+                        key={type}
+                        onClick={() => {
+                          onUpdateSimulatedContext?.({
+                            ...simulatedContext,
+                            appointmentType: type,
+                          });
+                        }}
+                        size="sm"
+                        variant={
+                          simulatedContext.appointmentType === type
+                            ? "default"
+                            : "outline"
                         }
-                        date={date}
-                        key={date.toISOString()}
-                      />
-                    )}
-                  </MiniCalendarDays>
-                  <MiniCalendarNavigation direction="next" />
-                </MiniCalendar>
-              </CardContent>
-            </Card>
+                      >
+                        {type}
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
 
-            {/* Book Appointment Button - Desktop position in left column */}
-            <div className="hidden lg:block">
-              <Button className="w-full h-12 lg:h-14" size="lg">
+              {/* Mini Calendar */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Verfügbare Tage</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <MiniCalendar
+                    days={5}
+                    onStartDateChange={setCalendarStartDate}
+                    startDate={calendarStartDate}
+                  >
+                    <MiniCalendarNavigation direction="prev" />
+                    <MiniCalendarDays className="flex-1 min-w-0">
+                      {(date) => (
+                        <MiniCalendarDay
+                          className={
+                            shouldShowDate(date)
+                              ? ""
+                              : "opacity-25 cursor-not-allowed"
+                          }
+                          date={date}
+                          key={date.toISOString()}
+                        />
+                      )}
+                    </MiniCalendarDays>
+                    <MiniCalendarNavigation direction="next" />
+                  </MiniCalendar>
+                </CardContent>
+              </Card>
+
+              {/* Book Appointment Button - Desktop position */}
+              <Button className="w-full h-14" size="lg">
                 Termin buchen
               </Button>
             </div>
-          </div>
 
-          {/* Right Column: Available Appointments (Desktop only) */}
-          <div className="lg:block">
-            <Card className="h-fit lg:sticky lg:top-6">
-              <CardHeader>
-                <CardTitle className="text-base lg:text-lg">
-                  Verfügbare Termine
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {sortedDates.length === 0 ? (
-                  <div className="text-center py-6 lg:py-12 text-muted-foreground">
-                    <p>Keine verfügbaren Termine gefunden.</p>
-                    <p className="text-sm mt-1">
-                      Bitte wählen Sie einen anderen Zeitraum.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4 lg:space-y-6">
-                    {sortedDates.map((dateString) => {
-                      const date = new Date(dateString);
-                      const daySlots = slotsByDate.get(dateString);
+            {/* Right Column: Available Appointments */}
+            <div>
+              <Card className="h-fit sticky top-6">
+                <CardHeader>
+                  <CardTitle className="text-lg">Verfügbare Termine</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {sortedDates.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <p>Keine verfügbaren Termine gefunden.</p>
+                      <p className="text-sm mt-1">
+                        Bitte wählen Sie einen anderen Zeitraum.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {sortedDates.map((dateString) => {
+                        const date = new Date(dateString);
+                        const daySlots = slotsByDate.get(dateString);
 
-                      if (!daySlots) {
-                        return null;
-                      }
+                        if (!daySlots) {
+                          return null;
+                        }
 
-                      return (
-                        <div key={dateString}>
-                          <h4 className="font-medium mb-2 lg:mb-3 text-sm lg:text-base">
-                            {format(date, "EEEE, d. MMMM", { locale: de })}
-                          </h4>
-                          <div className="grid gap-2 lg:gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                            {daySlots
-                              .sort(
-                                (a, b) =>
-                                  new Date(a.startTime).getTime() -
-                                  new Date(b.startTime).getTime(),
-                              )
-                              .map((slot) => {
-                                const slotTime = new Date(slot.startTime);
-                                // Display time in German timezone
-                                const hours = slotTime
-                                  .getUTCHours()
-                                  .toString()
-                                  .padStart(2, "0");
-                                const minutes = slotTime
-                                  .getUTCMinutes()
-                                  .toString()
-                                  .padStart(2, "0");
-                                const timeString = `${hours}:${minutes}`;
+                        return (
+                          <div key={dateString}>
+                            <h4 className="font-medium mb-3 text-base">
+                              {format(date, "EEEE, d. MMMM", { locale: de })}
+                            </h4>
+                            <div className="grid gap-3 grid-cols-3 xl:grid-cols-4">
+                              {daySlots
+                                .sort(
+                                  (a, b) =>
+                                    new Date(a.startTime).getTime() -
+                                    new Date(b.startTime).getTime(),
+                                )
+                                .map((slot) => {
+                                  const slotTime = new Date(slot.startTime);
+                                  // Display time in German timezone
+                                  const hours = slotTime
+                                    .getUTCHours()
+                                    .toString()
+                                    .padStart(2, "0");
+                                  const minutes = slotTime
+                                    .getUTCMinutes()
+                                    .toString()
+                                    .padStart(2, "0");
+                                  const timeString = `${hours}:${minutes}`;
 
-                                return (
-                                  <Button
-                                    className="h-12 lg:h-14 flex flex-col items-center justify-center"
-                                    key={`${slot.practitionerId}-${slot.startTime}`}
-                                    onClick={() => onSlotClick?.(slot)}
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    <span className="font-medium text-sm lg:text-base">
-                                      {timeString}
-                                    </span>
-                                    <span className="text-xs lg:text-sm text-muted-foreground">
-                                      {slot.duration} Min.
-                                    </span>
-                                  </Button>
-                                );
-                              })}
+                                  return (
+                                    <Button
+                                      className="h-14 flex flex-col items-center justify-center"
+                                      key={`${slot.practitionerId}-${slot.startTime}`}
+                                      onClick={() => onSlotClick?.(slot)}
+                                      size="sm"
+                                      variant="outline"
+                                    >
+                                      <span className="font-medium text-base">
+                                        {timeString}
+                                      </span>
+                                      <span className="text-sm text-muted-foreground">
+                                        {slot.duration} Min.
+                                      </span>
+                                    </Button>
+                                  );
+                                })}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
-
-        {/* Book Appointment Button - Mobile position at bottom */}
-        <div className="lg:hidden mt-6 pb-4">
-          <Button className="w-full h-12" size="lg">
-            Termin buchen
-          </Button>
         </div>
       </div>
     </div>
