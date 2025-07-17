@@ -25,12 +25,16 @@ import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
 interface RuleEnableComboboxProps {
+  disabled?: boolean;
+  onNeedRuleSet?: () => void;
   onRuleEnabled?: () => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetId?: Id<"ruleSets">;
 }
 
 export function RuleEnableCombobox({
+  disabled = false,
+  onNeedRuleSet,
   onRuleEnabled,
   practiceId,
   ruleSetId,
@@ -38,14 +42,24 @@ export function RuleEnableCombobox({
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState("");
 
-  const availableRulesQuery = useQuery(api.rules.getAvailableRulesForRuleSet, {
-    practiceId,
-    ruleSetId,
-  });
+  const availableRulesQuery = useQuery(
+    api.rules.getAvailableRulesForRuleSet,
+    ruleSetId
+      ? {
+          practiceId,
+          ruleSetId,
+        }
+      : "skip",
+  );
 
   const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
 
   const handleSelect = async (ruleId: string) => {
+    if (!ruleSetId) {
+      onNeedRuleSet?.();
+      return;
+    }
+
     try {
       // For now, use a default priority of 100. We can improve this later
       await enableRuleMutation({
@@ -69,6 +83,14 @@ export function RuleEnableCombobox({
     }
   };
 
+  const handleButtonClick = () => {
+    if (!ruleSetId) {
+      onNeedRuleSet?.();
+      return;
+    }
+    setOpen(!open);
+  };
+
   const availableRules = availableRulesQuery ?? [];
 
   return (
@@ -77,6 +99,8 @@ export function RuleEnableCombobox({
         <Button
           aria-expanded={open}
           className="w-[250px] justify-between"
+          disabled={disabled}
+          onClick={handleButtonClick}
           role="combobox"
           variant="outline"
         >

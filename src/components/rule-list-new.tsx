@@ -105,7 +105,8 @@ export function RuleListNew({
       <div className="text-center py-8">
         <RotateCcw className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
         <p className="text-muted-foreground">
-          Keine Regeln in diesem Regelset. Erstellen Sie eine neue Regel oder fügen Sie eine vorhandene hinzu.
+          Keine Regeln in diesem Regelset. Erstellen Sie eine neue Regel oder
+          fügen Sie eine vorhandene hinzu.
         </p>
       </div>
     );

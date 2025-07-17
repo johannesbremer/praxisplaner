@@ -57,15 +57,17 @@ export const getAvailableSlots = query({
         enabledOnly: true,
         ruleSetId,
       });
-      rules = rulesWithInfo.map((rule: {
-        [key: string]: unknown;
-        _id: { toString(): string };
-        priority: number;
-        ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-      }) => ({
-        ...rule,
-        _id: rule._id.toString(),
-      }));
+      rules = rulesWithInfo.map(
+        (rule: {
+          [key: string]: unknown;
+          _id: { toString(): string };
+          priority: number;
+          ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+        }) => ({
+          ...rule,
+          _id: rule._id.toString(),
+        }),
+      );
     } else {
       log.push("No rule set provided - no rules will be applied");
     }
@@ -188,10 +190,14 @@ export const getAvailableSlots = query({
           let shouldBlock = true;
 
           // Check days of week condition
-          if (rule.block_daysOfWeek && Array.isArray(rule.block_daysOfWeek) && rule.block_daysOfWeek.length > 0) {
+          if (
+            rule.block_daysOfWeek &&
+            Array.isArray(rule.block_daysOfWeek) &&
+            rule.block_daysOfWeek.length > 0
+          ) {
             const slotDate = new Date(slot.startTime);
             const dayOfWeek = slotDate.getDay();
-            shouldBlock &&= (rule.block_daysOfWeek).includes(dayOfWeek);
+            shouldBlock &&= rule.block_daysOfWeek.includes(dayOfWeek);
           }
 
           // Check appointment type condition
@@ -200,7 +206,7 @@ export const getAvailableSlots = query({
             Array.isArray(rule.block_appointmentTypes) &&
             rule.block_appointmentTypes.length > 0
           ) {
-            shouldBlock &&= (rule.block_appointmentTypes).includes(
+            shouldBlock &&= rule.block_appointmentTypes.includes(
               args.simulatedContext.appointmentType,
             );
           }
@@ -212,8 +218,8 @@ export const getAvailableSlots = query({
             const slotDate = new Date(slot.startTime);
             const slotTime = `${slotDate.getHours().toString().padStart(2, "0")}:${slotDate.getMinutes().toString().padStart(2, "0")}`;
             shouldBlock &&=
-              slotTime >= (rule.block_timeRangeStart) &&
-              slotTime < (rule.block_timeRangeEnd);
+              slotTime >= rule.block_timeRangeStart &&
+              slotTime < rule.block_timeRangeEnd;
           }
 
           // Check date range condition
@@ -234,7 +240,7 @@ export const getAvailableSlots = query({
         if (
           rule.limit_count &&
           Array.isArray(rule.limit_appointmentTypes) &&
-          (rule.limit_appointmentTypes).includes(
+          rule.limit_appointmentTypes.includes(
             args.simulatedContext.appointmentType,
           )
         ) {

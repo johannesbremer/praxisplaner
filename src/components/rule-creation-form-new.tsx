@@ -74,7 +74,9 @@ export default function RuleCreationFormNew({
   const { captureError } = useErrorTracking();
 
   const createRuleMutation = useMutation(api.rules.createRule);
-  const enableRuleInRuleSetMutation = useMutation(api.rules.enableRuleInRuleSet);
+  const enableRuleInRuleSetMutation = useMutation(
+    api.rules.enableRuleInRuleSet,
+  );
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
@@ -82,19 +84,22 @@ export default function RuleCreationFormNew({
   const form = useForm({
     defaultValues: {
       appliesTo: copyFromRule?.appliesTo ?? "ALL_PRACTITIONERS",
-      block_appointmentTypes: copyFromRule?.block_appointmentTypes ?? ([] as string[]),
+      block_appointmentTypes:
+        copyFromRule?.block_appointmentTypes ?? ([] as string[]),
       block_dateRangeEnd: copyFromRule?.block_dateRangeEnd ?? "",
       block_dateRangeStart: copyFromRule?.block_dateRangeStart ?? "",
       block_daysOfWeek: copyFromRule?.block_daysOfWeek ?? ([] as number[]),
       block_timeRangeEnd: copyFromRule?.block_timeRangeEnd ?? "",
       block_timeRangeStart: copyFromRule?.block_timeRangeStart ?? "",
       description: copyFromRule?.description ?? "",
-      limit_appointmentTypes: copyFromRule?.limit_appointmentTypes ?? ([] as string[]),
+      limit_appointmentTypes:
+        copyFromRule?.limit_appointmentTypes ?? ([] as string[]),
       limit_count: copyFromRule?.limit_count ?? 1,
       limit_perPractitioner: copyFromRule?.limit_perPractitioner ?? false,
       name: "", // Always start with empty name, even for copies
       ruleType: copyFromRule?.ruleType ?? "BLOCK",
-      specificPractitioners: copyFromRule?.specificPractitioners ?? ([] as Id<"practitioners">[]),
+      specificPractitioners:
+        copyFromRule?.specificPractitioners ?? ([] as Id<"practitioners">[]),
     },
     onSubmit: async ({ value }) => {
       try {
@@ -160,7 +165,7 @@ export default function RuleCreationFormNew({
         }
 
         toast.success("Regel erstellt", {
-          description: ruleSetId 
+          description: ruleSetId
             ? "Die neue Regel wurde erfolgreich erstellt und aktiviert."
             : "Die neue Regel wurde erfolgreich erstellt.",
         });
@@ -209,10 +214,9 @@ export default function RuleCreationFormNew({
             {copyFromRule ? "Regel kopieren" : "Neue Regel erstellen"}
           </DialogTitle>
           <DialogDescription>
-            {copyFromRule 
+            {copyFromRule
               ? "Erstellen Sie eine Kopie der Regel mit einem neuen Namen."
-              : "Erstellen Sie eine neue Regel. Diese wird global verfügbar und kann in verschiedenen Regelsets verwendet werden."
-            }
+              : "Erstellen Sie eine neue Regel. Diese wird global verfügbar und kann in verschiedenen Regelsets verwendet werden."}
           </DialogDescription>
         </DialogHeader>
 
@@ -256,7 +260,8 @@ export default function RuleCreationFormNew({
                       value={field.state.value}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Der Name muss eindeutig sein und kann in mehreren Regelsets verwendet werden.
+                      Der Name muss eindeutig sein und kann in mehreren
+                      Regelsets verwendet werden.
                     </p>
                     {field.state.meta.errors.length > 0 && (
                       <p className="text-sm text-destructive">
@@ -303,9 +308,7 @@ export default function RuleCreationFormNew({
                   <div className="space-y-2">
                     <Label htmlFor={field.name}>Regeltyp</Label>
                     <Select
-                      onValueChange={(
-                        value: "BLOCK" | "LIMIT_CONCURRENT",
-                      ) => {
+                      onValueChange={(value: "BLOCK" | "LIMIT_CONCURRENT") => {
                         field.handleChange(value);
                       }}
                       value={field.state.value}

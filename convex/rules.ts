@@ -97,24 +97,45 @@ export const createRule = mutation({
     if (args.block_appointmentTypes && args.block_appointmentTypes.length > 0) {
       ruleData["block_appointmentTypes"] = args.block_appointmentTypes;
     }
-    if (args.block_dateRangeEnd) ruleData["block_dateRangeEnd"] = args.block_dateRangeEnd;
-    if (args.block_dateRangeStart) ruleData["block_dateRangeStart"] = args.block_dateRangeStart;
+    if (args.block_dateRangeEnd) {
+      ruleData["block_dateRangeEnd"] = args.block_dateRangeEnd;
+    }
+    if (args.block_dateRangeStart) {
+      ruleData["block_dateRangeStart"] = args.block_dateRangeStart;
+    }
     if (args.block_daysOfWeek && args.block_daysOfWeek.length > 0) {
       ruleData["block_daysOfWeek"] = args.block_daysOfWeek;
     }
-    if (args.block_exceptForPractitionerTags && args.block_exceptForPractitionerTags.length > 0) {
-      ruleData["block_exceptForPractitionerTags"] = args.block_exceptForPractitionerTags;
+    if (
+      args.block_exceptForPractitionerTags &&
+      args.block_exceptForPractitionerTags.length > 0
+    ) {
+      ruleData["block_exceptForPractitionerTags"] =
+        args.block_exceptForPractitionerTags;
     }
-    if (args.block_timeRangeEnd) ruleData["block_timeRangeEnd"] = args.block_timeRangeEnd;
-    if (args.block_timeRangeStart) ruleData["block_timeRangeStart"] = args.block_timeRangeStart;
+    if (args.block_timeRangeEnd) {
+      ruleData["block_timeRangeEnd"] = args.block_timeRangeEnd;
+    }
+    if (args.block_timeRangeStart) {
+      ruleData["block_timeRangeStart"] = args.block_timeRangeStart;
+    }
     if (args.limit_appointmentTypes && args.limit_appointmentTypes.length > 0) {
       ruleData["limit_appointmentTypes"] = args.limit_appointmentTypes;
     }
-    if (args.limit_atLocation) ruleData["limit_atLocation"] = args.limit_atLocation;
-    if (args.limit_count !== undefined) ruleData["limit_count"] = args.limit_count;
-    if (args.limit_perPractitioner !== undefined) ruleData["limit_perPractitioner"] = args.limit_perPractitioner;
+    if (args.limit_atLocation) {
+      ruleData["limit_atLocation"] = args.limit_atLocation;
+    }
+    if (args.limit_count !== undefined) {
+      ruleData["limit_count"] = args.limit_count;
+    }
+    if (args.limit_perPractitioner !== undefined) {
+      ruleData["limit_perPractitioner"] = args.limit_perPractitioner;
+    }
 
-    const ruleId = await ctx.db.insert("rules", ruleData as Parameters<typeof ctx.db.insert<"rules">>[1]);
+    const ruleId = await ctx.db.insert(
+      "rules",
+      ruleData as Parameters<typeof ctx.db.insert<"rules">>[1],
+    );
 
     return ruleId;
   },
@@ -368,13 +389,18 @@ export const getAvailableRulesForRuleSet = query({
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
   },
-  handler: async (ctx, args): Promise<{
-    [key: string]: unknown;
-    _id: string;
-    description: string;
-    name: string;
-    ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-  }[]> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    {
+      [key: string]: unknown;
+      _id: string;
+      description: string;
+      name: string;
+      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+    }[]
+  > => {
     // Get all rules for this practice
     const allRules: {
       [key: string]: unknown;
@@ -398,7 +424,8 @@ export const getAvailableRulesForRuleSet = query({
 
     // Filter out rules already in the rule set
     return allRules.filter(
-      (rule: (typeof allRules)[0]) => !ruleIdsInRuleSet.has(rule._id.toString()),
+      (rule: (typeof allRules)[0]) =>
+        !ruleIdsInRuleSet.has(rule._id.toString()),
     );
   },
 });
@@ -487,10 +514,13 @@ export const createDraftFromRuleSet = mutation({
     });
 
     // Copy all enabled rules from source set to new draft
-    const sourceRuleSetRules = await ctx.runQuery(api.rules.getRulesForRuleSet, {
-      enabledOnly: true,
-      ruleSetId: args.sourceRuleSetId,
-    });
+    const sourceRuleSetRules = await ctx.runQuery(
+      api.rules.getRulesForRuleSet,
+      {
+        enabledOnly: true,
+        ruleSetId: args.sourceRuleSetId,
+      },
+    );
 
     for (const ruleWithInfo of sourceRuleSetRules) {
       await ctx.runMutation(api.rules.enableRuleInRuleSet, {

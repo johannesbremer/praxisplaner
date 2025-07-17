@@ -234,14 +234,17 @@ export default function LogicView() {
     ruleSetsQuery,
   ]);
 
-  const activeRuleSet = ruleSetsQuery?.find((rs: { isActive: boolean }) => rs.isActive);
+  const activeRuleSet = ruleSetsQuery?.find(
+    (rs: { isActive: boolean }) => rs.isActive,
+  );
   const selectedRuleSet = ruleSetsQuery?.find(
     (rs: { _id: string }) => rs._id === selectedRuleSetId,
   );
 
   // Find any existing unsaved rule set (not active and no explicit selection)
   const existingUnsavedRuleSet = ruleSetsQuery?.find(
-    (rs: { description: string; isActive: boolean; }) => !rs.isActive && rs.description === "Ungespeicherte Änderungen",
+    (rs: { description: string; isActive: boolean }) =>
+      !rs.isActive && rs.description === "Ungespeicherte Änderungen",
   );
 
   const unsavedRuleSet =
@@ -589,25 +592,34 @@ export default function LogicView() {
                               </SelectItem>
                             )}
                             {ruleSetsQuery
-                              .filter((rs: { _id: string }) => rs._id !== unsavedRuleSet?._id)
-                              .map((ruleSet: { _id: string; description: string; isActive: boolean }) => (
-                                <SelectItem
-                                  key={ruleSet._id}
-                                  value={ruleSet._id}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>{ruleSet.description}</span>
-                                    {ruleSet.isActive && (
-                                      <Badge
-                                        className="text-xs"
-                                        variant="default"
-                                      >
-                                        AKTIV
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </SelectItem>
-                              ))}
+                              .filter(
+                                (rs: { _id: string }) =>
+                                  rs._id !== unsavedRuleSet?._id,
+                              )
+                              .map(
+                                (ruleSet: {
+                                  _id: string;
+                                  description: string;
+                                  isActive: boolean;
+                                }) => (
+                                  <SelectItem
+                                    key={ruleSet._id}
+                                    value={ruleSet._id}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>{ruleSet.description}</span>
+                                      {ruleSet.isActive && (
+                                        <Badge
+                                          className="text-xs"
+                                          variant="default"
+                                        >
+                                          AKTIV
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </SelectItem>
+                                ),
+                              )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -672,49 +684,44 @@ export default function LogicView() {
                                 : "Fügen Sie Ihre erste Regel hinzu"}
                           </CardDescription>
                         </div>
-                        <div className="flex gap-2">
-                          {/* Create New Rule Button */}
-                          {unsavedRuleSet ? (
-                            <RuleCreationFormNew
-                              onRuleCreated={handleRuleChange}
-                              practiceId={currentPractice._id}
-                              ruleSetId={unsavedRuleSet._id}
-                            />
-                          ) : ruleSetsQuery && ruleSetsQuery.length === 0 ? (
-                            // Show button if we're creating the first rule set (no rule sets exist)
-                            <Button
-                              onClick={() => {
-                                void ensureUnsavedRuleSet();
-                              }}
-                              size="sm"
-                              variant="outline"
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              Neue Regel
-                            </Button>
-                          ) : (
-                            // Show button for any existing rule set (active or non-active)
-                            <Button
-                              onClick={() => {
-                                void ensureUnsavedRuleSet();
-                              }}
-                              size="sm"
-                              variant="outline"
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              Neue Regel
-                            </Button>
-                          )}
+                      </div>
+                      {/* Rule Management Controls - New line for space reasons */}
+                      <div className="flex gap-2 mt-4">
+                        {/* Create New Rule Button - Always show */}
+                        <RuleCreationFormNew
+                          customTrigger={
+                            unsavedRuleSet ? undefined : (
+                              <Button
+                                onClick={() => {
+                                  void ensureUnsavedRuleSet();
+                                }}
+                                size="sm"
+                                variant="outline"
+                              >
+                                <Plus className="h-4 w-4 mr-2" />
+                                Neue Regel
+                              </Button>
+                            )
+                          }
+                          onRuleCreated={handleRuleChange}
+                          practiceId={currentPractice._id}
+                          {...(unsavedRuleSet && {
+                            ruleSetId: unsavedRuleSet._id,
+                          })}
+                        />
 
-                          {/* Enable Existing Rule Combobox - only show if we have an unsaved rule set */}
-                          {unsavedRuleSet && (
-                            <RuleEnableCombobox
-                              onRuleEnabled={handleRuleChange}
-                              practiceId={currentPractice._id}
-                              ruleSetId={unsavedRuleSet._id}
-                            />
-                          )}
-                        </div>
+                        {/* Enable Existing Rule Combobox - Always show */}
+                        <RuleEnableCombobox
+                          disabled={!unsavedRuleSet}
+                          onNeedRuleSet={() => {
+                            void ensureUnsavedRuleSet();
+                          }}
+                          onRuleEnabled={handleRuleChange}
+                          practiceId={currentPractice._id}
+                          {...(unsavedRuleSet && {
+                            ruleSetId: unsavedRuleSet._id,
+                          })}
+                        />
                       </div>
                     </CardHeader>
                     <CardContent>
