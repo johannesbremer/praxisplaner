@@ -253,7 +253,7 @@ export const getAllRulesForPractice = query({
   },
 });
 
-// Full-text search for rules by name and description
+// Full-text search for rules by name only
 export const searchRules = query({
   args: {
     practiceId: v.id("practices"),
@@ -278,6 +278,7 @@ export const searchRules = query({
       });
     }
 
+    // Use Convex search index to search by name only
     const rules = await ctx.db
       .query("rules")
       .withSearchIndex("search_rules", (q) =>
@@ -285,23 +286,7 @@ export const searchRules = query({
       )
       .collect();
 
-    // Also search in descriptions by filtering all rules for the practice
-    const allRules = await ctx.db
-      .query("rules")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const descriptionMatches = allRules.filter((rule) =>
-      rule.description.toLowerCase().includes(args.searchTerm.toLowerCase()),
-    );
-
-    // Combine and deduplicate results
-    const combined = [...rules, ...descriptionMatches];
-    const uniqueRules = [
-      ...new Map(combined.map((rule) => [rule._id, rule])).values(),
-    ];
-
-    return uniqueRules.sort((a, b) => a.name.localeCompare(b.name));
+    return rules.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 

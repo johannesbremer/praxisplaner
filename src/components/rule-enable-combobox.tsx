@@ -101,9 +101,10 @@ export function RuleEnableCombobox({
   };
 
   const availableRules = availableRulesQuery ?? [];
-  
+
   // Only disable if there are no rules available globally
-  const shouldDisable = disabled || (!allRulesQuery || allRulesQuery.length === 0);
+  const shouldDisable =
+    disabled || !allRulesQuery || allRulesQuery.length === 0;
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
