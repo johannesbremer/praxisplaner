@@ -519,12 +519,13 @@ export const createDraftFromActive = mutation({
       throw new Error("Active rule set not found");
     }
 
-    // Create new draft rule set
+    // Create new draft rule set with parent tracking
     const newVersion = activeRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentRuleSetId: practice.currentActiveRuleSetId, // Track parent for git-like history
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -569,12 +570,13 @@ export const createDraftFromRuleSet = mutation({
       throw new Error("Rule set does not belong to this practice");
     }
 
-    // Create new draft rule set
+    // Create new draft rule set with parent tracking
     const newVersion = sourceRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentRuleSetId: args.sourceRuleSetId, // Track parent for git-like history
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -748,4 +750,30 @@ export const validateRuleSetName = query({
     isUnique: v.boolean(),
     message: v.optional(v.string()),
   }),
+});
+
+export const getRuleSetHistory = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    // Get all rule sets for this practice
+    const ruleSets = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    // Get the current active rule set
+    const practice = await ctx.db.get(args.practiceId);
+    const activeRuleSetId = practice?.currentActiveRuleSetId;
+
+    // Transform to the format expected by CommitGraph
+    return {
+      activeRuleSetId,
+      ruleSets: ruleSets.map((ruleSet) => ({
+        ...ruleSet,
+        isActive: activeRuleSetId === ruleSet._id,
+      })),
+    };
+  },
 });
