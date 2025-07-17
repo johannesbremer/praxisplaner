@@ -10,8 +10,9 @@ export default defineConfig(({ mode }) => ({
       ? {}
       : {
           // Define process polyfill for browser compatibility (but not for tests)
+          global: "globalThis",
           "process.argv": "[]",
-          "process.env": {},
+          "process.env": "{}",
           "process.platform": '"browser"',
         },
   optimizeDeps: {
