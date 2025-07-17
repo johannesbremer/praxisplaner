@@ -253,7 +253,7 @@ export const getAllRulesForPractice = query({
   },
 });
 
-// Full-text search for rules by name and description with substring support
+// Full-text search for rules by name and description
 export const searchRules = query({
   args: {
     practiceId: v.id("practices"),
@@ -278,35 +278,25 @@ export const searchRules = query({
       });
     }
 
-    // Get all rules for the practice first
+    const rules = await ctx.db
+      .query("rules")
+      .withSearchIndex("search_rules", (q) =>
+        q.search("name", args.searchTerm).eq("practiceId", args.practiceId),
+      )
+      .collect();
+
+    // Also search in descriptions by filtering all rules for the practice
     const allRules = await ctx.db
       .query("rules")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
-    const searchTermLower = args.searchTerm.toLowerCase();
-    
-    // Search for substring matches in both name and description
-    const substringMatches = allRules.filter((rule) =>
-      rule.name.toLowerCase().includes(searchTermLower) ||
-      rule.description.toLowerCase().includes(searchTermLower)
+    const descriptionMatches = allRules.filter((rule) =>
+      rule.description.toLowerCase().includes(args.searchTerm.toLowerCase()),
     );
 
-    // Also try Convex full-text search for word matching (better for multi-word searches)
-    let fullTextMatches: (typeof allRules) = [];
-    try {
-      fullTextMatches = await ctx.db
-        .query("rules")
-        .withSearchIndex("search_rules", (q) =>
-          q.search("name", args.searchTerm).eq("practiceId", args.practiceId),
-        )
-        .collect();
-    } catch {
-      // Fallback to substring search only if full-text search fails
-    }
-
-    // Combine and deduplicate results, prioritizing full-text matches
-    const combined = [...fullTextMatches, ...substringMatches];
+    // Combine and deduplicate results
+    const combined = [...rules, ...descriptionMatches];
     const uniqueRules = [
       ...new Map(combined.map((rule) => [rule._id, rule])).values(),
     ];
