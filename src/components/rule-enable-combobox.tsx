@@ -50,18 +50,13 @@ export function RuleEnableCombobox({
 
   const availableRulesQuery = useQuery(
     api.rules.getAvailableRulesForRuleSet,
-    ruleSetId && searchTerm.trim()
+    ruleSetId
       ? {
           practiceId,
           ruleSetId,
-          searchTerm: searchTerm.trim(),
+          ...(searchTerm.trim() && { searchTerm: searchTerm.trim() }),
         }
-      : ruleSetId
-        ? {
-            practiceId,
-            ruleSetId,
-          }
-        : "skip",
+      : "skip",
   );
 
   const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
@@ -85,6 +80,7 @@ export function RuleEnableCombobox({
       });
 
       setValue("");
+      setSearchTerm(""); // Clear search term
       setOpen(false);
       onRuleEnabled?.();
     } catch (error) {
@@ -101,22 +97,13 @@ export function RuleEnableCombobox({
       return;
     }
 
-    // Check if there are any rules available to enable
-    const hasAvailableRules = availableRules.length > 0;
-    if (!hasAvailableRules) {
-      toast.info("Keine Regeln verfügbar", {
-        description: "Es gibt keine weiteren Regeln, die zu diesem Regelset hinzugefügt werden können.",
-      });
-      return;
-    }
-
     setOpen(!open);
   };
 
   const availableRules = availableRulesQuery ?? [];
-  // Check if there are any rules available to add to the rule set
-  // If no rule set is selected, check if there are any rules globally
-  const hasAvailableRules = ruleSetId ? availableRules.length > 0 : (allRulesQuery && allRulesQuery.length > 0);
+  
+  // Only disable if there are no rules available globally
+  const shouldDisable = disabled || (!allRulesQuery || allRulesQuery.length === 0);
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
@@ -124,17 +111,15 @@ export function RuleEnableCombobox({
         <Button
           aria-expanded={open}
           className="w-[250px] justify-between"
-          disabled={disabled || !hasAvailableRules}
+          disabled={shouldDisable}
           onClick={handleButtonClick}
           role="combobox"
           variant="outline"
         >
           {value
             ? availableRules.find((rule) => rule._id === value)?.name
-            : ruleSetId
-              ? hasAvailableRules
-                ? "Regel hinzufügen..."
-                : "Keine Regeln verfügbar"
+            : shouldDisable
+              ? "Keine Regeln verfügbar"
               : "Regel hinzufügen..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
