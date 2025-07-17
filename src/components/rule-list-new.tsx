@@ -100,22 +100,8 @@ export function RuleListNew({
     );
   }
 
-  // Filter to only show enabled rules (disabled rules should not be visible)
-  const enabledRules = rules.filter((rule) => rule.enabled);
-
-  if (enabledRules.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-muted-foreground">
-          Keine aktiven Regeln in diesem Regelset. Erstellen Sie eine neue Regel
-          oder fügen Sie eine vorhandene hinzu.
-        </p>
-      </div>
-    );
-  }
-
-  // Sort rules by priority
-  const sortedRules = [...enabledRules].sort((a, b) => a.priority - b.priority);
+  // Sort rules by priority (all rules passed here are already enabled)
+  const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
 
   return (
     <div className="space-y-4">

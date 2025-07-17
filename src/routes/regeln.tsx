@@ -274,10 +274,10 @@ export default function LogicView() {
   const currentWorkingRuleSet =
     unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet;
 
-  // Fetch rules for the current working rule set
+  // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
     api.rules.getRulesForRuleSet,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+    currentWorkingRuleSet ? { enabledOnly: true, ruleSetId: currentWorkingRuleSet._id } : "skip",
   );
 
   // Function to create an unsaved copy when modifying a saved rule set
