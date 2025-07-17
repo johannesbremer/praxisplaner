@@ -69,7 +69,7 @@ export function RuleEnableCombobox({
     }
   };
 
-  const availableRules = availableRulesQuery || [];
+  const availableRules = availableRulesQuery ?? [];
 
   return (
     <Popover onOpenChange={setOpen} open={open}>

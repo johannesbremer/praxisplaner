@@ -13,17 +13,23 @@ import { api } from "@/convex/_generated/api";
 
 import RuleCreationFormNew from "./rule-creation-form-new";
 
+interface RuleListNewProps {
+  onRuleChanged?: () => void;
+  practiceId: Id<"practices">;
+  rules: RuleWithRuleSetInfo[];
+  ruleSetId: Id<"ruleSets">;
+}
+
 interface RuleWithRuleSetInfo {
   _id: Id<"rules">;
-  name: string;
   description: string;
-  ruleType: "BLOCK" | "LIMIT_CONCURRENT";
   enabled: boolean;
+  name: string;
   priority: number;
   ruleSetRuleId: Id<"ruleSetRules">;
+  ruleType: "BLOCK" | "LIMIT_CONCURRENT";
   // Rule parameters
   appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-  specificPractitioners?: Id<"practitioners">[];
   block_appointmentTypes?: string[];
   block_dateRangeEnd?: string;
   block_dateRangeStart?: string;
@@ -33,20 +39,14 @@ interface RuleWithRuleSetInfo {
   limit_appointmentTypes?: string[];
   limit_count?: number;
   limit_perPractitioner?: boolean;
-}
-
-interface RuleListNewProps {
-  onRuleChanged?: () => void;
-  practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
-  rules: RuleWithRuleSetInfo[];
+  specificPractitioners?: Id<"practitioners">[];
 }
 
 export function RuleListNew({
   onRuleChanged,
   practiceId,
-  ruleSetId,
   rules,
+  ruleSetId,
 }: RuleListNewProps) {
   const disableRuleMutation = useMutation(api.rules.disableRuleInRuleSet);
   const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
@@ -148,18 +148,22 @@ export function RuleListNew({
               {/* Priority Controls */}
               <div className="flex flex-col gap-1">
                 <Button
-                  onClick={() => handlePriorityChange(rule, rule.priority - 5)}
+                  onClick={() => {
+                    void handlePriorityChange(rule, rule.priority - 5);
+                  }}
                   size="sm"
-                  variant="ghost"
                   title="Priorität erhöhen (niedrigere Zahl)"
+                  variant="ghost"
                 >
                   ↑
                 </Button>
                 <Button
-                  onClick={() => handlePriorityChange(rule, rule.priority + 5)}
+                  onClick={() => {
+                    void handlePriorityChange(rule, rule.priority + 5);
+                  }}
                   size="sm"
-                  variant="ghost"
                   title="Priorität verringern (höhere Zahl)"
+                  variant="ghost"
                 >
                   ↓
                 </Button>
@@ -167,10 +171,12 @@ export function RuleListNew({
 
               {/* Enable/Disable Toggle */}
               <Button
-                onClick={() => handleToggleRule(rule)}
+                onClick={() => {
+                  void handleToggleRule(rule);
+                }}
                 size="sm"
-                variant="ghost"
                 title={rule.enabled ? "Regel deaktivieren" : "Regel aktivieren"}
+                variant="ghost"
               >
                 {rule.enabled ? (
                   <EyeOff className="h-4 w-4" />
@@ -182,22 +188,22 @@ export function RuleListNew({
               {/* Copy Rule */}
               <RuleCreationFormNew
                 copyFromRule={{
-                  appliesTo: rule.appliesTo || "ALL_PRACTITIONERS",
-                  block_appointmentTypes: rule.block_appointmentTypes,
-                  block_dateRangeEnd: rule.block_dateRangeEnd,
-                  block_dateRangeStart: rule.block_dateRangeStart,
-                  block_daysOfWeek: rule.block_daysOfWeek,
-                  block_timeRangeEnd: rule.block_timeRangeEnd,
-                  block_timeRangeStart: rule.block_timeRangeStart,
+                  appliesTo: rule.appliesTo ?? "ALL_PRACTITIONERS",
+                  block_appointmentTypes: rule.block_appointmentTypes ?? [],
+                  block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
+                  block_dateRangeStart: rule.block_dateRangeStart ?? "",
+                  block_daysOfWeek: rule.block_daysOfWeek ?? [],
+                  block_timeRangeEnd: rule.block_timeRangeEnd ?? "",
+                  block_timeRangeStart: rule.block_timeRangeStart ?? "",
                   description: rule.description,
-                  limit_appointmentTypes: rule.limit_appointmentTypes,
-                  limit_count: rule.limit_count,
-                  limit_perPractitioner: rule.limit_perPractitioner,
+                  limit_appointmentTypes: rule.limit_appointmentTypes ?? [],
+                  limit_count: rule.limit_count ?? 1,
+                  limit_perPractitioner: rule.limit_perPractitioner ?? false,
                   ruleType: rule.ruleType,
-                  specificPractitioners: rule.specificPractitioners,
+                  specificPractitioners: rule.specificPractitioners ?? [],
                 }}
                 customTrigger={
-                  <Button size="sm" variant="ghost" title="Regel kopieren">
+                  <Button size="sm" title="Regel kopieren" variant="ghost">
                     <Copy className="h-4 w-4" />
                   </Button>
                 }

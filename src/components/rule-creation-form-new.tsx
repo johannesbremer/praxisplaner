@@ -38,28 +38,28 @@ import { api } from "@/convex/_generated/api";
 import { useErrorTracking } from "../utils/error-tracking";
 
 interface RuleCreationFormNewProps {
-  onRuleCreated?: () => void;
+  onRuleCreated?: (() => void) | undefined;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets">; // Optional - if provided, rule will be auto-enabled in this rule set
   // For copy functionality
   copyFromRule?: {
-    name?: string;
-    description: string;
-    ruleType: "BLOCK" | "LIMIT_CONCURRENT";
     appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-    specificPractitioners?: Id<"practitioners">[];
     block_appointmentTypes?: string[];
     block_dateRangeEnd?: string;
     block_dateRangeStart?: string;
     block_daysOfWeek?: number[];
     block_timeRangeEnd?: string;
     block_timeRangeStart?: string;
+    description: string;
     limit_appointmentTypes?: string[];
     limit_count?: number;
     limit_perPractitioner?: boolean;
+    name?: string;
+    ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+    specificPractitioners?: Id<"practitioners">[];
   };
-  triggerText?: string;
   customTrigger?: React.ReactNode; // Custom trigger element
+  triggerText?: string;
 }
 
 export default function RuleCreationFormNew({
@@ -81,20 +81,20 @@ export default function RuleCreationFormNew({
 
   const form = useForm({
     defaultValues: {
-      appliesTo: copyFromRule?.appliesTo || "ALL_PRACTITIONERS",
-      block_appointmentTypes: copyFromRule?.block_appointmentTypes || ([] as string[]),
-      block_dateRangeEnd: copyFromRule?.block_dateRangeEnd || "",
-      block_dateRangeStart: copyFromRule?.block_dateRangeStart || "",
-      block_daysOfWeek: copyFromRule?.block_daysOfWeek || ([] as number[]),
-      block_timeRangeEnd: copyFromRule?.block_timeRangeEnd || "",
-      block_timeRangeStart: copyFromRule?.block_timeRangeStart || "",
-      description: copyFromRule?.description || "",
-      limit_appointmentTypes: copyFromRule?.limit_appointmentTypes || ([] as string[]),
-      limit_count: copyFromRule?.limit_count || 1,
-      limit_perPractitioner: copyFromRule?.limit_perPractitioner || false,
+      appliesTo: copyFromRule?.appliesTo ?? "ALL_PRACTITIONERS",
+      block_appointmentTypes: copyFromRule?.block_appointmentTypes ?? ([] as string[]),
+      block_dateRangeEnd: copyFromRule?.block_dateRangeEnd ?? "",
+      block_dateRangeStart: copyFromRule?.block_dateRangeStart ?? "",
+      block_daysOfWeek: copyFromRule?.block_daysOfWeek ?? ([] as number[]),
+      block_timeRangeEnd: copyFromRule?.block_timeRangeEnd ?? "",
+      block_timeRangeStart: copyFromRule?.block_timeRangeStart ?? "",
+      description: copyFromRule?.description ?? "",
+      limit_appointmentTypes: copyFromRule?.limit_appointmentTypes ?? ([] as string[]),
+      limit_count: copyFromRule?.limit_count ?? 1,
+      limit_perPractitioner: copyFromRule?.limit_perPractitioner ?? false,
       name: "", // Always start with empty name, even for copies
-      ruleType: copyFromRule?.ruleType || "BLOCK",
-      specificPractitioners: copyFromRule?.specificPractitioners || ([] as Id<"practitioners">[]),
+      ruleType: copyFromRule?.ruleType ?? "BLOCK",
+      specificPractitioners: copyFromRule?.specificPractitioners ?? ([] as Id<"practitioners">[]),
     },
     onSubmit: async ({ value }) => {
       try {
@@ -238,7 +238,7 @@ export default function RuleCreationFormNew({
                       return "Name ist erforderlich";
                     }
                     // TODO: Add real-time name validation
-                    return undefined;
+                    return;
                   },
                 }}
               >
