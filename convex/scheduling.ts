@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
+import { api } from "./_generated/api";
 import { query } from "./_generated/server";
 import {
   availableSlotsResultValidator,
@@ -30,10 +31,44 @@ export const getAvailableSlots = query({
       ruleSetId = practice.currentActiveRuleSetId;
     }
 
-    const rules = await ctx.db
-      .query("rules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
+    // 1. Fetch all enabled rules for this rule set
+    let rules: {
+      [key: string]: unknown;
+      _id: string;
+      appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
+      block_appointmentTypes?: string[];
+      block_dateRangeEnd?: string;
+      block_dateRangeStart?: string;
+      block_daysOfWeek?: number[];
+      block_timeRangeEnd?: string;
+      block_timeRangeStart?: string;
+      description?: string;
+      limit_appointmentTypes?: string[];
+      limit_count?: number;
+      limit_perPractitioner?: boolean;
+      priority: number;
+      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+      specificPractitioners?: string[];
+    }[] = [];
+
+    if (ruleSetId) {
+      // Use the new rules system to get enabled rules for this rule set
+      const rulesWithInfo = await ctx.runQuery(api.rules.getRulesForRuleSet, {
+        enabledOnly: true,
+        ruleSetId,
+      });
+      rules = rulesWithInfo.map((rule: {
+        [key: string]: unknown;
+        _id: { toString(): string };
+        priority: number;
+        ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+      }) => ({
+        ...rule,
+        _id: rule._id.toString(),
+      }));
+    } else {
+      log.push("No rule set provided - no rules will be applied");
+    }
 
     log.push(`Found ${rules.length} rules to evaluate`);
 
@@ -153,18 +188,19 @@ export const getAvailableSlots = query({
           let shouldBlock = true;
 
           // Check days of week condition
-          if (rule.block_daysOfWeek && rule.block_daysOfWeek.length > 0) {
+          if (rule.block_daysOfWeek && Array.isArray(rule.block_daysOfWeek) && rule.block_daysOfWeek.length > 0) {
             const slotDate = new Date(slot.startTime);
             const dayOfWeek = slotDate.getDay();
-            shouldBlock &&= rule.block_daysOfWeek.includes(dayOfWeek);
+            shouldBlock &&= (rule.block_daysOfWeek).includes(dayOfWeek);
           }
 
           // Check appointment type condition
           if (
             rule.block_appointmentTypes &&
+            Array.isArray(rule.block_appointmentTypes) &&
             rule.block_appointmentTypes.length > 0
           ) {
-            shouldBlock &&= rule.block_appointmentTypes.includes(
+            shouldBlock &&= (rule.block_appointmentTypes).includes(
               args.simulatedContext.appointmentType,
             );
           }
@@ -176,8 +212,8 @@ export const getAvailableSlots = query({
             const slotDate = new Date(slot.startTime);
             const slotTime = `${slotDate.getHours().toString().padStart(2, "0")}:${slotDate.getMinutes().toString().padStart(2, "0")}`;
             shouldBlock &&=
-              slotTime >= rule.block_timeRangeStart &&
-              slotTime < rule.block_timeRangeEnd;
+              slotTime >= (rule.block_timeRangeStart) &&
+              slotTime < (rule.block_timeRangeEnd);
           }
 
           // Check date range condition
@@ -197,7 +233,8 @@ export const getAvailableSlots = query({
         // Implementation for concurrent limit rules
         if (
           rule.limit_count &&
-          rule.limit_appointmentTypes?.includes(
+          Array.isArray(rule.limit_appointmentTypes) &&
+          (rule.limit_appointmentTypes).includes(
             args.simulatedContext.appointmentType,
           )
         ) {
@@ -217,9 +254,10 @@ export const getAvailableSlots = query({
             }
 
             for (const [, slots] of practitionerGroups) {
-              if (rule.limit_count && slots.length > rule.limit_count) {
+              const limitCount = rule.limit_count;
+              if (limitCount && slots.length > limitCount) {
                 // Block excess slots (keeping first N)
-                for (let i = rule.limit_count; i < slots.length; i++) {
+                for (let i = limitCount; i < slots.length; i++) {
                   const slot = slots[i];
                   if (slot) {
                     slot.status = "BLOCKED";
@@ -230,8 +268,9 @@ export const getAvailableSlots = query({
             }
           } else {
             // Global limit
-            if (rule.limit_count && availableSlots.length > rule.limit_count) {
-              for (let i = rule.limit_count; i < availableSlots.length; i++) {
+            const limitCount = rule.limit_count;
+            if (limitCount && availableSlots.length > limitCount) {
+              for (let i = limitCount; i < availableSlots.length; i++) {
                 const slot = availableSlots[i];
                 if (slot) {
                   slot.status = "BLOCKED";
@@ -248,7 +287,7 @@ export const getAvailableSlots = query({
       ).length;
       if (beforeCount !== afterCount) {
         log.push(
-          `Rule "${rule.description}" blocked ${beforeCount - afterCount} slots`,
+          `Rule "${rule.description || rule._id}" blocked ${beforeCount - afterCount} slots`,
         );
       }
     }
