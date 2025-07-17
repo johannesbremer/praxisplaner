@@ -708,7 +708,6 @@ export default function LogicView() {
 
                         {/* Enable Existing Rule Combobox - Always show */}
                         <RuleEnableCombobox
-                          disabled={!unsavedRuleSet}
                           onNeedRuleSet={() => {
                             void ensureUnsavedRuleSet();
                           }}
