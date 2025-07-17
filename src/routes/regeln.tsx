@@ -47,6 +47,7 @@ import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationFormNew from "../components/rule-creation-form-new";
 import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
+import { RuleSetHistoryGraph } from "../components/rule-set-history-graph";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -740,6 +741,34 @@ export default function LogicView() {
 
                 {/* Practitioner Management */}
                 <PractitionerManagement practiceId={currentPractice._id} />
+
+                {/* Rule Set History Graph */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Regelset Historie</CardTitle>
+                    <CardDescription>
+                      Git-ähnliche Visualisierung der Regelset-Entwicklung.
+                      Klicken Sie auf einen Commit, um zu diesem Regelset zu
+                      wechseln.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <RuleSetHistoryGraph
+                      onRuleSetClick={(ruleSetId) => {
+                        // If we have unsaved changes, show save dialog
+                        if (unsavedRuleSet) {
+                          setPendingRuleSetId(ruleSetId);
+                          setActivationName(""); // Clear name for new dialog
+                          setIsSaveDialogOpen(true);
+                        } else {
+                          setSelectedRuleSetId(ruleSetId);
+                          setUnsavedRuleSetId(null); // Clear unsaved changes
+                        }
+                      }}
+                      practiceId={currentPractice._id}
+                    />
+                  </CardContent>
+                </Card>
 
                 {/* Base Schedule Management */}
                 <BaseScheduleManagement practiceId={currentPractice._id} />
