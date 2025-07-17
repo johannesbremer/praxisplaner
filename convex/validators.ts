@@ -68,7 +68,7 @@ export const availableSlotsResultValidator = v.object({
 // Rule update data (based on schema fields)
 export const ruleUpdateValidator = v.object({
   description: v.optional(v.string()),
-  priority: v.optional(v.number()),
+  name: v.optional(v.string()),
   ruleType: v.optional(
     v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
   ),
@@ -93,4 +93,10 @@ export const ruleUpdateValidator = v.object({
   limit_atLocation: v.optional(v.id("locations")),
   limit_count: v.optional(v.number()),
   limit_perPractitioner: v.optional(v.boolean()),
+});
+
+// RuleSetRule update data (for junction table)
+export const ruleSetRuleUpdateValidator = v.object({
+  enabled: v.optional(v.boolean()),
+  priority: v.optional(v.number()),
 });
