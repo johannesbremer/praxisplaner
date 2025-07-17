@@ -101,11 +101,11 @@ export function RuleEnableCombobox({
       return;
     }
 
-    // Check if there are any rules globally
-    const hasAnyRules = allRulesQuery && allRulesQuery.length > 0;
-    if (!hasAnyRules) {
+    // Check if there are any rules available to enable
+    const hasAvailableRules = availableRules.length > 0;
+    if (!hasAvailableRules) {
       toast.info("Keine Regeln verfügbar", {
-        description: "Es wurden noch keine Regeln für diese Praxis erstellt.",
+        description: "Es gibt keine weiteren Regeln, die zu diesem Regelset hinzugefügt werden können.",
       });
       return;
     }
@@ -114,7 +114,9 @@ export function RuleEnableCombobox({
   };
 
   const availableRules = availableRulesQuery ?? [];
-  const hasAnyRules = allRulesQuery && allRulesQuery.length > 0;
+  // Check if there are any rules available to add to the rule set
+  // If no rule set is selected, check if there are any rules globally
+  const hasAvailableRules = ruleSetId ? availableRules.length > 0 : (allRulesQuery && allRulesQuery.length > 0);
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
@@ -122,16 +124,18 @@ export function RuleEnableCombobox({
         <Button
           aria-expanded={open}
           className="w-[250px] justify-between"
-          disabled={disabled || !hasAnyRules}
+          disabled={disabled || !hasAvailableRules}
           onClick={handleButtonClick}
           role="combobox"
           variant="outline"
         >
           {value
             ? availableRules.find((rule) => rule._id === value)?.name
-            : hasAnyRules
-              ? "Regel hinzufügen..."
-              : "Keine Regeln verfügbar"}
+            : ruleSetId
+              ? hasAvailableRules
+                ? "Regel hinzufügen..."
+                : "Keine Regeln verfügbar"
+              : "Regel hinzufügen..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
