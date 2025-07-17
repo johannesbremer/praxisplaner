@@ -56,7 +56,6 @@
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
     "tiny-invariant": "^1.3.3",
-    "tw-animate-css": "^1.3.5",
     "vite": "^7.0.3",
     "zod": "^4.0.5"
   },
@@ -94,6 +93,7 @@
     "prettier-plugin-sh": "^0.18.0",
     "rollup-plugin-visualizer": "^6.0.3",
     "tailwindcss": "^4.1.11",
+    "tw-animate-css": "^1.3.5",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.36.0",
     "vite-tsconfig-paths": "^5.1.4",
