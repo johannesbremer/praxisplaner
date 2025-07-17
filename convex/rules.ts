@@ -253,6 +253,58 @@ export const getAllRulesForPractice = query({
   },
 });
 
+// Full-text search for rules by name and description
+export const searchRules = query({
+  args: {
+    practiceId: v.id("practices"),
+    searchTerm: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    {
+      [key: string]: unknown;
+      _id: string;
+      description: string;
+      name: string;
+      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+    }[]
+  > => {
+    if (!args.searchTerm.trim()) {
+      // Return all rules if no search term
+      return await ctx.runQuery(api.rules.getAllRulesForPractice, {
+        practiceId: args.practiceId,
+      });
+    }
+
+    const rules = await ctx.db
+      .query("rules")
+      .withSearchIndex("search_rules", (q) =>
+        q.search("name", args.searchTerm).eq("practiceId", args.practiceId),
+      )
+      .collect();
+
+    // Also search in descriptions by filtering all rules for the practice
+    const allRules = await ctx.db
+      .query("rules")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    const descriptionMatches = allRules.filter((rule) =>
+      rule.description.toLowerCase().includes(args.searchTerm.toLowerCase()),
+    );
+
+    // Combine and deduplicate results
+    const combined = [...rules, ...descriptionMatches];
+    const uniqueRules = [
+      ...new Map(combined.map((rule) => [rule._id, rule])).values(),
+    ];
+
+    return uniqueRules.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
 // ================================
 // RULE SET RULE MANAGEMENT (Junction Table)
 // ================================
@@ -388,6 +440,7 @@ export const getAvailableRulesForRuleSet = query({
   args: {
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
+    searchTerm: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -401,16 +454,21 @@ export const getAvailableRulesForRuleSet = query({
       ruleType: "BLOCK" | "LIMIT_CONCURRENT";
     }[]
   > => {
-    // Get all rules for this practice
+    // Get all rules for this practice (or search if searchTerm provided)
     const allRules: {
       [key: string]: unknown;
       _id: string;
       description: string;
       name: string;
       ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-    }[] = await ctx.runQuery(api.rules.getAllRulesForPractice, {
-      practiceId: args.practiceId,
-    });
+    }[] = args.searchTerm
+      ? await ctx.runQuery(api.rules.searchRules, {
+          practiceId: args.practiceId,
+          searchTerm: args.searchTerm,
+        })
+      : await ctx.runQuery(api.rules.getAllRulesForPractice, {
+          practiceId: args.practiceId,
+        });
 
     // Get rules already in this rule set
     const ruleSetRules = await ctx.db
@@ -418,15 +476,23 @@ export const getAvailableRulesForRuleSet = query({
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
-    const ruleIdsInRuleSet = new Set(
-      ruleSetRules.map((rsr) => rsr.ruleId.toString()),
-    );
+    // Create a map of rule IDs to their enabled status in this rule set
+    const ruleSetRuleMap = new Map<string, boolean>();
+    for (const rsr of ruleSetRules) {
+      ruleSetRuleMap.set(rsr.ruleId.toString(), rsr.enabled);
+    }
 
-    // Filter out rules already in the rule set
-    return allRules.filter(
-      (rule: (typeof allRules)[0]) =>
-        !ruleIdsInRuleSet.has(rule._id.toString()),
-    );
+    // Filter rules to include:
+    // 1. Rules not in the rule set at all
+    // 2. Rules in the rule set but disabled (can be re-enabled)
+    return allRules.filter((rule: (typeof allRules)[0]) => {
+      const ruleId = rule._id.toString();
+      const isInRuleSet = ruleSetRuleMap.has(ruleId);
+      const isEnabled = ruleSetRuleMap.get(ruleId);
+
+      // Include if not in rule set, or if in rule set but disabled
+      return !isInRuleSet || !isEnabled;
+    });
   },
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { Copy, Eye, EyeOff, RotateCcw } from "lucide-react";
+import { Copy, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -49,32 +49,21 @@ export function RuleListNew({
   ruleSetId,
 }: RuleListNewProps) {
   const disableRuleMutation = useMutation(api.rules.disableRuleInRuleSet);
-  const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
   const updateRuleSetRuleMutation = useMutation(api.rules.updateRuleSetRule);
 
   const handleToggleRule = async (rule: RuleWithRuleSetInfo) => {
     try {
-      if (rule.enabled) {
-        await disableRuleMutation({
-          ruleId: rule._id,
-          ruleSetId,
-        });
-        toast.success("Regel deaktiviert", {
-          description: "Die Regel wurde in diesem Regelset deaktiviert.",
-        });
-      } else {
-        await enableRuleMutation({
-          priority: rule.priority, // Keep same priority
-          ruleId: rule._id,
-          ruleSetId,
-        });
-        toast.success("Regel aktiviert", {
-          description: "Die Regel wurde in diesem Regelset aktiviert.",
-        });
-      }
+      // Since we only show enabled rules, we only handle disabling here
+      await disableRuleMutation({
+        ruleId: rule._id,
+        ruleSetId,
+      });
+      toast.success("Regel deaktiviert", {
+        description: "Die Regel wurde in diesem Regelset deaktiviert.",
+      });
       onRuleChanged?.();
     } catch (error) {
-      toast.error("Fehler beim Ändern der Regel", {
+      toast.error("Fehler beim Deaktivieren der Regel", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
@@ -103,17 +92,30 @@ export function RuleListNew({
   if (rules.length === 0) {
     return (
       <div className="text-center py-8">
-        <RotateCcw className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
         <p className="text-muted-foreground">
-          Keine Regeln in diesem Regelset. Erstellen Sie eine neue Regel oder
-          fügen Sie eine vorhandene hinzu.
+          Keine aktiven Regeln in diesem Regelset. Erstellen Sie eine neue Regel
+          oder fügen Sie eine vorhandene hinzu.
+        </p>
+      </div>
+    );
+  }
+
+  // Filter to only show enabled rules (disabled rules should not be visible)
+  const enabledRules = rules.filter((rule) => rule.enabled);
+
+  if (enabledRules.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">
+          Keine aktiven Regeln in diesem Regelset. Erstellen Sie eine neue Regel
+          oder fügen Sie eine vorhandene hinzu.
         </p>
       </div>
     );
   }
 
   // Sort rules by priority
-  const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
+  const sortedRules = [...enabledRules].sort((a, b) => a.priority - b.priority);
 
   return (
     <div className="space-y-4">
@@ -123,9 +125,6 @@ export function RuleListNew({
             <div className="space-y-1 flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold">{rule.name}</h3>
-                <Badge variant={rule.enabled ? "default" : "secondary"}>
-                  {rule.enabled ? "Aktiv" : "Inaktiv"}
-                </Badge>
                 <Badge variant="outline">Priorität: {rule.priority}</Badge>
                 <Badge
                   variant={
@@ -170,20 +169,16 @@ export function RuleListNew({
                 </Button>
               </div>
 
-              {/* Enable/Disable Toggle */}
+              {/* Enable/Disable Toggle - Now this disables the rule (removes from view) */}
               <Button
                 onClick={() => {
                   void handleToggleRule(rule);
                 }}
                 size="sm"
-                title={rule.enabled ? "Regel deaktivieren" : "Regel aktivieren"}
+                title="Regel deaktivieren (aus diesem Regelset entfernen)"
                 variant="ghost"
               >
-                {rule.enabled ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
+                <EyeOff className="h-4 w-4" />
               </Button>
 
               {/* Copy Rule */}

@@ -41,15 +41,27 @@ export function RuleEnableCombobox({
 }: RuleEnableComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState("");
+  const [searchTerm, setSearchTerm] = React.useState("");
+
+  // Check if there are any rules globally for this practice
+  const allRulesQuery = useQuery(api.rules.getAllRulesForPractice, {
+    practiceId,
+  });
 
   const availableRulesQuery = useQuery(
     api.rules.getAvailableRulesForRuleSet,
-    ruleSetId
+    ruleSetId && searchTerm.trim()
       ? {
           practiceId,
           ruleSetId,
+          searchTerm: searchTerm.trim(),
         }
-      : "skip",
+      : ruleSetId
+        ? {
+            practiceId,
+            ruleSetId,
+          }
+        : "skip",
   );
 
   const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
@@ -88,10 +100,21 @@ export function RuleEnableCombobox({
       onNeedRuleSet?.();
       return;
     }
+
+    // Check if there are any rules globally
+    const hasAnyRules = allRulesQuery && allRulesQuery.length > 0;
+    if (!hasAnyRules) {
+      toast.info("Keine Regeln verfügbar", {
+        description: "Es wurden noch keine Regeln für diese Praxis erstellt.",
+      });
+      return;
+    }
+
     setOpen(!open);
   };
 
   const availableRules = availableRulesQuery ?? [];
+  const hasAnyRules = allRulesQuery && allRulesQuery.length > 0;
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
@@ -99,20 +122,26 @@ export function RuleEnableCombobox({
         <Button
           aria-expanded={open}
           className="w-[250px] justify-between"
-          disabled={disabled}
+          disabled={disabled || !hasAnyRules}
           onClick={handleButtonClick}
           role="combobox"
           variant="outline"
         >
           {value
             ? availableRules.find((rule) => rule._id === value)?.name
-            : "Regel hinzufügen..."}
+            : hasAnyRules
+              ? "Regel hinzufügen..."
+              : "Keine Regeln verfügbar"}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[250px] p-0">
         <Command>
-          <CommandInput placeholder="Regel suchen..." />
+          <CommandInput
+            onValueChange={setSearchTerm}
+            placeholder="Regel suchen..."
+            value={searchTerm}
+          />
           <CommandList>
             <CommandEmpty>Keine verfügbaren Regeln gefunden.</CommandEmpty>
             <CommandGroup>

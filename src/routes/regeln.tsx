@@ -540,11 +540,9 @@ export default function LogicView() {
                   <CardHeader>
                     <CardTitle>Regelset Auswahl</CardTitle>
                     <CardDescription>
-                      {unsavedRuleSet
-                        ? "Sie arbeiten an ungespeicherten Änderungen. Aktivieren Sie das Regelset um es zu speichern."
-                        : ruleSetsQuery && ruleSetsQuery.length === 0
-                          ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
-                          : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
+                      {ruleSetsQuery && ruleSetsQuery.length === 0
+                        ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
+                        : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -677,11 +675,9 @@ export default function LogicView() {
                             )}
                           </CardTitle>
                           <CardDescription>
-                            {unsavedRuleSet
-                              ? "Ungespeicherte Änderungen - speichern Sie das Regelset um die Änderungen zu übernehmen"
-                              : currentWorkingRuleSet
-                                ? currentWorkingRuleSet.description
-                                : "Fügen Sie Ihre erste Regel hinzu"}
+                            {currentWorkingRuleSet
+                              ? currentWorkingRuleSet.description
+                              : "Fügen Sie Ihre erste Regel hinzu"}
                           </CardDescription>
                         </div>
                       </div>
