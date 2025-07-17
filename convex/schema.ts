@@ -92,9 +92,9 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_name", ["practiceId", "name"]) // For uniqueness validation
     .searchIndex("search_rules", {
-      filterFields: ["practiceId"],
+      filterFields: ["practiceId", "description"],
       searchField: "name",
-    }), // For full-text search on name with practice filtering
+    }), // For full-text search on name with description and practice filtering
 
   // Junction table for rule set to rule relationships
   ruleSetRules: defineTable({
