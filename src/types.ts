@@ -142,6 +142,3 @@ declare global {
     FileSystemObserver: typeof FileSystemObserver;
   }
 }
-
-// This export {} is crucial to ensure this file is treated as a module
-export {};
