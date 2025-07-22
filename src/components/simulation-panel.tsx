@@ -127,11 +127,7 @@ export function SimulationPanel({
                 <SelectItem value="active">Aktives Regelset</SelectItem>
                 {ruleSetsQuery?.map((ruleSet) => (
                   <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                    v{ruleSet.version} -{" "}
-                    {ruleSet.description.replaceAll(
-                      /^(?:Aktivierung von\s*)+/g,
-                      "",
-                    )}
+                    v{ruleSet.version} - {ruleSet.description}
                     {ruleSet.isActive && " (aktiv)"}
                   </SelectItem>
                 ))}

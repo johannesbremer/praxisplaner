@@ -122,12 +122,7 @@ export default function VersionGraph({
                   onClick={() => onVersionClick?.(version)}
                   style={{ fontSize: "12px" }}
                 >
-                  <span className="font-medium">
-                    {version.message.replaceAll(
-                      /^(?:Aktivierung von\s*)+/g,
-                      "",
-                    )}
-                  </span>
+                  <span className="font-medium">{version.message}</span>
                   {version.isActive && (
                     <span className="bg-primary text-primary-foreground px-1.5 py-0.5 rounded text-xs leading-none">
                       AKTIV

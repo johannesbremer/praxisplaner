@@ -634,10 +634,7 @@ export default function LogicView() {
                             onClick={() =>
                               void handleActivateRuleSet(
                                 selectedRuleSet._id,
-                                selectedRuleSet.description.replaceAll(
-                                  /^(?:Aktivierung von\s*)+/g,
-                                  "",
-                                ),
+                                selectedRuleSet.description,
                               )
                             }
                             variant="outline"
@@ -670,10 +667,7 @@ export default function LogicView() {
                                 ) : (
                                   <>
                                     Regeln in{" "}
-                                    {currentWorkingRuleSet.description.replaceAll(
-                                      /^(?:Aktivierung von\s*)+/g,
-                                      "",
-                                    )}
+                                    {currentWorkingRuleSet.description}
                                     {currentWorkingRuleSet.isActive && (
                                       <Badge className="ml-2" variant="default">
                                         AKTIV
@@ -688,10 +682,7 @@ export default function LogicView() {
                           </CardTitle>
                           <CardDescription>
                             {currentWorkingRuleSet
-                              ? currentWorkingRuleSet.description.replaceAll(
-                                  /^(?:Aktivierung von\s*)+/g,
-                                  "",
-                                )
+                              ? currentWorkingRuleSet.description
                               : "Fügen Sie Ihre erste Regel hinzu"}
                           </CardDescription>
                         </div>
@@ -1069,11 +1060,7 @@ function SimulationControls({
               <SelectItem value="active">Aktives Regelset</SelectItem>
               {ruleSetsQuery?.map((ruleSet) => (
                 <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                  v{ruleSet.version} -{" "}
-                  {ruleSet.description.replaceAll(
-                    /^(?:Aktivierung von\s*)+/g,
-                    "",
-                  )}
+                  v{ruleSet.version} - {ruleSet.description}
                   {ruleSet.isActive && " (aktiv)"}
                 </SelectItem>
               ))}
