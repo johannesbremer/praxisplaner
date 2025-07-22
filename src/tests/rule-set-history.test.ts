@@ -91,14 +91,14 @@ describe("Rule Set History Visualization", () => {
 
       // Verify transformation
       expect(commits).toHaveLength(3);
-      
+
       // Check first commit
       expect(commits[0]).toBeDefined();
       if (commits[0]) {
         expect(commits[0].sha).toBe("rs1");
         expect(commits[0].parents).toHaveLength(0); // No parent
       }
-      
+
       // Check second commit
       expect(commits[1]).toBeDefined();
       if (commits[1]) {
@@ -108,7 +108,7 @@ describe("Rule Set History Visualization", () => {
           expect(commits[1].parents[0].sha).toBe("rs1");
         }
       }
-      
+
       // Check third commit
       expect(commits[2]).toBeDefined();
       if (commits[2]) {
