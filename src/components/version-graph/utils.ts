@@ -56,36 +56,23 @@ export function setBranchAndVersionColor(
   branchColors: string[],
   versionsMap: Map<string, VersionNode>,
 ) {
-  for (const [i, column] of columns.entries()) {
-    for (const c of column) {
-      // Use a deterministic color based on the endCommitHash to ensure consistency
-      const hashCode = simpleHash(c.endCommitHash);
-      const branchColor = branchColors[hashCode % branchColors.length];
-      if (branchColor) {
-        c.color = branchColor;
-        setVersionNodeColor(c, i, versionsMap, branchColor);
-      }
+  // Assign colors to branch paths based on their endCommitHash
+  for (const column of columns) {
+    for (const branchPath of column) {
+      const hashCode = simpleHash(branchPath.endCommitHash);
+      branchPath.color = branchColors[hashCode % branchColors.length] || "#000000";
     }
+  }
+
+  // Assign colors to version nodes purely based on their own hash
+  // This ensures complete determinism regardless of column order or layout changes
+  for (const [, version] of versionsMap) {
+    const hashCode = simpleHash(version.hash);
+    version.commitColor = branchColors[hashCode % branchColors.length] || "#000000";
   }
 }
 
 // Simple hash function for consistent color assignment
-export function setVersionNodeColor(
-  branch: BranchPathType,
-  columnNumber: number,
-  versionsMap: Map<string, VersionNode>,
-  branchColor: string,
-) {
-  for (const [, version] of versionsMap) {
-    if (
-      version.x === columnNumber &&
-      branch.start <= version.y &&
-      branch.end >= version.y
-    ) {
-      version.commitColor = branchColor;
-    }
-  }
-}
 
 function hexToColorMatrixVariant(hex?: string): string {
   if (!hex) {
