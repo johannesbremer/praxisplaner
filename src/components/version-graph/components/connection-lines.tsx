@@ -35,12 +35,17 @@ export default function ConnectionLines({
         continue;
       }
 
-      // Create a path that curves from parent to child
+      // Create a path that branches off at 90 degrees then goes straight up
       const key = `connection-${version.hash}-${parentId}`;
 
-      // For horizontal branching, create a curve
-      const midY = parentY + (childY - parentY) / 2;
-      const pathData = `M ${parentX} ${parentY} Q ${parentX} ${midY} ${childX} ${childY}`;
+      // For horizontal branching, create a path that:
+      // 1. Goes vertically down from parent for a short distance
+      // 2. Makes a 90-degree turn horizontally toward the child
+      // 3. Goes horizontally to align with child column
+      // 4. Goes vertically up to reach the child
+      const branchDistance = commitSpacing * 0.2; // How far down to go before branching
+      const horizontalMidY = parentY + branchDistance;
+      const pathData = `M ${parentX} ${parentY} L ${parentX} ${horizontalMidY} L ${childX} ${horizontalMidY} L ${childX} ${childY}`;
 
       // Use child's color for the connection when it's a new branch, otherwise use parent's color
       // This ensures that when a new branch starts, the connection line matches the branch color

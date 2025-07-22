@@ -593,6 +593,9 @@ export default function LogicView() {
                         <div className="border rounded-lg p-4">
                           <VersionGraph
                             onVersionClick={handleVersionClick}
+                            {...(selectedRuleSetId && {
+                              selectedVersionId: selectedRuleSetId,
+                            })}
                             versions={versionsQuery}
                           />
                         </div>
@@ -631,7 +634,7 @@ export default function LogicView() {
                             onClick={() =>
                               void handleActivateRuleSet(
                                 selectedRuleSet._id,
-                                `Aktivierung von ${selectedRuleSet.description}`,
+                                selectedRuleSet.description,
                               )
                             }
                             variant="outline"

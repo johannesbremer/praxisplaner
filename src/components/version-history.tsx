@@ -19,12 +19,14 @@ interface VersionHistoryProps {
   className?: string;
   onVersionClick?: (version: VersionNode) => void;
   practiceId: Id<"practices">;
+  selectedVersionId?: string;
 }
 
 export default function VersionHistory({
   className,
   onVersionClick,
   practiceId,
+  selectedVersionId,
 }: VersionHistoryProps) {
   const versionsQuery = useQuery(api.rules.getVersionHistory, {
     practiceId,
@@ -77,6 +79,7 @@ export default function VersionHistory({
       <CardContent>
         <VersionGraph
           className="w-full"
+          {...(selectedVersionId && { selectedVersionId })}
           versions={versionsQuery}
           {...(onVersionClick && { onVersionClick })}
         />

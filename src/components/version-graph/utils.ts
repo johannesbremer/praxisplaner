@@ -58,7 +58,9 @@ export function setBranchAndVersionColor(
 ) {
   for (const [i, column] of columns.entries()) {
     for (const c of column) {
-      const branchColor = branchColors[c.branchOrder % branchColors.length];
+      // Use a deterministic color based on the endCommitHash to ensure consistency
+      const hashCode = simpleHash(c.endCommitHash);
+      const branchColor = branchColors[hashCode % branchColors.length];
       if (branchColor) {
         c.color = branchColor;
         setVersionNodeColor(c, i, versionsMap, branchColor);
@@ -67,6 +69,7 @@ export function setBranchAndVersionColor(
   }
 }
 
+// Simple hash function for consistent color assignment
 export function setVersionNodeColor(
   branch: BranchPathType,
   columnNumber: number,
@@ -102,4 +105,14 @@ function rgbColorToMatrixVariant(rgb: string): string {
     .split(",")
     .map((x) => Number.parseInt(x) / 255);
   return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 0.5 0`;
+}
+
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.codePointAt(i) ?? 0;
+    hash = (hash << 5) - hash + char;
+    hash &= hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
 }

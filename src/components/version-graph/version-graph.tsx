@@ -16,6 +16,7 @@ interface Props {
   className?: string;
   graphStyle?: Partial<GraphStyle>;
   onVersionClick?: (version: VersionNode) => void;
+  selectedVersionId?: string;
   versions: Version[];
 }
 
@@ -23,6 +24,7 @@ export default function VersionGraph({
   className,
   graphStyle,
   onVersionClick,
+  selectedVersionId,
   versions,
 }: Props) {
   const style = { ...defaultStyle, ...graphStyle };
@@ -101,22 +103,28 @@ export default function VersionGraph({
         {versionValues.map((version: VersionNode) => {
           const x = style.nodeRadius * 4 + version.x * style.branchSpacing;
           const y = version.y * style.commitSpacing + style.nodeRadius * 4;
+          const isSelected = selectedVersionId === version.hash;
 
           return (
             <g key={`label-${version.hash}`}>
               <foreignObject
-                height={20}
+                height={30}
                 width={300}
                 x={x + style.nodeRadius * 4}
-                y={y - 10}
+                y={y - 15}
               >
                 <div
-                  className="flex items-center gap-2 text-sm"
+                  className={`flex items-center gap-2 text-sm cursor-pointer p-1 rounded ${
+                    isSelected
+                      ? "bg-primary/10 border border-primary/20"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => onVersionClick?.(version)}
                   style={{ fontSize: "12px" }}
                 >
                   <span className="font-medium">{version.message}</span>
                   {version.isActive && (
-                    <span className="bg-primary text-primary-foreground px-1 py-0.5 rounded text-xs">
+                    <span className="bg-primary text-primary-foreground px-1.5 py-0.5 rounded text-xs leading-none">
                       AKTIV
                     </span>
                   )}
@@ -126,6 +134,10 @@ export default function VersionGraph({
                         day: "2-digit",
                         month: "2-digit",
                         year: "numeric",
+                      })}{" "}
+                      {new Date(version.createdAt).toLocaleTimeString("de-DE", {
+                        hour: "2-digit",
+                        minute: "2-digit",
                       })}
                     </span>
                   )}
