@@ -39,7 +39,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
-import type { VersionNode } from "../components/version-graph";
+import type { VersionNode } from "../components/version-graph/types";
 
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { DebugView } from "../components/debug-view";
@@ -355,6 +355,64 @@ export default function LogicView() {
     createInitialUnsaved,
   ]);
 
+  const handleVersionClick = React.useCallback(
+    (version: VersionNode) => {
+      if (!currentPractice) {
+        toast.error("Keine Praxis gefunden");
+        return;
+      }
+
+      void (async () => {
+        try {
+          // If we have unsaved changes, show save dialog first
+          if (unsavedRuleSet) {
+            setPendingRuleSetId(version.hash as Id<"ruleSets">);
+            setActivationName("");
+            setIsSaveDialogOpen(true);
+            return;
+          }
+
+          // If clicking on the currently active version, do nothing
+          if (version.isActive) {
+            setSelectedRuleSetId(version.hash as Id<"ruleSets">);
+            return;
+          }
+
+          // Create a new unsaved version from the selected historical version
+          const newVersionId = await createVersionFromHistoryMutation({
+            description: "Ungespeicherte Änderungen",
+            practiceId: currentPractice._id,
+            sourceVersionId: version.hash as Id<"ruleSets">,
+          });
+
+          setUnsavedRuleSetId(newVersionId);
+          setSelectedRuleSetId(null);
+
+          toast.success(`Neue Version von "${version.message}" erstellt`, {
+            description: "Sie können jetzt Änderungen vornehmen und speichern.",
+          });
+        } catch (error: unknown) {
+          captureError(error, {
+            context: "version_click",
+            practiceId: currentPractice._id,
+            versionId: version.hash,
+          });
+
+          toast.error("Fehler beim Erstellen der Version", {
+            description:
+              error instanceof Error ? error.message : "Unbekannter Fehler",
+          });
+        }
+      })();
+    },
+    [
+      currentPractice,
+      unsavedRuleSet,
+      createVersionFromHistoryMutation,
+      captureError,
+    ],
+  );
+
   // Show loading state if practice is being initialized
   if (practicesQuery === undefined || isInitializingPractice) {
     return (
@@ -478,64 +536,6 @@ export default function LogicView() {
       void handleActivateRuleSet(currentWorkingRuleSet._id, name);
     }
   };
-
-  const handleVersionClick = React.useCallback(
-    (version: VersionNode) => {
-      if (!currentPractice) {
-        toast.error("Keine Praxis gefunden");
-        return;
-      }
-
-      void (async () => {
-        try {
-          // If we have unsaved changes, show save dialog first
-          if (unsavedRuleSet) {
-            setPendingRuleSetId(version.hash as Id<"ruleSets">);
-            setActivationName("");
-            setIsSaveDialogOpen(true);
-            return;
-          }
-
-          // If clicking on the currently active version, do nothing
-          if (version.isActive) {
-            setSelectedRuleSetId(version.hash as Id<"ruleSets">);
-            return;
-          }
-
-          // Create a new unsaved version from the selected historical version
-          const newVersionId = await createVersionFromHistoryMutation({
-            description: "Ungespeicherte Änderungen",
-            practiceId: currentPractice._id,
-            sourceVersionId: version.hash as Id<"ruleSets">,
-          });
-
-          setUnsavedRuleSetId(newVersionId);
-          setSelectedRuleSetId(null);
-
-          toast.success(`Neue Version von "${version.message}" erstellt`, {
-            description: "Sie können jetzt Änderungen vornehmen und speichern.",
-          });
-        } catch (error: unknown) {
-          captureError(error, {
-            context: "version_click",
-            practiceId: currentPractice._id,
-            versionId: version.hash,
-          });
-
-          toast.error("Fehler beim Erstellen der Version", {
-            description:
-              error instanceof Error ? error.message : "Unbekannter Fehler",
-          });
-        }
-      })();
-    },
-    [
-      currentPractice,
-      unsavedRuleSet,
-      createVersionFromHistoryMutation,
-      captureError,
-    ],
-  );
 
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {

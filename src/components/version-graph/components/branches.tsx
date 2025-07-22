@@ -20,8 +20,7 @@ export default function Branches({
   versionsMap,
 }: Props) {
   const currentLastCommits =
-    Math.max(...[...versionsMap.values()].map((c) => c.y)) *
-      commitSpacing +
+    Math.max(...[...versionsMap.values()].map((c) => c.y)) * commitSpacing +
     nodeRadius * 4;
 
   return (
@@ -29,7 +28,10 @@ export default function Branches({
       {columns.map((column, i) => {
         return column.map((c) => {
           const end = c.end === Infinity ? currentLastCommits : c.end;
-          const color = c.color ?? branchColors[c.branchOrder % branchColors.length] ?? "#000000";
+          const color =
+            c.color ??
+            branchColors[c.branchOrder % branchColors.length] ??
+            "#000000";
           return (
             <BranchPath
               branchColor={color}

@@ -5,7 +5,11 @@ import type { GraphStyle, Version, VersionNode } from "./types";
 import Branches from "./components/branches";
 import VersionDot from "./components/version-dot";
 import { computePosition } from "./compute-position";
-import { defaultStyle, formatVersions, setBranchAndVersionColor } from "./utils";
+import {
+  defaultStyle,
+  formatVersions,
+  setBranchAndVersionColor,
+} from "./utils";
 
 interface Props {
   className?: string;
@@ -44,7 +48,9 @@ export default function VersionGraph({
 
   if (versions.length === 0) {
     return (
-      <div className={`text-center py-8 text-muted-foreground ${className || ""}`}>
+      <div
+        className={`text-center py-8 text-muted-foreground ${className || ""}`}
+      >
         Keine Versionen vorhanden
       </div>
     );
@@ -53,7 +59,7 @@ export default function VersionGraph({
   const versionValues = [...versionsMap.values()];
   const maxX = Math.max(...versionValues.map((v: VersionNode) => v.x));
   const maxY = Math.max(...versionValues.map((v: VersionNode) => v.y));
-  
+
   const width = (maxX + 1) * style.branchSpacing + style.nodeRadius * 8;
   const height = (maxY + 1) * style.commitSpacing + style.nodeRadius * 8;
 
@@ -84,7 +90,7 @@ export default function VersionGraph({
           />
         ))}
       </svg>
-      
+
       {/* Version labels */}
       <div className="mt-4 space-y-2">
         {versionValues
@@ -104,7 +110,7 @@ export default function VersionGraph({
                   AKTIV
                 </span>
               )}
-              {typeof version.createdAt === 'number' && (
+              {typeof version.createdAt === "number" && (
                 <span className="text-muted-foreground text-xs">
                   {new Date(version.createdAt).toLocaleDateString("de-DE", {
                     day: "2-digit",

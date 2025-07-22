@@ -11,9 +11,9 @@ import {
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
-import type { VersionNode } from "./version-graph";
+import type { VersionNode } from "./version-graph/types";
 
-import { VersionGraph } from "./version-graph";
+import { VersionGraph } from "./version-graph/index";
 
 interface VersionHistoryProps {
   className?: string;
@@ -35,9 +35,7 @@ export default function VersionHistory({
       <Card className={className}>
         <CardHeader>
           <CardTitle>Versionshistorie</CardTitle>
-          <CardDescription>
-            Lade Versionshistorie...
-          </CardDescription>
+          <CardDescription>Lade Versionshistorie...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-muted-foreground">
@@ -59,7 +57,8 @@ export default function VersionHistory({
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-muted-foreground">
-            Noch keine Versionen vorhanden. Speichern Sie Ihr erstes Regelset, um die Historie zu beginnen.
+            Noch keine Versionen vorhanden. Speichern Sie Ihr erstes Regelset,
+            um die Historie zu beginnen.
           </div>
         </CardContent>
       </Card>
@@ -71,7 +70,8 @@ export default function VersionHistory({
       <CardHeader>
         <CardTitle>Versionshistorie</CardTitle>
         <CardDescription>
-          Visualisierung der Regelset-Änderungen über die Zeit. Klicken Sie auf einen Punkt, um zu einer Version zu wechseln.
+          Visualisierung der Regelset-Änderungen über die Zeit. Klicken Sie auf
+          einen Punkt, um zu einer Version zu wechseln.
         </CardDescription>
       </CardHeader>
       <CardContent>

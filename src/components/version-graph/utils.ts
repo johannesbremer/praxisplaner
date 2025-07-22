@@ -84,7 +84,9 @@ export function setVersionNodeColor(
 }
 
 function hexToColorMatrixVariant(hex?: string): string {
-  if (!hex) return "";
+  if (!hex) {
+    return "";
+  }
   const r = Number.parseInt(hex.slice(1, 3), 16) / 255;
   const g = Number.parseInt(hex.slice(3, 5), 16) / 255;
   const b = Number.parseInt(hex.slice(5, 7), 16) / 255;

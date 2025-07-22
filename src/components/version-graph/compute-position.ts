@@ -55,13 +55,13 @@ function computeColumns(
 
   for (const [index, versionHash] of orderedVersionHashes.entries()) {
     const version = versionsMap.get(versionHash);
-    if (!version) continue;
-    const branchChildren = version.children.filter(
-      (child: string) => {
-        const childVersion = versionsMap.get(child);
-        return childVersion && childVersion.parents[0] === version.hash;
-      },
-    );
+    if (!version) {
+      continue;
+    }
+    const branchChildren = version.children.filter((child: string) => {
+      const childVersion = versionsMap.get(child);
+      return childVersion && childVersion.parents[0] === version.hash;
+    });
 
     const isLastVersionOnBranch = version.children.length === 0;
     const isBranchOutVersion = branchChildren.length > 0;
@@ -82,10 +82,11 @@ function computeColumns(
 
       versionX = Math.min(...branchChildrenXs);
       updateColumnEnd(versionX, end, version.hash);
-      for (const childX of branchChildrenXs
-        .filter((childX) => childX !== versionX)) {
-          updateColumnEnd(childX, index - 1, version.hash);
-        }
+      for (const childX of branchChildrenXs.filter(
+        (childX) => childX !== versionX,
+      )) {
+        updateColumnEnd(childX, index - 1, version.hash);
+      }
     } else {
       let minChildY = Infinity;
       let maxChildX = -1;
@@ -94,17 +95,19 @@ function computeColumns(
         const childY = versionsMapWithPos.get(child)?.y;
         const childX = versionXs.get(child);
         if (childY !== undefined && childX !== undefined) {
-          if (childY < minChildY) minChildY = childY;
-          if (childX > maxChildX) maxChildX = childX;
+          if (childY < minChildY) {
+            minChildY = childY;
+          }
+          if (childX > maxChildX) {
+            maxChildX = childX;
+          }
         }
       }
 
-      const colFitAtEnd = columns
-        .slice(maxChildX + 1)
-        .findIndex((column) => {
-          const lastEntry = column[column.length - 1];
-          return lastEntry && minChildY >= lastEntry.end;
-        });
+      const colFitAtEnd = columns.slice(maxChildX + 1).findIndex((column) => {
+        const lastEntry = column[column.length - 1];
+        return lastEntry && minChildY >= lastEntry.end;
+      });
       const col = colFitAtEnd === -1 ? -1 : maxChildX + 1 + colFitAtEnd;
 
       if (col === -1) {
