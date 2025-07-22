@@ -609,7 +609,7 @@ export default function LogicView() {
                     )}
 
                     <div className="flex gap-2">
-                      {/* Show activation button when we have an unsaved rule set or when creating the first one */}
+                      {/* Show save button when we have an unsaved rule set or when creating the first one */}
                       {(unsavedRuleSet ??
                         (ruleSetsQuery &&
                           ruleSetsQuery.length === 0 &&
@@ -622,6 +622,24 @@ export default function LogicView() {
                           Speichern
                         </Button>
                       )}
+
+                      {/* Show activate button when a different rule set is selected and there are no unsaved changes */}
+                      {selectedRuleSet &&
+                        !unsavedRuleSet &&
+                        !selectedRuleSet.isActive && (
+                          <Button
+                            onClick={() =>
+                              void handleActivateRuleSet(
+                                selectedRuleSet._id,
+                                `Aktivierung von ${selectedRuleSet.description}`,
+                              )
+                            }
+                            variant="outline"
+                          >
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Aktivieren
+                          </Button>
+                        )}
                     </div>
                   </CardContent>
                 </Card>
