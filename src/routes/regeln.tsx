@@ -47,6 +47,7 @@ import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationFormNew from "../components/rule-creation-form-new";
 import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
+import { RuleSetHistoryVisualization } from "../components/rule-set-history-visualization";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -523,10 +524,11 @@ export default function LogicView() {
 
       {/* Page-level Tabs */}
       <Tabs className="space-y-6" defaultValue="rule-management">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="rule-management">
             Regelverwaltung + Patientensicht
           </TabsTrigger>
+          <TabsTrigger value="rule-history">Regelset-Historie</TabsTrigger>
           <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
           <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
         </TabsList>
@@ -773,7 +775,27 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 2: Staff View Only */}
+        {/* Tab 2: Rule Set History Visualization */}
+        <TabsContent value="rule-history">
+          <div className="space-y-6">
+            <RuleSetHistoryVisualization
+              onRuleSetClick={(ruleSetId) => {
+                // If we have unsaved changes, show save dialog
+                if (unsavedRuleSet) {
+                  setPendingRuleSetId(ruleSetId);
+                  setActivationName(""); // Clear name for new dialog
+                  setIsSaveDialogOpen(true);
+                } else {
+                  setSelectedRuleSetId(ruleSetId);
+                  setUnsavedRuleSetId(null); // Clear unsaved changes
+                }
+              }}
+              practiceId={currentPractice._id}
+            />
+          </div>
+        </TabsContent>
+
+        {/* Tab 3: Staff View Only */}
         <TabsContent value="staff-view">
           <div className="space-y-6">
             <div className="space-y-6">
@@ -800,7 +822,7 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 3: Debug Views Only */}
+        {/* Tab 4: Debug Views Only */}
         <TabsContent value="debug-views">
           <div className="space-y-6">
             <div className="space-y-6">

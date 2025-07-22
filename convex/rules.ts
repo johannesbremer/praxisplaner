@@ -525,6 +525,7 @@ export const createDraftFromActive = mutation({
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentId: practice.currentActiveRuleSetId, // Track parent rule set
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -575,6 +576,7 @@ export const createDraftFromRuleSet = mutation({
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentId: args.sourceRuleSetId, // Track parent rule set
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -718,6 +720,25 @@ export const createInitialRuleSet = mutation({
     return newRuleSetId;
   },
   returns: v.id("ruleSets"),
+});
+
+export const getRuleSetHistory = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSets = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    const practice = await ctx.db.get(args.practiceId);
+
+    return ruleSets.map((ruleSet) => ({
+      ...ruleSet,
+      isActive: practice?.currentActiveRuleSetId === ruleSet._id,
+    }));
+  },
 });
 
 export const validateRuleSetName = query({

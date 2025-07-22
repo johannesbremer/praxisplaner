@@ -54,11 +54,13 @@ export default defineSchema({
     createdAt: v.number(),
     createdBy: v.string(),
     description: v.string(),
+    parentId: v.optional(v.id("ruleSets")), // Track which rule set this was created from
     practiceId: v.id("practices"),
     version: v.number(),
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_practiceId_description", ["practiceId", "description"]),
+    .index("by_practiceId_description", ["practiceId", "description"])
+    .index("by_parentId", ["parentId"]), // For querying children
 
   // Global rules table - rules are now shared across rule sets
   rules: defineTable({
