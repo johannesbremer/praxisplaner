@@ -27,10 +27,7 @@ function computeColumns(
   for (const [index, versionHash] of orderedVersionHashes.entries()) {
     const version = versionsMap.get(versionHash);
     if (version) {
-      versionsMapWithPos.set(versionHash, {
-        ...version,
-        y: index,
-      } as VersionNode);
+      versionsMapWithPos.set(versionHash, { ...version, y: index });
     }
   }
 
@@ -38,15 +35,12 @@ function computeColumns(
   const versionXs = new Map<string, number>();
 
   function updateColumnEnd(col: number, end: number, endCommitHash: string) {
-    if (columns[col] && columns[col].length > 0) {
-      const currentEntry = columns[col][columns[col].length - 1];
+    const column = columns[col];
+    if (column && column.length > 0) {
+      const currentEntry = column[column.length - 1];
       if (currentEntry) {
-        columns[col][columns[col].length - 1] = {
-          branchOrder: currentEntry.branchOrder,
-          end,
-          endCommitHash,
-          start: currentEntry.start,
-        };
+        currentEntry.end = end;
+        currentEntry.endCommitHash = endCommitHash;
       }
     }
   }
@@ -54,13 +48,14 @@ function computeColumns(
   let branchOrder = 0;
 
   for (const [index, versionHash] of orderedVersionHashes.entries()) {
-    const version = versionsMap.get(versionHash);
+    const version = versionsMapWithPos.get(versionHash);
     if (!version) {
       continue;
     }
+
     const branchChildren = version.children.filter((child: string) => {
-      const childVersion = versionsMap.get(child);
-      return childVersion && childVersion.parents[0] === version.hash;
+      const childVersion = versionsMapWithPos.get(child);
+      return childVersion?.parents[0] === version.hash;
     });
 
     const isLastVersionOnBranch = version.children.length === 0;
@@ -73,21 +68,40 @@ function computeColumns(
       columns.push([
         { branchOrder, end, endCommitHash: version.hash, start: index },
       ]);
-      branchOrder++;
       versionX = columns.length - 1;
+      branchOrder++;
     } else if (isBranchOutVersion) {
       const branchChildrenXs = branchChildren
         .map((childHash: string) => versionXs.get(childHash))
         .filter((x): x is number => x !== undefined);
 
-      versionX = Math.min(...branchChildrenXs);
-      updateColumnEnd(versionX, end, version.hash);
-      for (const childX of branchChildrenXs.filter(
-        (childX) => childX !== versionX,
-      )) {
-        updateColumnEnd(childX, index - 1, version.hash);
+      if (branchChildrenXs.length > 0) {
+        versionX = Math.min(...branchChildrenXs);
+        updateColumnEnd(versionX, end, version.hash);
+
+        // --- THE FIX IS HERE ---
+        for (const childX of branchChildrenXs.filter((x) => x !== versionX)) {
+          // Find the specific child commit that corresponds to this column.
+          const childToTerminate = branchChildren.find(
+            (hash) => versionXs.get(hash) === childX,
+          );
+          const childVersion = childToTerminate
+            ? versionsMapWithPos.get(childToTerminate)
+            : undefined;
+
+          if (childVersion) {
+            // The branch path should end AT the child commit's Y-coordinate.
+            updateColumnEnd(childX, childVersion.y, version.hash);
+          } else {
+            // Fallback for safety, though it shouldn't be hit with consistent data.
+            updateColumnEnd(childX, index - 1, version.hash);
+          }
+        }
+        // --- END OF FIX ---
       }
     } else {
+      // This logic handles placing commits with multiple parents ("merge commits")
+      // and should now work correctly as children's paths are terminated above.
       let minChildY = Infinity;
       let maxChildX = -1;
 
@@ -104,39 +118,48 @@ function computeColumns(
         }
       }
 
-      const colFitAtEnd = columns.slice(maxChildX + 1).findIndex((column) => {
-        const lastEntry = column[column.length - 1];
-        return lastEntry && minChildY >= lastEntry.end;
-      });
-      const col = colFitAtEnd === -1 ? -1 : maxChildX + 1 + colFitAtEnd;
-
-      if (col === -1) {
+      if (minChildY === Infinity) {
         columns.push([
-          {
-            branchOrder,
-            end,
-            endCommitHash: version.hash,
-            start: minChildY + 1,
-          },
+          { branchOrder, end, endCommitHash: version.hash, start: index },
         ]);
-        branchOrder++;
         versionX = columns.length - 1;
+        branchOrder++;
       } else {
-        versionX = col;
-        if (columns[col]) {
-          columns[col].push({
-            branchOrder,
-            end,
-            endCommitHash: version.hash,
-            start: minChildY + 1,
-          });
+        const colFitAtEnd = columns.slice(maxChildX + 1).findIndex((column) => {
+          const lastEntry = column[column.length - 1];
+          return lastEntry && minChildY >= lastEntry.end;
+        });
+        const col = colFitAtEnd === -1 ? -1 : maxChildX + 1 + colFitAtEnd;
+
+        const startY = minChildY + 1;
+        if (col === -1) {
+          columns.push([
+            { branchOrder, end, endCommitHash: version.hash, start: startY },
+          ]);
+          versionX = columns.length - 1;
+          branchOrder++;
+        } else {
+          versionX = col;
+          const column = columns[col];
+          if (column) {
+            column.push({
+              branchOrder,
+              end,
+              endCommitHash: version.hash,
+              start: startY,
+            });
+          }
           branchOrder++;
         }
       }
     }
 
     versionXs.set(versionHash, versionX);
-    versionsMapWithPos.set(versionHash, { ...version, x: versionX, y: index });
+    const versionToUpdate = versionsMapWithPos.get(versionHash);
+    if (versionToUpdate) {
+      versionToUpdate.x = versionX;
+      versionToUpdate.y = index;
+    }
   }
 
   return { columns, versionsMapWithPos };
@@ -146,9 +169,8 @@ function topologicalOrderVersions(
   versions: VersionNode[],
   versionsMap: Map<string, VersionNode>,
 ): string[] {
-  // Assumes input versions are sorted newest to oldest.
   const sortedVersions: string[] = [];
-  const seen = new Map();
+  const seen = new Map<string, boolean>();
 
   function dfs(version: VersionNode) {
     const versionHash = version.hash;
