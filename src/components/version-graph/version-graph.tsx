@@ -75,6 +75,7 @@ export default function VersionGraph({
         width={width}
       >
         <Branches
+          branchColors={style.branchColors}
           branchSpacing={style.branchSpacing}
           columns={columns}
           commitSpacing={style.commitSpacing}
@@ -128,9 +129,7 @@ export default function VersionGraph({
                     </span>
                   )}
                   {typeof version.createdAt === "number" && (
-                    <span className={`text-xs ${
-                      isSelected ? "text-primary-foreground" : "text-muted-foreground"
-                    }`}>
+                    <span className="text-muted-foreground text-xs">
                       {new Date(version.createdAt).toLocaleDateString("de-DE", {
                         day: "2-digit",
                         month: "2-digit",
