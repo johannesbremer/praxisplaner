@@ -116,8 +116,8 @@ export default function VersionGraph({
                 <div
                   className={`flex items-center gap-2 text-sm cursor-pointer p-1 rounded ${
                     isSelected
-                      ? "bg-primary/10 border border-primary/20"
-                      : "hover:bg-muted/50"
+                      ? "bg-primary text-primary-foreground border border-primary"
+                      : "hover:bg-background border border-border bg-background"
                   }`}
                   onClick={() => onVersionClick?.(version)}
                   style={{ fontSize: "12px" }}
