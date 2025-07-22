@@ -1,0 +1,102 @@
+import type { BranchPathType, Version, VersionNode } from "./types";
+
+export const defaultStyle = {
+  branchColors: [
+    "#010A40",
+    "#FC42C9",
+    "#3D91F0",
+    "#29E3C1",
+    "#C5A15A",
+    "#FA7978",
+    "#5D6280",
+    "#5AC58D",
+    "#5C5AC5",
+    "#EB7340",
+  ],
+  branchSpacing: 20,
+  commitSpacing: 90,
+  nodeRadius: 2,
+};
+
+export function convertColorToMatrixVariant(color: string): string {
+  if (color.startsWith("#")) {
+    return hexToColorMatrixVariant(color);
+  }
+  return rgbColorToMatrixVariant(color);
+}
+
+export function formatVersions(versions: Version[]): VersionNode[] {
+  const childrenMap = new Map<string, string[]>();
+  for (const version of versions) {
+    for (const parent of version.parents) {
+      if (childrenMap.has(parent)) {
+        childrenMap.get(parent)?.push(version.id);
+      } else {
+        childrenMap.set(parent, [version.id]);
+      }
+    }
+  }
+
+  return versions.map((version) => ({
+    children: childrenMap.get(version.id) ?? [],
+    commitColor: "",
+    createdAt: version.createdAt,
+    hash: version.id,
+    isActive: version.isActive ?? false,
+    message: version.message,
+    parents: version.parents,
+    x: -1,
+    y: -1,
+  }));
+}
+
+export function setBranchAndVersionColor(
+  columns: BranchPathType[][],
+  branchColors: string[],
+  versionsMap: Map<string, VersionNode>,
+) {
+  for (const [i, column] of columns.entries()) {
+    for (const c of column) {
+      const branchColor = branchColors[c.branchOrder % branchColors.length];
+      if (branchColor) {
+        c.color = branchColor;
+        setVersionNodeColor(c, i, versionsMap, branchColor);
+      }
+    }
+  }
+}
+
+export function setVersionNodeColor(
+  branch: BranchPathType,
+  columnNumber: number,
+  versionsMap: Map<string, VersionNode>,
+  branchColor: string,
+) {
+  for (const [, version] of versionsMap) {
+    if (
+      version.x === columnNumber &&
+      branch.start <= version.y &&
+      branch.end >= version.y
+    ) {
+      version.commitColor = branchColor;
+    }
+  }
+}
+
+function hexToColorMatrixVariant(hex?: string): string {
+  if (!hex) return "";
+  const r = Number.parseInt(hex.slice(1, 3), 16) / 255;
+  const g = Number.parseInt(hex.slice(3, 5), 16) / 255;
+  const b = Number.parseInt(hex.slice(5, 7), 16) / 255;
+  return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 0.5 0`;
+}
+
+function rgbColorToMatrixVariant(rgb: string): string {
+  const [r, g, b] = rgb
+    .toLowerCase()
+    .replace("rgb(", "")
+    .replace(")", "")
+    .split(",")
+    .map((x) => Number.parseInt(x) / 255);
+  return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 0.5 0`;
+}

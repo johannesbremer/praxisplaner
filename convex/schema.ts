@@ -54,6 +54,7 @@ export default defineSchema({
     createdAt: v.number(),
     createdBy: v.string(),
     description: v.string(),
+    parentVersions: v.optional(v.array(v.id("ruleSets"))), // Support for version branching
     practiceId: v.id("practices"),
     version: v.number(),
   })

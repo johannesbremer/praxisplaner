@@ -39,6 +39,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
+import type { VersionNode } from "../components/version-graph";
+
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { DebugView } from "../components/debug-view";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
@@ -47,6 +49,7 @@ import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationFormNew from "../components/rule-creation-form-new";
 import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
+import VersionHistory from "../components/version-history";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -181,6 +184,9 @@ export default function LogicView() {
   const createDraftMutation = useMutation(api.rules.createDraftFromActive);
   const createDraftFromRuleSetMutation = useMutation(
     api.rules.createDraftFromRuleSet,
+  );
+  const createVersionFromHistoryMutation = useMutation(
+    api.rules.createVersionFromHistory,
   );
   const createInitialRuleSetMutation = useMutation(
     api.rules.createInitialRuleSet,
@@ -473,6 +479,64 @@ export default function LogicView() {
     }
   };
 
+  const handleVersionClick = React.useCallback(
+    (version: VersionNode) => {
+      if (!currentPractice) {
+        toast.error("Keine Praxis gefunden");
+        return;
+      }
+
+      void (async () => {
+        try {
+          // If we have unsaved changes, show save dialog first
+          if (unsavedRuleSet) {
+            setPendingRuleSetId(version.hash as Id<"ruleSets">);
+            setActivationName("");
+            setIsSaveDialogOpen(true);
+            return;
+          }
+
+          // If clicking on the currently active version, do nothing
+          if (version.isActive) {
+            setSelectedRuleSetId(version.hash as Id<"ruleSets">);
+            return;
+          }
+
+          // Create a new unsaved version from the selected historical version
+          const newVersionId = await createVersionFromHistoryMutation({
+            description: "Ungespeicherte Änderungen",
+            practiceId: currentPractice._id,
+            sourceVersionId: version.hash as Id<"ruleSets">,
+          });
+
+          setUnsavedRuleSetId(newVersionId);
+          setSelectedRuleSetId(null);
+
+          toast.success(`Neue Version von "${version.message}" erstellt`, {
+            description: "Sie können jetzt Änderungen vornehmen und speichern.",
+          });
+        } catch (error: unknown) {
+          captureError(error, {
+            context: "version_click",
+            practiceId: currentPractice._id,
+            versionId: version.hash,
+          });
+
+          toast.error("Fehler beim Erstellen der Version", {
+            description:
+              error instanceof Error ? error.message : "Unbekannter Fehler",
+          });
+        }
+      })();
+    },
+    [
+      currentPractice,
+      unsavedRuleSet,
+      createVersionFromHistoryMutation,
+      captureError,
+    ],
+  );
+
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {
       // Delete the unsaved rule set from the database
@@ -523,10 +587,11 @@ export default function LogicView() {
 
       {/* Page-level Tabs */}
       <Tabs className="space-y-6" defaultValue="rule-management">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="rule-management">
             Regelverwaltung + Patientensicht
           </TabsTrigger>
+          <TabsTrigger value="version-history">Versionshistorie</TabsTrigger>
           <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
           <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
         </TabsList>
@@ -773,7 +838,15 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 2: Staff View Only */}
+        {/* Tab 2: Version History */}
+        <TabsContent value="version-history">
+          <VersionHistory
+            onVersionClick={handleVersionClick}
+            practiceId={currentPractice._id}
+          />
+        </TabsContent>
+
+        {/* Tab 3: Staff View Only */}
         <TabsContent value="staff-view">
           <div className="space-y-6">
             <div className="space-y-6">
@@ -800,7 +873,7 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 3: Debug Views Only */}
+        {/* Tab 4: Debug Views Only */}
         <TabsContent value="debug-views">
           <div className="space-y-6">
             <div className="space-y-6">
