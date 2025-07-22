@@ -772,7 +772,7 @@ export const getVersionHistory = query({
       createdAt: ruleSet.createdAt,
       id: ruleSet._id,
       isActive: practice?.currentActiveRuleSetId === ruleSet._id,
-      message: ruleSet.description,
+      message: ruleSet.description.replaceAll(/^(?:Aktivierung von\s*)+/g, ""),
       parents: ruleSet.parentVersions ?? [],
     }));
   },
