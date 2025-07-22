@@ -42,8 +42,10 @@ export default function ConnectionLines({
       const midY = parentY + (childY - parentY) / 2;
       const pathData = `M ${parentX} ${parentY} Q ${parentX} ${midY} ${childX} ${childY}`;
 
-      // Use parent's color for the connection, with fallback
-      const strokeColor = parent.commitColor || "#666666";
+      // Use child's color for the connection when it's a new branch, otherwise use parent's color
+      // This ensures that when a new branch starts, the connection line matches the branch color
+      const strokeColor =
+        version.commitColor || parent.commitColor || "#666666";
 
       connections.push(
         <path

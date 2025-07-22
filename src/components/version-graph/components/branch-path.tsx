@@ -19,7 +19,7 @@ export default function BranchPath({
   nodeRadius,
   start,
 }: Props) {
-  const height = Math.abs(end - start) * (commitSpacing + nodeRadius * 4);
+  const height = Math.abs(end - start) * commitSpacing;
   const x = nodeRadius * 4 + branchOrder * branchSpacing - 1;
   const matrixColor = convertColorToMatrixVariant(branchColor);
 
@@ -31,7 +31,7 @@ export default function BranchPath({
           height={height}
           width={2}
           x={x}
-          y={start * commitSpacing}
+          y={start * commitSpacing + nodeRadius * 4}
         />
       </g>
       <defs>
@@ -42,7 +42,7 @@ export default function BranchPath({
           id={`filter${branchOrder}-${start}-${end}`}
           width={12}
           x={x}
-          y={start * commitSpacing}
+          y={start * commitSpacing + nodeRadius * 4}
         >
           <feColorMatrix
             in="SourceAlpha"
