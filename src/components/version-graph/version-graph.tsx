@@ -3,6 +3,7 @@ import React from "react";
 import type { GraphStyle, Version, VersionNode } from "./types";
 
 import Branches from "./components/branches";
+import ConnectionLines from "./components/connection-lines";
 import VersionDot from "./components/version-dot";
 import { computePosition } from "./compute-position";
 import {
@@ -60,7 +61,7 @@ export default function VersionGraph({
   const maxX = Math.max(...versionValues.map((v: VersionNode) => v.x));
   const maxY = Math.max(...versionValues.map((v: VersionNode) => v.y));
 
-  const width = (maxX + 1) * style.branchSpacing + style.nodeRadius * 8;
+  const width = (maxX + 1) * style.branchSpacing + style.nodeRadius * 8 + 300; // Extra space for labels
   const height = (maxY + 1) * style.commitSpacing + style.nodeRadius * 8;
 
   return (
@@ -79,6 +80,12 @@ export default function VersionGraph({
           nodeRadius={style.nodeRadius}
           versionsMap={versionsMap}
         />
+        <ConnectionLines
+          branchSpacing={style.branchSpacing}
+          commitSpacing={style.commitSpacing}
+          nodeRadius={style.nodeRadius}
+          versionsMap={versionsMap}
+        />
         {versionValues.map((version: VersionNode) => (
           <VersionDot
             branchSpacing={style.branchSpacing}
@@ -89,41 +96,45 @@ export default function VersionGraph({
             {...(onVersionClick && { onClick: onVersionClick })}
           />
         ))}
-      </svg>
 
-      {/* Version labels */}
-      <div className="mt-4 space-y-2">
-        {versionValues
-          .sort((a: VersionNode, b: VersionNode) => a.y - b.y)
-          .map((version: VersionNode) => (
-            <div className="flex items-center gap-2 text-sm" key={version.hash}>
-              <div
-                className="w-3 h-3 rounded-full border-2 border-white"
-                style={{ backgroundColor: version.commitColor }}
-              />
-              <span className="font-mono text-xs text-muted-foreground">
-                {version.hash.slice(0, 7)}
-              </span>
-              <span>{version.message}</span>
-              {version.isActive && (
-                <span className="bg-primary text-primary-foreground px-2 py-0.5 rounded text-xs">
-                  AKTIV
-                </span>
-              )}
-              {typeof version.createdAt === "number" && (
-                <span className="text-muted-foreground text-xs">
-                  {new Date(version.createdAt).toLocaleDateString("de-DE", {
-                    day: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    month: "2-digit",
-                    year: "numeric",
-                  })}
-                </span>
-              )}
-            </div>
-          ))}
-      </div>
+        {/* Inline version labels next to each node */}
+        {versionValues.map((version: VersionNode) => {
+          const x = style.nodeRadius * 4 + version.x * style.branchSpacing;
+          const y = version.y * style.commitSpacing + style.nodeRadius * 4;
+
+          return (
+            <g key={`label-${version.hash}`}>
+              <foreignObject
+                height={20}
+                width={300}
+                x={x + style.nodeRadius * 4}
+                y={y - 10}
+              >
+                <div
+                  className="flex items-center gap-2 text-sm"
+                  style={{ fontSize: "12px" }}
+                >
+                  <span className="font-medium">{version.message}</span>
+                  {version.isActive && (
+                    <span className="bg-primary text-primary-foreground px-1 py-0.5 rounded text-xs">
+                      AKTIV
+                    </span>
+                  )}
+                  {typeof version.createdAt === "number" && (
+                    <span className="text-muted-foreground text-xs">
+                      {new Date(version.createdAt).toLocaleDateString("de-DE", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}
+                    </span>
+                  )}
+                </div>
+              </foreignObject>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

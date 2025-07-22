@@ -29,10 +29,11 @@ export function formatVersions(versions: Version[]): VersionNode[] {
   const childrenMap = new Map<string, string[]>();
   for (const version of versions) {
     for (const parent of version.parents) {
-      if (childrenMap.has(parent)) {
-        childrenMap.get(parent)?.push(version.id);
+      const parentStr = String(parent); // Convert Id<"ruleSets"> to string
+      if (childrenMap.has(parentStr)) {
+        childrenMap.get(parentStr)?.push(version.id);
       } else {
-        childrenMap.set(parent, [version.id]);
+        childrenMap.set(parentStr, [version.id]);
       }
     }
   }
@@ -44,7 +45,7 @@ export function formatVersions(versions: Version[]): VersionNode[] {
     hash: version.id,
     isActive: version.isActive ?? false,
     message: version.message,
-    parents: version.parents,
+    parents: version.parents.map(String), // Convert Id<"ruleSets"> to string
     x: -1,
     y: -1,
   }));

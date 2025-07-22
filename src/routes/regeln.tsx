@@ -49,7 +49,7 @@ import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationFormNew from "../components/rule-creation-form-new";
 import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
-import VersionHistory from "../components/version-history";
+import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 
 export const Route = createFileRoute("/regeln")({
@@ -180,13 +180,16 @@ export default function LogicView() {
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
+  // Fetch version history for visualization
+  const versionsQuery = useQuery(
+    api.rules.getVersionHistory,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
+
   // Mutations
   const createDraftMutation = useMutation(api.rules.createDraftFromActive);
   const createDraftFromRuleSetMutation = useMutation(
     api.rules.createDraftFromRuleSet,
-  );
-  const createVersionFromHistoryMutation = useMutation(
-    api.rules.createVersionFromHistory,
   );
   const createInitialRuleSetMutation = useMutation(
     api.rules.createInitialRuleSet,
@@ -362,55 +365,26 @@ export default function LogicView() {
         return;
       }
 
-      void (async () => {
-        try {
-          // If we have unsaved changes, show save dialog first
-          if (unsavedRuleSet) {
-            setPendingRuleSetId(version.hash as Id<"ruleSets">);
-            setActivationName("");
-            setIsSaveDialogOpen(true);
-            return;
-          }
+      const versionId = version.hash as Id<"ruleSets">;
 
-          // If clicking on the currently active version, do nothing
-          if (version.isActive) {
-            setSelectedRuleSetId(version.hash as Id<"ruleSets">);
-            return;
-          }
+      // If we have unsaved changes, show save dialog first
+      if (unsavedRuleSet) {
+        setPendingRuleSetId(versionId);
+        setActivationName("");
+        setIsSaveDialogOpen(true);
+        return;
+      }
 
-          // Create a new unsaved version from the selected historical version
-          const newVersionId = await createVersionFromHistoryMutation({
-            description: "Ungespeicherte Änderungen",
-            practiceId: currentPractice._id,
-            sourceVersionId: version.hash as Id<"ruleSets">,
-          });
+      // If clicking on the currently selected version, do nothing
+      if (selectedRuleSetId === versionId) {
+        return;
+      }
 
-          setUnsavedRuleSetId(newVersionId);
-          setSelectedRuleSetId(null);
-
-          toast.success(`Neue Version von "${version.message}" erstellt`, {
-            description: "Sie können jetzt Änderungen vornehmen und speichern.",
-          });
-        } catch (error: unknown) {
-          captureError(error, {
-            context: "version_click",
-            practiceId: currentPractice._id,
-            versionId: version.hash,
-          });
-
-          toast.error("Fehler beim Erstellen der Version", {
-            description:
-              error instanceof Error ? error.message : "Unbekannter Fehler",
-          });
-        }
-      })();
+      // Switch to the selected version
+      setSelectedRuleSetId(versionId);
+      setUnsavedRuleSetId(null);
     },
-    [
-      currentPractice,
-      unsavedRuleSet,
-      createVersionFromHistoryMutation,
-      captureError,
-    ],
+    [currentPractice, unsavedRuleSet, selectedRuleSetId],
   );
 
   // Show loading state if practice is being initialized
@@ -587,11 +561,10 @@ export default function LogicView() {
 
       {/* Page-level Tabs */}
       <Tabs className="space-y-6" defaultValue="rule-management">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="rule-management">
             Regelverwaltung + Patientensicht
           </TabsTrigger>
-          <TabsTrigger value="version-history">Versionshistorie</TabsTrigger>
           <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
           <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
         </TabsList>
@@ -613,80 +586,25 @@ export default function LogicView() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {/* Show select when there are saved rule sets */}
-                    {ruleSetsQuery && ruleSetsQuery.length > 0 && (
+                    {/* Show version graph when there are saved rule sets */}
+                    {versionsQuery && versionsQuery.length > 0 && (
                       <div className="space-y-2">
-                        <Label htmlFor="rule-set-select">Regelset</Label>
-                        <Select
-                          onValueChange={(value) => {
-                            if (value === "unsaved") {
-                              setSelectedRuleSetId(null);
-                              // Keep existing unsaved rule set if it exists
-                            } else {
-                              // If we have unsaved changes, show save dialog
-                              if (unsavedRuleSet) {
-                                setPendingRuleSetId(value as Id<"ruleSets">);
-                                setActivationName(""); // Clear name for new dialog
-                                setIsSaveDialogOpen(true);
-                              } else {
-                                setSelectedRuleSetId(value as Id<"ruleSets">);
-                                setUnsavedRuleSetId(null); // Clear unsaved changes
-                              }
-                            }
-                          }}
-                          value={
-                            unsavedRuleSet
-                              ? "unsaved"
-                              : selectedRuleSetId || activeRuleSet?._id || ""
-                          }
-                        >
-                          <SelectTrigger id="rule-set-select">
-                            <SelectValue placeholder="Regelset auswählen" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {unsavedRuleSet && (
-                              <SelectItem value="unsaved">
-                                <div className="flex items-center gap-2">
-                                  <Badge
-                                    className="text-xs"
-                                    variant="secondary"
-                                  >
-                                    Ungespeicherte Änderungen
-                                  </Badge>
-                                </div>
-                              </SelectItem>
-                            )}
-                            {ruleSetsQuery
-                              .filter(
-                                (rs: { _id: string }) =>
-                                  rs._id !== unsavedRuleSet?._id,
-                              )
-                              .map(
-                                (ruleSet: {
-                                  _id: string;
-                                  description: string;
-                                  isActive: boolean;
-                                }) => (
-                                  <SelectItem
-                                    key={ruleSet._id}
-                                    value={ruleSet._id}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span>{ruleSet.description}</span>
-                                      {ruleSet.isActive && (
-                                        <Badge
-                                          className="text-xs"
-                                          variant="default"
-                                        >
-                                          AKTIV
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  </SelectItem>
-                                ),
-                              )}
-                          </SelectContent>
-                        </Select>
+                        <Label>Regelset-Versionshistorie</Label>
+                        <div className="border rounded-lg p-4">
+                          <VersionGraph
+                            onVersionClick={handleVersionClick}
+                            versions={versionsQuery}
+                          />
+                        </div>
+                        {/* Show current state indicator */}
+                        {unsavedRuleSet && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge className="text-xs" variant="secondary">
+                              Ungespeicherte Änderungen
+                            </Badge>
+                            <span>Arbeiten Sie gerade an Änderungen</span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -838,15 +756,7 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 2: Version History */}
-        <TabsContent value="version-history">
-          <VersionHistory
-            onVersionClick={handleVersionClick}
-            practiceId={currentPractice._id}
-          />
-        </TabsContent>
-
-        {/* Tab 3: Staff View Only */}
+        {/* Tab 2: Staff View Only */}
         <TabsContent value="staff-view">
           <div className="space-y-6">
             <div className="space-y-6">
@@ -873,7 +783,7 @@ export default function LogicView() {
           </div>
         </TabsContent>
 
-        {/* Tab 4: Debug Views Only */}
+        {/* Tab 3: Debug Views Only */}
         <TabsContent value="debug-views">
           <div className="space-y-6">
             <div className="space-y-6">
