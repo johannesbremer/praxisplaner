@@ -3,7 +3,6 @@ import type { BranchPathType, VersionNode } from "../types";
 import BranchPath from "./branch-path";
 
 interface Props {
-  branchColors: string[];
   branchSpacing: number;
   columns: BranchPathType[][];
   commitSpacing: number;
@@ -12,7 +11,6 @@ interface Props {
 }
 
 export default function Branches({
-  branchColors,
   branchSpacing,
   columns,
   commitSpacing,
@@ -28,10 +26,7 @@ export default function Branches({
       {columns.map((column, i) => {
         return column.map((c) => {
           const end = c.end === Infinity ? currentLastCommits : c.end;
-          const color =
-            c.color ??
-            branchColors[c.branchOrder % branchColors.length] ??
-            "#000000";
+          const color = c.color ?? "#000000";
           return (
             <BranchPath
               branchColor={color}
