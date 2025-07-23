@@ -519,12 +519,13 @@ export const createDraftFromActive = mutation({
       throw new Error("Active rule set not found");
     }
 
-    // Create new draft rule set
+    // Create new draft rule set with parent relationship
     const newVersion = activeRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentVersions: [practice.currentActiveRuleSetId],
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -569,12 +570,13 @@ export const createDraftFromRuleSet = mutation({
       throw new Error("Rule set does not belong to this practice");
     }
 
-    // Create new draft rule set
+    // Create new draft rule set with parent relationship
     const newVersion = sourceRuleSet.version + 1;
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentVersions: [args.sourceRuleSetId],
       practiceId: args.practiceId,
       version: newVersion,
     });
@@ -702,12 +704,12 @@ export const createInitialRuleSet = mutation({
       );
     }
 
-    // Create the first rule set with version 1 but DON'T activate it
-    // User should be able to add rules before activating
+    // Create the first rule set with version 1 and no parents
     const newRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       createdBy: "system", // TODO: Replace with actual user when auth is implemented
       description: args.description,
+      parentVersions: [], // Initial version has no parents
       practiceId: args.practiceId,
       version: 1,
     });
@@ -748,4 +750,86 @@ export const validateRuleSetName = query({
     isUnique: v.boolean(),
     message: v.optional(v.string()),
   }),
+});
+
+// ================================
+// VERSION HISTORY FUNCTIONS
+// ================================
+
+export const getVersionHistory = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSets = await ctx.db
+      .query("ruleSets")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    const practice = await ctx.db.get(args.practiceId);
+
+    return ruleSets.map((ruleSet) => ({
+      createdAt: ruleSet.createdAt,
+      id: ruleSet._id,
+      isActive: practice?.currentActiveRuleSetId === ruleSet._id,
+      message: ruleSet.description,
+      parents: ruleSet.parentVersions ?? [],
+    }));
+  },
+  returns: v.array(
+    v.object({
+      createdAt: v.number(),
+      id: v.id("ruleSets"),
+      isActive: v.boolean(),
+      message: v.string(),
+      parents: v.array(v.id("ruleSets")),
+    }),
+  ),
+});
+
+export const createVersionFromHistory = mutation({
+  args: {
+    description: v.string(),
+    practiceId: v.id("practices"),
+    sourceVersionId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Get the source version
+    const sourceVersion = await ctx.db.get(args.sourceVersionId);
+    if (!sourceVersion) {
+      throw new Error("Source version not found");
+    }
+
+    // Verify the version belongs to the practice
+    if (sourceVersion.practiceId !== args.practiceId) {
+      throw new Error("Version does not belong to this practice");
+    }
+
+    // Create new version with the source as parent
+    const newVersionId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      createdBy: "system", // TODO: Replace with actual user when auth is implemented
+      description: args.description,
+      parentVersions: [args.sourceVersionId],
+      practiceId: args.practiceId,
+      version: sourceVersion.version + 1,
+    });
+
+    // Copy all enabled rules from source version to new version
+    const sourceRules = await ctx.runQuery(api.rules.getRulesForRuleSet, {
+      enabledOnly: true,
+      ruleSetId: args.sourceVersionId,
+    });
+
+    for (const ruleWithInfo of sourceRules) {
+      await ctx.runMutation(api.rules.enableRuleInRuleSet, {
+        priority: ruleWithInfo.priority,
+        ruleId: ruleWithInfo._id,
+        ruleSetId: newVersionId,
+      });
+    }
+
+    return newVersionId;
+  },
+  returns: v.id("ruleSets"),
 });
