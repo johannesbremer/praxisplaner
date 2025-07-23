@@ -593,8 +593,9 @@ export default function LogicView() {
                         <div className="border rounded-lg p-4">
                           <VersionGraph
                             onVersionClick={handleVersionClick}
-                            {...(selectedRuleSetId && {
-                              selectedVersionId: selectedRuleSetId,
+                            {...((unsavedRuleSetId || selectedRuleSetId) && {
+                              selectedVersionId: (unsavedRuleSetId ||
+                                selectedRuleSetId) as string,
                             })}
                             versions={versionsQuery}
                           />
@@ -728,6 +729,7 @@ export default function LogicView() {
                     <CardContent>
                       {rulesQuery && currentWorkingRuleSet ? (
                         <RuleListNew
+                          onNeedRuleSet={ensureUnsavedRuleSet}
                           onRuleChanged={handleRuleChange}
                           practiceId={currentPractice._id}
                           rules={rulesQuery}
