@@ -25,7 +25,7 @@ describe("Version Graph Keyboard Navigation Logic", () => {
       },
       {
         children: [],
-        commitColor: "#00ff00", 
+        commitColor: "#00ff00",
         hash: "v2",
         message: "Version 2",
         parents: ["v1"],
@@ -35,16 +35,26 @@ describe("Version Graph Keyboard Navigation Logic", () => {
     ];
 
     // Simulate keyboard event handling logic without actual KeyboardEvent
-    const handleKeyDown = (keyType: string, index: number, onVersionClick: (v: VersionNode) => void) => {
+    const handleKeyDown = (
+      keyType: string,
+      index: number,
+      onVersionClick: (v: VersionNode) => void,
+    ) => {
       if (keyType === "Enter" || keyType === " ") {
         const version = versions[index];
-        if (version) onVersionClick(version);
+        if (version) {
+          onVersionClick(version);
+        }
       } else if (keyType === "ArrowUp" && index > 0) {
         const prevVersion = versions[index - 1];
-        if (prevVersion) onVersionClick(prevVersion);
+        if (prevVersion) {
+          onVersionClick(prevVersion);
+        }
       } else if (keyType === "ArrowDown" && index < versions.length - 1) {
         const nextVersion = versions[index + 1];
-        if (nextVersion) onVersionClick(nextVersion);
+        if (nextVersion) {
+          onVersionClick(nextVersion);
+        }
       }
     };
 
@@ -57,7 +67,7 @@ describe("Version Graph Keyboard Navigation Logic", () => {
     handleKeyDown("Enter", 0, onVersionClick);
     expect(clickedVersion).toEqual(versions[0]);
 
-    // Test Space key  
+    // Test Space key
     clickedVersion = null;
     handleKeyDown(" ", 1, onVersionClick);
     expect(clickedVersion).toEqual(versions[1]);

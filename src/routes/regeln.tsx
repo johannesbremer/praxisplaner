@@ -594,7 +594,8 @@ export default function LogicView() {
                           <VersionGraph
                             onVersionClick={handleVersionClick}
                             {...((unsavedRuleSetId || selectedRuleSetId) && {
-                              selectedVersionId: (unsavedRuleSetId || selectedRuleSetId) as string,
+                              selectedVersionId: (unsavedRuleSetId ||
+                                selectedRuleSetId) as string,
                             })}
                             versions={versionsQuery}
                           />

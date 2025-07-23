@@ -139,11 +139,18 @@ export default function VersionGraph({
                       onVersionClick?.(version);
                     } else if (e.key === "ArrowUp" && index > 0) {
                       e.preventDefault();
-                      const prevVersion = versionValues[index - 1] as VersionNode;
+                      const prevVersion = versionValues[
+                        index - 1
+                      ] as VersionNode;
                       onVersionClick?.(prevVersion);
-                    } else if (e.key === "ArrowDown" && index < versionValues.length - 1) {
+                    } else if (
+                      e.key === "ArrowDown" &&
+                      index < versionValues.length - 1
+                    ) {
                       e.preventDefault();
-                      const nextVersion = versionValues[index + 1] as VersionNode;
+                      const nextVersion = versionValues[
+                        index + 1
+                      ] as VersionNode;
                       onVersionClick?.(nextVersion);
                     }
                   }}
