@@ -51,3 +51,20 @@ export interface BranchPathType {
   endCommitHash: string;
   start: number;
 }
+
+/** Props for the ConnectionLines component. */
+export interface ConnectionLinesProps {
+  branchSpacing: number;
+  commitSpacing: number;
+  nodeRadius: number;
+  versionsMap: Map<string, VersionNode>;
+}
+
+/** Intermediate connection data for rendering connection lines. */
+export interface ConnectionData {
+  childX: number;
+  childY: number;
+  key: string;
+  pathData: string;
+  strokeColor: string;
+}

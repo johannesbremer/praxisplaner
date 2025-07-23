@@ -3,24 +3,16 @@ This file is forked from the following Apache-2.0 licensed repo:
 https://github.com/liuliu-dev/CommitGraph/tree/0f89c35fa53003ed8b66b409230566a455d85202
 */
 
-import React from "react";
-
-import type { VersionNode } from "../types";
-
-interface Props {
-  branchSpacing: number;
-  commitSpacing: number;
-  nodeRadius: number;
-  versionsMap: Map<string, VersionNode>;
-}
+import type { ConnectionData, ConnectionLinesProps } from "../types";
 
 export default function ConnectionLines({
   branchSpacing,
   commitSpacing,
   nodeRadius,
   versionsMap,
-}: Props) {
-  const connections: React.ReactElement[] = [];
+}: ConnectionLinesProps) {
+  // 1. Collect all connection data before rendering
+  const connectionDataList: ConnectionData[] = [];
 
   // For each version, draw lines to its parents
   for (const [, version] of versionsMap.entries()) {
@@ -48,7 +40,7 @@ export default function ConnectionLines({
       // 2. Makes a 90-degree turn horizontally toward the child
       // 3. Goes horizontally to align with child column
       // 4. Goes vertically up to reach the child
-      const branchDistance = commitSpacing * 0.2; // How far down to go before branching
+      const branchDistance = commitSpacing * 0.4; // How far down to go before branching
       const horizontalMidY = parentY + branchDistance;
       const pathData = `M ${parentX} ${parentY} L ${parentX} ${horizontalMidY} L ${childX} ${horizontalMidY} L ${childX} ${childY}`;
 
@@ -57,18 +49,39 @@ export default function ConnectionLines({
       const strokeColor =
         version.commitColor || parent.commitColor || "#666666";
 
-      connections.push(
-        <path
-          d={pathData}
-          fill="none"
-          key={key}
-          opacity="0.7"
-          stroke={strokeColor}
-          strokeWidth="2"
-        />,
-      );
+      connectionDataList.push({
+        childX: version.x,
+        childY: version.y,
+        key,
+        pathData,
+        strokeColor,
+      });
     }
   }
+
+  // 2. Sort the connections to control the Z-order (stacking)
+  // Elements drawn later appear on top.
+  connectionDataList.sort((a, b) => {
+    // Primary sort: Draw connections to higher commits (smaller y) on top.
+    // To do this, we sort by 'y' in descending order, so smaller 'y' values are later in the array.
+    if (a.childY !== b.childY) {
+      return b.childY - a.childY;
+    }
+    // Secondary sort (tie-breaker): Draw branches further to the right (larger x) on top.
+    // We sort by 'x' in descending order, so larger 'x' values are later in the array.
+    return b.childX - a.childX;
+  });
+
+  // 3. Map the sorted data to React elements
+  const connections = connectionDataList.map((data) => (
+    <path
+      d={data.pathData}
+      fill="none"
+      key={data.key}
+      stroke={data.strokeColor}
+      strokeWidth="2"
+    />
+  ));
 
   return <>{connections}</>;
 }

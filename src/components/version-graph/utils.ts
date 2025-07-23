@@ -19,7 +19,7 @@ export const defaultStyle = {
     "#EB7340",
   ],
   branchSpacing: 20,
-  commitSpacing: 90,
+  commitSpacing: 50,
   nodeRadius: 2,
 };
 
