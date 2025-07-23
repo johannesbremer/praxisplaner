@@ -14,6 +14,7 @@ import { api } from "@/convex/_generated/api";
 import RuleCreationFormNew from "./rule-creation-form-new";
 
 interface RuleListNewProps {
+  onNeedRuleSet?: () => Promise<Id<"ruleSets"> | null | undefined>;
   onRuleChanged?: () => void;
   practiceId: Id<"practices">;
   rules: RuleWithRuleSetInfo[];
@@ -43,6 +44,7 @@ interface RuleWithRuleSetInfo {
 }
 
 export function RuleListNew({
+  onNeedRuleSet,
   onRuleChanged,
   practiceId,
   rules,
@@ -53,6 +55,15 @@ export function RuleListNew({
 
   const handleToggleRule = async (rule: RuleWithRuleSetInfo) => {
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        const resultRuleSetId = await onNeedRuleSet();
+        if (!resultRuleSetId) {
+          toast.error("Fehler beim Erstellen der Arbeitskopie");
+          return;
+        }
+      }
+
       // Since we only show enabled rules, we only handle disabling here
       await disableRuleMutation({
         ruleId: rule._id,
