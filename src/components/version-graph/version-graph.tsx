@@ -43,16 +43,24 @@ export default function VersionGraph({
     return formatVersions(sortedVersions);
   }, [sortedVersions]);
 
+  // Compute positions and colors in a single, memoized step.
+  // This ensures that the data is fully prepared for rendering and that
+  // colors are stable across re-renders.
   const { columns, versionsMap } = React.useMemo(() => {
     if (formattedVersions.length === 0) {
       return { columns: [], versionsMap: new Map() };
     }
-    return computePosition(formattedVersions);
-  }, [formattedVersions]);
-
-  React.useEffect(() => {
-    setBranchAndVersionColor(columns, style.branchColors, versionsMap);
-  }, [columns, style.branchColors, versionsMap]);
+    // 1. Compute the layout (positions)
+    const positionData = computePosition(formattedVersions);
+    // 2. Compute the colors stably using our new robust function
+    setBranchAndVersionColor(
+      positionData.columns,
+      style.branchColors,
+      positionData.versionsMap,
+    );
+    // 3. Return the fully computed and colored data
+    return positionData;
+  }, [formattedVersions, style.branchColors]);
 
   if (versions.length === 0) {
     return (

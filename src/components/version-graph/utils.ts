@@ -61,33 +61,47 @@ export function setBranchAndVersionColor(
   branchColors: string[],
   versionsMap: Map<string, VersionNode>,
 ) {
-  for (const [i, column] of columns.entries()) {
-    for (const c of column) {
-      // Assign colors based on column index to ensure each branch gets a unique color
-      const colorIndex = i % branchColors.length;
-      const branchColor = branchColors[colorIndex];
-      if (branchColor != null) {
-        c.color = branchColor;
-        setVersionNodeColor(c, i, versionsMap, branchColor);
-      }
-    }
-  }
-}
+  // To ensure stable colors, we create a canonical ordering for the columns
+  // by generating a unique, sortable "signature" for each one. This makes
+  // color assignment deterministic, even if the upstream `computePosition`
+  // function returns columns in an unstable order between renders.
 
-// Assign colors to version nodes based on their branch
-export function setVersionNodeColor(
-  branch: BranchPathType,
-  columnNumber: number,
-  versionsMap: Map<string, VersionNode>,
-  branchColor: string,
-) {
-  for (const [, version] of versionsMap) {
-    if (
-      version.x === columnNumber &&
-      branch.start <= version.y &&
-      branch.end >= version.y
-    ) {
-      version.commitColor = branchColor;
+  const indexedColumns = columns
+    .map((columnData, index) => {
+      // The signature is a sorted list of all endCommitHashes in the column's path segments.
+      // This is more robust as it doesn't rely on the separate versionsMap.
+      const signatureHashes = columnData
+        .map((pathSegment) => pathSegment.endCommitHash)
+        .sort();
+
+      return {
+        columnData,
+        originalIndex: index,
+        signature: signatureHashes.join(","),
+      };
+    })
+    .filter((c) => c.signature); // Ensure we don't process empty columns
+
+  // Sort the columns by their signature to get a stable, canonical order.
+  indexedColumns.sort((a, b) => a.signature.localeCompare(b.signature));
+
+  // Assign colors based on the new stable order.
+  for (const [stableIndex, indexedCol] of indexedColumns.entries()) {
+    const branchColor = branchColors[stableIndex % branchColors.length];
+    if (!branchColor) {
+      continue;
+    }
+
+    // Assign the determined color to the branch path segments.
+    for (const pathSegment of indexedCol.columnData) {
+      pathSegment.color = branchColor;
+    }
+
+    // Assign the same color to all versions within that original column.
+    for (const version of versionsMap.values()) {
+      if (version.x === indexedCol.originalIndex) {
+        version.commitColor = branchColor;
+      }
     }
   }
 }
