@@ -204,7 +204,7 @@ export function Calendar({ practiceId }: CalendarProps) {
   const onEventMove = async (args: {
     e: { data: { id: string } };
     newEnd: DayPilot.Date;
-    newResource: string | number;
+    newResource: number | string;
     newStart: DayPilot.Date;
   }) => {
     try {
