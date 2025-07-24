@@ -854,7 +854,7 @@ function PraxisPlanerComponent() {
             </Alert>
           </div>
         )}
-        
+
         {/* Calendar - Always show regardless of GDT connection */}
         <div className="flex-1">
           <Calendar practiceId={defaultPracticeId} />

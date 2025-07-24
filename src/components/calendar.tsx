@@ -54,7 +54,9 @@ export function Calendar({ practiceId }: CalendarProps) {
   });
 
   // Convex mutations for appointment management
-  const createAppointmentMutation = useConvexMutation(api.appointments.createAppointment);
+  const createAppointmentMutation = useConvexMutation(
+    api.appointments.createAppointment,
+  );
 
   const [config, setConfig] = useState({
     businessBeginsHour: 8,
@@ -118,16 +120,23 @@ export function Calendar({ practiceId }: CalendarProps) {
     }
 
     // Convert Convex appointments to DayPilot events
-    const calendarEvents: CalendarEvent[] = appointmentsQuery.map((appointment) => ({
-      barColor: appointment.status === "CONFIRMED" ? "#3c78d8" : 
-                appointment.status === "CANCELLED" ? "#e06666" : 
-                appointment.status === "COMPLETED" ? "#6aa84f" : "#fcb711",
-      end: appointment.endTime,
-      id: appointment._id,
-      resource: appointment.practitionerId,
-      start: appointment.startTime,
-      text: appointment.title,
-    }));
+    const calendarEvents: CalendarEvent[] = appointmentsQuery.map(
+      (appointment) => ({
+        barColor:
+          appointment.status === "CONFIRMED"
+            ? "#3c78d8"
+            : appointment.status === "CANCELLED"
+              ? "#e06666"
+              : appointment.status === "COMPLETED"
+                ? "#6aa84f"
+                : "#fcb711",
+        end: appointment.endTime,
+        id: appointment._id,
+        resource: appointment.practitionerId,
+        start: appointment.startTime,
+        text: appointment.title,
+      }),
+    );
 
     setEvents(calendarEvents);
   }, [columns, appointmentsQuery]);
@@ -140,7 +149,7 @@ export function Calendar({ practiceId }: CalendarProps) {
   }) => {
     const modal = DayPilot.Modal.prompt("Neuer Termin:", "Neuer Termin");
     const result = await modal;
-    
+
     if (result.canceled) {
       return;
     }
@@ -148,7 +157,9 @@ export function Calendar({ practiceId }: CalendarProps) {
     const title = String(result.result) || "Neuer Termin";
     const startTime = args.start.toString();
     const endTime = args.end.toString();
-    const duration = Math.floor((args.end.getTime() - args.start.getTime()) / (1000 * 60)); // Duration in minutes
+    const duration = Math.floor(
+      (args.end.getTime() - args.start.getTime()) / (1000 * 60),
+    ); // Duration in minutes
 
     try {
       // Create appointment in Convex
@@ -163,12 +174,16 @@ export function Calendar({ practiceId }: CalendarProps) {
       });
     } catch (error) {
       console.error("Error creating appointment:", error);
-      const errorModal = DayPilot.Modal.alert("Fehler beim Erstellen des Termins");
+      const errorModal = DayPilot.Modal.alert(
+        "Fehler beim Erstellen des Termins",
+      );
       void errorModal;
     }
   };
 
-  const onEventClick = (args: { e: { data: { id: string }; text: () => string } }) => {
+  const onEventClick = (args: {
+    e: { data: { id: string }; text: () => string };
+  }) => {
     const modal = DayPilot.Modal.alert(`Termin: ${args.e.text()}`);
     void modal.then(() => {
       // Could add edit/delete functionality here
@@ -213,7 +228,7 @@ export function Calendar({ practiceId }: CalendarProps) {
               konfiguriert.
             </p>
           </div>
-          
+
           {/* Mini Calendar Navigation */}
           <div className="flex justify-center">
             <MiniCalendar
@@ -224,10 +239,7 @@ export function Calendar({ practiceId }: CalendarProps) {
               <MiniCalendarNavigation direction="prev" />
               <MiniCalendarDays className="flex-1 min-w-0">
                 {(date) => (
-                  <MiniCalendarDay
-                    date={date}
-                    key={date.toISOString()}
-                  />
+                  <MiniCalendarDay date={date} key={date.toISOString()} />
                 )}
               </MiniCalendarDays>
               <MiniCalendarNavigation direction="next" />
@@ -251,10 +263,7 @@ export function Calendar({ practiceId }: CalendarProps) {
             <MiniCalendarNavigation direction="prev" />
             <MiniCalendarDays className="flex-1 min-w-0">
               {(date) => (
-                <MiniCalendarDay
-                  date={date}
-                  key={date.toISOString()}
-                />
+                <MiniCalendarDay date={date} key={date.toISOString()} />
               )}
             </MiniCalendarDays>
             <MiniCalendarNavigation direction="next" />

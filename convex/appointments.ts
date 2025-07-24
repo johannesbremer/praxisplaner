@@ -33,7 +33,9 @@ export const getAppointmentsForPractitioner = query({
     const appointments = await ctx.db
       .query("appointments")
       .withIndex("by_practitionerId_startTime", (q) =>
-        q.eq("practitionerId", args.practitionerId).gte("startTime", args.startDate),
+        q
+          .eq("practitionerId", args.practitionerId)
+          .gte("startTime", args.startDate),
       )
       .filter((q) => q.lte(q.field("startTime"), args.endDate))
       .collect();
@@ -58,7 +60,7 @@ export const createAppointment = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    
+
     const appointmentId = await ctx.db.insert("appointments", {
       ...args,
       createdAt: now,
@@ -93,7 +95,7 @@ export const updateAppointment = mutation({
   },
   handler: async (ctx, args) => {
     const { appointmentId, ...updates } = args;
-    
+
     await ctx.db.patch(appointmentId, {
       ...updates,
       updatedAt: Date.now(),
