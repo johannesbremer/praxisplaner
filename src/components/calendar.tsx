@@ -354,6 +354,7 @@ export function Calendar({ practiceId }: CalendarProps) {
           }}
           ref={calendarRef}
           startDate={startDate}
+          locale="de-de"
         />
       </div>
     </div>
