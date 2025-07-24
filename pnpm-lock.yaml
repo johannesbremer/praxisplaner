@@ -14,6 +14,9 @@ importers:
       '@convex-dev/react-query':
         specifier: 0.0.0-alpha.11
         version: 0.0.0-alpha.11(@tanstack/react-query@5.83.0(react@19.1.0))(convex@1.25.4(react@19.1.0))(react@19.1.0)(typescript@5.8.3)(zod@4.0.5)
+      '@daypilot/daypilot-lite-react':
+        specifier: ^4.2.1
+        version: 4.2.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@radix-ui/react-dialog':
         specifier: ^1.1.14
         version: 1.1.14(@types/react-dom@19.1.6(@types/react@19.1.8))(@types/react@19.1.8)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -484,6 +487,15 @@ packages:
 
   '@date-fns/tz@1.2.0':
     resolution: {integrity: sha512-LBrd7MiJZ9McsOgxqWX7AaxrDjcFVjWH/tIKJd7pnR7McaslGYOP1QmmiBXdJH/H/yLCT+rcQ7FaPBUxRGUtrg==}
+
+  '@daypilot/daypilot-lite-javascript@4.2.1':
+    resolution: {integrity: sha512-DNd+KtzwljRA0JrgEezNQhT6f1DV1SVVcY43t+uEXLWqiEeDfgtfuBJbJgaclov9pFz1ionU/Qy+4e/H1j0mJQ==}
+
+  '@daypilot/daypilot-lite-react@4.2.1':
+    resolution: {integrity: sha512-750xYzY7Aa9+sbFDm9aXZocSS7gV41w2ta2zk951YAJQt+/SRCyaejJqGv8LeC8RPAN+eOMCJdgPjnNVBXdlSw==}
+    peerDependencies:
+      react: '>=16.0.0'
+      react-dom: '>=16.0.0'
 
   '@dependents/detective-less@5.0.1':
     resolution: {integrity: sha512-Y6+WUMsTFWE5jb20IFP4YGa5IrGY/+a/FbOSjDF/wz9gepU2hwCYSXRHP/vPwBvwcY3SVMASt4yXxbXNXigmZQ==}
@@ -3089,6 +3101,9 @@ packages:
   crc32-stream@6.0.0:
     resolution: {integrity: sha512-piICUB6ei4IlTv1+653yq5+KoqfBYmj9bw6LqXoOneTMDXk5nM1qt12mFW1caG3LlJXEKW1Bp0WggEmIfQB34g==}
     engines: {node: '>= 14'}
+
+  create-react-class@15.7.0:
+    resolution: {integrity: sha512-QZv4sFWG9S5RUvkTYWbflxeZX+JG7Cz0Tn33rQBJ+WFQTqTfUTjMjiv9tnfXazjsO5r0KhPs+AqCjyrQX6h2ng==}
 
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
@@ -6518,6 +6533,15 @@ snapshots:
 
   '@date-fns/tz@1.2.0': {}
 
+  '@daypilot/daypilot-lite-javascript@4.2.1': {}
+
+  '@daypilot/daypilot-lite-react@4.2.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+    dependencies:
+      '@daypilot/daypilot-lite-javascript': 4.2.1
+      create-react-class: 15.7.0
+      react: 19.1.0
+      react-dom: 19.1.0(react@19.1.0)
+
   '@dependents/detective-less@5.0.1':
     dependencies:
       gonzales-pe: 4.3.0
@@ -9166,6 +9190,11 @@ snapshots:
     dependencies:
       crc-32: 1.2.2
       readable-stream: 4.7.0
+
+  create-react-class@15.7.0:
+    dependencies:
+      loose-envify: 1.4.0
+      object-assign: 4.1.1
 
   cron-parser@4.9.0:
     dependencies:

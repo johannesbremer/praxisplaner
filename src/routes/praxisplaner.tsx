@@ -1,9 +1,9 @@
 // src/routes/praxisplaner.tsx
 
-import { useConvexMutation } from "@convex-dev/react-query";
+import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import { Settings, User, X } from "lucide-react";
+import { Calendar as CalendarIcon, Settings, Terminal, User, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -34,6 +34,7 @@ import {
   extractPatientData,
   parseGdtContent,
 } from "../../convex/gdt/processing";
+import { Calendar } from "../components/calendar";
 import { PatientTab } from "../components/patient-tab";
 import {
   isDOMException,
@@ -72,8 +73,12 @@ function PraxisPlanerComponent() {
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
-  const [activeTab, setActiveTab] = useState<string>("settings");
+  const [activeTab, setActiveTab] = useState<string>("calendar");
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
+
+  // Get a default practice ID for the calendar
+  const allPractices = useConvexQuery(api.practices.getAllPractices, {});
+  const defaultPracticeId = allPractices?.[0]?._id;
 
   // Note: GDT preferences, file processing, and permission logging
   // will now be handled via IndexDB instead of Convex
@@ -128,9 +133,9 @@ function PraxisPlanerComponent() {
         prev.filter((tab) => tab.patientId !== patientId),
       );
 
-      // If we're closing the active tab, switch to settings
+      // If we're closing the active tab, switch to calendar instead of settings
       if (activeTab === tabId) {
-        setActiveTab("settings");
+        setActiveTab("calendar");
       }
 
       addGdtLog(`❌ Closed tab for Patient ${patientId}.`);
@@ -804,6 +809,46 @@ function PraxisPlanerComponent() {
     );
   }
 
+  // Check if GDT connection can be established
+  const canEstablishGdtConnection = isFsaSupported && globalThis.isSecureContext && gdtDirPermission === "granted";
+
+  // Calendar content with GDT connection check
+  const calendarContent = () => {
+    if (!canEstablishGdtConnection) {
+      return (
+        <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
+          <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
+            <AlertDescription>
+              {isFsaSupported 
+                ? globalThis.isSecureContext
+                ? "Keine Berechtigung für den Windows-Ordner erteilt."
+                : "Eine sichere Verbindung (HTTPS oder localhost) ist erforderlich."
+                : "Ihr Browser unterstützt die File System Access API nicht."
+              }
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    if (!defaultPracticeId) {
+      return (
+        <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
+          <Alert variant="default">
+            <AlertTitle>Keine Praxis konfiguriert</AlertTitle>
+            <AlertDescription>
+              Bitte konfigurieren Sie zuerst eine Praxis in den Einstellungen.
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    return <Calendar practiceId={defaultPracticeId} />;
+  };
+
   const settingsContent = (
     <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
       <div className="flex flex-col">
@@ -938,9 +983,13 @@ function PraxisPlanerComponent() {
       >
         <div className="border-b px-6 py-3">
           <TabsList className="h-auto">
+            <TabsTrigger className="flex items-center gap-2" value="calendar">
+              <CalendarIcon className="h-4 w-4" />
+              Kalender
+            </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="settings">
               <Settings className="h-4 w-4" />
-              Einstellungen
+              Für Nerds
             </TabsTrigger>
             {patientTabs.map((tab) => (
               <TabsTrigger
@@ -967,6 +1016,10 @@ function PraxisPlanerComponent() {
         </div>
 
         <div className="flex-1 overflow-hidden">
+          <TabsContent className="h-full overflow-auto" value="calendar">
+            {calendarContent()}
+          </TabsContent>
+
           <TabsContent className="h-full overflow-auto" value="settings">
             {settingsContent}
           </TabsContent>
