@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { AlertCircle } from "lucide-react";
 import moment from "moment";
@@ -175,4 +174,3 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     </div>
   );
 }
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */

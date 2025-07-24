@@ -15,8 +15,8 @@ vi.mock("moment", () => ({
 
 // Mock convex
 vi.mock("@convex-dev/react-query", () => ({
-  useConvexQuery: vi.fn(() => []),
   useConvexMutation: vi.fn(() => vi.fn()),
+  useConvexQuery: vi.fn(() => []),
 }));
 
 // Mock lucide-react
@@ -51,17 +51,17 @@ describe("PraxisCalendar Component", () => {
 
   it("should use German localization", () => {
     const messages = {
-      next: "Weiter",
-      previous: "Zurück",
-      today: "Heute",
-      month: "Monat",
-      week: "Woche",
-      day: "Tag",
       agenda: "Agenda",
       date: "Datum",
-      time: "Zeit",
+      day: "Tag",
       event: "Termin",
+      month: "Monat",
+      next: "Weiter",
       noEventsInRange: "Keine Termine in diesem Bereich.",
+      previous: "Zurück",
+      time: "Zeit",
+      today: "Heute",
+      week: "Woche",
     };
 
     expect(messages.next).toBe("Weiter");
@@ -80,9 +80,9 @@ describe("PraxisCalendar Component", () => {
   it("should support appointment CRUD operations", () => {
     const appointmentOperations = {
       create: "createAppointment",
+      delete: "deleteAppointment",
       read: "getAppointments",
       update: "updateAppointment",
-      delete: "deleteAppointment",
     };
 
     expect(appointmentOperations.create).toBe("createAppointment");
