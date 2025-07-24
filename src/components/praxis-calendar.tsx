@@ -25,7 +25,7 @@ import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 
 const localizer = momentLocalizer(moment);
-const DnDCalendar = withDragAndDrop<CalendarEvent, object>(Calendar);
+const DnDCalendar = withDragAndDrop<CalendarEvent>(Calendar);
 
 interface PraxisCalendarProps {
   showGdtAlert?: boolean;
@@ -196,7 +196,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   // Handle appointment move (drag & drop)
   const handleEventDrop = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
-      const { event, start, end } = args;
+      const { end, event, start } = args;
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
@@ -213,7 +213,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   // Handle appointment resize
   const handleEventResize = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
-      const { event, start, end } = args;
+      const { end, event, start } = args;
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
