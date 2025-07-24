@@ -823,24 +823,6 @@ function PraxisPlanerComponent() {
 
   // Calendar content with GDT connection check
   const calendarContent = () => {
-    if (!canEstablishGdtConnection) {
-      return (
-        <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
-          <Alert variant="destructive">
-            <Terminal className="h-4 w-4" />
-            <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
-            <AlertDescription>
-              {isFsaSupported
-                ? globalThis.isSecureContext
-                  ? "Keine Berechtigung für den Windows-Ordner erteilt."
-                  : "Eine sichere Verbindung (HTTPS oder localhost) ist erforderlich."
-                : "Ihr Browser unterstützt die File System Access API nicht."}
-            </AlertDescription>
-          </Alert>
-        </div>
-      );
-    }
-
     if (!defaultPracticeId) {
       return (
         <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
@@ -854,7 +836,31 @@ function PraxisPlanerComponent() {
       );
     }
 
-    return <Calendar practiceId={defaultPracticeId} />;
+    return (
+      <div className="h-full flex flex-col">
+        {/* GDT Connection Alert - Always show at top if there's an issue */}
+        {!canEstablishGdtConnection && (
+          <div className="p-4 border-b">
+            <Alert variant="destructive">
+              <Terminal className="h-4 w-4" />
+              <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
+              <AlertDescription>
+                {isFsaSupported
+                  ? globalThis.isSecureContext
+                    ? "Keine Berechtigung für den Windows-Ordner erteilt."
+                    : "Eine sichere Verbindung (HTTPS oder localhost) ist erforderlich."
+                  : "Ihr Browser unterstützt die File System Access API nicht."}
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+        
+        {/* Calendar - Always show regardless of GDT connection */}
+        <div className="flex-1">
+          <Calendar practiceId={defaultPracticeId} />
+        </div>
+      </div>
+    );
   };
 
   const settingsContent = (

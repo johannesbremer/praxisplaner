@@ -1,7 +1,14 @@
 // src/components/calendar.tsx
-import { useConvexQuery } from "@convex-dev/react-query";
+import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { DayPilot, DayPilotCalendar } from "@daypilot/daypilot-lite-react";
 import { useEffect, useRef, useState } from "react";
+
+import {
+  MiniCalendar,
+  MiniCalendarDay,
+  MiniCalendarDays,
+  MiniCalendarNavigation,
+} from "@/components/ui/mini-calendar";
 
 import type { Id } from "../../convex/_generated/dataModel";
 
@@ -39,9 +46,20 @@ export function Calendar({ practiceId }: CalendarProps) {
     practiceId,
   });
 
+  // Get appointments for the current day
+  const appointmentsQuery = useConvexQuery(api.appointments.getAppointments, {
+    endDate: startDate.addDays(1).toString("yyyy-MM-dd") + "T00:00:00",
+    practiceId,
+    startDate: startDate.toString("yyyy-MM-dd") + "T00:00:00",
+  });
+
+  // Convex mutations for appointment management
+  const createAppointmentMutation = useConvexMutation(api.appointments.createAppointment);
+
   const [config, setConfig] = useState({
     businessBeginsHour: 8,
     businessEndsHour: 18,
+    cellDuration: 5, // 5-minute grid as requested
     columnMarginRight: 5,
     headerHeight: 40,
     timeRangeSelectedHandling: "Enabled" as const,
@@ -92,79 +110,75 @@ export function Calendar({ practiceId }: CalendarProps) {
     }
   }, [practitioners, allSchedules, startDate]);
 
-  // Load sample events (this would be replaced with actual appointment data)
+  // Load real appointments from Convex instead of sample data
   useEffect(() => {
-    if (columns.length === 0) {
+    if (columns.length === 0 || !appointmentsQuery) {
       setEvents([]);
       return;
     }
 
-    // Sample events for demonstration
-    const sampleEvents: CalendarEvent[] = [
-      {
-        barColor: "#3c78d8",
-        end: `${startDate.toString("yyyy-MM-dd")}T10:30:00`,
-        id: 1,
-        resource: columns[0]?.id || "unknown",
-        start: `${startDate.toString("yyyy-MM-dd")}T09:00:00`,
-        text: "Beispieltermin 1",
-      },
-      {
-        barColor: "#6aa84f",
-        end: `${startDate.toString("yyyy-MM-dd")}T15:00:00`,
-        id: 2,
-        resource: columns[1]?.id || columns[0]?.id || "unknown",
-        start: `${startDate.toString("yyyy-MM-dd")}T14:00:00`,
-        text: "Beispieltermin 2",
-      },
-    ];
+    // Convert Convex appointments to DayPilot events
+    const calendarEvents: CalendarEvent[] = appointmentsQuery.map((appointment) => ({
+      barColor: appointment.status === "CONFIRMED" ? "#3c78d8" : 
+                appointment.status === "CANCELLED" ? "#e06666" : 
+                appointment.status === "COMPLETED" ? "#6aa84f" : "#fcb711",
+      end: appointment.endTime,
+      id: appointment._id,
+      resource: appointment.practitionerId,
+      start: appointment.startTime,
+      text: appointment.title,
+    }));
 
-    setEvents(sampleEvents);
-  }, [columns, startDate]);
+    setEvents(calendarEvents);
+  }, [columns, appointmentsQuery]);
 
-  // Event handlers with correct types
-  const onTimeRangeSelected = (args: {
+  // Event handlers with appointment creation functionality
+  const onTimeRangeSelected = async (args: {
     end: DayPilot.Date;
     resource: number | string;
     start: DayPilot.Date;
   }) => {
     const modal = DayPilot.Modal.prompt("Neuer Termin:", "Neuer Termin");
-    void modal.then((result) => {
-      if (result.canceled) {
-        return;
-      }
+    const result = await modal;
+    
+    if (result.canceled) {
+      return;
+    }
 
-      const newEvent: CalendarEvent = {
-        barColor: "#fcb711",
-        end: args.end.toString(),
-        id: Date.now(),
-        resource: String(args.resource),
-        start: args.start.toString(),
-        text: String(result.result) || "Neuer Termin",
-      };
+    const title = String(result.result) || "Neuer Termin";
+    const startTime = args.start.toString();
+    const endTime = args.end.toString();
+    const duration = Math.floor((args.end.getTime() - args.start.getTime()) / (1000 * 60)); // Duration in minutes
 
-      setEvents((prev) => [...prev, newEvent]);
-    });
+    try {
+      // Create appointment in Convex
+      await createAppointmentMutation({
+        appointmentType: "Allgemein", // Default type
+        duration,
+        endTime,
+        practiceId,
+        practitionerId: String(args.resource) as Id<"practitioners">,
+        startTime,
+        title,
+      });
+    } catch (error) {
+      console.error("Error creating appointment:", error);
+      const errorModal = DayPilot.Modal.alert("Fehler beim Erstellen des Termins");
+      void errorModal;
+    }
   };
 
-  const onEventClick = (args: { e: { text: () => string } }) => {
+  const onEventClick = (args: { e: { data: { id: string }; text: () => string } }) => {
     const modal = DayPilot.Modal.alert(`Termin: ${args.e.text()}`);
     void modal.then(() => {
-      // Handle event click if needed
+      // Could add edit/delete functionality here
     });
   };
 
-  // Navigation functions
-  const previous = () => {
-    setStartDate(startDate.addDays(-1));
-  };
-
-  const next = () => {
-    setStartDate(startDate.addDays(1));
-  };
-
-  const today = () => {
-    setStartDate(DayPilot.Date.today());
+  // Handle mini-calendar date changes
+  const handleCalendarDateChange = (date: Date) => {
+    const dayPilotDate = new DayPilot.Date(date);
+    setStartDate(dayPilotDate);
   };
 
   if (!practitioners || !allSchedules) {
@@ -191,31 +205,33 @@ export function Calendar({ practiceId }: CalendarProps) {
   if (columns.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg">Keine Arbeitszeiten für heute</p>
-          <p className="text-sm text-muted-foreground">
-            Für {startDate.toString("dd.MM.yyyy")} sind keine Arbeitszeiten
-            konfiguriert.
-          </p>
-          <div className="mt-4 space-x-2">
-            <button
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              onClick={previous}
+        <div className="text-center space-y-4">
+          <div>
+            <p className="text-lg">Keine Arbeitszeiten für heute</p>
+            <p className="text-sm text-muted-foreground">
+              Für {startDate.toString("dd.MM.yyyy")} sind keine Arbeitszeiten
+              konfiguriert.
+            </p>
+          </div>
+          
+          {/* Mini Calendar Navigation */}
+          <div className="flex justify-center">
+            <MiniCalendar
+              days={7}
+              onStartDateChange={handleCalendarDateChange}
+              startDate={startDate.toDate()}
             >
-              Vorheriger Tag
-            </button>
-            <button
-              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              onClick={today}
-            >
-              Heute
-            </button>
-            <button
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              onClick={next}
-            >
-              Nächster Tag
-            </button>
+              <MiniCalendarNavigation direction="prev" />
+              <MiniCalendarDays className="flex-1 min-w-0">
+                {(date) => (
+                  <MiniCalendarDay
+                    date={date}
+                    key={date.toISOString()}
+                  />
+                )}
+              </MiniCalendarDays>
+              <MiniCalendarNavigation direction="next" />
+            </MiniCalendar>
           </div>
         </div>
       </div>
@@ -224,27 +240,25 @@ export function Calendar({ practiceId }: CalendarProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Navigation Header */}
+      {/* Navigation Header with Mini Calendar */}
       <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center space-x-2">
-          <button
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-            onClick={previous}
+        <div className="flex items-center space-x-4">
+          <MiniCalendar
+            days={7}
+            onStartDateChange={handleCalendarDateChange}
+            startDate={startDate.toDate()}
           >
-            Zurück
-          </button>
-          <button
-            className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-            onClick={today}
-          >
-            Heute
-          </button>
-          <button
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-            onClick={next}
-          >
-            Vor
-          </button>
+            <MiniCalendarNavigation direction="prev" />
+            <MiniCalendarDays className="flex-1 min-w-0">
+              {(date) => (
+                <MiniCalendarDay
+                  date={date}
+                  key={date.toISOString()}
+                />
+              )}
+            </MiniCalendarDays>
+            <MiniCalendarNavigation direction="next" />
+          </MiniCalendar>
         </div>
         <h2 className="text-xl font-semibold">
           {startDate.toString("dddd, dd.MM.yyyy")}
@@ -261,7 +275,9 @@ export function Calendar({ practiceId }: CalendarProps) {
           columns={columns}
           events={events}
           onEventClick={onEventClick}
-          onTimeRangeSelected={onTimeRangeSelected}
+          onTimeRangeSelected={(args) => {
+            void onTimeRangeSelected(args);
+          }}
           ref={calendarRef}
           startDate={startDate}
         />
