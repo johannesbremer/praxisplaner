@@ -4,9 +4,9 @@ import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import {
+  AlertCircle,
   Calendar as CalendarIcon,
   Settings,
-  Terminal,
   User,
   X,
 } from "lucide-react";
@@ -842,7 +842,7 @@ function PraxisPlanerComponent() {
         {!canEstablishGdtConnection && (
           <div className="p-4 border-b">
             <Alert variant="destructive">
-              <Terminal className="h-4 w-4" />
+              <AlertCircle className="h-4 w-4" />
               <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
               <AlertDescription>
                 {isFsaSupported

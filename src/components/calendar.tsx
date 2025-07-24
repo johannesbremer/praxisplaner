@@ -57,12 +57,17 @@ export function Calendar({ practiceId }: CalendarProps) {
   const createAppointmentMutation = useConvexMutation(
     api.appointments.createAppointment,
   );
+  const updateAppointmentMutation = useConvexMutation(
+    api.appointments.updateAppointment,
+  );
 
   const [config, setConfig] = useState({
     businessBeginsHour: 8,
     businessEndsHour: 18,
     cellDuration: 5, // 5-minute grid as requested
     columnMarginRight: 5,
+    eventMoveHandling: "Update" as const,
+    eventResizeHandling: "Update" as const,
     headerHeight: 40,
     timeRangeSelectedHandling: "Enabled" as const,
     viewType: "Resources" as const,
@@ -91,6 +96,7 @@ export function Calendar({ practiceId }: CalendarProps) {
     setColumns(practitionerColumns);
 
     // Update business hours based on earliest start and latest end
+    // Show only half an hour before and after the working hours
     if (todaysSchedules.length > 0) {
       const startTimes = todaysSchedules.map((s) => {
         const parts = s.startTime.split(":");
@@ -104,10 +110,14 @@ export function Calendar({ practiceId }: CalendarProps) {
       const earliestStart = Math.min(...startTimes);
       const latestEnd = Math.max(...endTimes);
 
+      // Show 0.5 hours before and after working hours
+      const visibleStart = Math.max(0, earliestStart - 0.5);
+      const visibleEnd = Math.min(24, latestEnd + 0.5);
+
       setConfig((prev) => ({
         ...prev,
-        businessBeginsHour: earliestStart,
-        businessEndsHour: latestEnd,
+        businessBeginsHour: visibleStart,
+        businessEndsHour: visibleEnd,
       }));
     }
   }, [practitioners, allSchedules, startDate]);
@@ -190,6 +200,65 @@ export function Calendar({ practiceId }: CalendarProps) {
     });
   };
 
+  // Handle appointment drag/move operations
+  const onEventMove = async (args: {
+    e: { data: { id: string } };
+    newEnd: DayPilot.Date;
+    newResource: string | number;
+    newStart: DayPilot.Date;
+  }) => {
+    try {
+      const appointmentId = args.e.data.id as Id<"appointments">;
+      const startTime = args.newStart.toString();
+      const endTime = args.newEnd.toString();
+      const duration = Math.floor(
+        (args.newEnd.getTime() - args.newStart.getTime()) / (1000 * 60),
+      );
+
+      await updateAppointmentMutation({
+        appointmentId,
+        duration,
+        endTime,
+        startTime,
+      });
+    } catch (error) {
+      console.error("Error moving appointment:", error);
+      const errorModal = DayPilot.Modal.alert(
+        "Fehler beim Verschieben des Termins",
+      );
+      void errorModal;
+    }
+  };
+
+  // Handle appointment resize operations
+  const onEventResize = async (args: {
+    e: { data: { id: string } };
+    newEnd: DayPilot.Date;
+    newStart: DayPilot.Date;
+  }) => {
+    try {
+      const appointmentId = args.e.data.id as Id<"appointments">;
+      const startTime = args.newStart.toString();
+      const endTime = args.newEnd.toString();
+      const duration = Math.floor(
+        (args.newEnd.getTime() - args.newStart.getTime()) / (1000 * 60),
+      );
+
+      await updateAppointmentMutation({
+        appointmentId,
+        duration,
+        endTime,
+        startTime,
+      });
+    } catch (error) {
+      console.error("Error resizing appointment:", error);
+      const errorModal = DayPilot.Modal.alert(
+        "Fehler beim Ändern der Termindauer",
+      );
+      void errorModal;
+    }
+  };
+
   // Handle mini-calendar date changes
   const handleCalendarDateChange = (date: Date) => {
     const dayPilotDate = new DayPilot.Date(date);
@@ -252,29 +321,19 @@ export function Calendar({ practiceId }: CalendarProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Navigation Header with Mini Calendar */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center space-x-4">
-          <MiniCalendar
-            days={7}
-            onStartDateChange={handleCalendarDateChange}
-            startDate={startDate.toDate()}
-          >
-            <MiniCalendarNavigation direction="prev" />
-            <MiniCalendarDays className="flex-1 min-w-0">
-              {(date) => (
-                <MiniCalendarDay date={date} key={date.toISOString()} />
-              )}
-            </MiniCalendarDays>
-            <MiniCalendarNavigation direction="next" />
-          </MiniCalendar>
-        </div>
-        <h2 className="text-xl font-semibold">
-          {startDate.toString("dddd, dd.MM.yyyy")}
-        </h2>
-        <div className="text-sm text-muted-foreground">
-          {columns.length} Ärzte verfügbar
-        </div>
+      {/* Navigation Header with Centered Mini Calendar */}
+      <div className="flex items-center justify-center p-4">
+        <MiniCalendar
+          days={7}
+          onStartDateChange={handleCalendarDateChange}
+          startDate={startDate.toDate()}
+        >
+          <MiniCalendarNavigation direction="prev" />
+          <MiniCalendarDays className="flex-1 min-w-0">
+            {(date) => <MiniCalendarDay date={date} key={date.toISOString()} />}
+          </MiniCalendarDays>
+          <MiniCalendarNavigation direction="next" />
+        </MiniCalendar>
       </div>
 
       {/* Calendar */}
@@ -284,6 +343,12 @@ export function Calendar({ practiceId }: CalendarProps) {
           columns={columns}
           events={events}
           onEventClick={onEventClick}
+          onEventMove={(args) => {
+            void onEventMove(args);
+          }}
+          onEventResize={(args) => {
+            void onEventResize(args);
+          }}
           onTimeRangeSelected={(args) => {
             void onTimeRangeSelected(args);
           }}
