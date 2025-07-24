@@ -3,7 +3,13 @@
 import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import { Calendar as CalendarIcon, Settings, Terminal, User, X } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Settings,
+  Terminal,
+  User,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -810,7 +816,10 @@ function PraxisPlanerComponent() {
   }
 
   // Check if GDT connection can be established
-  const canEstablishGdtConnection = isFsaSupported && globalThis.isSecureContext && gdtDirPermission === "granted";
+  const canEstablishGdtConnection =
+    isFsaSupported &&
+    globalThis.isSecureContext &&
+    gdtDirPermission === "granted";
 
   // Calendar content with GDT connection check
   const calendarContent = () => {
@@ -821,12 +830,11 @@ function PraxisPlanerComponent() {
             <Terminal className="h-4 w-4" />
             <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
             <AlertDescription>
-              {isFsaSupported 
+              {isFsaSupported
                 ? globalThis.isSecureContext
-                ? "Keine Berechtigung für den Windows-Ordner erteilt."
-                : "Eine sichere Verbindung (HTTPS oder localhost) ist erforderlich."
-                : "Ihr Browser unterstützt die File System Access API nicht."
-              }
+                  ? "Keine Berechtigung für den Windows-Ordner erteilt."
+                  : "Eine sichere Verbindung (HTTPS oder localhost) ist erforderlich."
+                : "Ihr Browser unterstützt die File System Access API nicht."}
             </AlertDescription>
           </Alert>
         </div>

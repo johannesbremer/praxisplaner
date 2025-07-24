@@ -55,7 +55,7 @@ export function Calendar({ practiceId }: CalendarProps) {
     }
 
     const currentDayOfWeek = startDate.getDayOfWeek(); // 0 = Sunday, 1 = Monday, etc.
-    
+
     // Filter schedules for current day and create columns
     const todaysSchedules = allSchedules.filter(
       (schedule) => schedule.dayOfWeek === currentDayOfWeek,
@@ -128,10 +128,7 @@ export function Calendar({ practiceId }: CalendarProps) {
     resource: number | string;
     start: DayPilot.Date;
   }) => {
-    const modal = DayPilot.Modal.prompt(
-      "Neuer Termin:",
-      "Neuer Termin",
-    );
+    const modal = DayPilot.Modal.prompt("Neuer Termin:", "Neuer Termin");
     void modal.then((result) => {
       if (result.canceled) {
         return;
