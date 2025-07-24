@@ -45,10 +45,10 @@ export function Calendar({ practiceId }: CalendarProps) {
   );
 
   const [config, setConfig] = useState({
-    businessBeginsHour: 8,
-    businessEndsHour: 18,
     cellDuration: 5, // 5-minute grid as requested
     columnMarginRight: 5,
+    dayBeginsHour: 8, // Control visible start hour
+    dayEndsHour: 18, // Control visible end hour
     eventMoveHandling: "Update" as const,
     eventResizeHandling: "Update" as const,
     headerHeight: 40,
@@ -99,8 +99,8 @@ export function Calendar({ practiceId }: CalendarProps) {
 
       setConfig((prev) => ({
         ...prev,
-        businessBeginsHour: visibleStart,
-        businessEndsHour: visibleEnd,
+        dayBeginsHour: visibleStart,
+        dayEndsHour: visibleEnd,
       }));
     }
   }, [practitioners, allSchedules, startDate]);
@@ -198,10 +198,12 @@ export function Calendar({ practiceId }: CalendarProps) {
         (args.newEnd.getTime() - args.newStart.getTime()) / (1000 * 60),
       );
 
+      // Include practitionerId update when moving between doctors
       await updateAppointmentMutation({
         appointmentId,
         duration,
         endTime,
+        practitionerId: String(args.newResource) as Id<"practitioners">,
         startTime,
       });
     } catch (error) {

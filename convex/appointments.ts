@@ -82,6 +82,7 @@ export const updateAppointment = mutation({
     endTime: v.optional(v.string()),
     locationId: v.optional(v.id("locations")),
     patientId: v.optional(v.id("patients")),
+    practitionerId: v.optional(v.id("practitioners")),
     startTime: v.optional(v.string()),
     status: v.optional(
       v.union(

@@ -838,10 +838,10 @@ function PraxisPlanerComponent() {
 
     return (
       <div className="h-full flex flex-col">
-        {/* GDT Connection Alert - Always show at top if there's an issue */}
+        {/* GDT Connection Alert - Centered and constrained width */}
         {!canEstablishGdtConnection && (
-          <div className="p-4 border-b">
-            <Alert variant="destructive">
+          <div className="p-4 border-b flex justify-center">
+            <Alert className="max-w-md" variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
               <AlertDescription>
