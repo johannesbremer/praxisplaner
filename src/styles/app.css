@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* React Big Calendar styles */
+@import "react-big-calendar/lib/css/react-big-calendar.css";
+
 /*
 This iPhone 14 Pro Device CSS is forked from the following MIT licensed repo:
 https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e068d6147/src/_iphone-14-pro.scss
