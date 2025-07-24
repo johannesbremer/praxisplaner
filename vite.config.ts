@@ -15,7 +15,9 @@ export default defineConfig({
         srcDirectory: "src",
       },
     }),
-    react(),
+    react({
+      babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] },
+    }),
     visualizer({
       filename: "bundle-analysis.json",
       template: "raw-data",
