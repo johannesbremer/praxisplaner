@@ -108,8 +108,8 @@ export function Calendar({ practiceId }: CalendarProps) {
 
       setConfig((prev) => ({
         ...prev,
-        dayBeginsHour: visibleStart,
-        dayEndsHour: visibleEnd,
+        businessBeginsHour: visibleStart,
+        businessEndsHour: visibleEnd,
       }));
     }
   }, [practitioners, allSchedules, startDate]);
