@@ -45,15 +45,16 @@ export function Calendar({ practiceId }: CalendarProps) {
   );
 
   const [config, setConfig] = useState({
-    cellDuration: 5, // 5-minute grid as requested
+    businessBeginsHour: 8,
+    businessEndsHour: 19,
+    cellDuration: 5,
     columnMarginRight: 5,
-    dayBeginsHour: 8, // Control visible start hour
-    dayEndsHour: 18, // Control visible end hour
     eventMoveHandling: "Update" as const,
     eventResizeHandling: "Update" as const,
     headerHeight: 40,
     timeRangeSelectedHandling: "Enabled" as const,
     viewType: "Resources" as const,
+    heightSpec: "BusinessHoursNoScroll",
   });
 
   // Update columns based on practitioners who have schedules for the current day
