@@ -11,26 +11,9 @@ import {
 } from "@/components/ui/mini-calendar";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import type { CalendarColumn, CalendarEvent, CalendarProps } from "../types";
 
 import { api } from "../../convex/_generated/api";
-
-interface CalendarColumn {
-  id: string;
-  name: string;
-}
-
-interface CalendarEvent {
-  barColor?: string;
-  end: string;
-  id: number | string;
-  resource: string;
-  start: string;
-  text: string;
-}
-
-interface CalendarProps {
-  practiceId: Id<"practices">;
-}
 
 export function Calendar({ practiceId }: CalendarProps) {
   const calendarRef = useRef<DayPilotCalendar>(null);
@@ -342,6 +325,7 @@ export function Calendar({ practiceId }: CalendarProps) {
           {...config}
           columns={columns}
           events={events}
+          locale="de-de"
           onEventClick={onEventClick}
           onEventMove={(args) => {
             void onEventMove(args);
@@ -354,7 +338,6 @@ export function Calendar({ practiceId }: CalendarProps) {
           }}
           ref={calendarRef}
           startDate={startDate}
-          locale="de-de"
         />
       </div>
     </div>

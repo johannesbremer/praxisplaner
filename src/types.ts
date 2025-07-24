@@ -1,6 +1,6 @@
 // src/types.ts
 
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 
 // --- Application Types ---
 
@@ -14,6 +14,26 @@ export type PermissionStatus = "error" | BrowserPermissionState | null;
 export interface PatientTabData {
   patientId: Doc<"patients">["patientId"];
   title: string;
+}
+
+// --- Calendar Types ---
+
+export interface CalendarColumn {
+  id: string;
+  name: string;
+}
+
+export interface CalendarEvent {
+  barColor?: string;
+  end: string;
+  id: number | string;
+  resource: string;
+  start: string;
+  text: string;
+}
+
+export interface CalendarProps {
+  practiceId: Id<"practices">;
 }
 
 // --- File System Access API Types ---
