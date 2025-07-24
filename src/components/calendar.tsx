@@ -52,9 +52,9 @@ export function Calendar({ practiceId }: CalendarProps) {
     eventMoveHandling: "Update" as const,
     eventResizeHandling: "Update" as const,
     headerHeight: 40,
+    heightSpec: "BusinessHoursNoScroll" as const,
     timeRangeSelectedHandling: "Enabled" as const,
     viewType: "Resources" as const,
-    heightSpec: "BusinessHoursNoScroll",
   });
 
   // Update columns based on practitioners who have schedules for the current day
@@ -80,23 +80,31 @@ export function Calendar({ practiceId }: CalendarProps) {
     setColumns(practitionerColumns);
 
     // Update business hours based on earliest start and latest end
-    // Show only half an hour before and after the working hours
+    // Show 30 minutes before and after working hours, rounded to full hours
     if (todaysSchedules.length > 0) {
       const startTimes = todaysSchedules.map((s) => {
         const parts = s.startTime.split(":");
-        return Number.parseInt(parts[0] || "8", 10);
+        const hours = Number.parseInt(parts[0] || "8", 10);
+        const minutes = Number.parseInt(parts[1] || "0", 10);
+        // If there are minutes, round down to the previous hour for display
+        return minutes > 0 ? hours : hours;
       });
       const endTimes = todaysSchedules.map((s) => {
         const parts = s.endTime.split(":");
-        return Number.parseInt(parts[0] || "18", 10) + 1; // Add 1 to show the full hour
+        const hours = Number.parseInt(parts[0] || "18", 10);
+        const minutes = Number.parseInt(parts[1] || "0", 10);
+        // If there are minutes, round up to the next hour for display
+        return minutes > 0 ? hours + 1 : hours;
       });
 
       const earliestStart = Math.min(...startTimes);
       const latestEnd = Math.max(...endTimes);
 
-      // Show 0.5 hours before and after working hours
-      const visibleStart = Math.max(0, earliestStart - 0.5);
-      const visibleEnd = Math.min(24, latestEnd + 0.5);
+      // Show 30 minutes before and after working hours, but ensure full hours
+      // If starts at 7:40 -> show from 7, if starts at 8:00 -> show from 8
+      // If ends at 18:05 -> show until 19, if ends at 19:00 -> show until 19
+      const visibleStart = Math.max(0, earliestStart - 1); // 1 hour before earliest start
+      const visibleEnd = Math.min(24, latestEnd + 1); // 1 hour after latest end
 
       setConfig((prev) => ({
         ...prev,
@@ -288,7 +296,7 @@ export function Calendar({ practiceId }: CalendarProps) {
           <div className="flex justify-center">
             <MiniCalendar
               days={7}
-              onStartDateChange={handleCalendarDateChange}
+              onValueChange={handleCalendarDateChange}
               startDate={startDate.toDate()}
             >
               <MiniCalendarNavigation direction="prev" />
@@ -311,7 +319,7 @@ export function Calendar({ practiceId }: CalendarProps) {
       <div className="flex items-center justify-center p-4">
         <MiniCalendar
           days={7}
-          onStartDateChange={handleCalendarDateChange}
+          onValueChange={handleCalendarDateChange}
           startDate={startDate.toDate()}
         >
           <MiniCalendarNavigation direction="prev" />
