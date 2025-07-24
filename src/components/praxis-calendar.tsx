@@ -33,15 +33,19 @@ interface PraxisCalendarProps {
 
 export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   const appointmentsData = useConvexQuery(api.appointments.getAppointments);
-  const createAppointmentMutation = useConvexMutation(api.appointments.createAppointment);
-  const updateAppointmentMutation = useConvexMutation(api.appointments.updateAppointment);
+  const createAppointmentMutation = useConvexMutation(
+    api.appointments.createAppointment,
+  );
+  const updateAppointmentMutation = useConvexMutation(
+    api.appointments.updateAppointment,
+  );
 
   // Convert convex appointments to calendar events
   const events: CalendarEvent[] = useMemo(() => {
     if (!appointmentsData) {
       return [];
     }
-    
+
     return appointmentsData.map((appointment: any) => ({
       end: new Date(appointment.end),
       id: appointment._id,
@@ -58,8 +62,8 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   }, [appointmentsData]);
 
   const handleSelectSlot = useCallback(
-    async ({ end, start }: { end: Date; start: Date; }) => {
-      const title = globalThis.prompt('Neuer Termin:');
+    async ({ end, start }: { end: Date; start: Date }) => {
+      const title = globalThis.prompt("Neuer Termin:");
       if (title) {
         await createAppointmentMutation({
           end: end.toISOString(),
@@ -68,12 +72,12 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
         });
       }
     },
-    [createAppointmentMutation]
+    [createAppointmentMutation],
   );
 
   const handleSelectEvent = useCallback(
     (event: CalendarEvent) => {
-      const newTitle = globalThis.prompt('Termin bearbeiten:', event.title);
+      const newTitle = globalThis.prompt("Termin bearbeiten:", event.title);
       if (newTitle !== null && newTitle !== event.title) {
         void updateAppointmentMutation({
           id: event.id,
@@ -81,7 +85,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
         });
       }
     },
-    [updateAppointmentMutation]
+    [updateAppointmentMutation],
   );
 
   // 5-minute time steps
@@ -103,30 +107,43 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
           <AlertDescription>
-            Ihr Browser unterstützt die File System Access API nicht oder es wurde keine Berechtigung für den Windows-Ordner erteilt.
+            Ihr Browser unterstützt die File System Access API nicht oder es
+            wurde keine Berechtigung für den Windows-Ordner erteilt.
           </AlertDescription>
         </Alert>
       )}
-      
-      <div style={{ height: '600px' }}>
+
+      <div style={{ height: "600px" }}>
         <Calendar
           culture="de"
           defaultView="week"
           endAccessor="end"
           events={events}
           formats={{
-            dayHeaderFormat: 'dddd, DD.MM.YYYY',
-            dayRangeHeaderFormat: ({ end, start }: { end: Date; start: Date }) => {
-              const startDate = moment(start).format('DD.MM.');
-              const endDate = moment(end).format('DD.MM.YYYY');
+            dayHeaderFormat: "dddd, DD.MM.YYYY",
+            dayRangeHeaderFormat: ({
+              end,
+              start,
+            }: {
+              end: Date;
+              start: Date;
+            }) => {
+              const startDate = moment(start).format("DD.MM.");
+              const endDate = moment(end).format("DD.MM.YYYY");
               return `${startDate} - ${endDate}`;
             },
-            eventTimeRangeFormat: ({ end, start }: { end: Date; start: Date }) => {
-              const startTime = moment(start).format('HH:mm');
-              const endTime = moment(end).format('HH:mm');
+            eventTimeRangeFormat: ({
+              end,
+              start,
+            }: {
+              end: Date;
+              start: Date;
+            }) => {
+              const startTime = moment(start).format("HH:mm");
+              const endTime = moment(end).format("HH:mm");
               return `${startTime} - ${endTime}`;
             },
-            timeGutterFormat: 'HH:mm',
+            timeGutterFormat: "HH:mm",
           }}
           localizer={localizer}
           max={new Date(0, 0, 0, 18, 0, 0)} // 6:00 PM
@@ -152,7 +169,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
           step={step}
           timeslots={timeslots}
           titleAccessor="title"
-          views={['month', 'week', 'day']}
+          views={["month", "week", "day"]}
         />
       </div>
     </div>

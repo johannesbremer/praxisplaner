@@ -22,7 +22,7 @@ export const getAppointments = query({
       practitionerId: v.optional(v.id("practitioners")),
       start: v.string(),
       title: v.string(),
-    })
+    }),
   ),
 });
 
@@ -36,10 +36,12 @@ export const getAppointmentsInRange = query({
     return await ctx.db
       .query("appointments")
       .withIndex("by_start")
-      .filter((q) => q.and(
-        q.gte(q.field("start"), args.start),
-        q.lte(q.field("start"), args.end)
-      ))
+      .filter((q) =>
+        q.and(
+          q.gte(q.field("start"), args.start),
+          q.lte(q.field("start"), args.end),
+        ),
+      )
       .collect();
   },
   returns: v.array(
@@ -56,7 +58,7 @@ export const getAppointmentsInRange = query({
       practitionerId: v.optional(v.id("practitioners")),
       start: v.string(),
       title: v.string(),
-    })
+    }),
   ),
 });
 
@@ -98,19 +100,19 @@ export const updateAppointment = mutation({
   },
   handler: async (ctx, args) => {
     const { id, ...updateData } = args;
-    
+
     // Filter out undefined values
-     
+
     const filteredUpdateData = Object.fromEntries(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      Object.entries(updateData).filter(([, value]) => value !== undefined)
+      Object.entries(updateData).filter(([, value]) => value !== undefined),
     );
-    
+
     await ctx.db.patch(id, {
       ...filteredUpdateData,
       lastModified: BigInt(Date.now()),
     });
-    
+
     return null;
   },
   returns: v.null(),

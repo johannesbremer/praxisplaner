@@ -7,14 +7,14 @@ export default defineSchema({
     end: v.string(), // ISO datetime string
     start: v.string(), // ISO datetime string
     title: v.string(),
-    
+
     // Optional fields
     appointmentType: v.optional(v.string()),
     locationId: v.optional(v.id("locations")),
     notes: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
-    
+
     // Metadata
     createdAt: v.int64(),
     lastModified: v.int64(),

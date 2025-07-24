@@ -77,7 +77,10 @@ function PraxisPlanerComponent() {
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
 
   // Check if GDT connection has issues for showing alert
-  const hasGdtConnectionIssue = !isFsaSupported || !globalThis.isSecureContext || gdtDirPermission !== "granted";
+  const hasGdtConnectionIssue =
+    !isFsaSupported ||
+    !globalThis.isSecureContext ||
+    gdtDirPermission !== "granted";
 
   // Note: GDT preferences, file processing, and permission logging
   // will now be handled via IndexDB instead of Convex
