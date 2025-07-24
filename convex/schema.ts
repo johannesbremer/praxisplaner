@@ -70,6 +70,7 @@ export default defineSchema({
   practitioners: defineTable({
     name: v.string(),
     practiceId: v.id("practices"),
+    tags: v.optional(v.array(v.string())),
   }).index("by_practiceId", ["practiceId"]),
 
   ruleSets: defineTable({

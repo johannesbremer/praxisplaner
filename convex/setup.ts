@@ -36,7 +36,7 @@ export const setupDemoData = mutation({
       });
     }
 
-    // Dr. Schmidt works 9:00-17:00 on weekdays  
+    // Dr. Schmidt works 9:00-17:00 on weekdays
     if (dayOfWeek >= 1 && dayOfWeek <= 5) {
       await ctx.db.insert("baseSchedules", {
         dayOfWeek,
@@ -48,8 +48,20 @@ export const setupDemoData = mutation({
 
     // Create some demo appointments for today
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0); // 10:00 AM
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 30); // 10:30 AM
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      10,
+      0,
+    ); // 10:00 AM
+    const todayEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      10,
+      30,
+    ); // 10:30 AM
 
     await ctx.db.insert("appointments", {
       createdAt: BigInt(Date.now()),
@@ -60,8 +72,20 @@ export const setupDemoData = mutation({
       title: "Demo Termin - Patient Mustermann",
     });
 
-    const afternoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0); // 2:00 PM
-    const afternoonEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 45); // 2:45 PM
+    const afternoon = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      14,
+      0,
+    ); // 2:00 PM
+    const afternoonEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      14,
+      45,
+    ); // 2:45 PM
 
     await ctx.db.insert("appointments", {
       createdAt: BigInt(Date.now()),

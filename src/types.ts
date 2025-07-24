@@ -19,7 +19,7 @@ export interface CalendarEvent {
   title: string;
 }
 
-// Appointment data from Convex 
+// Appointment data from Convex
 export interface AppointmentData {
   _creationTime: number;
   _id: Id<"appointments">;
