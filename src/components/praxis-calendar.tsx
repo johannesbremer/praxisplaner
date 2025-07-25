@@ -2,11 +2,11 @@ import type { SlotInfo } from "react-big-calendar";
 import type { EventInteractionArgs } from "react-big-calendar/lib/addons/dragAndDrop";
 
 import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
+import { ClientOnly } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
 import moment from "moment";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
-import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,10 +25,105 @@ import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 
 const localizer = momentLocalizer(moment);
-const DnDCalendar = withDragAndDrop<CalendarEvent>(Calendar);
 
 interface PraxisCalendarProps {
   showGdtAlert?: boolean;
+}
+
+// Client-only drag and drop calendar component
+function DragDropCalendar({
+  events,
+  handleEventDrop,
+  handleEventResize,
+  handleSelectEvent,
+  handleSelectSlot,
+  maxEndTime,
+  minStartTime,
+  step,
+  timeslots,
+}: {
+  events: CalendarEvent[];
+  handleEventDrop: (args: EventInteractionArgs<CalendarEvent>) => void;
+  handleEventResize: (args: EventInteractionArgs<CalendarEvent>) => void;
+  handleSelectEvent: (
+    event: CalendarEvent,
+    e: React.SyntheticEvent<HTMLElement>,
+  ) => void;
+  handleSelectSlot: (slotInfo: SlotInfo) => void;
+  maxEndTime: Date;
+  minStartTime: Date;
+  step: number;
+  timeslots: number;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [DnDCalendar, setDnDCalendar] =
+    useState<null | React.ComponentType<any>>(null);
+
+  useEffect(() => {
+    import("react-big-calendar/lib/addons/dragAndDrop")
+      .then((module) => {
+        const withDragAndDrop = module.default;
+        setDnDCalendar(() => withDragAndDrop(Calendar));
+      })
+      .catch(() => {
+        // Fallback to regular calendar if drag and drop fails to load
+        setDnDCalendar(() => Calendar);
+      });
+  }, []);
+
+  if (!DnDCalendar) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p>Kalender wird geladen...</p>
+      </div>
+    );
+  }
+
+  return (
+    <DnDCalendar
+      culture="de"
+      defaultView="day"
+      endAccessor={(event: CalendarEvent) => event.end}
+      events={events}
+      formats={{
+        dayHeaderFormat: "dddd, DD.MM.YYYY",
+        eventTimeRangeFormat: ({ end, start }: { end: Date; start: Date }) => {
+          const startTime = moment(start).format("HH:mm");
+          const endTime = moment(end).format("HH:mm");
+          return `${startTime} - ${endTime}`;
+        },
+        timeGutterFormat: "HH:mm",
+      }}
+      localizer={localizer}
+      max={maxEndTime}
+      messages={{
+        agenda: "Agenda",
+        date: "Datum",
+        day: "Tag",
+        event: "Termin",
+        month: "Monat",
+        next: "Weiter",
+        noEventsInRange: "Keine Termine in diesem Bereich.",
+        previous: "Zurück",
+        showMore: (total: number) => `+ ${total} weitere`,
+        time: "Zeit",
+        today: "Heute",
+        week: "Woche",
+      }}
+      min={minStartTime}
+      onEventDrop={handleEventDrop}
+      onEventResize={handleEventResize}
+      onSelectEvent={handleSelectEvent}
+      onSelectSlot={handleSelectSlot}
+      resizable
+      selectable
+      startAccessor={(event: CalendarEvent) => event.start}
+      step={step}
+      timeslots={timeslots}
+      titleAccessor={(event: CalendarEvent) => event.title}
+      views={["day"]} // Only show day view as requested
+    />
+  );
 }
 
 // Helper function to parse time string to minutes from midnight
@@ -227,15 +322,6 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     [updateAppointmentMutation],
   );
 
-  // Custom day column wrapper to show only working practitioners
-  const dayColumnWrapper = useCallback(
-    ({ children }: { children: React.ReactNode; value: Date }) => {
-      // For day view, we can show all columns as practitioners are handled differently
-      return <div className="rbc-day-slot">{children}</div>;
-    },
-    [],
-  );
-
   // 5-minute time steps
   const step = 5;
   const timeslots = 12; // 12 slots per hour (5-minute intervals)
@@ -304,58 +390,19 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
         </CardHeader>
         <CardContent>
           <div style={{ height: "600px" }}>
-            <DnDCalendar
-              components={{
-                dateCellWrapper: dayColumnWrapper,
-              }}
-              culture="de"
-              defaultView="day"
-              endAccessor={(event: CalendarEvent) => event.end}
-              events={events}
-              formats={{
-                dayHeaderFormat: "dddd, DD.MM.YYYY",
-                eventTimeRangeFormat: ({
-                  end,
-                  start,
-                }: {
-                  end: Date;
-                  start: Date;
-                }) => {
-                  const startTime = moment(start).format("HH:mm");
-                  const endTime = moment(end).format("HH:mm");
-                  return `${startTime} - ${endTime}`;
-                },
-                timeGutterFormat: "HH:mm",
-              }}
-              localizer={localizer}
-              max={maxEndTime}
-              messages={{
-                agenda: "Agenda",
-                date: "Datum",
-                day: "Tag",
-                event: "Termin",
-                month: "Monat",
-                next: "Weiter",
-                noEventsInRange: "Keine Termine in diesem Bereich.",
-                previous: "Zurück",
-                showMore: (total: number) => `+ ${total} weitere`,
-                time: "Zeit",
-                today: "Heute",
-                week: "Woche",
-              }}
-              min={minStartTime}
-              onEventDrop={handleEventDrop}
-              onEventResize={handleEventResize}
-              onSelectEvent={handleSelectEvent}
-              onSelectSlot={handleSelectSlot}
-              resizable
-              selectable
-              startAccessor={(event: CalendarEvent) => event.start}
-              step={step}
-              timeslots={timeslots}
-              titleAccessor={(event: CalendarEvent) => event.title}
-              views={["day"]} // Only show day view as requested
-            />
+            <ClientOnly>
+              <DragDropCalendar
+                events={events}
+                handleEventDrop={handleEventDrop}
+                handleEventResize={handleEventResize}
+                handleSelectEvent={handleSelectEvent}
+                handleSelectSlot={handleSelectSlot}
+                maxEndTime={maxEndTime}
+                minStartTime={minStartTime}
+                step={step}
+                timeslots={timeslots}
+              />
+            </ClientOnly>
           </div>
         </CardContent>
       </Card>
