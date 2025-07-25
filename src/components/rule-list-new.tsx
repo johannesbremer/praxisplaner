@@ -4,7 +4,7 @@ import { useMutation } from "convex/react";
 import { Copy, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,26 +21,11 @@ interface RuleListNewProps {
   ruleSetId: Id<"ruleSets">;
 }
 
-interface RuleWithRuleSetInfo {
-  _id: Id<"rules">;
-  description: string;
+interface RuleWithRuleSetInfo extends Doc<"rules"> {
+  // Additional fields from the junction table
   enabled: boolean;
-  name: string;
   priority: number;
   ruleSetRuleId: Id<"ruleSetRules">;
-  ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-  // Rule parameters
-  appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-  block_appointmentTypes?: string[];
-  block_dateRangeEnd?: string;
-  block_dateRangeStart?: string;
-  block_daysOfWeek?: number[];
-  block_timeRangeEnd?: string;
-  block_timeRangeStart?: string;
-  limit_appointmentTypes?: string[];
-  limit_count?: number;
-  limit_perPractitioner?: boolean;
-  specificPractitioners?: Id<"practitioners">[];
 }
 
 export function RuleListNew({
@@ -181,7 +166,7 @@ export function RuleListNew({
               {/* Copy Rule */}
               <RuleCreationFormNew
                 copyFromRule={{
-                  appliesTo: rule.appliesTo ?? "ALL_PRACTITIONERS",
+                  appliesTo: rule.appliesTo,
                   block_appointmentTypes: rule.block_appointmentTypes ?? [],
                   block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
                   block_dateRangeStart: rule.block_dateRangeStart ?? "",
