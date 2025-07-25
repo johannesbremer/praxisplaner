@@ -391,7 +391,19 @@ function BaseScheduleDialog({
           const selectedDays = value.daysOfWeek;
 
           if (selectedDays.length === 0) {
-            throw new Error("Bitte wählen Sie mindestens einen Wochentag aus");
+            const error = new Error(
+              "Bitte wählen Sie mindestens einen Wochentag aus",
+            );
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: true,
+              practiceId,
+              scheduleId: schedule._id,
+              validationField: "daysOfWeek",
+            });
+            toast.error(error.message);
+            return;
           }
 
           // Delete all existing schedules in the group
@@ -427,11 +439,31 @@ function BaseScheduleDialog({
         } else {
           // Create new schedule(s) - one for each selected day
           if (!value.practitionerId) {
-            throw new Error("Bitte wählen Sie einen Arzt aus");
+            const error = new Error("Bitte wählen Sie einen Arzt aus");
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: false,
+              practiceId,
+              validationField: "practitionerId",
+            });
+            toast.error(error.message);
+            return;
           }
 
           if (value.daysOfWeek.length === 0) {
-            throw new Error("Bitte wählen Sie mindestens einen Wochentag aus");
+            const error = new Error(
+              "Bitte wählen Sie mindestens einen Wochentag aus",
+            );
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: false,
+              practiceId,
+              validationField: "daysOfWeek",
+            });
+            toast.error(error.message);
+            return;
           }
 
           for (const dayOfWeek of value.daysOfWeek) {

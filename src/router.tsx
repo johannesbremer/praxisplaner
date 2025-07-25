@@ -26,14 +26,18 @@ export function createRouter() {
   const CONVEX_URL = (import.meta as { env: Record<string, string> }).env[
     "VITE_CONVEX_URL"
   ];
+
   if (!CONVEX_URL) {
     const errorMessage = "VITE_CONVEX_URL environment variable is required";
-    captureErrorGlobal(new Error(errorMessage), {
+    const error = new Error(errorMessage);
+    captureErrorGlobal(error, {
       context: "Missing CONVEX_URL environment variable",
       errorType: "configuration",
     });
-    console.error("missing envar CONVEX_URL");
-    throw new Error(errorMessage);
+
+    // For critical configuration errors, we still need to throw as the app cannot function
+    // but we've captured the error for monitoring first
+    throw error;
   }
   const convexQueryClient = new ConvexQueryClient(CONVEX_URL);
 
