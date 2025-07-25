@@ -122,6 +122,7 @@ function DragDropCalendar({
 
   // Create props object with proper typing where possible
   const calendarProps = {
+    dayLayoutAlgorithm: "no-overlap",
     culture: "de",
     date: currentDate,
     defaultView: "day" as const,
