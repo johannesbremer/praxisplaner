@@ -19,7 +19,7 @@ describe("Error Capture Improvements", () => {
         isFileSystemObserverSupported: () => false,
         SafeFileSystemObserver: class {
           observer = null;
-          
+
           constructor() {
             const error = new Error(
               "FileSystemObserver is not supported in this environment",
@@ -29,25 +29,27 @@ describe("Error Capture Improvements", () => {
               errorType: "browser_compatibility",
             });
           }
-          
+
           disconnect() {
             // Cleanup logic would go here
             return;
           }
-          
+
           observe() {
             const error = new Error("Observer not initialized");
             captureErrorGlobal(error, {
-              context: "FileSystemObserver observe called without initialization",
+              context:
+                "FileSystemObserver observe called without initialization",
               errorType: "browser_api",
             });
             return Promise.reject(error);
           }
-          
+
           unobserve() {
             const error = new Error("Observer not initialized");
             captureErrorGlobal(error, {
-              context: "FileSystemObserver unobserve called without initialization", 
+              context:
+                "FileSystemObserver unobserve called without initialization",
               errorType: "browser_api",
             });
             return Promise.reject(error);
@@ -78,16 +80,17 @@ describe("Error Capture Improvements", () => {
         isFileSystemObserverSupported: () => false,
         SafeFileSystemObserver: class {
           observer = null;
-          
+
           disconnect() {
             // Cleanup logic would go here
             return;
           }
-          
+
           observe() {
             const error = new Error("Observer not initialized");
             captureErrorGlobal(error, {
-              context: "FileSystemObserver observe called without initialization",
+              context:
+                "FileSystemObserver observe called without initialization",
               errorType: "browser_api",
             });
             return Promise.reject(error);
@@ -129,7 +132,10 @@ describe("Error Capture Improvements", () => {
       );
 
       // Simulate the improved validation error handling
-      const handleValidationError = (error: Error, context: Record<string, unknown>) => {
+      const handleValidationError = (
+        error: Error,
+        context: Record<string, unknown>,
+      ) => {
         captureErrorGlobal(error, context);
         // Return early instead of throwing
         return { error: error.message, success: false };
@@ -141,7 +147,9 @@ describe("Error Capture Improvements", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe("Bitte wählen Sie mindestens einen Wochentag aus");
+      expect(result.error).toBe(
+        "Bitte wählen Sie mindestens einen Wochentag aus",
+      );
       expect(captureErrorGlobal).toHaveBeenCalledWith(
         validationError,
         expect.objectContaining({

@@ -391,7 +391,9 @@ function BaseScheduleDialog({
           const selectedDays = value.daysOfWeek;
 
           if (selectedDays.length === 0) {
-            const error = new Error("Bitte wählen Sie mindestens einen Wochentag aus");
+            const error = new Error(
+              "Bitte wählen Sie mindestens einen Wochentag aus",
+            );
             captureError(error, {
               context: "base_schedule_validation",
               formData: value,
@@ -450,7 +452,9 @@ function BaseScheduleDialog({
           }
 
           if (value.daysOfWeek.length === 0) {
-            const error = new Error("Bitte wählen Sie mindestens einen Wochentag aus");
+            const error = new Error(
+              "Bitte wählen Sie mindestens einen Wochentag aus",
+            );
             captureError(error, {
               context: "base_schedule_validation",
               formData: value,
