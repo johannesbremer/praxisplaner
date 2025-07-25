@@ -388,34 +388,6 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     );
   }
 
-  // Show alert if no practitioners work that day
-  if (workingPractitioners.length === 0) {
-    return (
-      <div className="flex flex-col items-center space-y-4">
-        {showGdtAlert && (
-          <div className="flex justify-center">
-            <Alert className="w-auto max-w-md" variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Keine Verbindung mit dem PVS möglich!</AlertTitle>
-            </Alert>
-          </div>
-        )}
-        <Card>
-          <CardContent className="flex items-center justify-center h-96 pt-6">
-            <Alert className="w-auto max-w-md">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Keine Ärzte heute verfügbar</AlertTitle>
-              <AlertDescription>
-                Es sind keine Ärzte für{" "}
-                {moment(currentDate).format("dddd, DD.MM.YYYY")} eingeplant.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {showGdtAlert && (
@@ -456,24 +428,37 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
       </div>
 
       <Card>
-        <CardContent className="p-6">
-          <div style={{ height: "600px" }}>
-            <ClientOnly>
-              <DragDropCalendar
-                currentDate={currentDate}
-                events={events}
-                handleEventDrop={handleEventDrop}
-                handleEventResize={handleEventResize}
-                handleSelectEvent={handleSelectEvent}
-                handleSelectSlot={handleSelectSlot}
-                maxEndTime={maxEndTime}
-                minStartTime={minStartTime}
-                step={step}
-                timeslots={timeslots}
-              />
-            </ClientOnly>
-          </div>
-        </CardContent>
+        {workingPractitioners.length === 0 ? (
+          <CardContent className="flex items-center justify-center h-96 pt-6">
+            <Alert className="w-auto max-w-md">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Keine Ärzte heute verfügbar</AlertTitle>
+              <AlertDescription>
+                Es sind keine Ärzte für{" "}
+                {moment(currentDate).format("dddd, DD.MM.YYYY")} eingeplant.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        ) : (
+          <CardContent className="p-6">
+            <div style={{ height: "2400px" }}>
+              <ClientOnly>
+                <DragDropCalendar
+                  currentDate={currentDate}
+                  events={events}
+                  handleEventDrop={handleEventDrop}
+                  handleEventResize={handleEventResize}
+                  handleSelectEvent={handleSelectEvent}
+                  handleSelectSlot={handleSelectSlot}
+                  maxEndTime={maxEndTime}
+                  minStartTime={minStartTime}
+                  step={step}
+                  timeslots={timeslots}
+                />
+              </ClientOnly>
+            </div>
+          </CardContent>
+        )}
       </Card>
     </div>
   );
