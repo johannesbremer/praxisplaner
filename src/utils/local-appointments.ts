@@ -15,7 +15,6 @@ export interface LocalAppointment {
   title: string;
 }
 
-/* eslint-disable react-hooks/react-compiler */
 // Global state to sync between views - using object to avoid reassignment issues
 const globalState = {
   appointments: [] as LocalAppointment[],
@@ -61,8 +60,11 @@ export function useLocalAppointments() {
       };
 
       const newAppointments = [...globalState.appointments, newAppointment];
-      globalState.appointments.length = 0;
-      globalState.appointments.push(...newAppointments);
+      globalState.appointments.splice(
+        0,
+        globalState.appointments.length,
+        ...newAppointments,
+      );
       notifySubscribers();
     },
     [],
@@ -73,8 +75,11 @@ export function useLocalAppointments() {
       const newAppointments = globalState.appointments.map((apt) =>
         apt.id === id ? { ...apt, ...updates } : apt,
       );
-      globalState.appointments.length = 0;
-      globalState.appointments.push(...newAppointments);
+      globalState.appointments.splice(
+        0,
+        globalState.appointments.length,
+        ...newAppointments,
+      );
       notifySubscribers();
     },
     [],
@@ -84,13 +89,16 @@ export function useLocalAppointments() {
     const newAppointments = globalState.appointments.filter(
       (apt) => apt.id !== id,
     );
-    globalState.appointments.length = 0;
-    globalState.appointments.push(...newAppointments);
+    globalState.appointments.splice(
+      0,
+      globalState.appointments.length,
+      ...newAppointments,
+    );
     notifySubscribers();
   }, []);
 
   const clearAllLocalAppointments = useCallback(() => {
-    globalState.appointments.length = 0;
+    globalState.appointments.splice(0);
     notifySubscribers();
   }, []);
 

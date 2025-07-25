@@ -50,10 +50,10 @@ export function MedicalStaffView({
     <div className="h-full w-full overflow-auto p-6">
       <PraxisCalendar
         localAppointments={localAppointments}
-        onCreateLocalAppointment={onCreateLocalAppointment}
-        onSlotClick={onSlotClick}
+        {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
+        {...(onSlotClick && { onSlotClick })}
         practiceId={practiceId}
-        ruleSetId={ruleSetId}
+        {...(ruleSetId && { ruleSetId })}
         simulatedContext={simulatedContext}
         simulationDate={simulationDate}
       />

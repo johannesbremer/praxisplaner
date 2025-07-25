@@ -13,6 +13,8 @@ import React, {
   useState,
 } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
+import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -267,7 +269,7 @@ export function PraxisCalendar({
   );
 
   // Get current date info - use simulationDate if provided, otherwise use current date
-  const [currentDate, setCurrentDate] = useState(simulationDate || new Date());
+  const [currentDate, setCurrentDate] = useState(simulationDate ?? new Date());
 
   // Update currentDate when simulationDate changes
   useEffect(() => {
@@ -382,7 +384,6 @@ export function PraxisCalendar({
             onCreateLocalAppointment({
               appointmentType: simulatedContext.appointmentType,
               end: slotInfo.end,
-              locationId: undefined,
               notes: "Lokaler Simulationstermin",
               practitionerId: practitioner.id,
               start: slotInfo.start,
@@ -413,10 +414,14 @@ export function PraxisCalendar({
   const handleSelectEvent = useCallback(
     (event: CalendarEvent, e: React.SyntheticEvent<HTMLElement>) => {
       e.preventDefault();
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       const newTitle = globalThis.prompt("Termin bearbeiten:", event.title);
       if (newTitle !== null && newTitle !== event.title) {
         void updateAppointmentMutation({
-          id: event.id,
+          id: event.id as Id<"appointments">,
           title: newTitle,
         });
       }
@@ -428,13 +433,17 @@ export function PraxisCalendar({
   const handleEventDrop = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
       const { end, event, start } = args;
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
 
       void updateAppointmentMutation({
         end: endDate.toISOString(),
-        id: event.id,
+        id: event.id as Id<"appointments">,
         start: startDate.toISOString(),
       });
     },
@@ -445,13 +454,17 @@ export function PraxisCalendar({
   const handleEventResize = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
       const { end, event, start } = args;
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
 
       void updateAppointmentMutation({
         end: endDate.toISOString(),
-        id: event.id,
+        id: event.id as Id<"appointments">,
         start: startDate.toISOString(),
       });
     },

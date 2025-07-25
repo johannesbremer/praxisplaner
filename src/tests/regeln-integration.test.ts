@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
+
+import type { Id } from "@/convex/_generated/dataModel";
+
 import type { LocalAppointment } from "../utils/local-appointments";
 
 describe("Regeln Integration - Core Functionality", () => {
   it("should define LocalAppointment interface correctly", () => {
     const mockAppointment: LocalAppointment = {
-      id: "local-123456-abcdef",
-      title: "Test Appointment",
-      start: new Date("2024-01-15T10:00:00Z"),
-      end: new Date("2024-01-15T11:00:00Z"),
       appointmentType: "Erstberatung",
-      practitionerId: "practitioner1" as any,
-      locationId: "location1" as any,
-      notes: "Test appointment",
+      end: new Date("2024-01-15T11:00:00Z"),
+      id: "local-123456-abcdef",
       isLocal: true,
+      locationId: "location1" as Id<"locations">,
+      notes: "Test appointment",
+      practitionerId: "practitioner1" as Id<"practitioners">,
+      start: new Date("2024-01-15T10:00:00Z"),
+      title: "Test Appointment",
     };
 
     // Verify all required fields are present and typed correctly
@@ -28,11 +31,11 @@ describe("Regeln Integration - Core Functionality", () => {
 
   it("should create proper local appointment structure", () => {
     const baseAppointment = {
-      title: "Local Test",
-      start: new Date(),
-      end: new Date(),
       appointmentType: "Nachuntersuchung",
-      practitionerId: "practitioner1" as any,
+      end: new Date(),
+      practitionerId: "practitioner1" as Id<"practitioners">,
+      start: new Date(),
+      title: "Local Test",
     };
 
     // Simulate the addLocalAppointment logic
@@ -50,11 +53,11 @@ describe("Regeln Integration - Core Functionality", () => {
 
   it("should validate required fields are present", () => {
     const appointment: Omit<LocalAppointment, "id" | "isLocal"> = {
-      title: "Required Fields Test",
-      start: new Date("2024-01-15T10:00:00Z"),
-      end: new Date("2024-01-15T11:00:00Z"),
       appointmentType: "Vorsorge",
-      practitionerId: "practitioner2" as any,
+      end: new Date("2024-01-15T11:00:00Z"),
+      practitionerId: "practitioner2" as Id<"practitioners">,
+      start: new Date("2024-01-15T10:00:00Z"),
+      title: "Required Fields Test",
     };
 
     // All required fields should be present
@@ -74,26 +77,26 @@ describe("Regeln Integration - Core Functionality", () => {
 
   it("should handle optional fields correctly", () => {
     const fullAppointment: LocalAppointment = {
-      id: "local-test-id",
-      title: "Full Appointment",
-      start: new Date(),
-      end: new Date(),
       appointmentType: "Akutsprechstunde",
-      practitionerId: "practitioner3" as any,
-      locationId: "location2" as any,
-      patientId: "patient1" as any,
-      notes: "Optional field test",
+      end: new Date(),
+      id: "local-test-id",
       isLocal: true,
+      locationId: "location2" as Id<"locations">,
+      notes: "Optional field test",
+      patientId: "patient1" as Id<"patients">,
+      practitionerId: "practitioner3" as Id<"practitioners">,
+      start: new Date(),
+      title: "Full Appointment",
     };
 
     const minimalAppointment: LocalAppointment = {
-      id: "local-minimal-id",
-      title: "Minimal Appointment",
-      start: new Date(),
-      end: new Date(),
       appointmentType: "Erstberatung",
-      practitionerId: "practitioner4" as any,
+      end: new Date(),
+      id: "local-minimal-id",
       isLocal: true,
+      practitionerId: "practitioner4" as Id<"practitioners">,
+      start: new Date(),
+      title: "Minimal Appointment",
     };
 
     // Both should be valid LocalAppointment objects

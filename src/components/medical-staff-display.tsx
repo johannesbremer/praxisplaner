@@ -50,9 +50,9 @@ export function MedicalStaffDisplay({
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           localAppointments={localAppointments}
-          onCreateLocalAppointment={onCreateLocalAppointment}
+          {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
           practiceId={practiceId}
-          ruleSetId={ruleSetId}
+          {...(ruleSetId && { ruleSetId })}
           simulatedContext={simulatedContext}
         />
       </XDRDevice>
