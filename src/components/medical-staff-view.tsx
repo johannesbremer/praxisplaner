@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { PatientFocusedView } from "./patient-focused-view";
+import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
   dateRange: { end: string; start: string };
@@ -25,26 +25,12 @@ interface MedicalStaffViewProps {
   };
 }
 
-export function MedicalStaffView({
-  dateRange,
-  onSlotClick,
-  onUpdateSimulatedContext,
-  practiceId,
-  ruleSetId,
-  simulatedContext,
-}: MedicalStaffViewProps) {
-  // Initially using the same content as patient view
-  // This can be customized later for medical staff specific features
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function MedicalStaffView(_: MedicalStaffViewProps) {
+  // Show the Terminkalender (appointment calendar) for medical staff
   return (
-    <div className="h-full w-full overflow-auto">
-      <PatientFocusedView
-        dateRange={dateRange}
-        {...(onSlotClick && { onSlotClick })}
-        {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
-        practiceId={practiceId}
-        ruleSetId={ruleSetId}
-        simulatedContext={simulatedContext}
-      />
+    <div className="h-full w-full overflow-auto p-6">
+      <PraxisCalendar />
     </div>
   );
 }
