@@ -255,7 +255,9 @@ export const getAvailableSlots = query({
               if (!practitionerGroups.has(slot.practitionerId)) {
                 practitionerGroups.set(slot.practitionerId, []);
               }
-              const practitionerSlots = practitionerGroups.get(slot.practitionerId);
+              const practitionerSlots = practitionerGroups.get(
+                slot.practitionerId,
+              );
               if (practitionerSlots) {
                 practitionerSlots.push(slot);
               }

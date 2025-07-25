@@ -70,6 +70,8 @@ function DragDropCalendar({
   const [hasDragDrop, setHasDragDrop] = useState(false);
 
   // Ref to store the enhanced calendar component
+  // Using any here because the drag-and-drop addon returns complex generic types
+  // that are difficult to constrain properly with our CalendarEvent type
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const DnDCalendarRef = useRef<null | React.ComponentType<any>>(null);
 
@@ -118,7 +120,7 @@ function DragDropCalendar({
 
   const CalendarComponent = DnDCalendarRef.current;
 
-  // Create props object with proper typing
+  // Create props object with proper typing where possible
   const calendarProps = {
     culture: "de",
     date: currentDate,
@@ -171,7 +173,7 @@ function DragDropCalendar({
     views: ["day" as const],
   };
 
-  // Use JSX with spread props
+  // Use JSX with spread props - type assertion needed due to dynamic component loading
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return <CalendarComponent {...(calendarProps as any)} />;
 }
