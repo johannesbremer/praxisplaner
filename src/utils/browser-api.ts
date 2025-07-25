@@ -90,7 +90,9 @@ export class SafeFileSystemObserver {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
       });
-      throw error;
+      // Set observer to null instead of throwing - let the methods handle the error state
+      this.observer = null;
+      return;
     }
 
     // Create the observer with proper error handling
@@ -136,7 +138,7 @@ export class SafeFileSystemObserver {
         context: "FileSystemObserver observe called without initialization",
         errorType: "browser_api",
       });
-      throw error;
+      return Promise.reject(error);
     }
     return this.observer.observe(
       handle as unknown as FileSystemDirectoryHandle,
@@ -153,7 +155,7 @@ export class SafeFileSystemObserver {
         context: "FileSystemObserver unobserve called without initialization",
         errorType: "browser_api",
       });
-      throw error;
+      return Promise.reject(error);
     }
     return this.observer.unobserve(
       handle as unknown as FileSystemDirectoryHandle,
