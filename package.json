@@ -18,7 +18,7 @@
     "lint": "eslint . --fix",
     "lint:check": "eslint . --max-warnings 0",
     "start": "vite start",
-    "test": "vitest --run"
+    "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run"
   },
   "dependencies": {
     "@convex-dev/react-query": "0.0.0-alpha.11",

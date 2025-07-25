@@ -16,8 +16,11 @@ export function useErrorTracking() {
 
   const captureError = useCallback(
     (error: unknown, context?: Record<string, unknown>) => {
-      // Skip error tracking in development
-      if (import.meta.env.DEV) {
+      // Skip error tracking in development unless explicitly enabled for testing
+      if (
+        import.meta.env.DEV &&
+        !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"]
+      ) {
         console.error("Error (PostHog disabled in dev):", error, context);
         return;
       }
@@ -42,8 +45,8 @@ export function captureErrorGlobal(
   error: unknown,
   context?: Record<string, unknown>,
 ) {
-  // Skip error tracking in development
-  if (import.meta.env.DEV) {
+  // Skip error tracking in development unless explicitly enabled for testing
+  if (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"]) {
     console.error("Error (PostHog disabled in dev):", error, context);
     return;
   }

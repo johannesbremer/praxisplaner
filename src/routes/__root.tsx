@@ -31,8 +31,11 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
     | string
     | undefined;
 
-  // Disable PostHog in development or if not configured
-  if (!apiKey || import.meta.env.DEV) {
+  // Disable PostHog in development unless explicitly enabled, or if not configured
+  if (
+    !apiKey ||
+    (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"])
+  ) {
     return <>{children}</>;
   }
 
