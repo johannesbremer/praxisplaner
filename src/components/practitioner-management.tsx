@@ -5,7 +5,7 @@ import { Edit, Plus, Trash2, User } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,12 +32,7 @@ interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
   practiceId: Id<"practices">;
-  practitioner?:
-    | undefined
-    | {
-        _id: Id<"practitioners">;
-        name: string;
-      };
+  practitioner?: Doc<"practitioners"> | undefined;
 }
 
 interface PractitionerManagementProps {
@@ -49,11 +44,7 @@ export default function PractitionerManagement({
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
-    | undefined
-    | {
-        _id: Id<"practitioners">;
-        name: string;
-      }
+    Doc<"practitioners"> | undefined
   >();
 
   const { captureError } = useErrorTracking();
@@ -63,10 +54,7 @@ export default function PractitionerManagement({
   });
   const deleteMutation = useMutation(api.practitioners.deletePractitioner);
 
-  const handleEdit = (practitioner: {
-    _id: Id<"practitioners">;
-    name: string;
-  }) => {
+  const handleEdit = (practitioner: Doc<"practitioners">) => {
     setEditingPractitioner(practitioner);
     setIsDialogOpen(true);
   };
