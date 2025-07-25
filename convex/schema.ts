@@ -2,6 +2,28 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  appointments: defineTable({
+    // Core appointment fields
+    end: v.string(), // ISO datetime string
+    start: v.string(), // ISO datetime string
+    title: v.string(),
+
+    // Optional fields
+    appointmentType: v.optional(v.string()),
+    locationId: v.optional(v.id("locations")),
+    notes: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practitionerId: v.optional(v.id("practitioners")),
+
+    // Metadata
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+  })
+    .index("by_start", ["start"])
+    .index("by_patientId", ["patientId"])
+    .index("by_practitionerId", ["practitionerId"])
+    .index("by_start_end", ["start", "end"]),
+
   baseSchedules: defineTable({
     breakTimes: v.optional(
       v.array(
@@ -48,6 +70,7 @@ export default defineSchema({
   practitioners: defineTable({
     name: v.string(),
     practiceId: v.id("practices"),
+    tags: v.optional(v.array(v.string())),
   }).index("by_practiceId", ["practiceId"]),
 
   ruleSets: defineTable({

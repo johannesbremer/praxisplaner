@@ -1,8 +1,23 @@
 // src/types.ts
 
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 
 // --- Application Types ---
+
+// Calendar Event types for react-big-calendar
+export interface CalendarEvent {
+  end: Date;
+  id: Id<"appointments">;
+  resource?: {
+    appointmentType?: string | undefined;
+    locationId?: Id<"locations"> | undefined;
+    notes?: string | undefined;
+    patientId?: Id<"patients"> | undefined;
+    practitionerId?: Id<"practitioners"> | undefined;
+  };
+  start: Date;
+  title: string;
+}
 
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";

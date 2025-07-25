@@ -3,7 +3,7 @@
 import { useConvexMutation } from "@convex-dev/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import { Settings, User, X } from "lucide-react";
+import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -35,6 +35,7 @@ import {
   parseGdtContent,
 } from "../../convex/gdt/processing";
 import { PatientTab } from "../components/patient-tab";
+import { PraxisCalendar } from "../components/praxis-calendar";
 import {
   isDOMException,
   isFileSystemObserverSupported,
@@ -72,8 +73,14 @@ function PraxisPlanerComponent() {
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
-  const [activeTab, setActiveTab] = useState<string>("settings");
+  const [activeTab, setActiveTab] = useState<string>("calendar");
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
+
+  // Check if GDT connection has issues for showing alert
+  const hasGdtConnectionIssue =
+    !isFsaSupported ||
+    !globalThis.isSecureContext ||
+    gdtDirPermission !== "granted";
 
   // Note: GDT preferences, file processing, and permission logging
   // will now be handled via IndexDB instead of Convex
@@ -128,9 +135,9 @@ function PraxisPlanerComponent() {
         prev.filter((tab) => tab.patientId !== patientId),
       );
 
-      // If we're closing the active tab, switch to settings
+      // If we're closing the active tab, switch to calendar
       if (activeTab === tabId) {
-        setActiveTab("settings");
+        setActiveTab("calendar");
       }
 
       addGdtLog(`❌ Closed tab for Patient ${patientId}.`);
@@ -938,9 +945,13 @@ function PraxisPlanerComponent() {
       >
         <div className="border-b px-6 py-3">
           <TabsList className="h-auto">
+            <TabsTrigger className="flex items-center gap-2" value="calendar">
+              <CalendarIcon className="h-4 w-4" />
+              Terminkalender
+            </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="settings">
               <Settings className="h-4 w-4" />
-              Einstellungen
+              Für Nerds
             </TabsTrigger>
             {patientTabs.map((tab) => (
               <TabsTrigger
@@ -967,6 +978,20 @@ function PraxisPlanerComponent() {
         </div>
 
         <div className="flex-1 overflow-hidden">
+          <TabsContent className="h-full overflow-auto p-6" value="calendar">
+            <div className="container mx-auto max-w-7xl">
+              <div className="mb-6">
+                <h1 className="text-3xl font-bold tracking-tight mb-2">
+                  Terminkalender
+                </h1>
+                <p className="text-muted-foreground">
+                  Verwalten Sie Ihre Praxistermine mit 5-Minuten-Intervallen
+                </p>
+              </div>
+              <PraxisCalendar showGdtAlert={hasGdtConnectionIssue} />
+            </div>
+          </TabsContent>
+
           <TabsContent className="h-full overflow-auto" value="settings">
             {settingsContent}
           </TabsContent>
