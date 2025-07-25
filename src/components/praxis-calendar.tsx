@@ -13,6 +13,8 @@ import React, {
   useState,
 } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
+import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,8 +36,30 @@ import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 
 const localizer = momentLocalizer(moment);
 
+import type { LocalAppointment } from "../utils/local-appointments";
+
 interface PraxisCalendarProps {
+  localAppointments?: LocalAppointment[];
+  onCreateLocalAppointment?: (
+    appointment: Omit<LocalAppointment, "id" | "isLocal">,
+  ) => void;
+  onSlotClick?: (slot: {
+    blockedByRuleId?: Id<"rules"> | undefined;
+    duration: number;
+    locationId?: Id<"locations"> | undefined;
+    practitionerId: Id<"practitioners">;
+    practitionerName: string;
+    startTime: string;
+    status: "AVAILABLE" | "BLOCKED";
+  }) => void;
+  practiceId?: Id<"practices">;
+  ruleSetId?: Id<"ruleSets">;
   showGdtAlert?: boolean;
+  simulatedContext?: {
+    appointmentType: string;
+    patient: { isNew: boolean };
+  };
+  simulationDate?: Date;
 }
 
 // Client-only drag and drop calendar component
@@ -186,16 +210,34 @@ function timeToMinutes(timeStr: string): number {
 }
 
 // Helper function to parse time string to minutes from midnight
-export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
-  const [practiceId, setPracticeId] = useState<Id<"practices"> | null>(null);
+export function PraxisCalendar({
+  localAppointments = [],
+  onCreateLocalAppointment,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
+  onSlotClick: _onSlotClick,
+  practiceId: propPracticeId,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
+  ruleSetId: _ruleSetId,
+  showGdtAlert = false,
+  simulatedContext,
+  simulationDate,
+}: PraxisCalendarProps) {
+  const [practiceId, setPracticeId] = useState<Id<"practices"> | null>(
+    propPracticeId ?? null,
+  );
 
   // Initialize practice
   const initializePracticeMutation = useConvexMutation(
     api.practices.initializeDefaultPractice,
   );
 
-  // Initialize practice on mount
+  // Initialize practice on mount if not provided as prop
   useEffect(() => {
+    if (propPracticeId) {
+      setPracticeId(propPracticeId);
+      return;
+    }
+
     const initPractice = async () => {
       try {
         const id = await initializePracticeMutation({});
@@ -206,7 +248,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     };
 
     void initPractice();
-  }, [initializePracticeMutation]);
+  }, [initializePracticeMutation, propPracticeId]);
 
   // Query data - only run if we have a practice ID
   const appointmentsData = useConvexQuery(api.appointments.getAppointments);
@@ -227,8 +269,16 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     api.appointments.updateAppointment,
   );
 
-  // Get current date info
-  const [currentDate, setCurrentDate] = useState(new Date());
+  // Get current date info - use simulationDate if provided, otherwise use current date
+  const [currentDate, setCurrentDate] = useState(simulationDate ?? new Date());
+
+  // Update currentDate when simulationDate changes
+  useEffect(() => {
+    if (simulationDate) {
+      setCurrentDate(simulationDate);
+    }
+  }, [simulationDate]);
+
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
   // Calculate working practitioners for current date and work hours
@@ -284,48 +334,95 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
 
   // Convert convex appointments to calendar events
   const events: CalendarEvent[] = useMemo(() => {
-    if (!appointmentsData) {
-      return [];
-    }
+    const convexEvents: CalendarEvent[] = appointmentsData
+      ? appointmentsData.map(
+          (appointment: Doc<"appointments">): CalendarEvent => ({
+            end: new Date(appointment.end),
+            id: appointment._id,
+            resource: {
+              appointmentType: appointment.appointmentType,
+              locationId: appointment.locationId,
+              notes: appointment.notes,
+              patientId: appointment.patientId,
+              practitionerId: appointment.practitionerId,
+            },
+            start: new Date(appointment.start),
+            title: appointment.title,
+          }),
+        )
+      : [];
 
-    return appointmentsData.map(
-      (appointment: Doc<"appointments">): CalendarEvent => ({
-        end: new Date(appointment.end),
-        id: appointment._id,
+    // Convert local appointments to calendar events
+    const localEvents: CalendarEvent[] = localAppointments.map(
+      (appointment: LocalAppointment): CalendarEvent => ({
+        end: appointment.end,
+        id: appointment.id,
         resource: {
           appointmentType: appointment.appointmentType,
+          isLocal: true, // Flag to distinguish local appointments
           locationId: appointment.locationId,
           notes: appointment.notes,
           patientId: appointment.patientId,
           practitionerId: appointment.practitionerId,
         },
-        start: new Date(appointment.start),
+        start: appointment.start,
         title: appointment.title,
       }),
     );
-  }, [appointmentsData]);
+
+    return [...convexEvents, ...localEvents];
+  }, [appointmentsData, localAppointments]);
 
   const handleSelectSlot = useCallback(
     (slotInfo: SlotInfo) => {
-      const title = globalThis.prompt("Neuer Termin:");
-      if (title) {
-        void createAppointmentMutation({
-          end: slotInfo.end.toISOString(),
-          start: slotInfo.start.toISOString(),
-          title,
-        });
+      if (onCreateLocalAppointment && simulatedContext) {
+        // For simulation mode, create local appointments
+        const title = globalThis.prompt("Neuer lokaler Termin:");
+        if (title && workingPractitioners.length > 0) {
+          // Use the first available practitioner for simplicity
+          const practitioner = workingPractitioners[0];
+          if (practitioner) {
+            onCreateLocalAppointment({
+              appointmentType: simulatedContext.appointmentType,
+              end: slotInfo.end,
+              notes: "Lokaler Simulationstermin",
+              practitionerId: practitioner.id,
+              start: slotInfo.start,
+              title,
+            });
+          }
+        }
+      } else {
+        // For regular mode, create real appointments
+        const title = globalThis.prompt("Neuer Termin:");
+        if (title) {
+          void createAppointmentMutation({
+            end: slotInfo.end.toISOString(),
+            start: slotInfo.start.toISOString(),
+            title,
+          });
+        }
       }
     },
-    [createAppointmentMutation],
+    [
+      createAppointmentMutation,
+      onCreateLocalAppointment,
+      simulatedContext,
+      workingPractitioners,
+    ],
   );
 
   const handleSelectEvent = useCallback(
     (event: CalendarEvent, e: React.SyntheticEvent<HTMLElement>) => {
       e.preventDefault();
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       const newTitle = globalThis.prompt("Termin bearbeiten:", event.title);
       if (newTitle !== null && newTitle !== event.title) {
         void updateAppointmentMutation({
-          id: event.id,
+          id: event.id as Id<"appointments">,
           title: newTitle,
         });
       }
@@ -337,13 +434,17 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   const handleEventDrop = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
       const { end, event, start } = args;
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
 
       void updateAppointmentMutation({
         end: endDate.toISOString(),
-        id: event.id,
+        id: event.id as Id<"appointments">,
         start: startDate.toISOString(),
       });
     },
@@ -354,13 +455,17 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   const handleEventResize = useCallback(
     (args: EventInteractionArgs<CalendarEvent>) => {
       const { end, event, start } = args;
+      // Only handle real appointments, not local ones
+      if (typeof event.id === "string" && event.id.startsWith("local-")) {
+        return; // Skip local appointments
+      }
       // Handle the fact that start/end might be string or Date
       const startDate = typeof start === "string" ? new Date(start) : start;
       const endDate = typeof end === "string" ? new Date(end) : end;
 
       void updateAppointmentMutation({
         end: endDate.toISOString(),
-        id: event.id,
+        id: event.id as Id<"appointments">,
         start: startDate.toISOString(),
       });
     },

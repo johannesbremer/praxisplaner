@@ -1,10 +1,16 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import type { LocalAppointment } from "../utils/local-appointments";
+
 import { PatientFocusedView } from "./patient-focused-view";
 import { SmartphoneDevice } from "./smartphone-device";
 
 interface PatientBookingFlowProps {
   dateRange: { end: string; start: string };
+  localAppointments?: LocalAppointment[];
+  onCreateLocalAppointment?: (
+    appointment: Omit<LocalAppointment, "id" | "isLocal">,
+  ) => void;
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
     duration: number;
@@ -28,6 +34,8 @@ interface PatientBookingFlowProps {
 
 export function PatientBookingFlow({
   dateRange,
+  localAppointments = [],
+  onCreateLocalAppointment,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -41,8 +49,10 @@ export function PatientBookingFlow({
           dateRange={dateRange}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
+          localAppointments={localAppointments}
+          {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
           practiceId={practiceId}
-          ruleSetId={ruleSetId}
+          {...(ruleSetId && { ruleSetId })}
           simulatedContext={simulatedContext}
         />
       </SmartphoneDevice>

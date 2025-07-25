@@ -7,9 +7,10 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 // Calendar Event types for react-big-calendar
 export interface CalendarEvent {
   end: Date;
-  id: Id<"appointments">;
+  id: Id<"appointments"> | string; // Allow both Convex IDs and local string IDs
   resource?: {
     appointmentType?: string | undefined;
+    isLocal?: boolean; // Flag for local appointments
     locationId?: Id<"locations"> | undefined;
     notes?: string | undefined;
     patientId?: Id<"patients"> | undefined;

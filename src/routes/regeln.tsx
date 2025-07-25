@@ -51,6 +51,7 @@ import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
+import { useLocalAppointments } from "../utils/local-appointments";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -99,6 +100,10 @@ export default function LogicView() {
     useState<Id<"ruleSets"> | null>(null);
   const [activationName, setActivationName] = useState("");
 
+  // Local appointments for simulation
+  const { addLocalAppointment, clearAllLocalAppointments, localAppointments } =
+    useLocalAppointments();
+
   // Simulation state - moved from SimulationPanel
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     appointmentType: "Erstberatung",
@@ -131,6 +136,7 @@ export default function LogicView() {
     setSelectedDate(new Date());
     setSimulationRuleSetId(undefined);
     setSelectedSlot(null);
+    clearAllLocalAppointments();
   };
 
   const handleSlotClick = (slot: SlotDetails) => {
@@ -282,6 +288,15 @@ export default function LogicView() {
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
   const currentWorkingRuleSet =
     unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet;
+
+  // Sync current working rule set with simulation controls
+  React.useEffect(() => {
+    if (currentWorkingRuleSet) {
+      setSimulationRuleSetId(currentWorkingRuleSet._id);
+    } else {
+      setSimulationRuleSetId(undefined);
+    }
+  }, [currentWorkingRuleSet]);
 
   // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
@@ -757,6 +772,8 @@ export default function LogicView() {
               <div className="flex justify-center">
                 <PatientBookingFlow
                   dateRange={dateRange}
+                  localAppointments={localAppointments}
+                  onCreateLocalAppointment={addLocalAppointment}
                   onSlotClick={handleSlotClick}
                   onUpdateSimulatedContext={setSimulatedContext}
                   practiceId={currentPractice._id}
@@ -785,6 +802,8 @@ export default function LogicView() {
             <div className="space-y-6">
               <MedicalStaffDisplay
                 dateRange={dateRange}
+                localAppointments={localAppointments}
+                onCreateLocalAppointment={addLocalAppointment}
                 onSlotClick={handleSlotClick}
                 onUpdateSimulatedContext={setSimulatedContext}
                 practiceId={currentPractice._id}

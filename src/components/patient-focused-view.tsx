@@ -15,8 +15,14 @@ import {
 } from "@/components/ui/mini-calendar";
 import { api } from "@/convex/_generated/api";
 
+import type { LocalAppointment } from "../utils/local-appointments";
+
 interface PatientFocusedViewProps {
   dateRange: { end: string; start: string };
+  localAppointments?: LocalAppointment[];
+  onCreateLocalAppointment?: (
+    appointment: Omit<LocalAppointment, "id" | "isLocal">,
+  ) => void;
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
     duration: number;
@@ -48,6 +54,10 @@ const appointmentTypes = [
 
 export function PatientFocusedView({
   dateRange,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
+  localAppointments: _localAppointments = [],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
+  onCreateLocalAppointment: _onCreateLocalAppointment,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,

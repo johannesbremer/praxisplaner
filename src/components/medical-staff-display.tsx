@@ -1,10 +1,16 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import type { LocalAppointment } from "../utils/local-appointments";
+
 import { MedicalStaffView } from "./medical-staff-view";
 import { XDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
   dateRange: { end: string; start: string };
+  localAppointments?: LocalAppointment[];
+  onCreateLocalAppointment?: (
+    appointment: Omit<LocalAppointment, "id" | "isLocal">,
+  ) => void;
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
     duration: number;
@@ -28,6 +34,8 @@ interface MedicalStaffDisplayProps {
 
 export function MedicalStaffDisplay({
   dateRange,
+  localAppointments = [],
+  onCreateLocalAppointment,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -41,8 +49,10 @@ export function MedicalStaffDisplay({
           dateRange={dateRange}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
+          localAppointments={localAppointments}
+          {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
           practiceId={practiceId}
-          ruleSetId={ruleSetId}
+          {...(ruleSetId && { ruleSetId })}
           simulatedContext={simulatedContext}
         />
       </XDRDevice>
