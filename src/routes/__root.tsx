@@ -31,8 +31,8 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
     | string
     | undefined;
 
-  // If PostHog is not configured, just render children without tracking
-  if (!apiKey) {
+  // Disable PostHog in development or if not configured
+  if (!apiKey || import.meta.env.DEV) {
     return <>{children}</>;
   }
 

@@ -16,6 +16,12 @@ export function useErrorTracking() {
 
   const captureError = useCallback(
     (error: unknown, context?: Record<string, unknown>) => {
+      // Skip error tracking in development
+      if (import.meta.env.DEV) {
+        console.error("Error (PostHog disabled in dev):", error, context);
+        return;
+      }
+
       // Convert error to Error instance if needed
       const errorInstance =
         error instanceof Error ? error : new Error(String(error));
@@ -36,6 +42,12 @@ export function captureErrorGlobal(
   error: unknown,
   context?: Record<string, unknown>,
 ) {
+  // Skip error tracking in development
+  if (import.meta.env.DEV) {
+    console.error("Error (PostHog disabled in dev):", error, context);
+    return;
+  }
+
   // Convert error to Error instance if needed
   const errorInstance =
     error instanceof Error ? error : new Error(String(error));
