@@ -26,7 +26,7 @@ interface MedicalStaffViewProps {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function MedicalStaffView(_: MedicalStaffViewProps) {
+export function MedicalStaffView(_props: MedicalStaffViewProps) {
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
     <div className="h-full w-full overflow-auto p-6">

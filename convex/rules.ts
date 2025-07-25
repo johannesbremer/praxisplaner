@@ -200,7 +200,7 @@ export const copyRule = mutation({
       throw new Error(nameValidation.message || "Rule name is not unique");
     }
 
-    // Create copy of the rule with new name
+    // Create copy of the rule with new name, exclude fields we don't need
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _creationTime, _id, name, ...ruleData } = sourceRule;
     const newRuleId = await ctx.db.insert("rules", {

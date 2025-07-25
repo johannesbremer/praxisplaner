@@ -255,8 +255,12 @@ export const getAvailableSlots = query({
               if (!practitionerGroups.has(slot.practitionerId)) {
                 practitionerGroups.set(slot.practitionerId, []);
               }
-              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-              practitionerGroups.get(slot.practitionerId)!.push(slot);
+              const practitionerSlots = practitionerGroups.get(
+                slot.practitionerId,
+              );
+              if (practitionerSlots) {
+                practitionerSlots.push(slot);
+              }
             }
 
             for (const [, slots] of practitionerGroups) {
