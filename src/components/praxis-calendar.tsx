@@ -5,7 +5,13 @@ import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { ClientOnly } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
 import moment from "moment";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -63,24 +69,50 @@ function DragDropCalendar({
   step: number;
   timeslots: number;
 }) {
-  // Define proper type for DnDCalendar
-  const [DnDCalendar, setDnDCalendar] = useState<null | React.ComponentType<
-    React.ComponentProps<typeof Calendar>
-  >>(null);
+  // State to track if drag and drop is loaded
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasDragDrop, setHasDragDrop] = useState(false);
+
+  // Ref to store the enhanced calendar component
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const DnDCalendarRef = useRef<null | React.ComponentType<any>>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     import("react-big-calendar/lib/addons/dragAndDrop")
       .then((module) => {
+        if (!mounted) {
+          return;
+        }
+
         const withDragAndDrop = module.default;
-        setDnDCalendar(() => withDragAndDrop(Calendar));
+        const EnhancedCalendar = withDragAndDrop(Calendar);
+        DnDCalendarRef.current = EnhancedCalendar;
+        setHasDragDrop(true);
+        setIsLoaded(true);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        console.warn(
+          "Failed to load drag and drop calendar, falling back to regular calendar:",
+          error,
+        );
+        if (!mounted) {
+          return;
+        }
+
         // Fallback to regular calendar if drag and drop fails to load
-        setDnDCalendar(() => Calendar);
+        DnDCalendarRef.current = Calendar;
+        setHasDragDrop(false);
+        setIsLoaded(true);
       });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  if (!DnDCalendar) {
+  if (!isLoaded || !DnDCalendarRef.current) {
     return (
       <div className="flex items-center justify-center h-full">
         <p>Kalender wird geladen...</p>
@@ -88,57 +120,64 @@ function DragDropCalendar({
     );
   }
 
-  return (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (DnDCalendar as any)({
-      culture: "de",
-      date: currentDate,
-      defaultView: "day",
-      endAccessor: (event: CalendarEvent) => event.end,
-      events: events,
-      formats: {
-        dayHeaderFormat: "dddd, DD.MM.YYYY",
-        eventTimeRangeFormat: ({ end, start }: { end: Date; start: Date }) => {
-          const startTime = moment(start).format("HH:mm");
-          const endTime = moment(end).format("HH:mm");
-          return `${startTime} - ${endTime}`;
-        },
-        timeGutterFormat: "HH:mm",
+  const CalendarComponent = DnDCalendarRef.current;
+
+  // Create props object with proper typing
+  const calendarProps = {
+    culture: "de",
+    date: currentDate,
+    defaultView: "day" as const,
+    endAccessor: (event: CalendarEvent) => event.end,
+    events,
+    formats: {
+      dayHeaderFormat: "dddd, DD.MM.YYYY",
+      eventTimeRangeFormat: ({ end, start }: { end: Date; start: Date }) => {
+        const startTime = moment(start).format("HH:mm");
+        const endTime = moment(end).format("HH:mm");
+        return `${startTime} - ${endTime}`;
       },
-      localizer: localizer,
-      max: maxEndTime,
-      messages: {
-        agenda: "Agenda",
-        date: "Datum",
-        day: "Tag",
-        event: "Termin",
-        month: "Monat",
-        next: "Weiter",
-        noEventsInRange: "Keine Termine in diesem Bereich.",
-        previous: "Zurück",
-        showMore: (total: number) => `+ ${total} weitere`,
-        time: "Zeit",
-        today: "Heute",
-        week: "Woche",
-      },
-      min: minStartTime,
+      timeGutterFormat: "HH:mm",
+    },
+    localizer,
+    max: maxEndTime,
+    messages: {
+      agenda: "Agenda",
+      date: "Datum",
+      day: "Tag",
+      event: "Termin",
+      month: "Monat",
+      next: "Weiter",
+      noEventsInRange: "Keine Termine in diesem Bereich.",
+      previous: "Zurück",
+      showMore: (total: number) => `+ ${total} weitere`,
+      time: "Zeit",
+      today: "Heute",
+      week: "Woche",
+    },
+    min: minStartTime,
+    // Only add drag and drop handlers if drag and drop is available
+    ...(hasDragDrop && {
       onEventDrop: handleEventDrop,
       onEventResize: handleEventResize,
-      onNavigate: () => {
-        // Disable navigation - we'll handle it with mini calendar
-      },
-      onSelectEvent: handleSelectEvent,
-      onSelectSlot: handleSelectSlot,
       resizable: true,
-      selectable: true,
-      startAccessor: (event: CalendarEvent) => event.start,
-      step: step,
-      timeslots: timeslots,
-      titleAccessor: (event: CalendarEvent) => event.title,
-      toolbar: false, // Hide the toolbar - we'll use mini calendar instead
-      views: ["day"], // Only show day view as requested
-    })
-  );
+    }),
+    onNavigate: () => {
+      // Disable navigation - we'll handle it with mini calendar
+    },
+    onSelectEvent: handleSelectEvent,
+    onSelectSlot: handleSelectSlot,
+    selectable: true,
+    startAccessor: (event: CalendarEvent) => event.start,
+    step,
+    timeslots,
+    titleAccessor: (event: CalendarEvent) => event.title,
+    toolbar: false,
+    views: ["day" as const],
+  };
+
+  // Use JSX with spread props
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return <CalendarComponent {...(calendarProps as any)} />;
 }
 
 // Helper function to parse time string to minutes from midnight
@@ -401,8 +440,8 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
                 setCurrentDate(date);
               }}
               onValueChange={setCurrentDate}
-              value={currentDate}
               startDate={currentDate}
+              value={currentDate}
             >
               <MiniCalendarNavigation direction="prev" />
               <MiniCalendarDays className="flex-1 min-w-0">
