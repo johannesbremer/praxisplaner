@@ -19,44 +19,6 @@ export interface CalendarEvent {
   title: string;
 }
 
-// Appointment data from Convex
-export interface AppointmentData {
-  _creationTime: number;
-  _id: Id<"appointments">;
-  appointmentType?: string;
-  createdAt: bigint;
-  end: string;
-  lastModified: bigint;
-  locationId?: Id<"locations">;
-  notes?: string;
-  patientId?: Id<"patients">;
-  practitionerId?: Id<"practitioners">;
-  start: string;
-  title: string;
-}
-
-// Practitioner with schedule info
-export interface PractitionerWithSchedule {
-  _creationTime: number;
-  _id: Id<"practitioners">;
-  earliestStart?: string; // earliest start time across all days
-  latestEnd?: string; // latest end time across all days
-  name: string;
-  practiceId: Id<"practices">;
-  workingDays: Set<number>; // days of week they work
-}
-
-// Base schedule data
-export interface BaseScheduleData {
-  _creationTime: number;
-  _id: Id<"baseSchedules">;
-  breakTimes?: { end: string; start: string }[];
-  dayOfWeek: number;
-  endTime: string;
-  practitionerId: Id<"practitioners">;
-  startTime: string;
-}
-
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";
 

@@ -23,12 +23,8 @@ import {
   MiniCalendarNavigation,
 } from "@/components/ui/mini-calendar";
 
-import type { Id } from "../../convex/_generated/dataModel";
-import type {
-  AppointmentData,
-  BaseScheduleData,
-  CalendarEvent,
-} from "../types";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { CalendarEvent } from "../types";
 
 import { api } from "../../convex/_generated/api";
 
@@ -244,7 +240,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
 
     // Find practitioners working on the current selected day
     const daySchedules = baseSchedulesData.filter(
-      (schedule: BaseScheduleData & { practitionerName: string }) =>
+      (schedule: Doc<"baseSchedules"> & { practitionerName: string }) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
 
@@ -290,7 +286,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     }
 
     return appointmentsData.map(
-      (appointment: AppointmentData): CalendarEvent => ({
+      (appointment: Doc<"appointments">): CalendarEvent => ({
         end: new Date(appointment.end),
         id: appointment._id,
         resource: {
