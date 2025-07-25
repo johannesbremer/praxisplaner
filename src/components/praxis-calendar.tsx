@@ -9,7 +9,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  MiniCalendar,
+  MiniCalendarDay,
+  MiniCalendarDays,
+  MiniCalendarNavigation,
+} from "@/components/ui/mini-calendar";
 
 import type { Id } from "../../convex/_generated/dataModel";
 import type {
@@ -32,6 +38,7 @@ interface PraxisCalendarProps {
 
 // Client-only drag and drop calendar component
 function DragDropCalendar({
+  currentDate,
   events,
   handleEventDrop,
   handleEventResize,
@@ -42,6 +49,7 @@ function DragDropCalendar({
   step,
   timeslots,
 }: {
+  currentDate: Date;
   events: CalendarEvent[];
   handleEventDrop: (args: EventInteractionArgs<CalendarEvent>) => void;
   handleEventResize: (args: EventInteractionArgs<CalendarEvent>) => void;
@@ -55,9 +63,10 @@ function DragDropCalendar({
   step: number;
   timeslots: number;
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [DnDCalendar, setDnDCalendar] =
-    useState<null | React.ComponentType<any>>(null);
+  // Define proper type for DnDCalendar
+  const [DnDCalendar, setDnDCalendar] = useState<null | React.ComponentType<
+    React.ComponentProps<typeof Calendar>
+  >>(null);
 
   useEffect(() => {
     import("react-big-calendar/lib/addons/dragAndDrop")
@@ -80,12 +89,14 @@ function DragDropCalendar({
   }
 
   return (
-    <DnDCalendar
-      culture="de"
-      defaultView="day"
-      endAccessor={(event: CalendarEvent) => event.end}
-      events={events}
-      formats={{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (DnDCalendar as any)({
+      culture: "de",
+      date: currentDate,
+      defaultView: "day",
+      endAccessor: (event: CalendarEvent) => event.end,
+      events: events,
+      formats: {
         dayHeaderFormat: "dddd, DD.MM.YYYY",
         eventTimeRangeFormat: ({ end, start }: { end: Date; start: Date }) => {
           const startTime = moment(start).format("HH:mm");
@@ -93,10 +104,10 @@ function DragDropCalendar({
           return `${startTime} - ${endTime}`;
         },
         timeGutterFormat: "HH:mm",
-      }}
-      localizer={localizer}
-      max={maxEndTime}
-      messages={{
+      },
+      localizer: localizer,
+      max: maxEndTime,
+      messages: {
         agenda: "Agenda",
         date: "Datum",
         day: "Tag",
@@ -109,20 +120,24 @@ function DragDropCalendar({
         time: "Zeit",
         today: "Heute",
         week: "Woche",
-      }}
-      min={minStartTime}
-      onEventDrop={handleEventDrop}
-      onEventResize={handleEventResize}
-      onSelectEvent={handleSelectEvent}
-      onSelectSlot={handleSelectSlot}
-      resizable
-      selectable
-      startAccessor={(event: CalendarEvent) => event.start}
-      step={step}
-      timeslots={timeslots}
-      titleAccessor={(event: CalendarEvent) => event.title}
-      views={["day"]} // Only show day view as requested
-    />
+      },
+      min: minStartTime,
+      onEventDrop: handleEventDrop,
+      onEventResize: handleEventResize,
+      onNavigate: () => {
+        // Disable navigation - we'll handle it with mini calendar
+      },
+      onSelectEvent: handleSelectEvent,
+      onSelectSlot: handleSelectSlot,
+      resizable: true,
+      selectable: true,
+      startAccessor: (event: CalendarEvent) => event.start,
+      step: step,
+      timeslots: timeslots,
+      titleAccessor: (event: CalendarEvent) => event.title,
+      toolbar: false, // Hide the toolbar - we'll use mini calendar instead
+      views: ["day"], // Only show day view as requested
+    })
   );
 }
 
@@ -175,10 +190,10 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
   );
 
   // Get current date info
-  const currentDate = new Date();
+  const [currentDate, setCurrentDate] = useState(new Date());
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
-  // Calculate working practitioners for today and work hours
+  // Calculate working practitioners for current date and work hours
   const { maxEndTime, minStartTime, workingPractitioners } = useMemo(() => {
     if (!practitionersData || !baseSchedulesData) {
       return {
@@ -188,13 +203,13 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
       };
     }
 
-    // Find practitioners working today
-    const todaySchedules = baseSchedulesData.filter(
+    // Find practitioners working on the current selected day
+    const daySchedules = baseSchedulesData.filter(
       (schedule: BaseScheduleData & { practitionerName: string }) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
 
-    if (todaySchedules.length === 0) {
+    if (daySchedules.length === 0) {
       return {
         maxEndTime: new Date(0, 0, 0, 18, 0, 0),
         minStartTime: new Date(0, 0, 0, 8, 0, 0),
@@ -202,37 +217,29 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
       };
     }
 
-    const working = todaySchedules.map((schedule) => ({
+    const working = daySchedules.map((schedule) => ({
       endTime: schedule.endTime,
       id: schedule.practitionerId,
       name: schedule.practitionerName,
       startTime: schedule.startTime,
     }));
 
-    // Calculate earliest start and latest end times
-    const startTimes = todaySchedules.map((s) => timeToMinutes(s.startTime));
-    const endTimes = todaySchedules.map((s) => timeToMinutes(s.endTime));
+    // Calculate business hours: round to full hours
+    const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
+    const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
 
-    const earliestStart = Math.min(...startTimes) - 15; // 15 minutes before
-    const latestEnd = Math.max(...endTimes) + 15; // 15 minutes after
+    const earliestStartMinutes = Math.min(...startTimes);
+    const latestEndMinutes = Math.max(...endTimes);
+
+    // Round start time down to full hour (e.g., 7:40 -> 7:00, 8:00 -> 8:00)
+    const businessStartHour = Math.floor(earliestStartMinutes / 60);
+
+    // Round end time up to full hour (e.g., 18:05 -> 19:00, 19:00 -> 19:00)
+    const businessEndHour = Math.ceil(latestEndMinutes / 60);
 
     return {
-      maxEndTime: new Date(
-        0,
-        0,
-        0,
-        Math.floor(latestEnd / 60),
-        latestEnd % 60,
-        0,
-      ),
-      minStartTime: new Date(
-        0,
-        0,
-        0,
-        Math.floor(earliestStart / 60),
-        earliestStart % 60,
-        0,
-      ),
+      maxEndTime: new Date(0, 0, 0, businessEndHour, 0, 0),
+      minStartTime: new Date(0, 0, 0, businessStartHour, 0, 0),
       workingPractitioners: working,
     };
   }, [practitionersData, baseSchedulesData, currentDayOfWeek]);
@@ -342,7 +349,7 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
     );
   }
 
-  // Show alert if no practitioners work today
+  // Show alert if no practitioners work that day
   if (workingPractitioners.length === 0) {
     return (
       <div className="flex flex-col items-center space-y-4">
@@ -355,16 +362,13 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
           </div>
         )}
         <Card>
-          <CardHeader>
-            <CardTitle>Terminkalender</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-center h-96">
+          <CardContent className="flex items-center justify-center h-96 pt-6">
             <Alert className="w-auto max-w-md">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Keine Ärzte heute verfügbar</AlertTitle>
               <AlertDescription>
-                Es sind keine Ärzte für heute (
-                {moment().format("dddd, DD.MM.YYYY")}) eingeplant.
+                Es sind keine Ärzte für{" "}
+                {moment(currentDate).format("dddd, DD.MM.YYYY")} eingeplant.
               </AlertDescription>
             </Alert>
           </CardContent>
@@ -384,14 +388,40 @@ export function PraxisCalendar({ showGdtAlert = false }: PraxisCalendarProps) {
         </div>
       )}
 
+      {/* Mini Calendar Navigation */}
+      <div className="flex justify-center">
+        <Card className="w-auto">
+          <CardContent className="p-4">
+            <MiniCalendar
+              days={7}
+              onStartDateChange={(date) => {
+                // Set to the first day of the week containing the selected date
+                const startOfWeek = new Date(date);
+                startOfWeek.setDate(date.getDate() - date.getDay());
+                setCurrentDate(date);
+              }}
+              onValueChange={setCurrentDate}
+              value={currentDate}
+              startDate={currentDate}
+            >
+              <MiniCalendarNavigation direction="prev" />
+              <MiniCalendarDays className="flex-1 min-w-0">
+                {(date) => (
+                  <MiniCalendarDay date={date} key={date.toISOString()} />
+                )}
+              </MiniCalendarDays>
+              <MiniCalendarNavigation direction="next" />
+            </MiniCalendar>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
-        <CardHeader>
-          <CardTitle>Terminkalender</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
           <div style={{ height: "600px" }}>
             <ClientOnly>
               <DragDropCalendar
+                currentDate={currentDate}
                 events={events}
                 handleEventDrop={handleEventDrop}
                 handleEventResize={handleEventResize}
