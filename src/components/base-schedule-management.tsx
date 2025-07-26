@@ -5,7 +5,7 @@ import { Calendar, Clock, Edit, Plus, Trash2 } from "lucide-react";
 import React, { useState } from "react";
 import { toast } from "sonner";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,14 +55,9 @@ interface BaseScheduleManagementProps {
   practiceId: Id<"practices">;
 }
 
-interface ExtendedSchedule {
-  _id: Id<"baseSchedules">;
-  breakTimes?: { end: string; start: string }[];
-  dayOfWeek: number;
-  endTime: string;
-  practitionerId: Id<"practitioners">;
-  startTime: string;
-  // Group editing metadata
+interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
+  _creationTime?: number; // Optional for synthetic objects
+  // Group editing metadata - computed fields not in schema
   _groupDaysOfWeek?: number[];
   _groupScheduleIds?: Id<"baseSchedules">[];
   _isGroup?: boolean;

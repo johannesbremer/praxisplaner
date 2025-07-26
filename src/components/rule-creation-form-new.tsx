@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -41,23 +41,10 @@ interface RuleCreationFormNewProps {
   onRuleCreated?: (() => void) | undefined;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets">; // Optional - if provided, rule will be auto-enabled in this rule set
-  // For copy functionality
-  copyFromRule?: {
-    appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-    block_appointmentTypes?: string[];
-    block_dateRangeEnd?: string;
-    block_dateRangeStart?: string;
-    block_daysOfWeek?: number[];
-    block_timeRangeEnd?: string;
-    block_timeRangeStart?: string;
-    description: string;
-    limit_appointmentTypes?: string[];
-    limit_count?: number;
-    limit_perPractitioner?: boolean;
-    name?: string;
-    ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-    specificPractitioners?: Id<"practitioners">[];
-  };
+  // For copy functionality - use Convex inferred types
+  copyFromRule?: Partial<
+    Omit<Doc<"rules">, "_creationTime" | "_id" | "practiceId">
+  >;
   customTrigger?: React.ReactNode; // Custom trigger element
   triggerText?: string;
 }
