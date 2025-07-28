@@ -6,10 +6,10 @@ import { useEffect } from "react";
 function RegelnRedirect() {
   // Redirect to the new parameterized route
   const navigate = useNavigate();
-  
+
   useEffect(() => {
     void navigate({
-      params: {},  // Use empty object instead of explicit undefined values
+      params: {}, // Use empty object instead of explicit undefined values
       to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
     });
   }, [navigate]);

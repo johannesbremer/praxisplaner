@@ -63,13 +63,13 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 function PraxisPlanerComponent() {
   const navigate = useNavigate();
   const { date: urlDate, tab: urlTab } = Route.useParams();
-  
-  // Remove unused urlDate variable 
+
+  // Remove unused urlDate variable
   void urlDate;
-  
+
   // Determine active tab from URL or default to "calendar"
   const activeTab = urlTab || "calendar";
-  
+
   // Parse selected date from URL or default to today (stored for potential future use)
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
@@ -109,25 +109,28 @@ function PraxisPlanerComponent() {
   }, []);
 
   // Function to update URL when tab changes
-  const setActiveTab = useCallback((newTab: string) => {
-    const params: { [key: string]: string } = {};
-    if (newTab !== "calendar") {
-      params["tab"] = newTab;
-    }
-    
-    void navigate({
-      params,
-      to: "/praxisplaner/{-$date}/{-$tab}",
-    });
-  }, [navigate]);
+  const setActiveTab = useCallback(
+    (newTab: string) => {
+      const params: Record<string, string> = {};
+      if (newTab !== "calendar") {
+        params["tab"] = newTab;
+      }
+
+      void navigate({
+        params,
+        to: "/praxisplaner/{-$date}/{-$tab}",
+      });
+    },
+    [navigate],
+  );
 
   // Function to update URL when date changes (if needed in the future)
   // const updateSelectedDate = useCallback((newDate: Date) => {
-  //   const newDateParam = newDate.toDateString() === new Date().toDateString() 
-  //     ? undefined 
+  //   const newDateParam = newDate.toDateString() === new Date().toDateString()
+  //     ? undefined
   //     : newDate.toISOString().split('T')[0];
   //   const newTabParam = activeTab === "calendar" ? undefined : activeTab;
-  //   
+  //
   //   void navigate({
   //     params: {
   //       date: newDateParam,

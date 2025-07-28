@@ -52,7 +52,9 @@ import { VersionGraph } from "../../../../../components/version-graph/index";
 import { useErrorTracking } from "../../../../../utils/error-tracking";
 import { useLocalAppointments } from "../../../../../utils/local-appointments";
 
-export const Route = createFileRoute("/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}")({
+export const Route = createFileRoute(
+  "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
+)({
   component: LogicView,
 });
 
@@ -83,12 +85,20 @@ interface SlotDetails {
 
 export default function LogicView() {
   const navigate = useNavigate();
-  const { date: urlDate, patientType: urlPatientType, ruleSet: urlRuleSet, tab: urlTab } = Route.useParams();
-  
+  const {
+    date: urlDate,
+    patientType: urlPatientType,
+    ruleSet: urlRuleSet,
+    tab: urlTab,
+  } = Route.useParams();
+
   // Parse URL parameters with defaults
   const activeTab = urlTab || "rule-management";
-  const urlSelectedRuleSetId = urlRuleSet ? (urlRuleSet as Id<"ruleSets">) : null;
-  const urlPatientIsNew = urlPatientType === undefined ? true : urlPatientType === "new";
+  const urlSelectedRuleSetId = urlRuleSet
+    ? (urlRuleSet as Id<"ruleSets">)
+    : null;
+  const urlPatientIsNew =
+    urlPatientType === undefined ? true : urlPatientType === "new";
   const urlSelectedDate = urlDate ? new Date(urlDate) : new Date();
 
   // Get or initialize a practice for development
@@ -124,37 +134,50 @@ export default function LogicView() {
   >(urlSelectedRuleSetId || undefined);
 
   // Function to update URL when state changes
-  const updateUrl = useCallback((updates: {
-    date?: Date;
-    patientType?: boolean;
-    ruleSet?: Id<"ruleSets"> | null | undefined;
-    tab?: string;
-  }) => {
-    const newTab = updates.tab === undefined ? activeTab : updates.tab;
-    const newRuleSet = updates.ruleSet === undefined ? selectedRuleSetId : updates.ruleSet;
-    const newPatientType = updates.patientType === undefined ? simulatedContext.patient.isNew : updates.patientType;
-    const newDate = updates.date === undefined ? selectedDate : updates.date;
-    
-    const params: { [key: string]: string } = {};
-    
-    if (newTab !== "rule-management") {
-      params["tab"] = newTab;
-    }
-    if (newRuleSet) {
-      params["ruleSet"] = newRuleSet;
-    }
-    if (!newPatientType) {
-      params["patientType"] = "existing";
-    }
-    if (newDate.toDateString() !== new Date().toDateString()) {
-      params["date"] = newDate.toISOString().split('T')[0];
-    }
+  const updateUrl = useCallback(
+    (updates: {
+      date?: Date;
+      patientType?: boolean;
+      ruleSet?: Id<"ruleSets"> | null | undefined;
+      tab?: string;
+    }) => {
+      const newTab = updates.tab === undefined ? activeTab : updates.tab;
+      const newRuleSet =
+        updates.ruleSet === undefined ? selectedRuleSetId : updates.ruleSet;
+      const newPatientType =
+        updates.patientType === undefined
+          ? simulatedContext.patient.isNew
+          : updates.patientType;
+      const newDate = updates.date === undefined ? selectedDate : updates.date;
 
-    void navigate({
-      params,
-      to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
-    });
-  }, [navigate, activeTab, selectedRuleSetId, simulatedContext.patient.isNew, selectedDate]);
+      const params: Record<string, string> = {};
+
+      if (newTab !== "rule-management") {
+        params["tab"] = newTab;
+      }
+      if (newRuleSet) {
+        params["ruleSet"] = newRuleSet;
+      }
+      if (!newPatientType) {
+        params["patientType"] = "existing";
+      }
+      if (newDate.toDateString() !== new Date().toDateString()) {
+        params["date"] = newDate.toISOString().split("T")[0];
+      }
+
+      void navigate({
+        params,
+        to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
+      });
+    },
+    [
+      navigate,
+      activeTab,
+      selectedRuleSetId,
+      simulatedContext.patient.isNew,
+      selectedDate,
+    ],
+  );
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -178,7 +201,7 @@ export default function LogicView() {
     setSimulationRuleSetId(undefined);
     setSelectedSlot(null);
     clearAllLocalAppointments();
-    
+
     // Update URL to reflect reset state
     updateUrl({
       date: new Date(),
@@ -451,7 +474,7 @@ export default function LogicView() {
       // Switch to the selected version
       setSelectedRuleSetId(versionId);
       setUnsavedRuleSetId(null);
-      
+
       // Update URL
       updateUrl({ ruleSet: versionId });
     },
@@ -635,9 +658,11 @@ export default function LogicView() {
       </div>
 
       {/* Page-level Tabs */}
-      <Tabs 
-        className="space-y-6" 
-        onValueChange={(newTab) => { updateUrl({ tab: newTab }); }}
+      <Tabs
+        className="space-y-6"
+        onValueChange={(newTab) => {
+          updateUrl({ tab: newTab });
+        }}
         value={activeTab}
       >
         <TabsList className="grid w-full grid-cols-3">
