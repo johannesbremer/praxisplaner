@@ -80,7 +80,7 @@
     "babel-plugin-react-compiler": "19.1.0-rc.2",
     "concurrently": "^9.2.0",
     "eslint": "^9.31.0",
-    "eslint-plugin-jsdoc": "^51.4.1",
+    "eslint-plugin-jsdoc": "^52.0.0",
     "eslint-plugin-jsonc": "^2.20.1",
     "eslint-plugin-markdown": "^5.1.0",
     "eslint-plugin-n": "^17.21.0",
