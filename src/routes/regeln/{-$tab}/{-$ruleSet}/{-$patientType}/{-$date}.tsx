@@ -37,20 +37,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
-import type { Id } from "../../../../../convex/_generated/dataModel";
-import type { VersionNode } from "../../../../components/version-graph/types";
+import type { Id } from "../../../../../../convex/_generated/dataModel";
+import type { VersionNode } from "../../../../../components/version-graph/types";
 
-import BaseScheduleManagement from "../../../../components/base-schedule-management";
-import { DebugView } from "../../../../components/debug-view";
-import { MedicalStaffDisplay } from "../../../../components/medical-staff-display";
-import { PatientBookingFlow } from "../../../../components/patient-booking-flow";
-import PractitionerManagement from "../../../../components/practitioner-management";
-import RuleCreationFormNew from "../../../../components/rule-creation-form-new";
-import { RuleEnableCombobox } from "../../../../components/rule-enable-combobox";
-import { RuleListNew } from "../../../../components/rule-list-new";
-import { VersionGraph } from "../../../../components/version-graph/index";
-import { useErrorTracking } from "../../../../utils/error-tracking";
-import { useLocalAppointments } from "../../../../utils/local-appointments";
+import BaseScheduleManagement from "../../../../../components/base-schedule-management";
+import { DebugView } from "../../../../../components/debug-view";
+import { MedicalStaffDisplay } from "../../../../../components/medical-staff-display";
+import { PatientBookingFlow } from "../../../../../components/patient-booking-flow";
+import PractitionerManagement from "../../../../../components/practitioner-management";
+import RuleCreationFormNew from "../../../../../components/rule-creation-form-new";
+import { RuleEnableCombobox } from "../../../../../components/rule-enable-combobox";
+import { RuleListNew } from "../../../../../components/rule-list-new";
+import { VersionGraph } from "../../../../../components/version-graph/index";
+import { useErrorTracking } from "../../../../../utils/error-tracking";
+import { useLocalAppointments } from "../../../../../utils/local-appointments";
 
 export const Route = createFileRoute("/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}")({
   component: LogicView,
@@ -127,7 +127,7 @@ export default function LogicView() {
   const updateUrl = useCallback((updates: {
     date?: Date;
     patientType?: boolean;
-    ruleSet?: Id<"ruleSets"> | null;
+    ruleSet?: Id<"ruleSets"> | null | undefined;
     tab?: string;
   }) => {
     const newTab = updates.tab === undefined ? activeTab : updates.tab;
@@ -135,20 +135,23 @@ export default function LogicView() {
     const newPatientType = updates.patientType === undefined ? simulatedContext.patient.isNew : updates.patientType;
     const newDate = updates.date === undefined ? selectedDate : updates.date;
     
-    const tabParam = newTab === "rule-management" ? undefined : newTab;
-    const ruleSetParam = newRuleSet || undefined;
-    const patientTypeParam = newPatientType ? undefined : "existing"; // default is "new"
-    const dateParam = newDate.toDateString() === new Date().toDateString() 
-      ? undefined 
-      : newDate.toISOString().split('T')[0];
+    const params: { [key: string]: string } = {};
+    
+    if (newTab !== "rule-management") {
+      params["tab"] = newTab;
+    }
+    if (newRuleSet) {
+      params["ruleSet"] = newRuleSet;
+    }
+    if (!newPatientType) {
+      params["patientType"] = "existing";
+    }
+    if (newDate.toDateString() !== new Date().toDateString()) {
+      params["date"] = newDate.toISOString().split('T')[0];
+    }
 
-    navigate({
-      params: {
-        date: dateParam,
-        patientType: patientTypeParam,
-        ruleSet: ruleSetParam,
-        tab: tabParam,
-      },
+    void navigate({
+      params,
       to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
     });
   }, [navigate, activeTab, selectedRuleSetId, simulatedContext.patient.isNew, selectedDate]);

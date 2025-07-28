@@ -9,10 +9,7 @@ function PraxisPlanerRedirect() {
   
   useEffect(() => {
     void navigate({
-      params: {
-        date: undefined,
-        tab: undefined,
-      },
+      params: {},  // Use empty object instead of explicit undefined values
       to: "/praxisplaner/{-$date}/{-$tab}",
     });
   }, [navigate]);

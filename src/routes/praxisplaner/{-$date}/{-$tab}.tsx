@@ -64,11 +64,13 @@ function PraxisPlanerComponent() {
   const navigate = useNavigate();
   const { date: urlDate, tab: urlTab } = Route.useParams();
   
+  // Remove unused urlDate variable 
+  void urlDate;
+  
   // Determine active tab from URL or default to "calendar"
   const activeTab = urlTab || "calendar";
   
-  // Parse selected date from URL or default to today (this would be used if calendar needs date selection)
-  const selectedDate = urlDate ? new Date(urlDate) : new Date();
+  // Parse selected date from URL or default to today (stored for potential future use)
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
@@ -108,16 +110,13 @@ function PraxisPlanerComponent() {
 
   // Function to update URL when tab changes
   const setActiveTab = useCallback((newTab: string) => {
-    const newTabParam = newTab === "calendar" ? undefined : newTab;
-    const newDateParam = new Date().toDateString() === new Date().toDateString() 
-      ? undefined 
-      : new Date().toISOString().split('T')[0];
+    const params: { [key: string]: string } = {};
+    if (newTab !== "calendar") {
+      params["tab"] = newTab;
+    }
     
     void navigate({
-      params: {
-        date: newDateParam,
-        tab: newTabParam,
-      },
+      params,
       to: "/praxisplaner/{-$date}/{-$tab}",
     });
   }, [navigate]);

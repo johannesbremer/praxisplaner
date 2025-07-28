@@ -9,13 +9,8 @@ function RegelnRedirect() {
   
   useEffect(() => {
     void navigate({
+      params: {},  // Use empty object instead of explicit undefined values
       to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
-      params: {
-        tab: undefined,
-        ruleSet: undefined,
-        patientType: undefined,
-        date: undefined,
-      },
     });
   }, [navigate]);
 
