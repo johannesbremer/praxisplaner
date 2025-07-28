@@ -141,14 +141,11 @@ export default function LogicView() {
       ruleSet?: Id<"ruleSets"> | null | undefined;
       tab?: string;
     }) => {
-      const newTab = updates.tab === undefined ? activeTab : updates.tab;
-      const newRuleSet =
-        updates.ruleSet === undefined ? selectedRuleSetId : updates.ruleSet;
+      const newTab = updates.tab ?? activeTab;
+      const newRuleSet = updates.ruleSet ?? selectedRuleSetId;
       const newPatientType =
-        updates.patientType === undefined
-          ? simulatedContext.patient.isNew
-          : updates.patientType;
-      const newDate = updates.date === undefined ? selectedDate : updates.date;
+        updates.patientType ?? simulatedContext.patient.isNew;
+      const newDate = updates.date ?? selectedDate;
 
       const params: Record<string, string> = {};
 
@@ -162,7 +159,10 @@ export default function LogicView() {
         params["patientType"] = "existing";
       }
       if (newDate.toDateString() !== new Date().toDateString()) {
-        params["date"] = newDate.toISOString().split("T")[0];
+        const dateString = newDate.toISOString().split("T")[0];
+        if (dateString) {
+          params["date"] = dateString;
+        }
       }
 
       void navigate({
