@@ -41,6 +41,7 @@ import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
 
+import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { DebugView } from "../components/debug-view";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
@@ -764,6 +765,9 @@ export default function LogicView() {
 
                 {/* Base Schedule Management */}
                 <BaseScheduleManagement practiceId={currentPractice._id} />
+
+                {/* Appointment Types Management */}
+                <AppointmentTypesManagement practiceId={currentPractice._id} />
               </div>
             </div>
 
