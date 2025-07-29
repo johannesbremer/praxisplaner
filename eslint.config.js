@@ -184,6 +184,13 @@ export default tseslint.config(
     },
   },
   {
+    // Allow TanStack Router file naming patterns
+    files: ["src/routes/**/{-$*}.{tsx,ts}"],
+    rules: {
+      "unicorn/filename-case": "off",
+    },
+  },
+  {
     // Allow camelCase filenames in Convex directory
     files: ["convex/**/*.{js,ts}"],
     rules: {
