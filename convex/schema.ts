@@ -66,6 +66,10 @@ export default defineSchema({
     .index("by_locationId", ["locationId"]),
 
   locations: defineTable({
+    color: v.object({
+      bg: v.string(),
+      text: v.string(),
+    }),
     name: v.string(),
     practiceId: v.id("practices"),
   }).index("by_practiceId", ["practiceId"]),

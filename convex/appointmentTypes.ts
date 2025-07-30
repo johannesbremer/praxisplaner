@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
+import { getNextLocationColor } from "./validators";
 
 export const createAppointmentType = mutation({
   args: {
@@ -322,8 +323,13 @@ export const importAppointmentTypesFromCsv = mutation({
       // Get or create location
       let locationId = locationNameToId.get(locationName);
       if (!locationId) {
+        // Calculate color for new location based on current count
+        const currentLocationCount = locationNameToId.size;
+        const assignedColor = getNextLocationColor(currentLocationCount);
+
         // Create new location
         locationId = await ctx.db.insert("locations", {
+          color: assignedColor,
           name: locationName,
           practiceId: args.practiceId,
         });

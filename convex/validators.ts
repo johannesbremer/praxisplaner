@@ -3,6 +3,31 @@
 
 import { v } from "convex/values";
 
+// Available colors for locations
+export const LOCATION_COLORS = [
+  { bg: "bg-blue-50", text: "text-blue-700" },
+  { bg: "bg-green-50", text: "text-green-700" },
+  { bg: "bg-purple-50", text: "text-purple-700" },
+  { bg: "bg-orange-50", text: "text-orange-700" },
+  { bg: "bg-pink-50", text: "text-pink-700" },
+  { bg: "bg-indigo-50", text: "text-indigo-700" },
+  { bg: "bg-cyan-50", text: "text-cyan-700" },
+  { bg: "bg-teal-50", text: "text-teal-700" },
+  { bg: "bg-lime-50", text: "text-lime-700" },
+  { bg: "bg-amber-50", text: "text-amber-700" },
+] as const;
+
+// Helper function to get next available color based on count
+export function getNextLocationColor(existingLocationCount: number) {
+  const colorIndex = existingLocationCount % LOCATION_COLORS.length;
+  const selectedColor = LOCATION_COLORS[colorIndex];
+  if (!selectedColor) {
+    // Fallback to first color if somehow undefined
+    return LOCATION_COLORS[0];
+  }
+  return selectedColor;
+}
+
 // Common reusable validators based on schema definitions
 
 // Date range validator (used in scheduling and other places)

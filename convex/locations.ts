@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { getNextLocationColor } from "./validators";
 
 /**
  * Get all locations for a practice.
@@ -39,7 +40,17 @@ export const createLocation = mutation({
       );
     }
 
+    // Get existing locations to determine next color
+    const existingLocations = await ctx.db
+      .query("locations")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    // Assign color based on the number of existing locations
+    const assignedColor = getNextLocationColor(existingLocations.length);
+
     const locationId = await ctx.db.insert("locations", {
+      color: assignedColor,
       name: args.name,
       practiceId: args.practiceId,
     });

@@ -34,29 +34,6 @@ export function AppointmentTypesManagement({
     practiceId,
   });
 
-  // Generate consistent colors for locations
-  const getLocationColor = (locationName: string) => {
-    const colors = [
-      { bg: 'bg-blue-50', text: 'text-blue-700' },
-      { bg: 'bg-green-50', text: 'text-green-700' },
-      { bg: 'bg-purple-50', text: 'text-purple-700' },
-      { bg: 'bg-orange-50', text: 'text-orange-700' },
-      { bg: 'bg-pink-50', text: 'text-pink-700' },
-      { bg: 'bg-indigo-50', text: 'text-indigo-700' },
-      { bg: 'bg-cyan-50', text: 'text-cyan-700' },
-      { bg: 'bg-teal-50', text: 'text-teal-700' },
-      { bg: 'bg-lime-50', text: 'text-lime-700' },
-      { bg: 'bg-amber-50', text: 'text-amber-700' },
-    ];
-    
-    // Use a simple hash function to consistently assign colors
-    let hash = 0;
-    for (let i = 0; i < locationName.length; i++) {
-      hash = ((hash << 5) - hash + locationName.charCodeAt(i)) & 0xffffffff;
-    }
-    return colors[Math.abs(hash) % colors.length];
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -161,7 +138,7 @@ export function AppointmentTypesManagement({
 
                                 return [
                                   ...practitionerLocationMap.entries(),
-                                ].map(([practitionerId, locationNames]) => {
+                                ].flatMap(([practitionerId, locationNames]) => {
                                   const practitioner = practitionersQuery?.find(
                                     (p) => p._id === practitionerId,
                                   );
@@ -195,21 +172,28 @@ export function AppointmentTypesManagement({
                                     );
                                   } else {
                                     // Show separate colored badge for each location
-                                    return locationNames.map((locationName) => {
-                                      const colors = getLocationColor(locationName);
-                                      if (!colors) return null;
-                                      
-                                      return (
-                                        <span
-                                          className={`inline-flex items-center px-2 py-1 text-xs font-medium ${colors.bg} ${colors.text} border ${colors.text.replace('text-', 'border-')} rounded-full`}
-                                          key={`${practitionerId}-${locationName}`}
-                                        >
-                                          {practitionerName} in {locationName}
-                                        </span>
-                                      );
-                                    }).filter(Boolean);
+                                    return locationNames
+                                      .map((locationName) => {
+                                        const location = locationsQuery?.find(
+                                          (l) => l.name === locationName,
+                                        );
+                                        const colors = location?.color;
+                                        if (!colors) {
+                                          return null;
+                                        }
+
+                                        return (
+                                          <span
+                                            className={`inline-flex items-center px-2 py-1 text-xs font-medium ${colors.bg} ${colors.text} border ${colors.text.replace("text-", "border-")} rounded-full`}
+                                            key={`${practitionerId}-${locationName}`}
+                                          >
+                                            {practitionerName} in {locationName}
+                                          </span>
+                                        );
+                                      })
+                                      .filter(Boolean);
                                   }
-                                }).flat();
+                                });
                               })()}
                             </div>
                           </div>
