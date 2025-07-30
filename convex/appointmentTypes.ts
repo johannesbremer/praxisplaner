@@ -34,27 +34,28 @@ export const createAppointmentType = mutation({
       .first();
 
     if (existing) {
-      // If it exists, update the durations
-      await ctx.db.patch(existing._id, {
-        ...(args.durations && { durations: args.durations }),
-        lastModified: BigInt(Date.now()),
-      });
-      return existing._id;
+      throw new Error("Appointment type with this name already exists");
     }
 
-    // Create new appointment type
-    const appointmentTypeData = {
+    // Create the appointment type
+    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
       createdAt: BigInt(Date.now()),
-      durations: args.durations ?? [],
       lastModified: BigInt(Date.now()),
       name: args.name,
       practiceId: args.practiceId,
-    };
+    });
 
-    const appointmentTypeId = await ctx.db.insert(
-      "appointmentTypes",
-      appointmentTypeData,
-    );
+    // Create duration entries if provided
+    if (args.durations) {
+      for (const duration of args.durations) {
+        await ctx.db.insert("appointmentTypeDurations", {
+          appointmentTypeId,
+          duration: duration.duration,
+          locationId: duration.locationId,
+          practitionerId: duration.practitionerId,
+        });
+      }
+    }
 
     return appointmentTypeId;
   },
@@ -71,7 +72,44 @@ export const getAppointmentTypes = query({
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
-    return appointmentTypes.sort((a, b) => a.name.localeCompare(b.name));
+    // For each appointment type, build the durations structure from the separate table
+    const result = await Promise.all(
+      appointmentTypes.map(async (appointmentType) => {
+        const durationRecords = await ctx.db
+          .query("appointmentTypeDurations")
+          .withIndex("by_appointmentType", (q) =>
+            q.eq("appointmentTypeId", appointmentType._id),
+          )
+          .collect();
+
+        // Transform back to the nested structure for backward compatibility
+        const durations: Record<
+          string,
+          Record<Id<"locations">, Id<"practitioners">[]>
+        > = {};
+
+        for (const record of durationRecords) {
+          const durationKey = record.duration.toString();
+          durations[durationKey] ??= {};
+          durations[durationKey][record.locationId] ??= [];
+
+          const practitionerList = durations[durationKey][record.locationId];
+          if (
+            practitionerList &&
+            !practitionerList.includes(record.practitionerId)
+          ) {
+            practitionerList.push(record.practitionerId);
+          }
+        }
+
+        return {
+          ...appointmentType,
+          durations: Object.keys(durations).length > 0 ? durations : undefined,
+        };
+      }),
+    );
+
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   },
   returns: v.array(
     v.object({
@@ -79,12 +117,12 @@ export const getAppointmentTypes = query({
       _id: v.id("appointmentTypes"),
       createdAt: v.int64(),
       durations: v.optional(
-        v.array(
-          v.object({
-            duration: v.number(),
-            locationId: v.id("locations"),
-            practitionerId: v.id("practitioners"),
-          }),
+        v.record(
+          v.string(), // duration in minutes as string key (e.g., "10", "15")
+          v.record(
+            v.id("locations"), // location ID as key
+            v.array(v.id("practitioners")), // practitioners at this location with this duration
+          ),
         ),
       ),
       lastModified: v.int64(),
@@ -121,11 +159,35 @@ export const updateAppointmentType = mutation({
     if (args.name !== undefined) {
       updates["name"] = args.name;
     }
+
+    // Update the appointment type
+    await ctx.db.patch(args.appointmentTypeId, updates);
+
+    // If durations are provided, update the durations table
     if (args.durations !== undefined) {
-      updates["durations"] = args.durations;
+      // First, delete all existing duration records for this appointment type
+      const existingDurations = await ctx.db
+        .query("appointmentTypeDurations")
+        .withIndex("by_appointmentType", (q) =>
+          q.eq("appointmentTypeId", args.appointmentTypeId),
+        )
+        .collect();
+
+      for (const duration of existingDurations) {
+        await ctx.db.delete(duration._id);
+      }
+
+      // Then, insert the new duration records
+      for (const duration of args.durations) {
+        await ctx.db.insert("appointmentTypeDurations", {
+          appointmentTypeId: args.appointmentTypeId,
+          duration: duration.duration,
+          locationId: duration.locationId,
+          practitionerId: duration.practitionerId,
+        });
+      }
     }
 
-    await ctx.db.patch(args.appointmentTypeId, updates);
     return null;
   },
   returns: v.null(),
@@ -309,7 +371,7 @@ export const importAppointmentTypesFromCsv = mutation({
       }
 
       // Build durations array with location support
-      const durations: {
+      const durationsArray: {
         duration: number;
         locationId: Id<"locations">;
         practitionerId: Id<"practitioners">;
@@ -324,7 +386,7 @@ export const importAppointmentTypesFromCsv = mutation({
         const duration = Number.parseInt(valueStr, 10);
 
         if (!Number.isNaN(duration) && duration > 0) {
-          durations.push({
+          durationsArray.push({
             duration,
             locationId: mapping.locationId,
             practitionerId: mapping.practitionerId,
@@ -340,20 +402,43 @@ export const importAppointmentTypesFromCsv = mutation({
         )
         .first()
         .then(async (existing) => {
+          let appointmentTypeId: Id<"appointmentTypes">;
+
           if (existing) {
             // Update existing
             await ctx.db.patch(existing._id, {
-              durations,
               lastModified: BigInt(Date.now()),
             });
+            appointmentTypeId = existing._id;
+
+            // Delete existing durations for this appointment type
+            const existingDurations = await ctx.db
+              .query("appointmentTypeDurations")
+              .withIndex("by_appointmentType", (q) =>
+                q.eq("appointmentTypeId", existing._id),
+              )
+              .collect();
+
+            for (const duration of existingDurations) {
+              await ctx.db.delete(duration._id);
+            }
           } else {
             // Create new
-            await ctx.db.insert("appointmentTypes", {
+            appointmentTypeId = await ctx.db.insert("appointmentTypes", {
               createdAt: BigInt(Date.now()),
-              durations,
               lastModified: BigInt(Date.now()),
               name: appointmentTypeName,
               practiceId: args.practiceId,
+            });
+          }
+
+          // Insert new duration records
+          for (const durationItem of durationsArray) {
+            await ctx.db.insert("appointmentTypeDurations", {
+              appointmentTypeId,
+              duration: durationItem.duration,
+              locationId: durationItem.locationId,
+              practitionerId: durationItem.practitionerId,
             });
           }
         });

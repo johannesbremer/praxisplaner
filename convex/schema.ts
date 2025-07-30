@@ -24,21 +24,25 @@ export default defineSchema({
     .index("by_practitionerId", ["practitionerId"])
     .index("by_start_end", ["start", "end"]),
 
+  appointmentTypeDurations: defineTable({
+    appointmentTypeId: v.id("appointmentTypes"),
+    duration: v.number(), // duration in minutes
+    locationId: v.id("locations"),
+    practitionerId: v.id("practitioners"),
+  })
+    .index("by_appointmentType", ["appointmentTypeId"])
+    .index("by_appointmentType_duration", ["appointmentTypeId", "duration"])
+    .index("by_appointmentType_location", ["appointmentTypeId", "locationId"])
+    .index("by_appointmentType_practitioner", [
+      "appointmentTypeId",
+      "practitionerId",
+    ]),
+
   appointmentTypes: defineTable({
+    createdAt: v.int64(),
+    lastModified: v.int64(),
     name: v.string(),
     practiceId: v.id("practices"),
-    // Duration mappings for different practitioners and locations
-    createdAt: v.int64(),
-    durations: v.optional(
-      v.array(
-        v.object({
-          duration: v.number(), // in minutes
-          locationId: v.id("locations"), // Required location for this duration mapping
-          practitionerId: v.id("practitioners"),
-        }),
-      ),
-    ),
-    lastModified: v.int64(),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_name", ["practiceId", "name"]),

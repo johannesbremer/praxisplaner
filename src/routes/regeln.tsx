@@ -769,9 +769,6 @@ export default function LogicView() {
                 {/* Base Schedule Management */}
                 <BaseScheduleManagement practiceId={currentPractice._id} />
 
-                {/* Appointment Types Management */}
-                <AppointmentTypesManagement practiceId={currentPractice._id} />
-
                 {/* Locations Management */}
                 <LocationsManagement practiceId={currentPractice._id} />
               </div>
@@ -803,6 +800,11 @@ export default function LogicView() {
                 simulationRuleSetId={simulationRuleSetId}
               />
             </div>
+          </div>
+
+          {/* Full width Appointment Types Management */}
+          <div className="mt-6">
+            <AppointmentTypesManagement practiceId={currentPractice._id} />
           </div>
         </TabsContent>
 
