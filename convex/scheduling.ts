@@ -82,6 +82,31 @@ export const getAvailableSlots = query({
 
     log.push(`Found ${practitioners.length} practitioners`);
 
+    // 2.5. Fetch available locations for this practice
+    const locations = await ctx.db
+      .query("locations")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    log.push(`Found ${locations.length} locations`);
+
+    // Determine which location to use for new appointments
+    let defaultLocationId: string | undefined;
+    if (args.simulatedContext.locationId) {
+      // Use the specified location if provided
+      defaultLocationId = args.simulatedContext.locationId;
+      log.push(`Using specified location: ${defaultLocationId}`);
+    } else if (locations.length > 0) {
+      // Default to the first available location
+      const firstLocation = locations[0];
+      if (firstLocation) {
+        defaultLocationId = firstLocation._id;
+        log.push(`Using default location: ${defaultLocationId}`);
+      }
+    } else {
+      log.push("No locations available - slots will have no location assigned");
+    }
+
     // 3. Generate all "candidate slots" in memory for the date range
     const candidateSlots: {
       blockedByRuleId?: string;
@@ -97,13 +122,31 @@ export const getAvailableSlots = query({
     const endDate = new Date(args.dateRange.end);
 
     for (const practitioner of practitioners) {
-      // Get base schedules for this practitioner
+      // Get base schedules for this practitioner and location
       const schedules = await ctx.db
         .query("baseSchedules")
         .withIndex("by_practitionerId", (q) =>
           q.eq("practitionerId", practitioner._id),
         )
+        .filter((q) => {
+          // If a location is specified in simulatedContext, only get schedules for that location
+          if (args.simulatedContext.locationId) {
+            return q.eq(
+              q.field("locationId"),
+              args.simulatedContext.locationId,
+            );
+          }
+          // If no location specified, get all schedules (backward compatibility)
+          return true;
+        })
         .collect();
+
+      log.push(
+        `Practitioner ${practitioner.name}: Found ${schedules.length} schedules` +
+          (args.simulatedContext.locationId
+            ? ` for location ${args.simulatedContext.locationId}`
+            : " (all locations)"),
+      );
 
       // Generate slots for each day in the date range
       for (
@@ -159,6 +202,7 @@ export const getAvailableSlots = query({
             if (!isBreakTime) {
               candidateSlots.push({
                 duration: slotDuration,
+                ...(defaultLocationId && { locationId: defaultLocationId }),
                 practitionerId: practitioner._id,
                 practitionerName: practitioner.name,
                 startTime: slotTime.toISOString(),

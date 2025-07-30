@@ -87,6 +87,8 @@ export default function BaseScheduleManagement({
     breakTimes?: { end: string; start: string }[];
     daysOfWeek: number[];
     endTime: string;
+    locationId?: Id<"locations">;
+    locationName?: string;
     practitionerId: Id<"practitioners">;
     scheduleIds: Id<"baseSchedules">[];
     startTime: string;
@@ -115,6 +117,7 @@ export default function BaseScheduleManagement({
       ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
+      locationId: scheduleGroup.locationId || ("" as Id<"locations">),
       practitionerId: scheduleGroup.practitionerId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
@@ -159,7 +162,7 @@ export default function BaseScheduleManagement({
     setEditingSchedule(undefined);
   };
 
-  // Group schedules by practitioner and then by schedule "signature" (time + breaks)
+  // Group schedules by practitioner and then by schedule "signature" (time + breaks + location)
   const schedulesByPractitioner =
     schedulesQuery?.reduce(
       (
@@ -171,6 +174,8 @@ export default function BaseScheduleManagement({
               breakTimes?: { end: string; start: string }[];
               daysOfWeek: number[];
               endTime: string;
+              locationId?: Id<"locations">;
+              locationName?: string;
               practitionerId: Id<"practitioners">;
               scheduleIds: Id<"baseSchedules">[];
               startTime: string;
@@ -182,11 +187,12 @@ export default function BaseScheduleManagement({
         const practitionerName = schedule.practitionerName;
         acc[practitionerName] ??= [];
 
-        // Look for existing group with same times and breaks
+        // Look for existing group with same times, breaks, and location
         const existingGroup = acc[practitionerName].find(
           (item) =>
             item.scheduleGroup.startTime === schedule.startTime &&
             item.scheduleGroup.endTime === schedule.endTime &&
+            item.scheduleGroup.locationId === schedule.locationId &&
             JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
               JSON.stringify(schedule.breakTimes ?? []),
         );
@@ -204,6 +210,10 @@ export default function BaseScheduleManagement({
               ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
               daysOfWeek: [schedule.dayOfWeek],
               endTime: schedule.endTime,
+              ...(schedule.locationId && { locationId: schedule.locationId }),
+              ...(schedule.locationName && {
+                locationName: schedule.locationName,
+              }),
               practitionerId: schedule.practitionerId,
               scheduleIds: [schedule._id],
               startTime: schedule.startTime,
@@ -221,6 +231,8 @@ export default function BaseScheduleManagement({
             breakTimes?: { end: string; start: string }[];
             daysOfWeek: number[];
             endTime: string;
+            locationId?: Id<"locations">;
+            locationName?: string;
             practitionerId: Id<"practitioners">;
             scheduleIds: Id<"baseSchedules">[];
             startTime: string;
@@ -279,8 +291,9 @@ export default function BaseScheduleManagement({
                         key={`${practitionerName}-${index}`}
                       >
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="flex gap-1">
+                          <div className="space-y-2 mb-1">
+                            {/* Days row */}
+                            <div className="flex gap-1 flex-wrap">
                               {scheduleGroup.scheduleGroup.daysOfWeek.map(
                                 (day) => (
                                   <Badge key={day} variant="outline">
@@ -289,10 +302,18 @@ export default function BaseScheduleManagement({
                                 ),
                               )}
                             </div>
-                            <span className="font-medium">
-                              {scheduleGroup.scheduleGroup.startTime} -{" "}
-                              {scheduleGroup.scheduleGroup.endTime}
-                            </span>
+                            {/* Time and location row */}
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">
+                                {scheduleGroup.scheduleGroup.startTime} -{" "}
+                                {scheduleGroup.scheduleGroup.endTime}
+                              </span>
+                              {scheduleGroup.scheduleGroup.locationName && (
+                                <Badge variant="secondary">
+                                  {scheduleGroup.scheduleGroup.locationName}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                           <div className="text-sm text-muted-foreground">
                             Pausen:{" "}
@@ -355,6 +376,10 @@ function BaseScheduleDialog({
     practiceId,
   });
 
+  const locationsQuery = useQuery(api.locations.getLocations, {
+    practiceId,
+  });
+
   const createScheduleMutation = useMutation(
     api.baseSchedules.createBaseSchedule,
   );
@@ -371,6 +396,7 @@ function BaseScheduleDialog({
           : [schedule.dayOfWeek]
         : [],
       endTime: schedule?.endTime ?? "17:00",
+      locationId: schedule?.locationId ?? locationsQuery?.[0]?._id ?? "",
       practitionerId: schedule?.practitionerId ?? "",
       startTime: schedule?.startTime ?? "08:00",
     },
@@ -412,11 +438,13 @@ function BaseScheduleDialog({
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
               endTime: string;
+              locationId: Id<"locations">;
               practitionerId: Id<"practitioners">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
+              locationId: value.locationId as Id<"locations">,
               practitionerId: schedule.practitionerId,
               startTime: value.startTime,
             };
@@ -446,6 +474,19 @@ function BaseScheduleDialog({
             return;
           }
 
+          if (!value.locationId) {
+            const error = new Error("Bitte wählen Sie einen Standort aus");
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: false,
+              practiceId,
+              validationField: "locationId",
+            });
+            toast.error(error.message);
+            return;
+          }
+
           if (value.daysOfWeek.length === 0) {
             const error = new Error(
               "Bitte wählen Sie mindestens einen Wochentag aus",
@@ -466,11 +507,13 @@ function BaseScheduleDialog({
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
               endTime: string;
+              locationId: Id<"locations">;
               practitionerId: Id<"practitioners">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
+              locationId: value.locationId as Id<"locations">,
               practitionerId: value.practitionerId as Id<"practitioners">,
               startTime: value.startTime,
             };
@@ -564,6 +607,40 @@ function BaseScheduleDialog({
                 {schedule && (
                   <p className="text-xs text-muted-foreground">
                     Arzt kann bei der Bearbeitung nicht geändert werden
+                  </p>
+                )}
+              </div>
+            )}
+          </form.Field>
+
+          <form.Field
+            name="locationId"
+            validators={{
+              onChange: ({ value }) =>
+                value ? undefined : "Bitte wählen Sie einen Standort aus",
+            }}
+          >
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="location">Standort</Label>
+                <Select
+                  onValueChange={field.handleChange}
+                  value={field.state.value}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Standort auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locationsQuery?.map((location) => (
+                      <SelectItem key={location._id} value={location._id}>
+                        {location.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-500">
+                    {field.state.meta.errors[0]}
                   </p>
                 )}
               </div>

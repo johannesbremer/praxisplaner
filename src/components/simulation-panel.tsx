@@ -221,6 +221,7 @@ export function SimulationPanel({
           <DebugView
             dateRange={dateRange}
             onSlotClick={handleSlotClick}
+            onUpdateSimulatedContext={setSimulatedContext}
             practiceId={practiceId}
             ruleSetId={simulationRuleSetId}
             simulatedContext={simulatedContext}

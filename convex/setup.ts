@@ -22,6 +22,12 @@ export const setupDemoData = mutation({
       practiceId,
     });
 
+    // Create a default location
+    const locationId = await ctx.db.insert("locations", {
+      name: "Hauptstandort",
+      practiceId,
+    });
+
     // Create base schedules for today (assuming Monday = 1)
     const today = new Date();
     const dayOfWeek = today.getDay(); // Get current day of week
@@ -31,6 +37,7 @@ export const setupDemoData = mutation({
       await ctx.db.insert("baseSchedules", {
         dayOfWeek,
         endTime: "16:00",
+        locationId,
         practitionerId: practitioner1Id,
         startTime: "08:00",
       });
@@ -41,6 +48,7 @@ export const setupDemoData = mutation({
       await ctx.db.insert("baseSchedules", {
         dayOfWeek,
         endTime: "17:00",
+        locationId,
         practitionerId: practitioner2Id,
         startTime: "09:00",
       });

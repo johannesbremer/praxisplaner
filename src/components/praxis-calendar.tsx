@@ -29,6 +29,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { CalendarEvent } from "../types";
 
 import { api } from "../../convex/_generated/api";
+import { LocationSelector } from "./location-selector";
 
 // Import CSS for drag and drop
 import "react-big-calendar/lib/css/react-big-calendar.css";
@@ -52,11 +53,17 @@ interface PraxisCalendarProps {
     startTime: string;
     status: "AVAILABLE" | "BLOCKED";
   }) => void;
+  onUpdateSimulatedContext?: (context: {
+    appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
+    patient: { isNew: boolean };
+  }) => void;
   practiceId?: Id<"practices">;
   ruleSetId?: Id<"ruleSets">;
   showGdtAlert?: boolean;
   simulatedContext?: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   };
   simulationDate?: Date;
@@ -215,6 +222,7 @@ export function PraxisCalendar({
   onCreateLocalAppointment,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
   onSlotClick: _onSlotClick,
+  onUpdateSimulatedContext,
   practiceId: propPracticeId,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
   ruleSetId: _ruleSetId,
@@ -260,6 +268,10 @@ export function PraxisCalendar({
     api.baseSchedules.getAllBaseSchedules,
     practiceId ? { practiceId } : "skip",
   );
+  const locationsData = useConvexQuery(
+    api.locations.getLocations,
+    practiceId ? { practiceId } : "skip",
+  );
 
   // Mutations
   const createAppointmentMutation = useConvexMutation(
@@ -271,6 +283,11 @@ export function PraxisCalendar({
 
   // Get current date info - use simulationDate if provided, otherwise use current date
   const [currentDate, setCurrentDate] = useState(simulationDate ?? new Date());
+
+  // Local state for selected location (for non-simulation mode)
+  const [selectedLocationId, setSelectedLocationId] = useState<
+    Id<"locations"> | undefined
+  >();
 
   // Update currentDate when simulationDate changes
   useEffect(() => {
@@ -292,10 +309,22 @@ export function PraxisCalendar({
     }
 
     // Find practitioners working on the current selected day
-    const daySchedules = baseSchedulesData.filter(
+    let daySchedules = baseSchedulesData.filter(
       (schedule: Doc<"baseSchedules"> & { practitionerName: string }) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
+
+    // Filter by location in simulation mode
+    if (simulatedContext?.locationId) {
+      daySchedules = daySchedules.filter(
+        (schedule) => schedule.locationId === simulatedContext.locationId,
+      );
+    } else if (selectedLocationId) {
+      // Filter by location in real mode
+      daySchedules = daySchedules.filter(
+        (schedule) => schedule.locationId === selectedLocationId,
+      );
+    }
 
     if (daySchedules.length === 0) {
       return {
@@ -330,11 +359,17 @@ export function PraxisCalendar({
       minStartTime: new Date(0, 0, 0, businessStartHour, 0, 0),
       workingPractitioners: working,
     };
-  }, [practitionersData, baseSchedulesData, currentDayOfWeek]);
+  }, [
+    practitionersData,
+    baseSchedulesData,
+    currentDayOfWeek,
+    simulatedContext,
+    selectedLocationId,
+  ]);
 
   // Convert convex appointments to calendar events
   const events: CalendarEvent[] = useMemo(() => {
-    const convexEvents: CalendarEvent[] = appointmentsData
+    let convexEvents: CalendarEvent[] = appointmentsData
       ? appointmentsData.map(
           (appointment: Doc<"appointments">): CalendarEvent => ({
             end: new Date(appointment.end),
@@ -352,8 +387,20 @@ export function PraxisCalendar({
         )
       : [];
 
+    // Filter by location in simulation mode
+    if (simulatedContext?.locationId) {
+      convexEvents = convexEvents.filter(
+        (event) => event.resource?.locationId === simulatedContext.locationId,
+      );
+    } else if (selectedLocationId) {
+      // Filter by location in real mode
+      convexEvents = convexEvents.filter(
+        (event) => event.resource?.locationId === selectedLocationId,
+      );
+    }
+
     // Convert local appointments to calendar events
-    const localEvents: CalendarEvent[] = localAppointments.map(
+    let localEvents: CalendarEvent[] = localAppointments.map(
       (appointment: LocalAppointment): CalendarEvent => ({
         end: appointment.end,
         id: appointment.id,
@@ -370,13 +417,35 @@ export function PraxisCalendar({
       }),
     );
 
+    // Filter local appointments by location in simulation mode
+    if (simulatedContext?.locationId) {
+      localEvents = localEvents.filter(
+        (event) => event.resource?.locationId === simulatedContext.locationId,
+      );
+    } else if (selectedLocationId) {
+      // Filter local appointments by location in real mode
+      localEvents = localEvents.filter(
+        (event) => event.resource?.locationId === selectedLocationId,
+      );
+    }
+
     return [...convexEvents, ...localEvents];
-  }, [appointmentsData, localAppointments]);
+  }, [
+    appointmentsData,
+    localAppointments,
+    simulatedContext,
+    selectedLocationId,
+  ]);
 
   const handleSelectSlot = useCallback(
     (slotInfo: SlotInfo) => {
       if (onCreateLocalAppointment && simulatedContext) {
         // For simulation mode, create local appointments
+        if (!simulatedContext.locationId) {
+          alert("Bitte wählen Sie zuerst einen Standort aus.");
+          return;
+        }
+
         const title = globalThis.prompt("Neuer lokaler Termin:");
         if (title && workingPractitioners.length > 0) {
           // Use the first available practitioner for simplicity
@@ -385,6 +454,7 @@ export function PraxisCalendar({
             onCreateLocalAppointment({
               appointmentType: simulatedContext.appointmentType,
               end: slotInfo.end,
+              locationId: simulatedContext.locationId,
               notes: "Lokaler Simulationstermin",
               practitionerId: practitioner.id,
               start: slotInfo.start,
@@ -398,6 +468,7 @@ export function PraxisCalendar({
         if (title) {
           void createAppointmentMutation({
             end: slotInfo.end.toISOString(),
+            ...(selectedLocationId && { locationId: selectedLocationId }),
             start: slotInfo.start.toISOString(),
             title,
           });
@@ -407,6 +478,7 @@ export function PraxisCalendar({
     [
       createAppointmentMutation,
       onCreateLocalAppointment,
+      selectedLocationId,
       simulatedContext,
       workingPractitioners,
     ],
@@ -531,8 +603,46 @@ export function PraxisCalendar({
         </Card>
       </div>
 
+      {/* Location Selection */}
+      {locationsData && locationsData.length > 0 && (
+        <div className="flex justify-center">
+          <div className="w-auto min-w-96">
+            <LocationSelector
+              locations={locationsData}
+              onLocationSelect={(locationId) => {
+                if (simulatedContext && onUpdateSimulatedContext) {
+                  // Simulation mode: update simulated context
+                  const newContext = {
+                    appointmentType: simulatedContext.appointmentType,
+                    locationId,
+                    patient: simulatedContext.patient,
+                  };
+                  onUpdateSimulatedContext(newContext);
+                } else {
+                  // Real mode: update local state
+                  setSelectedLocationId(locationId);
+                }
+              }}
+              selectedLocationId={
+                simulatedContext?.locationId || selectedLocationId
+              }
+            />
+          </div>
+        </div>
+      )}
+
       <Card>
-        {workingPractitioners.length === 0 ? (
+        {simulatedContext && !simulatedContext.locationId ? (
+          <CardContent className="flex items-center justify-center h-96 pt-6">
+            <Alert className="w-auto max-w-md">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Standort auswählen</AlertTitle>
+              <AlertDescription>
+                Bitte wählen Sie einen Standort aus, um Termine anzuzeigen.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        ) : workingPractitioners.length === 0 ? (
           <CardContent className="flex items-center justify-center h-96 pt-6">
             <Alert className="w-auto max-w-md">
               <AlertCircle className="h-4 w-4" />
@@ -540,6 +650,9 @@ export function PraxisCalendar({
               <AlertDescription>
                 Es sind keine Ärzte für{" "}
                 {moment(currentDate).format("dddd, DD.MM.YYYY")} eingeplant.
+                {selectedLocationId || simulatedContext?.locationId
+                  ? " an diesem Standort"
+                  : " (alle Standorte)"}
               </AlertDescription>
             </Alert>
           </CardContent>

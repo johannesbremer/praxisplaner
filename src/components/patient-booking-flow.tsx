@@ -22,12 +22,14 @@ interface PatientBookingFlowProps {
   }) => void;
   onUpdateSimulatedContext?: (context: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   }) => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets"> | undefined;
   simulatedContext: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   };
 }

@@ -41,9 +41,11 @@ import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
 
+import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { DebugView } from "../components/debug-view";
+import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
@@ -70,6 +72,7 @@ interface SaveDialogFormProps {
 
 interface SimulatedContext {
   appointmentType: string;
+  locationId?: Id<"locations"> | undefined;
   patient: { isNew: boolean };
 }
 
@@ -768,6 +771,9 @@ export default function LogicView() {
 
                 {/* Appointment Types Management */}
                 <AppointmentTypesManagement practiceId={currentPractice._id} />
+
+                {/* Locations Management */}
+                <LocationsManagement practiceId={currentPractice._id} />
               </div>
             </div>
 
@@ -837,6 +843,7 @@ export default function LogicView() {
                 <DebugView
                   dateRange={dateRange}
                   onSlotClick={handleSlotClick}
+                  onUpdateSimulatedContext={setSimulatedContext}
                   practiceId={currentPractice._id}
                   ruleSetId={simulationRuleSetId}
                   simulatedContext={simulatedContext}
@@ -1093,6 +1100,16 @@ function SimulationControls({
           </Select>
         </div>
 
+        <AppointmentTypeSelector
+          onTypeSelect={(type: string) => {
+            onSimulatedContextChange({
+              ...simulatedContext,
+              appointmentType: type,
+            });
+          }}
+          selectedType={simulatedContext.appointmentType}
+        />
+
         <div className="space-y-2">
           <Label htmlFor="patient-type">Patiententyp</Label>
           <Select
@@ -1144,6 +1161,11 @@ function SimulationControls({
 
 // Slot Inspector Component - Extracted from SimulationPanel
 function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
+  const locationQuery = useQuery(
+    api.locations.getLocation,
+    selectedSlot?.locationId ? { locationId: selectedSlot.locationId } : "skip",
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -1175,6 +1197,15 @@ function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
               <Label className="text-sm font-medium">Arzt</Label>
               <div>{selectedSlot.practitionerName}</div>
             </div>
+
+            {(selectedSlot.locationId || locationQuery) && (
+              <div>
+                <Label className="text-sm font-medium">Standort</Label>
+                <div>
+                  {locationQuery ? locationQuery.name : "Wird geladen..."}
+                </div>
+              </div>
+            )}
 
             <div>
               <Label className="text-sm font-medium">Dauer</Label>

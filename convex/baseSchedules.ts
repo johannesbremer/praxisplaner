@@ -22,6 +22,7 @@ export const createBaseSchedule = mutation({
     breakTimes: breakTimesValidator,
     dayOfWeek: v.number(),
     endTime: v.string(),
+    locationId: v.id("locations"),
     practitionerId: v.id("practitioners"),
     startTime: v.string(),
   },
@@ -95,11 +96,13 @@ export const createBaseSchedule = mutation({
       breakTimes?: { end: string; start: string }[];
       dayOfWeek: number;
       endTime: string;
+      locationId: Id<"locations">;
       practitionerId: Id<"practitioners">;
       startTime: string;
     } = {
       dayOfWeek: args.dayOfWeek,
       endTime: args.endTime,
+      locationId: args.locationId,
       practitionerId: args.practitionerId,
       startTime: args.startTime,
     };
@@ -238,8 +241,16 @@ export const getAllBaseSchedules = query({
         .collect();
 
       for (const schedule of schedules) {
+        // Get location name if locationId exists
+        let locationName: string | undefined;
+        if (schedule.locationId) {
+          const location = await ctx.db.get(schedule.locationId);
+          locationName = location?.name;
+        }
+
         allSchedules.push({
           ...schedule,
+          locationName,
           practitionerName: practitioner.name,
         });
       }

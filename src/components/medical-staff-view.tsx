@@ -21,12 +21,14 @@ interface MedicalStaffViewProps {
   }) => void;
   onUpdateSimulatedContext?: (context: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   }) => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets"> | undefined;
   simulatedContext: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   };
 }
@@ -36,8 +38,7 @@ export function MedicalStaffView({
   localAppointments = [],
   onCreateLocalAppointment,
   onSlotClick,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
-  onUpdateSimulatedContext: _onUpdateSimulatedContext,
+  onUpdateSimulatedContext,
   practiceId,
   ruleSetId,
   simulatedContext,
@@ -47,7 +48,7 @@ export function MedicalStaffView({
 
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
-    <div className="h-full w-full overflow-auto p-6">
+    <div className="h-full w-full overflow-auto p-6 space-y-6">
       <PraxisCalendar
         localAppointments={localAppointments}
         {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
@@ -55,6 +56,7 @@ export function MedicalStaffView({
         practiceId={practiceId}
         {...(ruleSetId && { ruleSetId })}
         simulatedContext={simulatedContext}
+        {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
         simulationDate={simulationDate}
       />
     </div>

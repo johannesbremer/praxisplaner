@@ -53,9 +53,12 @@ export default defineSchema({
     ),
     dayOfWeek: v.number(), // 0 = Sunday, 1 = Monday, etc.
     endTime: v.string(), // "17:00"
+    locationId: v.id("locations"), // Required location for the schedule
     practitionerId: v.id("practitioners"),
     startTime: v.string(), // "08:00"
-  }).index("by_practitionerId", ["practitionerId"]),
+  })
+    .index("by_practitionerId", ["practitionerId"])
+    .index("by_locationId", ["locationId"]),
 
   locations: defineTable({
     name: v.string(),

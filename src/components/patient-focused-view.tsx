@@ -17,6 +17,9 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalAppointment } from "../utils/local-appointments";
 
+import { AppointmentTypeSelector } from "./appointment-type-selector";
+import { LocationSelector } from "./location-selector";
+
 interface PatientFocusedViewProps {
   dateRange: { end: string; start: string };
   localAppointments?: LocalAppointment[];
@@ -34,23 +37,17 @@ interface PatientFocusedViewProps {
   }) => void;
   onUpdateSimulatedContext?: (context: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   }) => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets"> | undefined;
   simulatedContext: {
     appointmentType: string;
+    locationId?: Id<"locations"> | undefined;
     patient: { isNew: boolean };
   };
 }
-
-const appointmentTypes = [
-  "Erstberatung",
-  "Nachuntersuchung",
-  "Grippeimpfung",
-  "Vorsorge",
-  "Akutsprechstunde",
-];
 
 export function PatientFocusedView({
   dateRange,
@@ -64,6 +61,11 @@ export function PatientFocusedView({
   ruleSetId,
   simulatedContext,
 }: PatientFocusedViewProps) {
+  // Track selected location in local state
+  const [selectedLocationId, setSelectedLocationId] = useState<
+    Id<"locations"> | undefined
+  >(simulatedContext.locationId);
+
   // Track calendar navigation independently from simulation dateRange
   const [calendarStartDate, setCalendarStartDate] = useState(
     new Date(dateRange.start),
@@ -73,6 +75,9 @@ export function PatientFocusedView({
   useEffect(() => {
     setCalendarStartDate(new Date(dateRange.start));
   }, [dateRange.start]);
+
+  // Fetch available locations
+  const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
 
   // Create expanded date range for calendar (5 days from calendar start)
   const calendarEndDate = new Date(calendarStartDate);
@@ -84,37 +89,47 @@ export function PatientFocusedView({
     start: calendarStartDate.toISOString(),
   };
 
+  // Create the simulated context with selected location
+  const effectiveSimulatedContext = {
+    ...simulatedContext,
+    locationId: selectedLocationId,
+  };
+
   const slotsResult = useQuery(
     api.scheduling.getAvailableSlots,
-    ruleSetId
+    // Only fetch slots if a location is selected
+    selectedLocationId && ruleSetId
       ? {
           dateRange: calendarDateRange,
           practiceId,
           ruleSetId,
-          simulatedContext,
+          simulatedContext: effectiveSimulatedContext,
         }
-      : {
-          dateRange: calendarDateRange,
-          practiceId,
-          simulatedContext,
-        },
+      : selectedLocationId
+        ? {
+            dateRange: calendarDateRange,
+            practiceId,
+            simulatedContext: effectiveSimulatedContext,
+          }
+        : "skip",
   );
 
-  if (!slotsResult) {
+  if (!locationsQuery) {
     return (
       <div className="p-4 pt-12">
         <div className="text-center">
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
-          <div className="text-muted-foreground">Termine werden geladen...</div>
+          <div className="text-muted-foreground">
+            Standorte werden geladen...
+          </div>
         </div>
       </div>
     );
   }
 
-  // Only show available slots to patients
-  const availableSlots = slotsResult.slots.filter(
-    (slot) => slot.status === "AVAILABLE",
-  );
+  // Process slots data only when we have it
+  const availableSlots =
+    slotsResult?.slots.filter((slot) => slot.status === "AVAILABLE") ?? [];
 
   // Get unique dates that have available appointments
   const datesWithAppointments = new Set(
@@ -158,151 +173,163 @@ export function PatientFocusedView({
         <div>
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
           <p className="text-sm text-muted-foreground">
-            Wählen Sie Ihre gewünschte Terminart und einen passenden Termin
+            {selectedLocationId
+              ? "Wählen Sie Ihre gewünschte Terminart und einen passenden Termin"
+              : "Wählen Sie zuerst einen Standort für Ihren Termin"}
           </p>
         </div>
 
-        {/* Terminart Selection */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Terminart wählen</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-2">
-              {appointmentTypes.map((type) => (
-                <Button
-                  className="justify-start text-left h-auto p-3"
-                  key={type}
-                  onClick={() => {
-                    onUpdateSimulatedContext?.({
-                      ...simulatedContext,
-                      appointmentType: type,
-                    });
-                  }}
-                  size="sm"
-                  variant={
-                    simulatedContext.appointmentType === type
-                      ? "default"
-                      : "outline"
-                  }
+        {/* Location Selection */}
+        <LocationSelector
+          locations={locationsQuery}
+          onLocationSelect={(locationId: Id<"locations">) => {
+            setSelectedLocationId(locationId);
+            // Update simulated context with the selected location
+            onUpdateSimulatedContext?.({
+              ...simulatedContext,
+              locationId,
+            });
+          }}
+          selectedLocationId={selectedLocationId}
+        />
+
+        {/* Terminart Selection - Always visible */}
+        <AppointmentTypeSelector
+          onTypeSelect={(type: string) => {
+            onUpdateSimulatedContext?.({
+              ...simulatedContext,
+              appointmentType: type,
+            });
+          }}
+          selectedType={simulatedContext.appointmentType}
+        />
+
+        {/* Show calendar and appointments only when location is selected and slots are loaded */}
+        {selectedLocationId && slotsResult && (
+          <>
+            {/* Mini Calendar */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Verfügbare Tage</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MiniCalendar
+                  days={5}
+                  onStartDateChange={setCalendarStartDate}
+                  startDate={calendarStartDate}
                 >
-                  {type}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                  <MiniCalendarNavigation direction="prev" />
+                  <MiniCalendarDays className="flex-1 min-w-0">
+                    {(date) => (
+                      <MiniCalendarDay
+                        className={
+                          shouldShowDate(date)
+                            ? ""
+                            : "opacity-25 cursor-not-allowed"
+                        }
+                        date={date}
+                        key={date.toISOString()}
+                      />
+                    )}
+                  </MiniCalendarDays>
+                  <MiniCalendarNavigation direction="next" />
+                </MiniCalendar>
+              </CardContent>
+            </Card>
 
-        {/* Mini Calendar */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Verfügbare Tage</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MiniCalendar
-              days={5}
-              onStartDateChange={setCalendarStartDate}
-              startDate={calendarStartDate}
-            >
-              <MiniCalendarNavigation direction="prev" />
-              <MiniCalendarDays className="flex-1 min-w-0">
-                {(date) => (
-                  <MiniCalendarDay
-                    className={
-                      shouldShowDate(date)
-                        ? ""
-                        : "opacity-25 cursor-not-allowed"
-                    }
-                    date={date}
-                    key={date.toISOString()}
-                  />
+            {/* Available Appointments */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Verfügbare Termine</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {sortedDates.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <p>Keine verfügbaren Termine gefunden.</p>
+                    <p className="text-sm mt-1">
+                      Bitte wählen Sie einen anderen Zeitraum.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sortedDates.map((dateString) => {
+                      const date = new Date(dateString);
+                      const daySlots = slotsByDate.get(dateString);
+
+                      if (!daySlots) {
+                        return null;
+                      }
+
+                      return (
+                        <div key={dateString}>
+                          <h4 className="font-medium mb-2 text-sm">
+                            {format(date, "EEEE, d. MMMM", { locale: de })}
+                          </h4>
+                          <div className="grid gap-2 grid-cols-2">
+                            {daySlots
+                              .sort(
+                                (a, b) =>
+                                  new Date(a.startTime).getTime() -
+                                  new Date(b.startTime).getTime(),
+                              )
+                              .map((slot) => {
+                                const slotTime = new Date(slot.startTime);
+                                // Display time in German timezone
+                                const hours = slotTime
+                                  .getUTCHours()
+                                  .toString()
+                                  .padStart(2, "0");
+                                const minutes = slotTime
+                                  .getUTCMinutes()
+                                  .toString()
+                                  .padStart(2, "0");
+                                const timeString = `${hours}:${minutes}`;
+
+                                return (
+                                  <Button
+                                    className="h-12 flex flex-col items-center justify-center"
+                                    key={`${slot.practitionerId}-${slot.startTime}`}
+                                    onClick={() => onSlotClick?.(slot)}
+                                    size="sm"
+                                    variant="outline"
+                                  >
+                                    <span className="font-medium text-sm">
+                                      {timeString}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {slot.duration} Min.
+                                    </span>
+                                  </Button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </MiniCalendarDays>
-              <MiniCalendarNavigation direction="next" />
-            </MiniCalendar>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
-        {/* Available Appointments */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Verfügbare Termine</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {sortedDates.length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground">
-                <p>Keine verfügbaren Termine gefunden.</p>
-                <p className="text-sm mt-1">
-                  Bitte wählen Sie einen anderen Zeitraum.
-                </p>
+            {/* Book Appointment Button */}
+            <div className="pb-4">
+              <Button className="w-full h-12" size="lg">
+                Termin buchen
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* Show loading state when location is selected but slots are still loading */}
+        {selectedLocationId && !slotsResult && (
+          <Card>
+            <CardContent className="py-6">
+              <div className="text-center text-muted-foreground">
+                Termine werden geladen...
               </div>
-            ) : (
-              <div className="space-y-4">
-                {sortedDates.map((dateString) => {
-                  const date = new Date(dateString);
-                  const daySlots = slotsByDate.get(dateString);
-
-                  if (!daySlots) {
-                    return null;
-                  }
-
-                  return (
-                    <div key={dateString}>
-                      <h4 className="font-medium mb-2 text-sm">
-                        {format(date, "EEEE, d. MMMM", { locale: de })}
-                      </h4>
-                      <div className="grid gap-2 grid-cols-2">
-                        {daySlots
-                          .sort(
-                            (a, b) =>
-                              new Date(a.startTime).getTime() -
-                              new Date(b.startTime).getTime(),
-                          )
-                          .map((slot) => {
-                            const slotTime = new Date(slot.startTime);
-                            // Display time in German timezone
-                            const hours = slotTime
-                              .getUTCHours()
-                              .toString()
-                              .padStart(2, "0");
-                            const minutes = slotTime
-                              .getUTCMinutes()
-                              .toString()
-                              .padStart(2, "0");
-                            const timeString = `${hours}:${minutes}`;
-
-                            return (
-                              <Button
-                                className="h-12 flex flex-col items-center justify-center"
-                                key={`${slot.practitionerId}-${slot.startTime}`}
-                                onClick={() => onSlotClick?.(slot)}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <span className="font-medium text-sm">
-                                  {timeString}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {slot.duration} Min.
-                                </span>
-                              </Button>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Book Appointment Button */}
-        <div className="pb-4">
-          <Button className="w-full h-12" size="lg">
-            Termin buchen
-          </Button>
-        </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
