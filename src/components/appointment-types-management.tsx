@@ -30,6 +30,9 @@ export function AppointmentTypesManagement({
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
+  const locationsQuery = useQuery(api.locations.getLocations, {
+    practiceId,
+  });
 
   return (
     <Card>
@@ -41,7 +44,7 @@ export function AppointmentTypesManagement({
               <CardTitle>Terminarten</CardTitle>
               <CardDescription>
                 Verwalten Sie Terminarten und deren Dauern für verschiedene
-                Ärzte
+                Ärzte und Standorte
               </CardDescription>
             </div>
           </div>
@@ -81,19 +84,23 @@ export function AppointmentTypesManagement({
                   appointmentType.durations.length > 0 ? (
                     <div className="space-y-1">
                       <div className="text-xs font-medium text-muted-foreground">
-                        Dauern je Arzt:
+                        Dauern je Arzt und Standort:
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {appointmentType.durations.map((duration) => {
+                        {appointmentType.durations.map((duration, index) => {
                           const practitioner = practitionersQuery?.find(
                             (p) => p._id === duration.practitionerId,
+                          );
+                          const location = locationsQuery?.find(
+                            (l) => l._id === duration.locationId,
                           );
                           return (
                             <div
                               className="text-xs bg-muted px-2 py-1 rounded"
-                              key={duration.practitionerId}
+                              key={`${duration.practitionerId}-${duration.locationId}-${index}`}
                             >
-                              {practitioner?.name || "Unbekannt"}:{" "}
+                              {practitioner?.name || "Unbekannt"} @{" "}
+                              {location?.name || "Unbekannt"}:{" "}
                               {duration.duration}min
                             </div>
                           );

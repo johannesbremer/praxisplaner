@@ -10,6 +10,7 @@ export const createAppointmentType = mutation({
       v.array(
         v.object({
           duration: v.number(),
+          locationId: v.id("locations"),
           practitionerId: v.id("practitioners"),
         }),
       ),
@@ -81,6 +82,7 @@ export const getAppointmentTypes = query({
         v.array(
           v.object({
             duration: v.number(),
+            locationId: v.id("locations"),
             practitionerId: v.id("practitioners"),
           }),
         ),
@@ -99,6 +101,7 @@ export const updateAppointmentType = mutation({
       v.array(
         v.object({
           duration: v.number(),
+          locationId: v.id("locations"),
           practitionerId: v.id("practitioners"),
         }),
       ),
@@ -169,31 +172,121 @@ export const importAppointmentTypesFromCsv = mutation({
       throw new Error("First column must be 'Terminart'");
     }
 
+    // Get all locations for this practice
+    const locations = await ctx.db
+      .query("locations")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    const locationNameToId = new Map<string, Id<"locations">>();
+    for (const location of locations) {
+      locationNameToId.set(location.name, location._id);
+    }
+
     // Get all practitioners for this practice
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
-    // Create a map of practitioner names to IDs
     const practitionerNameToId = new Map<string, Id<"practitioners">>();
     for (const practitioner of practitioners) {
       practitionerNameToId.set(practitioner.name, practitioner._id);
     }
 
-    // Create practitioners for column headers that don't exist yet
+    // Parse column headers to extract practitioner names and locations
+    const columnMappings: {
+      locationId: Id<"locations">;
+      locationName: string;
+      practitionerId: Id<"practitioners">;
+      practitionerName: string;
+    }[] = [];
     const newPractitionerIds = new Map<string, Id<"practitioners">>();
+    const newLocationIds = new Map<string, Id<"locations">>();
+
+    // Get existing location names from database
+    const existingLocationNames = locations.map((loc) => loc.name);
+
     for (let i = 1; i < headers.length; i++) {
-      const practitionerName = headers[i];
-      if (practitionerName && !practitionerNameToId.has(practitionerName)) {
+      const header = headers[i];
+      if (!header) {
+        continue;
+      }
+
+      // Try to extract location from the end of the header
+      let practitionerName = "";
+      let locationName = "";
+
+      // Look for existing location names at the end of the header
+      for (const locName of existingLocationNames) {
+        if (header.endsWith(` ${locName}`)) {
+          practitionerName = header
+            .slice(0, Math.max(0, header.length - locName.length - 1))
+            .trim();
+          locationName = locName;
+          break;
+        }
+      }
+
+      // If no known location found, try to split by last space
+      if (!locationName) {
+        const lastSpaceIndex = header.lastIndexOf(" ");
+        if (lastSpaceIndex > 0) {
+          practitionerName = header
+            .slice(0, Math.max(0, lastSpaceIndex))
+            .trim();
+          locationName = header.slice(Math.max(0, lastSpaceIndex + 1)).trim();
+          // Only accept if location name looks like a valid location (alphabetic)
+          if (!/^[A-Za-z]+$/u.test(locationName)) {
+            practitionerName = "";
+            locationName = "";
+          }
+        }
+
+        if (!practitionerName || !locationName) {
+          // Fallback: treat entire header as practitioner name, skip location
+          console.warn(`Could not parse location from header: ${header}`);
+          continue;
+        }
+      }
+
+      if (!practitionerName || !locationName) {
+        console.warn(
+          `Could not parse practitioner and location from header: ${header}`,
+        );
+        continue;
+      }
+
+      // Get or create location
+      let locationId = locationNameToId.get(locationName);
+      if (!locationId) {
+        // Create new location
+        locationId = await ctx.db.insert("locations", {
+          name: locationName,
+          practiceId: args.practiceId,
+        });
+        locationNameToId.set(locationName, locationId);
+        newLocationIds.set(locationName, locationId);
+      }
+
+      // Get or create practitioner
+      let practitionerId = practitionerNameToId.get(practitionerName);
+      if (!practitionerId) {
         // Create new practitioner
-        const newPractitionerId = await ctx.db.insert("practitioners", {
+        practitionerId = await ctx.db.insert("practitioners", {
           name: practitionerName,
           practiceId: args.practiceId,
         });
-        practitionerNameToId.set(practitionerName, newPractitionerId);
-        newPractitionerIds.set(practitionerName, newPractitionerId);
+        practitionerNameToId.set(practitionerName, practitionerId);
+        newPractitionerIds.set(practitionerName, practitionerId);
       }
+
+      columnMappings.push({
+        locationId,
+        locationName,
+        practitionerId,
+        practitionerName,
+      });
     }
 
     // Process each data row
@@ -215,29 +308,27 @@ export const importAppointmentTypesFromCsv = mutation({
         continue; // Skip empty appointment type names
       }
 
-      // Build durations array
+      // Build durations array with location support
       const durations: {
         duration: number;
+        locationId: Id<"locations">;
         practitionerId: Id<"practitioners">;
       }[] = [];
-      for (let j = 1; j < values.length; j++) {
-        const valueStr = values[j];
+
+      for (const [j, mapping] of columnMappings.entries()) {
+        const valueStr = values[j + 1]; // +1 because first column is appointment type name
         if (!valueStr) {
           continue;
         }
 
         const duration = Number.parseInt(valueStr, 10);
-        const practitionerName = headers[j];
 
-        if (practitionerName) {
-          const practitionerId = practitionerNameToId.get(practitionerName);
-
-          if (practitionerId && !Number.isNaN(duration) && duration > 0) {
-            durations.push({
-              duration,
-              practitionerId,
-            });
-          }
+        if (!Number.isNaN(duration) && duration > 0) {
+          durations.push({
+            duration,
+            locationId: mapping.locationId,
+            practitionerId: mapping.practitionerId,
+          });
         }
       }
 
@@ -272,11 +363,13 @@ export const importAppointmentTypesFromCsv = mutation({
 
     return {
       importedTypes,
+      newLocations: [...newLocationIds.keys()],
       newPractitioners: [...newPractitionerIds.keys()],
     };
   },
   returns: v.object({
     importedTypes: v.array(v.string()),
+    newLocations: v.array(v.string()),
     newPractitioners: v.array(v.string()),
   }),
 });

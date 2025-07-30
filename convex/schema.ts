@@ -27,12 +27,13 @@ export default defineSchema({
   appointmentTypes: defineTable({
     name: v.string(),
     practiceId: v.id("practices"),
-    // Duration mappings for different practitioners
+    // Duration mappings for different practitioners and locations
     createdAt: v.int64(),
     durations: v.optional(
       v.array(
         v.object({
           duration: v.number(), // in minutes
+          locationId: v.id("locations"), // Required location for this duration mapping
           practitionerId: v.id("practitioners"),
         }),
       ),
