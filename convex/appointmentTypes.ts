@@ -313,8 +313,6 @@ export const importAppointmentTypesFromCsv = mutation({
         }
       }
 
-
-
       // Get or create location
       let locationId = locationNameToId.get(locationName);
       if (!locationId) {
