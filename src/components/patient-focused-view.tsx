@@ -1,24 +1,17 @@
 import { useQuery } from "convex/react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  MiniCalendar,
-  MiniCalendarDay,
-  MiniCalendarDays,
-  MiniCalendarNavigation,
-} from "@/components/ui/mini-calendar";
+import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 import type { LocalAppointment } from "../utils/local-appointments";
 
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
+import { PatientCalendar } from "./patient-calendar";
 
 interface PatientFocusedViewProps {
   dateRange: { end: string; start: string };
@@ -66,28 +59,11 @@ export function PatientFocusedView({
     Id<"locations"> | undefined
   >(simulatedContext.locationId);
 
-  // Track calendar navigation independently from simulation dateRange
-  const [calendarStartDate, setCalendarStartDate] = useState(
-    new Date(dateRange.start),
-  );
-
-  // Sync calendar start date when simulation date changes
-  useEffect(() => {
-    setCalendarStartDate(new Date(dateRange.start));
-  }, [dateRange.start]);
-
   // Fetch available locations
   const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
 
-  // Create expanded date range for calendar (5 days from calendar start)
-  const calendarEndDate = new Date(calendarStartDate);
-  calendarEndDate.setDate(calendarEndDate.getDate() + 4);
-  calendarEndDate.setHours(23, 59, 59, 999);
-
-  const calendarDateRange = {
-    end: calendarEndDate.toISOString(),
-    start: calendarStartDate.toISOString(),
-  };
+  // Use the original dateRange directly for slots query
+  const calendarDateRange = dateRange;
 
   // Create the simulated context with selected location
   const effectiveSimulatedContext = {
@@ -131,41 +107,6 @@ export function PatientFocusedView({
   const availableSlots =
     slotsResult?.slots.filter((slot) => slot.status === "AVAILABLE") ?? [];
 
-  // Get unique dates that have available appointments
-  const datesWithAppointments = new Set(
-    availableSlots.map((slot) => {
-      const date = new Date(slot.startTime);
-      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    }),
-  );
-
-  // Group available slots by date for display
-  const slotsByDate = new Map<string, typeof availableSlots>();
-  for (const slot of availableSlots) {
-    const date = new Date(slot.startTime).toDateString();
-    if (!slotsByDate.has(date)) {
-      slotsByDate.set(date, []);
-    }
-    const dateSlots = slotsByDate.get(date);
-    if (dateSlots) {
-      dateSlots.push(slot);
-    }
-  }
-
-  const sortedDates = [...slotsByDate.keys()].sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
-
-  // Filter dates for mini-calendar to only show dates with appointments
-  const shouldShowDate = (date: Date) => {
-    return [...datesWithAppointments].some(
-      (appointmentDate) =>
-        appointmentDate.getDate() === date.getDate() &&
-        appointmentDate.getMonth() === date.getMonth() &&
-        appointmentDate.getFullYear() === date.getFullYear(),
-    );
-  };
-
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-4 pt-12 space-y-6">
@@ -204,112 +145,14 @@ export function PatientFocusedView({
           selectedType={simulatedContext.appointmentType}
         />
 
-        {/* Show calendar and appointments only when location is selected and slots are loaded */}
+        {/* Show calendar only when location is selected and slots are loaded */}
         {selectedLocationId && slotsResult && (
           <>
-            {/* Mini Calendar */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Verfügbare Tage</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <MiniCalendar
-                  days={5}
-                  onStartDateChange={setCalendarStartDate}
-                  startDate={calendarStartDate}
-                >
-                  <MiniCalendarNavigation direction="prev" />
-                  <MiniCalendarDays className="flex-1 min-w-0">
-                    {(date) => (
-                      <MiniCalendarDay
-                        className={
-                          shouldShowDate(date)
-                            ? ""
-                            : "opacity-25 cursor-not-allowed"
-                        }
-                        date={date}
-                        key={date.toISOString()}
-                      />
-                    )}
-                  </MiniCalendarDays>
-                  <MiniCalendarNavigation direction="next" />
-                </MiniCalendar>
-              </CardContent>
-            </Card>
-
-            {/* Available Appointments */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Verfügbare Termine</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {sortedDates.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <p>Keine verfügbaren Termine gefunden.</p>
-                    <p className="text-sm mt-1">
-                      Bitte wählen Sie einen anderen Zeitraum.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {sortedDates.map((dateString) => {
-                      const date = new Date(dateString);
-                      const daySlots = slotsByDate.get(dateString);
-
-                      if (!daySlots) {
-                        return null;
-                      }
-
-                      return (
-                        <div key={dateString}>
-                          <h4 className="font-medium mb-2 text-sm">
-                            {format(date, "EEEE, d. MMMM", { locale: de })}
-                          </h4>
-                          <div className="grid gap-2 grid-cols-2">
-                            {daySlots
-                              .sort(
-                                (a, b) =>
-                                  new Date(a.startTime).getTime() -
-                                  new Date(b.startTime).getTime(),
-                              )
-                              .map((slot) => {
-                                const slotTime = new Date(slot.startTime);
-                                // Display time in German timezone
-                                const hours = slotTime
-                                  .getUTCHours()
-                                  .toString()
-                                  .padStart(2, "0");
-                                const minutes = slotTime
-                                  .getUTCMinutes()
-                                  .toString()
-                                  .padStart(2, "0");
-                                const timeString = `${hours}:${minutes}`;
-
-                                return (
-                                  <Button
-                                    className="h-12 flex flex-col items-center justify-center"
-                                    key={`${slot.practitionerId}-${slot.startTime}`}
-                                    onClick={() => onSlotClick?.(slot)}
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    <span className="font-medium text-sm">
-                                      {timeString}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                      {slot.duration} Min.
-                                    </span>
-                                  </Button>
-                                );
-                              })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {/* Patient Calendar with Date and Time Selection */}
+            <PatientCalendar
+              availableSlots={availableSlots}
+              {...(onSlotClick && { onSlotClick })}
+            />
 
             {/* Book Appointment Button */}
             <div className="pb-4">
