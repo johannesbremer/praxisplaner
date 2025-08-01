@@ -30,9 +30,6 @@ export function AppointmentTypesManagement({
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
-  const locationsQuery = useQuery(api.locations.getLocations, {
-    practiceId,
-  });
 
   return (
     <Card>
@@ -87,114 +84,28 @@ export function AppointmentTypesManagement({
                         .sort(
                           ([a], [b]) => Number.parseInt(a) - Number.parseInt(b),
                         ) // Sort by duration
-                        .map(([durationStr, locationGroups]) => (
+                        .map(([durationStr, practitionerIds]) => (
                           <div className="space-y-2" key={durationStr}>
                             <div className="text-sm font-medium text-muted-foreground">
                               {durationStr} Minuten
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {(() => {
-                                // First, collect all practitioners for this duration
-                                const practitionerLocationMap = new Map<
-                                  string,
-                                  string[]
-                                >();
+                              {practitionerIds.map((practitionerId) => {
+                                const practitioner = practitionersQuery?.find(
+                                  (p) => p._id === practitionerId,
+                                );
+                                const practitionerName =
+                                  practitioner?.name || "Unbekannt";
 
-                                for (const [
-                                  locationId,
-                                  practitionerIds,
-                                ] of Object.entries(locationGroups)) {
-                                  const location = locationsQuery?.find(
-                                    (l) => l._id === locationId,
-                                  );
-                                  const locationName =
-                                    location?.name || "Unbekannt";
-
-                                  for (const practitionerId of practitionerIds) {
-                                    if (
-                                      !practitionerLocationMap.has(
-                                        practitionerId,
-                                      )
-                                    ) {
-                                      practitionerLocationMap.set(
-                                        practitionerId,
-                                        [],
-                                      );
-                                    }
-                                    const practitionerLocations =
-                                      practitionerLocationMap.get(
-                                        practitionerId,
-                                      );
-                                    if (practitionerLocations) {
-                                      practitionerLocations.push(locationName);
-                                    }
-                                  }
-                                }
-
-                                // Get all available locations for comparison
-                                const allLocationNames =
-                                  locationsQuery?.map((l) => l.name).sort() ??
-                                  [];
-
-                                return [
-                                  ...practitionerLocationMap.entries(),
-                                ].flatMap(([practitionerId, locationNames]) => {
-                                  const practitioner = practitionersQuery?.find(
-                                    (p) => p._id === practitionerId,
-                                  );
-                                  const practitionerName =
-                                    practitioner?.name || "Unbekannt";
-
-                                  // Sort location names for comparison
-                                  const sortedLocationNames = [
-                                    ...locationNames,
-                                  ].sort();
-
-                                  // Check if practitioner is available at all locations
-                                  const isAvailableAtAllLocations =
-                                    allLocationNames.length > 0 &&
-                                    sortedLocationNames.length ===
-                                      allLocationNames.length &&
-                                    sortedLocationNames.every(
-                                      (name, index) =>
-                                        name === allLocationNames[index],
-                                    );
-
-                                  if (isAvailableAtAllLocations) {
-                                    // Show single badge without location when available everywhere
-                                    return (
-                                      <span
-                                        className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-50 text-gray-700 border border-gray-700 rounded-full"
-                                        key={practitionerId}
-                                      >
-                                        {practitionerName}
-                                      </span>
-                                    );
-                                  } else {
-                                    // Show separate colored badge for each location
-                                    return locationNames
-                                      .map((locationName) => {
-                                        const location = locationsQuery?.find(
-                                          (l) => l.name === locationName,
-                                        );
-                                        const colors = location?.color;
-                                        if (!colors) {
-                                          return null;
-                                        }
-
-                                        return (
-                                          <span
-                                            className={`inline-flex items-center px-2 py-1 text-xs font-medium ${colors.bg} ${colors.text} border ${colors.text.replace("text-", "border-")} rounded-full`}
-                                            key={`${practitionerId}-${locationName}`}
-                                          >
-                                            {practitionerName} in {locationName}
-                                          </span>
-                                        );
-                                      })
-                                      .filter(Boolean);
-                                  }
-                                });
-                              })()}
+                                return (
+                                  <span
+                                    className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-50 text-gray-700 border border-gray-700 rounded-full"
+                                    key={practitionerId}
+                                  >
+                                    {practitionerName}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}

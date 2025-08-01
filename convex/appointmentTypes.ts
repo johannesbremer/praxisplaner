@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
-import { getNextLocationColor } from "./validators";
 
 export const createAppointmentType = mutation({
   args: {
@@ -11,7 +10,6 @@ export const createAppointmentType = mutation({
       v.array(
         v.object({
           duration: v.number(),
-          locationId: v.id("locations"),
           practitionerId: v.id("practitioners"),
         }),
       ),
@@ -52,7 +50,6 @@ export const createAppointmentType = mutation({
         await ctx.db.insert("appointmentTypeDurations", {
           appointmentTypeId,
           duration: duration.duration,
-          locationId: duration.locationId,
           practitionerId: duration.practitionerId,
         });
       }
@@ -83,22 +80,15 @@ export const getAppointmentTypes = query({
           )
           .collect();
 
-        // Transform back to the nested structure for backward compatibility
-        const durations: Record<
-          string,
-          Record<Id<"locations">, Id<"practitioners">[]>
-        > = {};
+        // Transform to a simple duration -> practitioners mapping
+        const durations: Record<string, Id<"practitioners">[]> = {};
 
         for (const record of durationRecords) {
           const durationKey = record.duration.toString();
-          durations[durationKey] ??= {};
-          durations[durationKey][record.locationId] ??= [];
+          durations[durationKey] ??= [];
 
-          const practitionerList = durations[durationKey][record.locationId];
-          if (
-            practitionerList &&
-            !practitionerList.includes(record.practitionerId)
-          ) {
+          const practitionerList = durations[durationKey];
+          if (!practitionerList.includes(record.practitionerId)) {
             practitionerList.push(record.practitionerId);
           }
         }
@@ -120,10 +110,7 @@ export const getAppointmentTypes = query({
       durations: v.optional(
         v.record(
           v.string(), // duration in minutes as string key (e.g., "10", "15")
-          v.record(
-            v.id("locations"), // location ID as key
-            v.array(v.id("practitioners")), // practitioners at this location with this duration
-          ),
+          v.array(v.id("practitioners")), // practitioners with this duration
         ),
       ),
       lastModified: v.int64(),
@@ -140,7 +127,6 @@ export const updateAppointmentType = mutation({
       v.array(
         v.object({
           duration: v.number(),
-          locationId: v.id("locations"),
           practitionerId: v.id("practitioners"),
         }),
       ),
@@ -183,7 +169,6 @@ export const updateAppointmentType = mutation({
         await ctx.db.insert("appointmentTypeDurations", {
           appointmentTypeId: args.appointmentTypeId,
           duration: duration.duration,
-          locationId: duration.locationId,
           practitionerId: duration.practitionerId,
         });
       }
@@ -235,17 +220,6 @@ export const importAppointmentTypesFromCsv = mutation({
       throw new Error("First column must be 'Terminart'");
     }
 
-    // Get all locations for this practice
-    const locations = await ctx.db
-      .query("locations")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const locationNameToId = new Map<string, Id<"locations">>();
-    for (const location of locations) {
-      locationNameToId.set(location.name, location._id);
-    }
-
     // Get all practitioners for this practice
     const practitioners = await ctx.db
       .query("practitioners")
@@ -257,18 +231,9 @@ export const importAppointmentTypesFromCsv = mutation({
       practitionerNameToId.set(practitioner.name, practitioner._id);
     }
 
-    // Parse column headers to extract practitioner names and locations
-    const columnMappings: {
-      locationId: Id<"locations">;
-      locationName: string;
-      practitionerId: Id<"practitioners">;
-      practitionerName: string;
-    }[] = [];
+    // Parse column headers to extract practitioner names (ignoring locations)
+    const columnToPractitioner = new Map<number, Id<"practitioners">>();
     const newPractitionerIds = new Map<string, Id<"practitioners">>();
-    const newLocationIds = new Map<string, Id<"locations">>();
-
-    // Get existing location names from database
-    const existingLocationNames = locations.map((loc) => loc.name);
 
     for (let i = 1; i < headers.length; i++) {
       const header = headers[i];
@@ -276,64 +241,26 @@ export const importAppointmentTypesFromCsv = mutation({
         continue;
       }
 
-      // Try to extract location from the end of the header
-      let practitionerName = "";
-      let locationName = "";
+      // Extract practitioner name by removing location suffix
+      let practitionerName = header.trim();
+      const lastSpaceIndex = header.lastIndexOf(" ");
+      if (lastSpaceIndex > 0) {
+        const potentialPractitionerName = header
+          .slice(0, Math.max(0, lastSpaceIndex))
+          .trim();
+        const potentialLocation = header
+          .slice(Math.max(0, lastSpaceIndex + 1))
+          .trim();
 
-      // Look for existing location names at the end of the header
-      for (const locName of existingLocationNames) {
-        if (header.endsWith(` ${locName}`)) {
-          practitionerName = header
-            .slice(0, Math.max(0, header.length - locName.length - 1))
-            .trim();
-          locationName = locName;
-          break;
+        // If the potential location looks like a location name (alphabetic), use the first part as practitioner name
+        if (/^[A-Za-z]+$/u.test(potentialLocation)) {
+          practitionerName = potentialPractitionerName;
         }
-      }
-
-      // If no known location found, try to split by last space
-      if (!locationName) {
-        const lastSpaceIndex = header.lastIndexOf(" ");
-        if (lastSpaceIndex > 0) {
-          practitionerName = header
-            .slice(0, Math.max(0, lastSpaceIndex))
-            .trim();
-          locationName = header.slice(Math.max(0, lastSpaceIndex + 1)).trim();
-          // Only accept if location name looks like a valid location (alphabetic)
-          if (!/^[A-Za-z]+$/u.test(locationName)) {
-            practitionerName = "";
-            locationName = "";
-          }
-        }
-
-        if (!practitionerName || !locationName) {
-          // Fallback: treat entire header as practitioner name, skip location
-          console.warn(`Could not parse location from header: ${header}`);
-          continue;
-        }
-      }
-
-      // Get or create location
-      let locationId = locationNameToId.get(locationName);
-      if (!locationId) {
-        // Calculate color for new location based on current count
-        const currentLocationCount = locationNameToId.size;
-        const assignedColor = getNextLocationColor(currentLocationCount);
-
-        // Create new location
-        locationId = await ctx.db.insert("locations", {
-          color: assignedColor,
-          name: locationName,
-          practiceId: args.practiceId,
-        });
-        locationNameToId.set(locationName, locationId);
-        newLocationIds.set(locationName, locationId);
       }
 
       // Get or create practitioner
       let practitionerId = practitionerNameToId.get(practitionerName);
       if (!practitionerId) {
-        // Create new practitioner
         practitionerId = await ctx.db.insert("practitioners", {
           name: practitionerName,
           practiceId: args.practiceId,
@@ -342,12 +269,8 @@ export const importAppointmentTypesFromCsv = mutation({
         newPractitionerIds.set(practitionerName, practitionerId);
       }
 
-      columnMappings.push({
-        locationId,
-        locationName,
-        practitionerId,
-        practitionerName,
-      });
+      // Map this column to the practitioner
+      columnToPractitioner.set(i, practitionerId);
     }
 
     // Process each data row
@@ -369,29 +292,35 @@ export const importAppointmentTypesFromCsv = mutation({
         continue; // Skip empty appointment type names
       }
 
-      // Build durations array with location support
-      const durationsArray: {
-        duration: number;
-        locationId: Id<"locations">;
-        practitionerId: Id<"practitioners">;
-      }[] = [];
+      // Build durations with simple deduplication
+      const practitionerDurations = new Map<Id<"practitioners">, number>();
 
-      for (const [j, mapping] of columnMappings.entries()) {
-        const valueStr = values[j + 1]; // +1 because first column is appointment type name
+      for (let j = 1; j < values.length; j++) {
+        const valueStr = values[j];
         if (!valueStr) {
+          continue;
+        }
+
+        const practitionerId = columnToPractitioner.get(j);
+        if (!practitionerId) {
           continue;
         }
 
         const duration = Number.parseInt(valueStr, 10);
 
-        if (!Number.isNaN(duration) && duration > 0) {
-          durationsArray.push({
-            duration,
-            locationId: mapping.locationId,
-            practitionerId: mapping.practitionerId,
-          });
+        if (
+          !Number.isNaN(duration) &&
+          duration > 0 && // Only store first duration encountered for each practitioner (deduplication)
+          !practitionerDurations.has(practitionerId)
+        ) {
+          practitionerDurations.set(practitionerId, duration);
         }
       }
+
+      // Convert to durationsArray
+      const durationsArray = [...practitionerDurations.entries()].map(
+        ([practitionerId, duration]) => ({ duration, practitionerId }),
+      );
 
       // Create or update appointment type
       await ctx.db
@@ -436,7 +365,6 @@ export const importAppointmentTypesFromCsv = mutation({
             await ctx.db.insert("appointmentTypeDurations", {
               appointmentTypeId,
               duration: durationItem.duration,
-              locationId: durationItem.locationId,
               practitionerId: durationItem.practitionerId,
             });
           }
@@ -447,13 +375,11 @@ export const importAppointmentTypesFromCsv = mutation({
 
     return {
       importedTypes,
-      newLocations: [...newLocationIds.keys()],
       newPractitioners: [...newPractitionerIds.keys()],
     };
   },
   returns: v.object({
     importedTypes: v.array(v.string()),
-    newLocations: v.array(v.string()),
     newPractitioners: v.array(v.string()),
   }),
 });

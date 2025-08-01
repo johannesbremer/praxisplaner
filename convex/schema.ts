@@ -27,12 +27,10 @@ export default defineSchema({
   appointmentTypeDurations: defineTable({
     appointmentTypeId: v.id("appointmentTypes"),
     duration: v.number(), // duration in minutes
-    locationId: v.id("locations"),
     practitionerId: v.id("practitioners"),
   })
     .index("by_appointmentType", ["appointmentTypeId"])
     .index("by_appointmentType_duration", ["appointmentTypeId", "duration"])
-    .index("by_appointmentType_location", ["appointmentTypeId", "locationId"])
     .index("by_appointmentType_practitioner", [
       "appointmentTypeId",
       "practitionerId",
@@ -66,10 +64,6 @@ export default defineSchema({
     .index("by_locationId", ["locationId"]),
 
   locations: defineTable({
-    color: v.object({
-      bg: v.string(),
-      text: v.string(),
-    }),
     name: v.string(),
     practiceId: v.id("practices"),
   }).index("by_practiceId", ["practiceId"]),

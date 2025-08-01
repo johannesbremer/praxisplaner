@@ -87,7 +87,7 @@ export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
       });
 
       toast.success("Import erfolgreich!", {
-        description: `${result.importedTypes.length} Terminarten importiert. ${result.newPractitioners.length} neue Ärzte erstellt. ${result.newLocations.length} neue Standorte erstellt.`,
+        description: `${result.importedTypes.length} Terminarten importiert. ${result.newPractitioners.length} neue Ärzte erstellt.`,
       });
 
       setIsOpen(false);
