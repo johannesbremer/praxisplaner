@@ -118,39 +118,37 @@ export function PatientCalendar({
           />
         </div>
 
-        {/* Time slots panel */}
+        {/* Time slots panel - Always render the container for proper layout */}
         <div className="no-scrollbar inset-y-0 right-0 flex max-h-72 w-full scroll-pb-6 flex-col gap-4 overflow-y-auto border-t p-6 md:absolute md:max-h-none md:w-48 md:border-t-0 md:border-l">
-          {selectedDate ? (
-            <div className="grid gap-2">
-              {timeSlotsForSelectedDate.length === 0 ? (
-                <div className="text-center text-sm text-muted-foreground py-4">
-                  Keine Termine verfügbar
-                </div>
-              ) : (
-                timeSlotsForSelectedDate.map((slot) => (
-                  <Button
-                    className="w-full shadow-none flex flex-col items-center justify-center h-auto py-2"
-                    key={`${slot.practitionerId}-${slot.startTime}`}
-                    onClick={() => {
-                      handleSlotSelect(slot);
-                    }}
-                    variant={selectedSlot === slot ? "default" : "outline"}
-                  >
-                    <span className="font-medium text-sm">
-                      {formatSlotTime(slot.startTime)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {slot.duration} Min.
-                    </span>
-                  </Button>
-                ))
-              )}
-            </div>
-          ) : (
-            <div className="text-center text-sm text-muted-foreground py-4">
-              Wählen Sie zuerst ein Datum
-            </div>
-          )}
+          <div className="grid gap-2">
+            {!selectedDate ? (
+              <div className="text-center text-sm text-muted-foreground py-4">
+                Wählen Sie zuerst ein Datum
+              </div>
+            ) : timeSlotsForSelectedDate.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground py-4">
+                Keine Termine verfügbar
+              </div>
+            ) : (
+              timeSlotsForSelectedDate.map((slot) => (
+                <Button
+                  className="w-full shadow-none flex flex-col items-center justify-center h-auto py-2"
+                  key={`${slot.practitionerId}-${slot.startTime}`}
+                  onClick={() => {
+                    handleSlotSelect(slot);
+                  }}
+                  variant={selectedSlot === slot ? "default" : "outline"}
+                >
+                  <span className="font-medium text-sm">
+                    {formatSlotTime(slot.startTime)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {slot.duration} Min.
+                  </span>
+                </Button>
+              ))
+            )}
+          </div>
         </div>
       </CardContent>
 
