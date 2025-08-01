@@ -1,5 +1,6 @@
-import { useQuery } from "convex/react";
-import { Package2 } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { CheckIcon, Package2 } from "lucide-react";
+import { useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -13,9 +14,27 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import { CsvImport } from "./csv-import";
+import {
+  Tags,
+  TagsContent,
+  TagsEmpty,
+  TagsGroup,
+  TagsInput,
+  TagsItem,
+  TagsList,
+  TagsTrigger,
+  TagsValue,
+} from "./ui/kibo-ui/tags/index";
 
 interface AppointmentTypesManagementProps {
   practiceId: Id<"practices">;
+}
+
+interface PractitionerTagsProps {
+  appointmentTypeId: Id<"appointmentTypes">;
+  currentPractitionerIds: Id<"practitioners">[];
+  duration: number;
+  practitionersQuery: undefined | { _id: Id<"practitioners">; name: string }[];
 }
 
 export function AppointmentTypesManagement({
@@ -89,24 +108,12 @@ export function AppointmentTypesManagement({
                             <div className="text-sm font-medium text-muted-foreground">
                               {durationStr} Minuten
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              {practitionerIds.map((practitionerId) => {
-                                const practitioner = practitionersQuery?.find(
-                                  (p) => p._id === practitionerId,
-                                );
-                                const practitionerName =
-                                  practitioner?.name || "Unbekannt";
-
-                                return (
-                                  <span
-                                    className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-50 text-gray-700 border border-gray-700 rounded-full"
-                                    key={practitionerId}
-                                  >
-                                    {practitionerName}
-                                  </span>
-                                );
-                              })}
-                            </div>
+                            <PractitionerTags
+                              appointmentTypeId={appointmentType._id}
+                              currentPractitionerIds={practitionerIds}
+                              duration={Number.parseInt(durationStr)}
+                              practitionersQuery={practitionersQuery}
+                            />
                           </div>
                         ))}
                     </div>
@@ -122,5 +129,101 @@ export function AppointmentTypesManagement({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function PractitionerTags({
+  appointmentTypeId,
+  currentPractitionerIds,
+  duration,
+  practitionersQuery,
+}: PractitionerTagsProps) {
+  const [selectedPractitioners, setSelectedPractitioners] = useState<
+    Id<"practitioners">[]
+  >(currentPractitionerIds);
+
+  const updateAppointmentTypeMutation = useMutation(
+    api.appointmentTypes.updateAppointmentType,
+  );
+
+  const allPractitioners = practitionersQuery ?? [];
+
+  const updateDurations = async (newSelectedIds: Id<"practitioners">[]) => {
+    await updateAppointmentTypeMutation({
+      appointmentTypeId,
+      durations: newSelectedIds.map((id) => ({
+        duration,
+        practitionerId: id,
+      })),
+    });
+  };
+
+  const handleRemove = (practitionerId: Id<"practitioners">) => {
+    if (!selectedPractitioners.includes(practitionerId)) {
+      return;
+    }
+
+    const newSelected = selectedPractitioners.filter(
+      (id) => id !== practitionerId,
+    );
+    setSelectedPractitioners(newSelected);
+    void updateDurations(newSelected);
+  };
+
+  const handleSelect = (practitionerId: Id<"practitioners">) => {
+    if (selectedPractitioners.includes(practitionerId)) {
+      handleRemove(practitionerId);
+      return;
+    }
+
+    const newSelected = [...selectedPractitioners, practitionerId];
+    setSelectedPractitioners(newSelected);
+    void updateDurations(newSelected);
+  };
+
+  return (
+    <Tags className="max-w-[400px]">
+      <TagsTrigger>
+        {selectedPractitioners.map((practitionerId) => {
+          const practitioner = allPractitioners.find(
+            (p) => p._id === practitionerId,
+          );
+          const practitionerName = practitioner?.name ?? "Unbekannt";
+
+          return (
+            <TagsValue
+              key={practitionerId}
+              onRemove={() => {
+                handleRemove(practitionerId);
+              }}
+            >
+              {practitionerName}
+            </TagsValue>
+          );
+        })}
+      </TagsTrigger>
+      <TagsContent>
+        <TagsInput placeholder="Arzt suchen..." />
+        <TagsList>
+          <TagsEmpty>Keine Ärzte gefunden.</TagsEmpty>
+          <TagsGroup>
+            {allPractitioners.map((practitioner) => (
+              <TagsItem
+                key={practitioner._id}
+                onSelect={() => {
+                  handleSelect(practitioner._id);
+                }}
+                value={practitioner._id}
+              >
+                {practitioner.name}
+                {selectedPractitioners.includes(practitioner._id) && (
+                  <CheckIcon className="text-muted-foreground" size={14} />
+                )}
+              </TagsItem>
+            ))}
+          </TagsGroup>
+        </TagsList>
+      </TagsContent>
+    </Tags>
   );
 }
