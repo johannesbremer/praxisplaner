@@ -313,13 +313,6 @@ export const importAppointmentTypesFromCsv = mutation({
         }
       }
 
-      if (!practitionerName || !locationName) {
-        console.warn(
-          `Could not parse practitioner and location from header: ${header}`,
-        );
-        continue;
-      }
-
       // Get or create location
       let locationId = locationNameToId.get(locationName);
       if (!locationId) {
