@@ -221,7 +221,7 @@ export const exampleQuery = query({
     for (const userId of args.userIds) {
       const user = await ctx.db.get(userId);
       if (user) {
-        users[user._id] = user.username;
+        idToUsername[user._id] = user.username;
       }
     }
 
@@ -338,7 +338,7 @@ type FileMetadata = {
 
 export const exampleQuery = query({
     args: { fileId: v.id("_storage") },
-    returns: v.null();
+    returns: v.null(),
     handler: async (ctx, args) => {
         const metadata: FileMetadata | null = await ctx.db.system.get(args.fileId);
         console.log(metadata);
