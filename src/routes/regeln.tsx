@@ -1,6 +1,10 @@
 // src/routes/regeln.tsx
 import { useForm } from "@tanstack/react-form";
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { Plus, RefreshCw, Save } from "lucide-react";
@@ -87,6 +91,47 @@ interface SlotDetails {
 }
 
 export default function LogicView() {
+  const navigate = useNavigate();
+  const {
+    date: dateParam,
+    patientType: patientTypeParam,
+    ruleSet: ruleSetParam,
+    tab: tabParam,
+  } = useParams({ strict: false });
+
+  const parseYmd = (ymd?: string): Date | undefined => {
+    if (!ymd) {
+      return undefined;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      return undefined;
+    }
+    const [ys, ms, ds] = ymd.split("-");
+    const y = Number(ys);
+    const m = Number(ms);
+    const d = Number(ds);
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) ? undefined : dt;
+  };
+
+  const formatYmd = (dt: Date): string => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const isToday = (dt?: Date) => {
+    if (!dt) {
+      return true;
+    }
+    const now = new Date();
+    return (
+      dt.getFullYear() === now.getFullYear() &&
+      dt.getMonth() === now.getMonth() &&
+      dt.getDate() === now.getDate()
+    );
+  };
   // Get or initialize a practice for development
   const practicesQuery = useQuery(api.practices.getAllPractices);
   const initializePracticeMutation = useMutation(
@@ -109,15 +154,85 @@ export default function LogicView() {
     useLocalAppointments();
 
   // Simulation state - moved from SimulationPanel
+  const initialTab =
+    tabParam === "mitarbeiter"
+      ? "staff-view"
+      : tabParam === "debug"
+        ? "debug-views"
+        : "rule-management";
+
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     appointmentType: "Erstberatung",
-    patient: { isNew: true },
+    patient: { isNew: patientTypeParam !== "bestand" },
   });
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(
+    parseYmd(dateParam) ?? new Date(),
+  );
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
   const [simulationRuleSetId, setSimulationRuleSetId] = useState<
     Id<"ruleSets"> | undefined
-  >();
+  >((ruleSetParam as Id<"ruleSets">) || undefined);
+
+  // Keep URL in sync
+  const pushParams = React.useCallback(
+    (
+      tab: string,
+      ruleSetId: Id<"ruleSets"> | undefined,
+      isNewPatient: boolean,
+      date: Date,
+    ) => {
+      const tabOut =
+        tab === "staff-view"
+          ? "mitarbeiter"
+          : tab === "debug-views"
+            ? "debug"
+            : undefined;
+      const ruleSetOut = ruleSetId || undefined;
+      const patientTypeOut = isNewPatient ? undefined : "bestand";
+      const dateOut = isToday(date) ? undefined : formatYmd(date);
+      void navigate({
+        params: (prev: {
+          date?: string;
+          patientType?: string;
+          ruleSet?: string;
+          tab?: string;
+        }) => {
+          const next: {
+            date?: string;
+            patientType?: string;
+            ruleSet?: string;
+            tab?: string;
+          } = { ...prev };
+          if (tabOut) {
+            next.tab = tabOut;
+          } else {
+            delete next.tab;
+          }
+          if (ruleSetOut) {
+            next.ruleSet = ruleSetOut;
+          } else {
+            delete next.ruleSet;
+          }
+          if (patientTypeOut) {
+            next.patientType = patientTypeOut;
+          } else {
+            delete next.patientType;
+          }
+          if (dateOut) {
+            next.date = dateOut;
+          } else {
+            delete next.date;
+          }
+          return next;
+        },
+        replace: false,
+        to: "/regeln/{-$tab}/{-$ruleSet}/{-$patientType}/{-$date}",
+      });
+    },
+    [navigate],
+  );
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -141,6 +256,7 @@ export default function LogicView() {
     setSimulationRuleSetId(undefined);
     setSelectedSlot(null);
     clearAllLocalAppointments();
+    pushParams(activeTab, undefined, true, new Date());
   };
 
   const handleSlotClick = (slot: SlotDetails) => {
@@ -295,12 +411,59 @@ export default function LogicView() {
 
   // Sync current working rule set with simulation controls
   React.useEffect(() => {
+    // Don't override if URL or user already chose a specific simulation rule set
+    if (ruleSetParam) {
+      return;
+    }
+    if (simulationRuleSetId !== undefined) {
+      return;
+    }
     if (currentWorkingRuleSet) {
       setSimulationRuleSetId(currentWorkingRuleSet._id);
     } else {
       setSimulationRuleSetId(undefined);
     }
-  }, [currentWorkingRuleSet]);
+  }, [currentWorkingRuleSet, ruleSetParam, simulationRuleSetId]);
+
+  // Sync local state when URL params change externally
+  const isNewPatientCurrent = simulatedContext.patient.isNew;
+  React.useEffect(() => {
+    const nextTab =
+      tabParam === "mitarbeiter"
+        ? "staff-view"
+        : tabParam === "debug"
+          ? "debug-views"
+          : "rule-management";
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+
+    const date = parseYmd(dateParam);
+    if (date && formatYmd(date) !== formatYmd(selectedDate)) {
+      setSelectedDate(date);
+    }
+
+    const newIsNew = patientTypeParam !== "bestand";
+    if (newIsNew !== isNewPatientCurrent) {
+      setSimulatedContext((prev) => ({
+        ...prev,
+        patient: { isNew: newIsNew },
+      }));
+    }
+
+    if ((ruleSetParam as Id<"ruleSets"> | undefined) !== simulationRuleSetId) {
+      setSimulationRuleSetId((ruleSetParam as Id<"ruleSets">) || undefined);
+    }
+  }, [
+    tabParam,
+    dateParam,
+    patientTypeParam,
+    ruleSetParam,
+    activeTab,
+    selectedDate,
+    isNewPatientCurrent,
+    simulationRuleSetId,
+  ]);
 
   // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
@@ -579,7 +742,19 @@ export default function LogicView() {
       </div>
 
       {/* Page-level Tabs */}
-      <Tabs className="space-y-6" defaultValue="rule-management">
+      <Tabs
+        className="space-y-6"
+        onValueChange={(val) => {
+          setActiveTab(val);
+          pushParams(
+            val,
+            simulationRuleSetId,
+            simulatedContext.patient.isNew,
+            selectedDate,
+          );
+        }}
+        value={activeTab}
+      >
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="rule-management">
             Regelverwaltung + Patientensicht
@@ -790,10 +965,34 @@ export default function LogicView() {
               </div>
 
               <SimulationControls
-                onDateChange={setSelectedDate}
+                onDateChange={(d) => {
+                  setSelectedDate(d);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    simulatedContext.patient.isNew,
+                    d,
+                  );
+                }}
                 onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
+                onSimulatedContextChange={(ctx) => {
+                  setSimulatedContext(ctx);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    ctx.patient.isNew,
+                    selectedDate,
+                  );
+                }}
+                onSimulationRuleSetChange={(id) => {
+                  setSimulationRuleSetId(id);
+                  pushParams(
+                    activeTab,
+                    id,
+                    simulatedContext.patient.isNew,
+                    selectedDate,
+                  );
+                }}
                 ruleSetsQuery={ruleSetsQuery}
                 selectedDate={selectedDate}
                 simulatedContext={simulatedContext}
@@ -824,10 +1023,34 @@ export default function LogicView() {
               />
 
               <SimulationControls
-                onDateChange={setSelectedDate}
+                onDateChange={(d) => {
+                  setSelectedDate(d);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    simulatedContext.patient.isNew,
+                    d,
+                  );
+                }}
                 onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
+                onSimulatedContextChange={(ctx) => {
+                  setSimulatedContext(ctx);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    ctx.patient.isNew,
+                    selectedDate,
+                  );
+                }}
+                onSimulationRuleSetChange={(id) => {
+                  setSimulationRuleSetId(id);
+                  pushParams(
+                    activeTab,
+                    id,
+                    simulatedContext.patient.isNew,
+                    selectedDate,
+                  );
+                }}
                 ruleSetsQuery={ruleSetsQuery}
                 selectedDate={selectedDate}
                 simulatedContext={simulatedContext}
@@ -855,10 +1078,34 @@ export default function LogicView() {
               </div>
 
               <SimulationControls
-                onDateChange={setSelectedDate}
+                onDateChange={(d) => {
+                  setSelectedDate(d);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    simulatedContext.patient.isNew,
+                    d,
+                  );
+                }}
                 onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
+                onSimulatedContextChange={(ctx) => {
+                  setSimulatedContext(ctx);
+                  pushParams(
+                    activeTab,
+                    simulationRuleSetId,
+                    ctx.patient.isNew,
+                    selectedDate,
+                  );
+                }}
+                onSimulationRuleSetChange={(id) => {
+                  setSimulationRuleSetId(id);
+                  pushParams(
+                    activeTab,
+                    id,
+                    simulatedContext.patient.isNew,
+                    selectedDate,
+                  );
+                }}
                 ruleSetsQuery={ruleSetsQuery}
                 selectedDate={selectedDate}
                 simulatedContext={simulatedContext}
@@ -978,11 +1225,15 @@ function SaveDialogForm({
         <form.Field
           name="name"
           validators={{
-            onSubmit: ({ value }) =>
+            onSubmit: ({ value }: { value: string }) =>
               value.trim() ? undefined : "Name ist erforderlich",
           }}
         >
-          {(field) => (
+          {(field: {
+            handleChange: (value: string) => void;
+            name: string;
+            state: { value: string };
+          }) => (
             <div className="space-y-2">
               <Label htmlFor={field.name}>Name für das Regelset</Label>
               <Input
