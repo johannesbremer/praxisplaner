@@ -479,14 +479,14 @@ export const getAvailableRulesForRuleSet = query({
     // Create a map of rule IDs to their enabled status in this rule set
     const ruleSetRuleMap = new Map<string, boolean>();
     for (const rsr of ruleSetRules) {
-      ruleSetRuleMap.set(rsr.ruleId.toString(), rsr.enabled);
+      ruleSetRuleMap.set(rsr.ruleId, rsr.enabled);
     }
 
     // Filter rules to include:
     // 1. Rules not in the rule set at all
     // 2. Rules in the rule set but disabled (can be re-enabled)
     return allRules.filter((rule: (typeof allRules)[0]) => {
-      const ruleId = rule._id.toString();
+      const ruleId = rule._id;
       const isInRuleSet = ruleSetRuleMap.has(ruleId);
       const isEnabled = ruleSetRuleMap.get(ruleId);
 
