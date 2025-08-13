@@ -3,6 +3,7 @@
 import { useConvexMutation } from "@convex-dev/react-query";
 import {
   createFileRoute,
+  useLocation,
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
@@ -67,6 +68,7 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 export function PraxisPlanerComponent() {
   const navigate = useNavigate();
   const { date: dateParam, tab: tabParam } = useParams({ strict: false });
+  const location = useLocation();
 
   // Parse date param (YYYY-MM-DD) -> Date
   const parseYmd = (ymd?: string): Date | undefined => {
@@ -120,8 +122,10 @@ export function PraxisPlanerComponent() {
   const [selectedDate, setSelectedDate] = useState<Date>(
     initialDate ?? new Date(),
   );
-  const [activeTab, setActiveTab] = useState<string>(
-    tabParam === "-nerds" ? "settings" : "calendar",
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    location.pathname.endsWith("/nerds") || tabParam === "nerds"
+      ? "settings"
+      : "calendar",
   );
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
 
@@ -200,34 +204,38 @@ export function PraxisPlanerComponent() {
     if (nextDate && formatYmd(nextDate) !== formatYmd(selectedDate)) {
       setSelectedDate(nextDate);
     }
-    if ((tabParam === "-nerds" ? "settings" : "calendar") !== activeTab) {
-      setActiveTab(tabParam === "-nerds" ? "settings" : "calendar");
+    const isSettingsPath =
+      location.pathname.endsWith("/nerds") || tabParam === "nerds";
+    const nextTab = isSettingsPath ? "settings" : "calendar";
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
-  }, [dateParam, tabParam, activeTab, selectedDate]);
+  }, [dateParam, tabParam, location.pathname, activeTab, selectedDate]);
 
   // Helper to push URL state
   const pushParams = useCallback(
     (d: Date, tab: string) => {
       const dateOut = isToday(d) ? undefined : formatYmd(d);
-      const tabOut = tab === "settings" ? "-nerds" : undefined;
-      void navigate({
-        params: (prev: { date?: string; tab?: string }) => {
-          const next: { date?: string; tab?: string } = { ...prev };
-          if (dateOut) {
-            next.date = dateOut;
-          } else {
+      if (tab === "settings") {
+        // Navigate using the typed optional route with tab param
+        void navigate({
+          params: (prev: { date?: string; tab?: string }) => {
+            const next = { ...prev } as { date?: string; tab?: string };
             delete next.date;
-          }
-          if (tabOut) {
-            next.tab = tabOut;
-          } else {
-            delete next.tab;
-          }
-          return next;
-        },
-        replace: false,
-        to: "/praxisplaner/{-$date}/{-$tab}",
-      });
+            next.tab = "nerds";
+            return next;
+          },
+          replace: false,
+          to: "/praxisplaner/{-$date}/{-$tab}",
+        });
+        return;
+      }
+      // Calendar tab: include date only if not today
+      if (dateOut) {
+        void navigate({ replace: false, to: "/praxisplaner/" + dateOut });
+      } else {
+        void navigate({ replace: false, to: "/praxisplaner" });
+      }
     },
     [navigate],
   );
