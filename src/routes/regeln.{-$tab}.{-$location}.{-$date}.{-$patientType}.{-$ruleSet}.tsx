@@ -1,10 +1,10 @@
-// src/routes/regeln.{-$date}.{-$tab}.{-$location}.{-$ruleSet}.{-$patientType}.tsx
+// src/routes/regeln.{-$tab}.{-$location}.{-$date}.{-$patientType}.{-$ruleSet}.tsx
 import { createFileRoute } from "@tanstack/react-router";
 
 import LogicView from "./regeln";
 
 export const Route = createFileRoute(
-  "/regeln/{-$date}/{-$location}/{-$ruleSet}/{-$patientType}/{-$tab}",
+  "/regeln/{-$tab}/{-$location}/{-$date}/{-$patientType}/{-$ruleSet}",
 )({
   component: LogicView,
 });

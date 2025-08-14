@@ -226,7 +226,7 @@ export function PraxisPlanerComponent() {
             return next;
           },
           replace: false,
-          to: "/praxisplaner/{-$date}/{-$tab}",
+          to: "/praxisplaner/{-$tab}/{-$date}",
         });
         return;
       }

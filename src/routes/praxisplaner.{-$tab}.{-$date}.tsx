@@ -1,8 +1,8 @@
-// src/routes/praxisplaner.{-$date}.{-$tab}.tsx
+// src/routes/praxisplaner.{-$tab}.{-$date}.tsx
 import { createFileRoute } from "@tanstack/react-router";
 
 import { PraxisPlanerComponent } from "./praxisplaner";
 
-export const Route = createFileRoute("/praxisplaner/{-$date}/{-$tab}")({
+export const Route = createFileRoute("/praxisplaner/{-$tab}/{-$date}")({
   component: PraxisPlanerComponent,
 });
