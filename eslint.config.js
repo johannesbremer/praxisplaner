@@ -9,7 +9,6 @@ import eslint from "@eslint/js";
 import vitest from "@vitest/eslint-plugin";
 import jsdoc from "eslint-plugin-jsdoc";
 import jsonc from "eslint-plugin-jsonc";
-import markdown from "eslint-plugin-markdown";
 import n from "eslint-plugin-n";
 import packageJson from "eslint-plugin-package-json";
 import perfectionist from "eslint-plugin-perfectionist";
@@ -46,7 +45,6 @@ export default tseslint.config(
   jsdoc.configs["flat/logical-typescript-error"],
   jsdoc.configs["flat/stylistic-typescript-error"],
   jsonc.configs["flat/recommended-with-json"],
-  markdown.configs.recommended,
   n.configs["flat/recommended"],
   packageJson.configs.recommended,
   perfectionist.configs["recommended-natural"],
@@ -65,7 +63,7 @@ export default tseslint.config(
           jsx: true,
         },
         project: true,
-        tsconfigRootDir: ".",
+        tsconfigRootDir: import.meta.dirname,
       },
       globals: {
         ...globals.browser,
@@ -154,11 +152,6 @@ export default tseslint.config(
         version: "detect", // Automatically detect React version
       },
     },
-  },
-  {
-    extends: [tseslint.configs.disableTypeChecked],
-    files: ["**/*.md/*.ts"],
-    rules: { "n/no-missing-import": "off" },
   },
   {
     extends: [vitest.configs.recommended],
