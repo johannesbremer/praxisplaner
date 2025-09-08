@@ -100,7 +100,7 @@ export const getAppointmentTypes = query({
       }),
     );
 
-    return result.sort((a, b) => a.name.localeCompare(b.name));
+    return result.toSorted((a, b) => a.name.localeCompare(b.name));
   },
   returns: v.array(
     v.object({

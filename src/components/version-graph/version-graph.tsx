@@ -36,7 +36,7 @@ export default function VersionGraph({
 
   // Sort versions by creation time (newest first)
   const sortedVersions = React.useMemo(() => {
-    return [...versions].sort((a, b) => b.createdAt - a.createdAt);
+    return [...versions].toSorted((a, b) => b.createdAt - a.createdAt);
   }, [versions]);
 
   const formattedVersions = React.useMemo(() => {

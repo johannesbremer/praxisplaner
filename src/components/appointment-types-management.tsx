@@ -100,7 +100,7 @@ export function AppointmentTypesManagement({
                   Object.keys(appointmentType.durations).length > 0 ? (
                     <div className="space-y-3">
                       {Object.entries(appointmentType.durations)
-                        .sort(
+                        .toSorted(
                           ([a], [b]) => Number.parseInt(a) - Number.parseInt(b),
                         ) // Sort by duration
                         .map(([durationStr, practitionerIds]) => (

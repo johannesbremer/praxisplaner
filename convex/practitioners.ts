@@ -97,6 +97,6 @@ export const getPractitioners = query({
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
-    return practitioners.sort((a, b) => a.name.localeCompare(b.name));
+    return practitioners.toSorted((a, b) => a.name.localeCompare(b.name));
   },
 });

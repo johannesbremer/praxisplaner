@@ -177,7 +177,7 @@ export function PatientFocusedView({
   const firstAvailableDate = (() => {
     const list = [...datesWithAvailabilities]
       .map((ds) => new Date(ds))
-      .sort((a, b) => a.getTime() - b.getTime());
+      .toSorted((a, b) => a.getTime() - b.getTime());
     return list[0];
   })();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
@@ -204,7 +204,7 @@ export function PatientFocusedView({
             new Date(s.startTime).toDateString() ===
             selectedDate.toDateString(),
         )
-        .sort(
+        .toSorted(
           (a, b) =>
             new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
         )

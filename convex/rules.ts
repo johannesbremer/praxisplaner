@@ -249,7 +249,7 @@ export const getAllRulesForPractice = query({
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
-    return rules.sort((a, b) => a.name.localeCompare(b.name));
+    return rules.toSorted((a, b) => a.name.localeCompare(b.name));
   },
 });
 
@@ -301,7 +301,7 @@ export const searchRules = query({
       ...new Map(combined.map((rule) => [rule._id, rule])).values(),
     ];
 
-    return uniqueRules.sort((a, b) => a.name.localeCompare(b.name));
+    return uniqueRules.toSorted((a, b) => a.name.localeCompare(b.name));
   },
 });
 
@@ -432,7 +432,7 @@ export const getRulesForRuleSet = query({
     // Filter out null values and sort by priority
     return rulesWithRuleSetInfo
       .filter((rule) => rule !== null)
-      .sort((a, b) => a.priority - b.priority);
+      .toSorted((a, b) => a.priority - b.priority);
   },
 });
 

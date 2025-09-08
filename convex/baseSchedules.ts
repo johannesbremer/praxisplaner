@@ -215,7 +215,7 @@ export const getBaseSchedulesByPractitioner = query({
       )
       .collect();
 
-    return schedules.sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+    return schedules.toSorted((a, b) => a.dayOfWeek - b.dayOfWeek);
   },
 });
 
@@ -256,7 +256,7 @@ export const getAllBaseSchedules = query({
       }
     }
 
-    return allSchedules.sort((a, b) => {
+    return allSchedules.toSorted((a, b) => {
       // Sort by practitioner name first, then by day of week
       if (a.practitionerName !== b.practitionerName) {
         return a.practitionerName.localeCompare(b.practitionerName);

@@ -72,7 +72,7 @@ export function setBranchAndVersionColor(
       // This is more robust as it doesn't rely on the separate versionsMap.
       const signatureHashes = columnData
         .map((pathSegment) => pathSegment.endCommitHash)
-        .sort();
+        .toSorted();
 
       return {
         columnData,
@@ -83,10 +83,12 @@ export function setBranchAndVersionColor(
     .filter((c) => c.signature); // Ensure we don't process empty columns
 
   // Sort the columns by their signature to get a stable, canonical order.
-  indexedColumns.sort((a, b) => a.signature.localeCompare(b.signature));
+  const sortedIndexedColumns = indexedColumns.toSorted((a, b) =>
+    a.signature.localeCompare(b.signature),
+  );
 
   // Assign colors based on the new stable order.
-  for (const [stableIndex, indexedCol] of indexedColumns.entries()) {
+  for (const [stableIndex, indexedCol] of sortedIndexedColumns.entries()) {
     const branchColor = branchColors[stableIndex % branchColors.length];
     if (!branchColor) {
       continue;

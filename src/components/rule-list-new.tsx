@@ -97,7 +97,7 @@ export function RuleListNew({
   }
 
   // Sort rules by priority (all rules passed here are already enabled)
-  const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
+  const sortedRules = [...rules].toSorted((a, b) => a.priority - b.priority);
 
   return (
     <div className="space-y-4">

@@ -61,7 +61,7 @@ export default function ConnectionLines({
 
   // 2. Sort the connections to control the Z-order (stacking)
   // Elements drawn later appear on top.
-  connectionDataList.sort((a, b) => {
+  const sortedConnectionDataList = connectionDataList.toSorted((a, b) => {
     // Primary sort: Draw connections to higher commits (smaller y) on top.
     // To do this, we sort by 'y' in descending order, so smaller 'y' values are later in the array.
     if (a.childY !== b.childY) {
@@ -73,7 +73,7 @@ export default function ConnectionLines({
   });
 
   // 3. Map the sorted data to React elements
-  const connections = connectionDataList.map((data) => (
+  const connections = sortedConnectionDataList.map((data) => (
     <path
       d={data.pathData}
       fill="none"

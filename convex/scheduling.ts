@@ -217,7 +217,7 @@ export const getAvailableSlots = query({
     log.push(`Generated ${candidateSlots.length} candidate slots`);
 
     // 4. Apply rules in passes, ordered by priority
-    const sortedRules = rules.sort((a, b) => a.priority - b.priority);
+    const sortedRules = rules.toSorted((a, b) => a.priority - b.priority);
 
     for (const rule of sortedRules) {
       const beforeCount = candidateSlots.filter(

@@ -101,7 +101,7 @@ export function DebugView({
     }
   }
 
-  const sortedDates = [...slotsByDate.keys()].sort(
+  const sortedDates = [...slotsByDate.keys()].toSorted(
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
 
@@ -144,7 +144,7 @@ export function DebugView({
                     </h4>
                     <div className="grid gap-1 grid-cols-3">
                       {daySlots
-                        .sort(
+                        .toSorted(
                           (a, b) =>
                             new Date(a.startTime).getTime() -
                             new Date(b.startTime).getTime(),

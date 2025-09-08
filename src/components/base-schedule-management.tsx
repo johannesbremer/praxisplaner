@@ -163,83 +163,64 @@ export default function BaseScheduleManagement({
   };
 
   // Group schedules by practitioner and then by schedule "signature" (time + breaks + location)
-  const schedulesByPractitioner =
-    schedulesQuery?.reduce(
-      (
-        acc: Record<
-          string,
-          {
-            practitionerName: string;
-            scheduleGroup: {
-              breakTimes?: { end: string; start: string }[];
-              daysOfWeek: number[];
-              endTime: string;
-              locationId?: Id<"locations">;
-              locationName?: string;
-              practitionerId: Id<"practitioners">;
-              scheduleIds: Id<"baseSchedules">[];
-              startTime: string;
-            };
-          }[]
-        >,
-        schedule,
-      ) => {
-        const practitionerName = schedule.practitionerName;
-        acc[practitionerName] ??= [];
+  const schedulesByPractitioner: Record<
+    string,
+    {
+      practitionerName: string;
+      scheduleGroup: {
+        breakTimes?: { end: string; start: string }[];
+        daysOfWeek: number[];
+        endTime: string;
+        locationId?: Id<"locations">;
+        locationName?: string;
+        practitionerId: Id<"practitioners">;
+        scheduleIds: Id<"baseSchedules">[];
+        startTime: string;
+      };
+    }[]
+  > = {};
 
-        // Look for existing group with same times, breaks, and location
-        const existingGroup = acc[practitionerName].find(
-          (item) =>
-            item.scheduleGroup.startTime === schedule.startTime &&
-            item.scheduleGroup.endTime === schedule.endTime &&
-            item.scheduleGroup.locationId === schedule.locationId &&
-            JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
-              JSON.stringify(schedule.breakTimes ?? []),
-        );
+  if (schedulesQuery) {
+    for (const schedule of schedulesQuery) {
+      const practitionerName = schedule.practitionerName;
+      schedulesByPractitioner[practitionerName] ??= [];
 
-        if (existingGroup) {
-          // Add this day to existing group
-          existingGroup.scheduleGroup.daysOfWeek.push(schedule.dayOfWeek);
-          existingGroup.scheduleGroup.scheduleIds.push(schedule._id);
-          existingGroup.scheduleGroup.daysOfWeek.sort();
-        } else {
-          // Create new group
-          acc[practitionerName].push({
-            practitionerName,
-            scheduleGroup: {
-              ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-              daysOfWeek: [schedule.dayOfWeek],
-              endTime: schedule.endTime,
-              ...(schedule.locationId && { locationId: schedule.locationId }),
-              ...(schedule.locationName && {
-                locationName: schedule.locationName,
-              }),
-              practitionerId: schedule.practitionerId,
-              scheduleIds: [schedule._id],
-              startTime: schedule.startTime,
-            },
-          });
-        }
+      // Look for existing group with same times, breaks, and location
+      const existingGroup = schedulesByPractitioner[practitionerName].find(
+        (item) =>
+          item.scheduleGroup.startTime === schedule.startTime &&
+          item.scheduleGroup.endTime === schedule.endTime &&
+          item.scheduleGroup.locationId === schedule.locationId &&
+          JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
+            JSON.stringify(schedule.breakTimes ?? []),
+      );
 
-        return acc;
-      },
-      {} as Record<
-        string,
-        {
-          practitionerName: string;
+      if (existingGroup) {
+        // Add this day to existing group
+        existingGroup.scheduleGroup.daysOfWeek.push(schedule.dayOfWeek);
+        existingGroup.scheduleGroup.scheduleIds.push(schedule._id);
+        existingGroup.scheduleGroup.daysOfWeek =
+          existingGroup.scheduleGroup.daysOfWeek.toSorted();
+      } else {
+        // Create new group
+        schedulesByPractitioner[practitionerName].push({
+          practitionerName,
           scheduleGroup: {
-            breakTimes?: { end: string; start: string }[];
-            daysOfWeek: number[];
-            endTime: string;
-            locationId?: Id<"locations">;
-            locationName?: string;
-            practitionerId: Id<"practitioners">;
-            scheduleIds: Id<"baseSchedules">[];
-            startTime: string;
-          };
-        }[]
-      >,
-    ) ?? {};
+            ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+            daysOfWeek: [schedule.dayOfWeek],
+            endTime: schedule.endTime,
+            ...(schedule.locationId && { locationId: schedule.locationId }),
+            ...(schedule.locationName && {
+              locationName: schedule.locationName,
+            }),
+            practitionerId: schedule.practitionerId,
+            scheduleIds: [schedule._id],
+            startTime: schedule.startTime,
+          },
+        });
+      }
+    }
+  }
 
   return (
     <Card>

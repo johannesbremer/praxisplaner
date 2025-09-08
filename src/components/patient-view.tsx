@@ -98,7 +98,7 @@ export function PatientView({
   const firstAvailableDate = useMemo(() => {
     const first = [...datesWithAvailabilities]
       .map((ds) => new Date(ds))
-      .sort((a, b) => a.getTime() - b.getTime())[0];
+      .toSorted((a, b) => a.getTime() - b.getTime())[0];
     return first;
   }, [datesWithAvailabilities]);
 
@@ -125,7 +125,7 @@ export function PatientView({
         (s) =>
           new Date(s.startTime).toDateString() === selectedDate.toDateString(),
       )
-      .sort(
+      .toSorted(
         (a, b) =>
           new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
       );
