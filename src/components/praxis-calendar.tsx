@@ -44,6 +44,8 @@ interface PraxisCalendarProps {
   onCreateLocalAppointment?: (
     appointment: Omit<LocalAppointment, "id" | "isLocal">,
   ) => void;
+  // Notify parent when the current date changes
+  onDateChange?: (date: Date) => void;
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
     duration: number;
@@ -220,6 +222,7 @@ function timeToMinutes(timeStr: string): number {
 export function PraxisCalendar({
   localAppointments = [],
   onCreateLocalAppointment,
+  onDateChange,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
   onSlotClick: _onSlotClick,
   onUpdateSimulatedContext,
@@ -293,8 +296,9 @@ export function PraxisCalendar({
   useEffect(() => {
     if (simulationDate) {
       setCurrentDate(simulationDate);
+      onDateChange?.(simulationDate);
     }
-  }, [simulationDate]);
+  }, [simulationDate, onDateChange]);
 
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
@@ -586,8 +590,12 @@ export function PraxisCalendar({
                 const startOfWeek = new Date(date);
                 startOfWeek.setDate(date.getDate() - date.getDay());
                 setCurrentDate(date);
+                onDateChange?.(date);
               }}
-              onValueChange={setCurrentDate}
+              onValueChange={(d) => {
+                setCurrentDate(d);
+                onDateChange?.(d);
+              }}
               startDate={currentDate}
               value={currentDate}
             >
