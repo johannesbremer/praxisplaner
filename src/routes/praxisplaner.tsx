@@ -1,7 +1,12 @@
 // src/routes/praxisplaner.tsx
 
 import { useConvexMutation } from "@convex-dev/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,7 +65,47 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
   return "outline";
 };
 
-function PraxisPlanerComponent() {
+export function PraxisPlanerComponent() {
+  const navigate = useNavigate();
+  const { date: dateParam, tab: tabParam } = useParams({ strict: false });
+  const location = useLocation();
+
+  // Parse date param (YYYY-MM-DD) -> Date
+  const parseYmd = (ymd?: string): Date | undefined => {
+    if (!ymd) {
+      return undefined;
+    }
+    // Expecting 4-2-2 digits
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      return undefined;
+    }
+    const [ys, ms, ds] = ymd.split("-");
+    const y = Number(ys);
+    const m = Number(ms);
+    const d = Number(ds);
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) ? undefined : dt;
+  };
+
+  const formatYmd = (dt: Date): string => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const isToday = (dt?: Date) => {
+    if (!dt) {
+      return true;
+    }
+    const now = new Date();
+    return (
+      dt.getFullYear() === now.getFullYear() &&
+      dt.getMonth() === now.getMonth() &&
+      dt.getDate() === now.getDate()
+    );
+  };
+
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
@@ -73,7 +118,15 @@ function PraxisPlanerComponent() {
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
-  const [activeTab, setActiveTab] = useState<string>("calendar");
+  const initialDate = parseYmd(dateParam);
+  const [selectedDate, setSelectedDate] = useState<Date>(
+    initialDate ?? new Date(),
+  );
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    location.pathname.endsWith("/nerds") || tabParam === "nerds"
+      ? "settings"
+      : "calendar",
+  );
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
 
   // Check if GDT connection has issues for showing alert
@@ -144,6 +197,50 @@ function PraxisPlanerComponent() {
     },
     [activeTab, addGdtLog],
   );
+
+  useEffect(() => {
+    // Keep local states in sync if URL params change externally
+    const nextDate = parseYmd(dateParam);
+    if (nextDate && formatYmd(nextDate) !== formatYmd(selectedDate)) {
+      setSelectedDate(nextDate);
+    }
+    const isSettingsPath =
+      location.pathname.endsWith("/nerds") || tabParam === "nerds";
+    const nextTab = isSettingsPath ? "settings" : "calendar";
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [dateParam, tabParam, location.pathname, activeTab, selectedDate]);
+
+  // Helper to push URL state
+  const pushParams = useCallback(
+    (d: Date, tab: string) => {
+      const dateOut = isToday(d) ? undefined : formatYmd(d);
+      if (tab === "settings") {
+        // Navigate using the typed optional route with tab param
+        void navigate({
+          params: (prev: { date?: string; tab?: string }) => {
+            const next = { ...prev } as { date?: string; tab?: string };
+            delete next.date;
+            next.tab = "nerds";
+            return next;
+          },
+          replace: false,
+          to: "/praxisplaner/{-$tab}/{-$date}",
+        });
+        return;
+      }
+      // Calendar tab: include date only if not today
+      if (dateOut) {
+        void navigate({ replace: false, to: "/praxisplaner/" + dateOut });
+      } else {
+        void navigate({ replace: false, to: "/praxisplaner" });
+      }
+    },
+    [navigate],
+  );
+
+  // We sync to URL on interactions (tab/date handlers). No effect needed.
 
   useEffect(() => {
     const supported = "showDirectoryPicker" in globalThis;
@@ -940,7 +1037,10 @@ function PraxisPlanerComponent() {
     <div className="h-screen bg-background text-foreground">
       <Tabs
         className="h-full flex flex-col"
-        onValueChange={setActiveTab}
+        onValueChange={(val) => {
+          setActiveTab(val);
+          pushParams(selectedDate, val);
+        }}
         value={activeTab}
       >
         <div className="border-b px-6 py-3">
@@ -988,7 +1088,13 @@ function PraxisPlanerComponent() {
                   Verwalten Sie Ihre Praxistermine mit 5-Minuten-Intervallen
                 </p>
               </div>
-              <PraxisCalendar showGdtAlert={hasGdtConnectionIssue} />
+              <PraxisCalendar
+                onDateChange={(d) => {
+                  setSelectedDate(d);
+                }}
+                showGdtAlert={hasGdtConnectionIssue}
+                simulationDate={selectedDate}
+              />
             </div>
           </TabsContent>
 

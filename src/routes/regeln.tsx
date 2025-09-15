@@ -1,6 +1,11 @@
 // src/routes/regeln.tsx
 import { useForm } from "@tanstack/react-form";
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router";
+import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { Plus, RefreshCw, Save } from "lucide-react";
@@ -55,6 +60,7 @@ import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 import { useLocalAppointments } from "../utils/local-appointments";
+import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -86,12 +92,46 @@ interface SlotDetails {
   status: "AVAILABLE" | "BLOCKED";
 }
 
+// Helper: slugify German names to URL-safe strings
 export default function LogicView() {
-  // Get or initialize a practice for development
-  const practicesQuery = useQuery(api.practices.getAllPractices);
+  const navigate = useNavigate();
+  // With prefixed optional segments, TanStack still exposes bare param names
+  // because only the suffix/prefix is part of the path, not the param key.
+  const {
+    date: dateParam,
+    location: locationParam,
+    patientType: patientTypeParam,
+    ruleSet: ruleSetParam,
+    tab: tabParam,
+  } = useParams({ strict: false });
+  // Guard to avoid the URL-sync effect from immediately overriding user tab changes
+  const tabSyncGuardRef = React.useRef(false);
+  // Practices and initialization
+  const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
+  // Keep URL in sync (assigned later after data queries)
+  const pushParamsRef: {
+    fn: (
+      tab: string,
+      ruleSetId: Id<"ruleSets"> | undefined,
+      isNewPatient: boolean,
+      date: Date,
+    ) => void;
+  } = {
+    fn: () => {
+      // initialized later once data queries resolve
+    },
+  };
+  const pushParams = (
+    tab: string,
+    ruleSetId: Id<"ruleSets"> | undefined,
+    isNewPatient: boolean,
+    date: Date,
+  ) => {
+    pushParamsRef.fn(tab, ruleSetId, isNewPatient, date);
+  };
   const { captureError } = useErrorTracking();
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
@@ -109,15 +149,58 @@ export default function LogicView() {
     useLocalAppointments();
 
   // Simulation state - moved from SimulationPanel
+  const initialTab =
+    tabParam === "mitarbeiter"
+      ? "staff-view"
+      : tabParam === "debug"
+        ? "debug-views"
+        : "rule-management";
+
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     appointmentType: "Erstberatung",
-    patient: { isNew: true },
+    patient: { isNew: patientTypeParam !== "bestand" },
   });
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const parseYmd = (ymd?: string): Date | undefined => {
+    if (!ymd) {
+      return undefined;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      return undefined;
+    }
+    const [ys, ms, ds] = ymd.split("-");
+    const y = Number(ys);
+    const m = Number(ms);
+    const d = Number(ds);
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) ? undefined : dt;
+  };
+  const isToday = (dt?: Date) => {
+    if (!dt) {
+      return true;
+    }
+    const now = new Date();
+    return (
+      dt.getFullYear() === now.getFullYear() &&
+      dt.getMonth() === now.getMonth() &&
+      dt.getDate() === now.getDate()
+    );
+  };
+  const formatYmd = (dt: Date): string => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+  const [selectedDate, setSelectedDate] = useState<Date>(
+    parseYmd(dateParam) ?? new Date(),
+  );
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
   const [simulationRuleSetId, setSimulationRuleSetId] = useState<
     Id<"ruleSets"> | undefined
   >();
+  // Keep URL in sync: will be assigned after data queries below
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -130,17 +213,6 @@ export default function LogicView() {
   const dateRange = {
     end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
-  };
-
-  const resetSimulation = () => {
-    setSimulatedContext({
-      appointmentType: "Erstberatung",
-      patient: { isNew: true },
-    });
-    setSelectedDate(new Date());
-    setSimulationRuleSetId(undefined);
-    setSelectedSlot(null);
-    clearAllLocalAppointments();
   };
 
   const handleSlotClick = (slot: SlotDetails) => {
@@ -187,6 +259,11 @@ export default function LogicView() {
   // Fetch rule sets for this practice
   const ruleSetsQuery = useQuery(
     api.rules.getRuleSets,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
+  // Fetch locations for slug mapping
+  const locationsListQuery = useQuery(
+    api.locations.getLocations,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
@@ -270,6 +347,98 @@ export default function LogicView() {
     ruleSetsQuery?.find((rs: { _id: string }) => rs._id === unsavedRuleSetId) ??
     existingUnsavedRuleSet;
 
+  // Assign URL sync now that dependent data is available
+  pushParamsRef.fn = React.useCallback(
+    (
+      tab: string,
+      ruleSetId: Id<"ruleSets"> | undefined,
+      isNewPatient: boolean,
+      date: Date,
+    ) => {
+      const tabOut =
+        tab === "staff-view"
+          ? "mitarbeiter"
+          : tab === "debug-views"
+            ? "debug"
+            : undefined;
+      // Compute ruleSet slug
+      let ruleSetOut: string | undefined;
+      if (ruleSetId) {
+        if (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) {
+          ruleSetOut = "ungespeichert";
+        } else {
+          const found = ruleSetsQuery?.find(
+            (rs: { _id: string }) => rs._id === ruleSetId,
+          );
+          ruleSetOut = found ? slugify(found.description) : undefined;
+        }
+      }
+      const patientTypeOut = isNewPatient ? undefined : "bestand";
+      // Compute location slug from simulatedContext
+      let locationOut: string | undefined;
+      if (simulatedContext.locationId && Array.isArray(locationsListQuery)) {
+        const loc = locationsListQuery.find(
+          (l: { _id: string }) => l._id === simulatedContext.locationId,
+        );
+        locationOut = loc ? slugify(loc.name) : undefined;
+      }
+      // Date is omitted when today, unless we need it to carry later segments (e.g. tab)
+      let dateOut = isToday(date) ? undefined : formatYmd(date);
+      if (
+        !dateOut &&
+        (tabOut !== undefined ||
+          ruleSetOut !== undefined ||
+          patientTypeOut !== undefined ||
+          locationOut !== undefined)
+      ) {
+        // Force include today's date to allow later segments while keeping a single alias order
+        dateOut = formatYmd(date);
+      }
+      // Build a concrete path in declared param order: /regeln/{tab}/{location}/{date}/{patientType}/{ruleSet}
+      const parts: string[] = ["/regeln"];
+      if (tabOut) {
+        parts.push(tabOut);
+      }
+      if (locationOut) {
+        parts.push(locationOut);
+      }
+      if (dateOut) {
+        parts.push(dateOut);
+      }
+      if (patientTypeOut) {
+        parts.push(patientTypeOut);
+      }
+      if (ruleSetOut) {
+        parts.push(ruleSetOut);
+      }
+      if (parts.length === 1) {
+        void navigate({ replace: false, to: "/regeln" });
+      } else {
+        void navigate({ replace: false, to: parts.join("/") });
+      }
+    },
+    [
+      navigate,
+      ruleSetsQuery,
+      unsavedRuleSet,
+      simulatedContext.locationId,
+      locationsListQuery,
+    ],
+  );
+
+  // Reset simulation helper (after pushParams is defined)
+  const resetSimulation = () => {
+    setSimulatedContext({
+      appointmentType: "Erstberatung",
+      patient: { isNew: true },
+    });
+    setSelectedDate(new Date());
+    setSimulationRuleSetId(undefined);
+    setSelectedSlot(null);
+    clearAllLocalAppointments();
+    pushParams(activeTab, undefined, true, new Date());
+  };
+
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
     if (existingUnsavedRuleSet && !unsavedRuleSetId) {
@@ -295,12 +464,106 @@ export default function LogicView() {
 
   // Sync current working rule set with simulation controls
   React.useEffect(() => {
+    // Don't override if URL or user already chose a specific simulation rule set
+    if (ruleSetParam) {
+      return;
+    }
+    if (simulationRuleSetId !== undefined) {
+      return;
+    }
     if (currentWorkingRuleSet) {
       setSimulationRuleSetId(currentWorkingRuleSet._id);
     } else {
       setSimulationRuleSetId(undefined);
     }
-  }, [currentWorkingRuleSet]);
+  }, [currentWorkingRuleSet, ruleSetParam, simulationRuleSetId]);
+
+  // Sync local state when URL params change externally
+  const isNewPatientCurrent = simulatedContext.patient.isNew;
+  const prevTabParamRef = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    // Don't early return; still update prev ref below
+    tabSyncGuardRef.current &&= false;
+    // Update activeTab based on explicit tab params; avoid resetting to default
+    if (tabParam === "mitarbeiter" && activeTab !== "staff-view") {
+      setActiveTab("staff-view");
+    } else if (tabParam === "debug" && activeTab !== "debug-views") {
+      setActiveTab("debug-views");
+    } else if (
+      tabParam === undefined &&
+      prevTabParamRef.current !== undefined &&
+      activeTab !== "rule-management"
+    ) {
+      // Only collapse to default when transitioning from a defined tab to undefined
+      setActiveTab("rule-management");
+    }
+
+    const date = parseYmd(dateParam);
+    if (date && formatYmd(date) !== formatYmd(selectedDate)) {
+      setSelectedDate(date);
+    }
+
+    const newIsNew = patientTypeParam !== "bestand";
+    if (newIsNew !== isNewPatientCurrent) {
+      setSimulatedContext((prev) => ({
+        ...prev,
+        patient: { isNew: newIsNew },
+      }));
+    }
+  }, [
+    tabParam,
+    dateParam,
+    patientTypeParam,
+    activeTab,
+    selectedDate,
+    isNewPatientCurrent,
+    simulationRuleSetId,
+  ]);
+  React.useEffect(() => {
+    prevTabParamRef.current = tabParam;
+  }, [tabParam]);
+
+  // Map URL slugs -> internal IDs for rule set and location
+  React.useEffect(() => {
+    // Rule set slug mapping
+    if (typeof ruleSetParam === "string") {
+      let nextId: Id<"ruleSets"> | undefined;
+      if (ruleSetParam === "ungespeichert") {
+        nextId = unsavedRuleSet?._id;
+      } else if (ruleSetsQuery) {
+        const found = ruleSetsQuery.find(
+          (rs: { description: string }) =>
+            slugify(rs.description) === ruleSetParam,
+        );
+        nextId = found?._id;
+      }
+      if (nextId !== simulationRuleSetId) {
+        setSimulationRuleSetId(nextId);
+      }
+    }
+
+    // Location slug mapping
+    if (
+      typeof locationParam === "string" &&
+      Array.isArray(locationsListQuery)
+    ) {
+      const foundLoc = locationsListQuery.find(
+        (l: { name: string }) => slugify(l.name) === locationParam,
+      );
+      const foundId = foundLoc?._id as Id<"locations"> | undefined;
+      if (foundId && simulatedContext.locationId !== foundId) {
+        setSimulatedContext((prev) => ({ ...prev, locationId: foundId }));
+      }
+    }
+  }, [
+    ruleSetParam,
+    locationParam,
+    ruleSetsQuery,
+    locationsListQuery,
+    unsavedRuleSet,
+    simulationRuleSetId,
+    simulatedContext.locationId,
+  ]);
 
   // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
@@ -579,205 +842,284 @@ export default function LogicView() {
       </div>
 
       {/* Page-level Tabs */}
-      <Tabs className="space-y-6" defaultValue="rule-management">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="rule-management">
-            Regelverwaltung + Patientensicht
-          </TabsTrigger>
-          <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
-          <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
-        </TabsList>
+      <ClientOnly fallback={<div />}>
+        <Tabs
+          className="space-y-6"
+          onValueChange={(val) => {
+            tabSyncGuardRef.current = true;
+            setActiveTab(val);
+            pushParams(
+              val,
+              simulationRuleSetId,
+              simulatedContext.patient.isNew,
+              selectedDate,
+            );
+          }}
+          value={activeTab}
+        >
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="rule-management">
+              Regelverwaltung + Patientensicht
+            </TabsTrigger>
+            <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
+            <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
+          </TabsList>
 
-        {/* Tab 1: Rule Management + Patient View */}
-        <TabsContent value="rule-management">
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left Panel - Regelverwaltung */}
-            <div className="space-y-6">
+          {/* Tab 1: Rule Management + Patient View */}
+          <TabsContent value="rule-management">
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Left Panel - Regelverwaltung */}
               <div className="space-y-6">
-                {/* Rule Set Selection */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Regelset Auswahl</CardTitle>
-                    <CardDescription>
-                      {ruleSetsQuery && ruleSetsQuery.length === 0
-                        ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
-                        : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Show version graph when there are saved rule sets */}
-                    {versionsQuery && versionsQuery.length > 0 && (
-                      <div className="space-y-2">
-                        <Label>Regelset-Versionshistorie</Label>
-                        <div className="border rounded-lg p-4">
-                          <VersionGraph
-                            onVersionClick={handleVersionClick}
-                            {...((unsavedRuleSetId || selectedRuleSetId) && {
-                              selectedVersionId: (unsavedRuleSetId ||
-                                selectedRuleSetId) as string,
-                            })}
-                            versions={versionsQuery}
-                          />
-                        </div>
-                        {/* Show current state indicator */}
-                        {unsavedRuleSet && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Badge className="text-xs" variant="secondary">
-                              Ungespeicherte Änderungen
-                            </Badge>
-                            <span>Arbeiten Sie gerade an Änderungen</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex gap-2">
-                      {/* Show save button when we have an unsaved rule set or when creating the first one */}
-                      {(unsavedRuleSet ??
-                        (ruleSetsQuery &&
-                          ruleSetsQuery.length === 0 &&
-                          currentWorkingRuleSet)) && (
-                        <Button
-                          onClick={handleOpenSaveDialog}
-                          variant="default"
-                        >
-                          <Save className="h-4 w-4 mr-2" />
-                          Speichern
-                        </Button>
-                      )}
-
-                      {/* Show activate button when a different rule set is selected and there are no unsaved changes */}
-                      {selectedRuleSet &&
-                        !unsavedRuleSet &&
-                        !selectedRuleSet.isActive && (
-                          <Button
-                            onClick={() =>
-                              void handleActivateRuleSet(
-                                selectedRuleSet._id,
-                                selectedRuleSet.description,
-                              )
-                            }
-                            variant="outline"
-                          >
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Aktivieren
-                          </Button>
-                        )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Rules List */}
-                {(currentWorkingRuleSet ??
-                  (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
+                <div className="space-y-6">
+                  {/* Rule Set Selection */}
                   <Card>
                     <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle>
-                            {currentWorkingRuleSet ? (
-                              <>
-                                {unsavedRuleSet ? (
-                                  <>
-                                    Regeln in{" "}
-                                    <Badge className="ml-2" variant="secondary">
-                                      Ungespeicherte Änderungen
-                                    </Badge>
-                                  </>
-                                ) : (
-                                  <>
-                                    Regeln in{" "}
-                                    {currentWorkingRuleSet.description}
-                                    {currentWorkingRuleSet.isActive && (
-                                      <Badge className="ml-2" variant="default">
-                                        AKTIV
-                                      </Badge>
-                                    )}
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              "Regeln"
-                            )}
-                          </CardTitle>
-                          <CardDescription>
-                            {currentWorkingRuleSet
-                              ? currentWorkingRuleSet.description
-                              : "Fügen Sie Ihre erste Regel hinzu"}
-                          </CardDescription>
-                        </div>
-                      </div>
-                      {/* Rule Management Controls - New line for space reasons */}
-                      <div className="flex gap-2 mt-4">
-                        {/* Create New Rule Button - Always show */}
-                        <RuleCreationFormNew
-                          customTrigger={
-                            unsavedRuleSet ? undefined : (
-                              <Button
-                                onClick={() => {
-                                  void ensureUnsavedRuleSet();
-                                }}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <Plus className="h-4 w-4 mr-2" />
-                                Neue Regel
-                              </Button>
-                            )
-                          }
-                          onRuleCreated={handleRuleChange}
-                          practiceId={currentPractice._id}
-                          {...(unsavedRuleSet && {
-                            ruleSetId: unsavedRuleSet._id,
-                          })}
-                        />
-
-                        {/* Enable Existing Rule Combobox - Always show */}
-                        <RuleEnableCombobox
-                          onNeedRuleSet={() => {
-                            void ensureUnsavedRuleSet();
-                          }}
-                          onRuleEnabled={handleRuleChange}
-                          practiceId={currentPractice._id}
-                          {...(unsavedRuleSet && {
-                            ruleSetId: unsavedRuleSet._id,
-                          })}
-                        />
-                      </div>
+                      <CardTitle>Regelset Auswahl</CardTitle>
+                      <CardDescription>
+                        {ruleSetsQuery && ruleSetsQuery.length === 0
+                          ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
+                          : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
+                      </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      {rulesQuery && currentWorkingRuleSet ? (
-                        <RuleListNew
-                          onNeedRuleSet={ensureUnsavedRuleSet}
-                          onRuleChanged={handleRuleChange}
-                          practiceId={currentPractice._id}
-                          rules={rulesQuery}
-                          ruleSetId={currentWorkingRuleSet._id}
-                        />
-                      ) : (
-                        <div className="text-center py-8 text-muted-foreground">
-                          Lade Regeln...
+                    <CardContent className="space-y-4">
+                      {/* Show version graph when there are saved rule sets */}
+                      {versionsQuery && versionsQuery.length > 0 && (
+                        <div className="space-y-2">
+                          <Label>Regelset-Versionshistorie</Label>
+                          <div className="border rounded-lg p-4">
+                            <VersionGraph
+                              onVersionClick={handleVersionClick}
+                              {...((unsavedRuleSetId || selectedRuleSetId) && {
+                                selectedVersionId: (unsavedRuleSetId ||
+                                  selectedRuleSetId) as string,
+                              })}
+                              versions={versionsQuery}
+                            />
+                          </div>
+                          {/* Show current state indicator */}
+                          {unsavedRuleSet && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Badge className="text-xs" variant="secondary">
+                                Ungespeicherte Änderungen
+                              </Badge>
+                              <span>Arbeiten Sie gerade an Änderungen</span>
+                            </div>
+                          )}
                         </div>
                       )}
+
+                      <div className="flex gap-2">
+                        {/* Show save button when we have an unsaved rule set or when creating the first one */}
+                        {(unsavedRuleSet ??
+                          (ruleSetsQuery &&
+                            ruleSetsQuery.length === 0 &&
+                            currentWorkingRuleSet)) && (
+                          <Button
+                            onClick={handleOpenSaveDialog}
+                            variant="default"
+                          >
+                            <Save className="h-4 w-4 mr-2" />
+                            Speichern
+                          </Button>
+                        )}
+
+                        {/* Show activate button when a different rule set is selected and there are no unsaved changes */}
+                        {selectedRuleSet &&
+                          !unsavedRuleSet &&
+                          !selectedRuleSet.isActive && (
+                            <Button
+                              onClick={() =>
+                                void handleActivateRuleSet(
+                                  selectedRuleSet._id,
+                                  selectedRuleSet.description,
+                                )
+                              }
+                              variant="outline"
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                              Aktivieren
+                            </Button>
+                          )}
+                      </div>
                     </CardContent>
                   </Card>
-                )}
 
-                {/* Practitioner Management */}
-                <PractitionerManagement practiceId={currentPractice._id} />
+                  {/* Rules List */}
+                  {(currentWorkingRuleSet ??
+                    (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <CardTitle>
+                              {currentWorkingRuleSet ? (
+                                <>
+                                  {unsavedRuleSet ? (
+                                    <>
+                                      Regeln in{" "}
+                                      <Badge
+                                        className="ml-2"
+                                        variant="secondary"
+                                      >
+                                        Ungespeicherte Änderungen
+                                      </Badge>
+                                    </>
+                                  ) : (
+                                    <>
+                                      Regeln in{" "}
+                                      {currentWorkingRuleSet.description}
+                                      {currentWorkingRuleSet.isActive && (
+                                        <Badge
+                                          className="ml-2"
+                                          variant="default"
+                                        >
+                                          AKTIV
+                                        </Badge>
+                                      )}
+                                    </>
+                                  )}
+                                </>
+                              ) : (
+                                "Regeln"
+                              )}
+                            </CardTitle>
+                            <CardDescription>
+                              {currentWorkingRuleSet
+                                ? currentWorkingRuleSet.description
+                                : "Fügen Sie Ihre erste Regel hinzu"}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        {/* Rule Management Controls - New line for space reasons */}
+                        <div className="flex gap-2 mt-4">
+                          {/* Create New Rule Button - Always show */}
+                          <RuleCreationFormNew
+                            customTrigger={
+                              unsavedRuleSet ? undefined : (
+                                <Button
+                                  onClick={() => {
+                                    void ensureUnsavedRuleSet();
+                                  }}
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Neue Regel
+                                </Button>
+                              )
+                            }
+                            onRuleCreated={handleRuleChange}
+                            practiceId={currentPractice._id}
+                            {...(unsavedRuleSet && {
+                              ruleSetId: unsavedRuleSet._id,
+                            })}
+                          />
 
-                {/* Base Schedule Management */}
-                <BaseScheduleManagement practiceId={currentPractice._id} />
+                          {/* Enable Existing Rule Combobox - Always show */}
+                          <RuleEnableCombobox
+                            onNeedRuleSet={() => {
+                              void ensureUnsavedRuleSet();
+                            }}
+                            onRuleEnabled={handleRuleChange}
+                            practiceId={currentPractice._id}
+                            {...(unsavedRuleSet && {
+                              ruleSetId: unsavedRuleSet._id,
+                            })}
+                          />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {rulesQuery && currentWorkingRuleSet ? (
+                          <RuleListNew
+                            onNeedRuleSet={ensureUnsavedRuleSet}
+                            onRuleChanged={handleRuleChange}
+                            practiceId={currentPractice._id}
+                            rules={rulesQuery}
+                            ruleSetId={currentWorkingRuleSet._id}
+                          />
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            Lade Regeln...
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {/* Locations Management */}
-                <LocationsManagement practiceId={currentPractice._id} />
+                  {/* Practitioner Management */}
+                  <PractitionerManagement practiceId={currentPractice._id} />
+
+                  {/* Base Schedule Management */}
+                  <BaseScheduleManagement practiceId={currentPractice._id} />
+
+                  {/* Locations Management */}
+                  <LocationsManagement practiceId={currentPractice._id} />
+                </div>
+              </div>
+
+              {/* Right Panel - Patient View + Simulation Controls */}
+              <div className="space-y-6">
+                <div className="flex justify-center">
+                  <PatientBookingFlow
+                    dateRange={dateRange}
+                    localAppointments={localAppointments}
+                    onCreateLocalAppointment={addLocalAppointment}
+                    onSlotClick={handleSlotClick}
+                    onUpdateSimulatedContext={setSimulatedContext}
+                    practiceId={currentPractice._id}
+                    ruleSetId={simulationRuleSetId}
+                    simulatedContext={simulatedContext}
+                  />
+                </div>
+
+                <SimulationControls
+                  onDateChange={(d) => {
+                    setSelectedDate(d);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      simulatedContext.patient.isNew,
+                      d,
+                    );
+                  }}
+                  onResetSimulation={resetSimulation}
+                  onSimulatedContextChange={(ctx) => {
+                    setSimulatedContext(ctx);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      ctx.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  onSimulationRuleSetChange={(id) => {
+                    setSimulationRuleSetId(id);
+                    pushParams(
+                      activeTab,
+                      id,
+                      simulatedContext.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  ruleSetsQuery={ruleSetsQuery}
+                  selectedDate={selectedDate}
+                  simulatedContext={simulatedContext}
+                  simulationRuleSetId={simulationRuleSetId}
+                />
               </div>
             </div>
 
-            {/* Right Panel - Patient View + Simulation Controls */}
+            {/* Full width Appointment Types Management */}
+            <div className="mt-6">
+              <AppointmentTypesManagement practiceId={currentPractice._id} />
+            </div>
+          </TabsContent>
+
+          {/* Tab 2: Staff View Only */}
+          <TabsContent value="staff-view">
             <div className="space-y-6">
-              <div className="flex justify-center">
-                <PatientBookingFlow
+              <div className="space-y-6">
+                <MedicalStaffDisplay
                   dateRange={dateRange}
                   localAppointments={localAppointments}
                   onCreateLocalAppointment={addLocalAppointment}
@@ -787,87 +1129,101 @@ export default function LogicView() {
                   ruleSetId={simulationRuleSetId}
                   simulatedContext={simulatedContext}
                 />
+
+                <SimulationControls
+                  onDateChange={(d) => {
+                    setSelectedDate(d);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      simulatedContext.patient.isNew,
+                      d,
+                    );
+                  }}
+                  onResetSimulation={resetSimulation}
+                  onSimulatedContextChange={(ctx) => {
+                    setSimulatedContext(ctx);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      ctx.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  onSimulationRuleSetChange={(id) => {
+                    setSimulationRuleSetId(id);
+                    pushParams(
+                      activeTab,
+                      id,
+                      simulatedContext.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  ruleSetsQuery={ruleSetsQuery}
+                  selectedDate={selectedDate}
+                  simulatedContext={simulatedContext}
+                  simulationRuleSetId={simulationRuleSetId}
+                />
               </div>
-
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
             </div>
-          </div>
+          </TabsContent>
 
-          {/* Full width Appointment Types Management */}
-          <div className="mt-6">
-            <AppointmentTypesManagement practiceId={currentPractice._id} />
-          </div>
-        </TabsContent>
-
-        {/* Tab 2: Staff View Only */}
-        <TabsContent value="staff-view">
-          <div className="space-y-6">
-            <div className="space-y-6">
-              <MedicalStaffDisplay
-                dateRange={dateRange}
-                localAppointments={localAppointments}
-                onCreateLocalAppointment={addLocalAppointment}
-                onSlotClick={handleSlotClick}
-                onUpdateSimulatedContext={setSimulatedContext}
-                practiceId={currentPractice._id}
-                ruleSetId={simulationRuleSetId}
-                simulatedContext={simulatedContext}
-              />
-
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Tab 3: Debug Views Only */}
-        <TabsContent value="debug-views">
-          <div className="space-y-6">
+          {/* Tab 3: Debug Views Only */}
+          <TabsContent value="debug-views">
             <div className="space-y-6">
               <div className="space-y-6">
-                <DebugView
-                  dateRange={dateRange}
-                  onSlotClick={handleSlotClick}
-                  onUpdateSimulatedContext={setSimulatedContext}
-                  practiceId={currentPractice._id}
-                  ruleSetId={simulationRuleSetId}
+                <div className="space-y-6">
+                  <DebugView
+                    dateRange={dateRange}
+                    onSlotClick={handleSlotClick}
+                    onUpdateSimulatedContext={setSimulatedContext}
+                    practiceId={currentPractice._id}
+                    ruleSetId={simulationRuleSetId}
+                    simulatedContext={simulatedContext}
+                  />
+
+                  <SlotInspector selectedSlot={selectedSlot} />
+                </div>
+
+                <SimulationControls
+                  onDateChange={(d) => {
+                    setSelectedDate(d);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      simulatedContext.patient.isNew,
+                      d,
+                    );
+                  }}
+                  onResetSimulation={resetSimulation}
+                  onSimulatedContextChange={(ctx) => {
+                    setSimulatedContext(ctx);
+                    pushParams(
+                      activeTab,
+                      simulationRuleSetId,
+                      ctx.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  onSimulationRuleSetChange={(id) => {
+                    setSimulationRuleSetId(id);
+                    pushParams(
+                      activeTab,
+                      id,
+                      simulatedContext.patient.isNew,
+                      selectedDate,
+                    );
+                  }}
+                  ruleSetsQuery={ruleSetsQuery}
+                  selectedDate={selectedDate}
                   simulatedContext={simulatedContext}
+                  simulationRuleSetId={simulationRuleSetId}
                 />
-
-                <SlotInspector selectedSlot={selectedSlot} />
               </div>
-
-              <SimulationControls
-                onDateChange={setSelectedDate}
-                onResetSimulation={resetSimulation}
-                onSimulatedContextChange={setSimulatedContext}
-                onSimulationRuleSetChange={setSimulationRuleSetId}
-                ruleSetsQuery={ruleSetsQuery}
-                selectedDate={selectedDate}
-                simulatedContext={simulatedContext}
-                simulationRuleSetId={simulationRuleSetId}
-              />
             </div>
-          </div>
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+      </ClientOnly>
 
       {/* Save Dialog */}
       <Dialog
@@ -978,11 +1334,15 @@ function SaveDialogForm({
         <form.Field
           name="name"
           validators={{
-            onSubmit: ({ value }) =>
+            onSubmit: ({ value }: { value: string }) =>
               value.trim() ? undefined : "Name ist erforderlich",
           }}
         >
-          {(field) => (
+          {(field: {
+            handleChange: (value: string) => void;
+            name: string;
+            state: { value: string };
+          }) => (
             <div className="space-y-2">
               <Label htmlFor={field.name}>Name für das Regelset</Label>
               <Input
@@ -1040,6 +1400,8 @@ function SaveDialogForm({
     </form>
   );
 }
+
+// slugify moved to shared util
 
 // Simulation Controls Component - Extracted from SimulationPanel
 function SimulationControls({

@@ -29,6 +29,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { CalendarEvent } from "../types";
 
 import { api } from "../../convex/_generated/api";
+import { slugify } from "../utils/slug";
 import { LocationSelector } from "./location-selector";
 
 // Import CSS for drag and drop
@@ -43,6 +44,13 @@ interface PraxisCalendarProps {
   localAppointments?: LocalAppointment[];
   onCreateLocalAppointment?: (
     appointment: Omit<LocalAppointment, "id" | "isLocal">,
+  ) => void;
+  // Notify parent when the current date changes
+  locationSlug?: string | undefined;
+  onDateChange?: (date: Date) => void;
+  onLocationResolved?: (
+    locationId: Id<"locations">,
+    locationName: string,
   ) => void;
   onSlotClick?: (slot: {
     blockedByRuleId?: Id<"rules"> | undefined;
@@ -60,6 +68,7 @@ interface PraxisCalendarProps {
   }) => void;
   practiceId?: Id<"practices">;
   ruleSetId?: Id<"ruleSets">;
+  selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: {
     appointmentType: string;
@@ -219,13 +228,17 @@ function timeToMinutes(timeStr: string): number {
 // Helper function to parse time string to minutes from midnight
 export function PraxisCalendar({
   localAppointments = [],
+  locationSlug,
   onCreateLocalAppointment,
+  onDateChange,
+  onLocationResolved,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
   onSlotClick: _onSlotClick,
   onUpdateSimulatedContext,
   practiceId: propPracticeId,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
   ruleSetId: _ruleSetId,
+  selectedLocationId: externalSelectedLocationId,
   showGdtAlert = false,
   simulatedContext,
   simulationDate,
@@ -287,14 +300,40 @@ export function PraxisCalendar({
   // Local state for selected location (for non-simulation mode)
   const [selectedLocationId, setSelectedLocationId] = useState<
     Id<"locations"> | undefined
-  >();
+  >(externalSelectedLocationId);
+
+  useEffect(() => {
+    if (
+      externalSelectedLocationId &&
+      externalSelectedLocationId !== selectedLocationId
+    ) {
+      setSelectedLocationId(externalSelectedLocationId);
+    }
+  }, [externalSelectedLocationId, selectedLocationId]);
+
+  // Resolve location slug from URL once locations data is available
+  useEffect(() => {
+    if (!locationSlug || !locationsData || selectedLocationId) {
+      return;
+    }
+    const match = locationsData.find(
+      (l: { name: string }) => slugify(l.name) === locationSlug,
+    );
+    if (match) {
+      setSelectedLocationId(match._id);
+      if (onLocationResolved) {
+        onLocationResolved(match._id, match.name);
+      }
+    }
+  }, [locationSlug, locationsData, selectedLocationId, onLocationResolved]);
 
   // Update currentDate when simulationDate changes
   useEffect(() => {
     if (simulationDate) {
       setCurrentDate(simulationDate);
+      onDateChange?.(simulationDate);
     }
-  }, [simulationDate]);
+  }, [simulationDate, onDateChange]);
 
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
@@ -586,8 +625,12 @@ export function PraxisCalendar({
                 const startOfWeek = new Date(date);
                 startOfWeek.setDate(date.getDate() - date.getDay());
                 setCurrentDate(date);
+                onDateChange?.(date);
               }}
-              onValueChange={setCurrentDate}
+              onValueChange={(d) => {
+                setCurrentDate(d);
+                onDateChange?.(d);
+              }}
               startDate={currentDate}
               value={currentDate}
             >
@@ -621,6 +664,10 @@ export function PraxisCalendar({
                 } else {
                   // Real mode: update local state
                   setSelectedLocationId(locationId);
+                }
+                const found = locationsData.find((l) => l._id === locationId);
+                if (found && onLocationResolved) {
+                  onLocationResolved(locationId, found.name);
                 }
               }}
               selectedLocationId={
