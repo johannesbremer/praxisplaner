@@ -60,6 +60,7 @@ import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 import { useLocalAppointments } from "../utils/local-appointments";
+import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -393,28 +394,28 @@ export default function LogicView() {
         // Force include today's date to allow later segments while keeping a single alias order
         dateOut = formatYmd(date);
       }
-      // Build a concrete path with a contiguous prefix to avoid any shifting
+      // Build a concrete path in declared param order: /regeln/{tab}/{location}/{date}/{patientType}/{ruleSet}
       const parts: string[] = ["/regeln"];
-      if (dateOut) {
-        parts.push(dateOut);
-      } else {
-        // If nothing else to include, go to base. Otherwise, include today's date (handled above)
-        void navigate({ replace: false, to: "/regeln" });
-        return;
-      }
       if (tabOut) {
         parts.push(tabOut);
       }
       if (locationOut) {
         parts.push(locationOut);
       }
-      if (ruleSetOut) {
-        parts.push(ruleSetOut);
+      if (dateOut) {
+        parts.push(dateOut);
       }
       if (patientTypeOut) {
         parts.push(patientTypeOut);
       }
-      void navigate({ replace: false, to: parts.join("/") });
+      if (ruleSetOut) {
+        parts.push(ruleSetOut);
+      }
+      if (parts.length === 1) {
+        void navigate({ replace: false, to: "/regeln" });
+      } else {
+        void navigate({ replace: false, to: parts.join("/") });
+      }
     },
     [
       navigate,
@@ -1400,17 +1401,7 @@ function SaveDialogForm({
   );
 }
 
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replaceAll("ä", "ae")
-    .replaceAll("ö", "oe")
-    .replaceAll("ü", "ue")
-    .replaceAll("ß", "ss")
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-+|-+$/g, "");
-}
+// slugify moved to shared util
 
 // Simulation Controls Component - Extracted from SimulationPanel
 function SimulationControls({
