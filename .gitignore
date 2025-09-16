@@ -13,6 +13,7 @@ src/routeTree.gen.ts
 convex/_generated/
 bundle-analysis.json
 stats.html
+*.tsbuildinfo
 
 /build/
 /api/
