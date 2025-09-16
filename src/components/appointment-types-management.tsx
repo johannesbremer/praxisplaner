@@ -27,7 +27,9 @@ import {
 } from "./ui/kibo-ui/tags/index";
 
 interface AppointmentTypesManagementProps {
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
 }
 
@@ -35,7 +37,9 @@ interface PractitionerTagsProps {
   appointmentTypeId: Id<"appointmentTypes">;
   currentPractitionerIds: Id<"practitioners">[];
   duration: number;
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practitionersQuery: undefined | { _id: Id<"practitioners">; name: string }[];
 }
 

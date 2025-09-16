@@ -31,13 +31,15 @@ interface LocationFormData {
 }
 
 interface LocationsManagementProps {
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
 }
 
-export function LocationsManagement({ 
-  onNeedRuleSet, 
-  practiceId 
+export function LocationsManagement({
+  onNeedRuleSet,
+  practiceId,
 }: LocationsManagementProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {

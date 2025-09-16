@@ -31,13 +31,17 @@ import { useErrorTracking } from "../utils/error-tracking";
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
   practitioner?: Doc<"practitioners"> | undefined;
 }
 
 interface PractitionerManagementProps {
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
 }
 

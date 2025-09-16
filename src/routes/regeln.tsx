@@ -1047,19 +1047,19 @@ export default function LogicView() {
                   )}
 
                   {/* Practitioner Management */}
-                  <PractitionerManagement 
+                  <PractitionerManagement
                     onNeedRuleSet={ensureUnsavedRuleSet}
                     practiceId={currentPractice._id}
                   />
 
                   {/* Base Schedule Management */}
-                  <BaseScheduleManagement 
+                  <BaseScheduleManagement
                     onNeedRuleSet={ensureUnsavedRuleSet}
                     practiceId={currentPractice._id}
                   />
 
                   {/* Locations Management */}
-                  <LocationsManagement 
+                  <LocationsManagement
                     onNeedRuleSet={ensureUnsavedRuleSet}
                     practiceId={currentPractice._id}
                   />
@@ -1120,7 +1120,7 @@ export default function LogicView() {
 
             {/* Full width Appointment Types Management */}
             <div className="mt-6">
-              <AppointmentTypesManagement 
+              <AppointmentTypesManagement
                 onNeedRuleSet={ensureUnsavedRuleSet}
                 practiceId={currentPractice._id}
               />
@@ -1468,24 +1468,30 @@ function SimulationControls({
               <SelectItem value="active">Aktives Regelset</SelectItem>
               {/* Show unsaved rule set if it exists */}
               {ruleSetsQuery?.find(
-                (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen"
+                (rs) =>
+                  !rs.isActive &&
+                  rs.description === "Ungespeicherte Änderungen",
               ) && (
-                <SelectItem 
-                  value={ruleSetsQuery.find(
-                    (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen"
-                  )?._id || ""}
+                <SelectItem
+                  value={
+                    ruleSetsQuery.find(
+                      (rs) =>
+                        !rs.isActive &&
+                        rs.description === "Ungespeicherte Änderungen",
+                    )?._id || ""
+                  }
                 >
                   Ungespeicherte Änderungen
                 </SelectItem>
               )}
-              {ruleSetsQuery?.filter(
-                (rs) => rs.description !== "Ungespeicherte Änderungen"
-              ).map((ruleSet) => (
-                <SelectItem key={ruleSet._id} value={ruleSet._id}>
-                  v{ruleSet.version} - {ruleSet.description}
-                  {ruleSet.isActive && " (aktiv)"}
-                </SelectItem>
-              ))}
+              {ruleSetsQuery
+                ?.filter((rs) => rs.description !== "Ungespeicherte Änderungen")
+                .map((ruleSet) => (
+                  <SelectItem key={ruleSet._id} value={ruleSet._id}>
+                    v{ruleSet.version} - {ruleSet.description}
+                    {ruleSet.isActive && " (aktiv)"}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>

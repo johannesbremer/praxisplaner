@@ -47,13 +47,17 @@ const DAYS_OF_WEEK = [
 interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
   schedule?: ExtendedSchedule | undefined;
 }
 
 interface BaseScheduleManagementProps {
-  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
 }
 
