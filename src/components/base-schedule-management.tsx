@@ -47,11 +47,13 @@ const DAYS_OF_WEEK = [
 interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
   practiceId: Id<"practices">;
   schedule?: ExtendedSchedule | undefined;
 }
 
 interface BaseScheduleManagementProps {
+  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
   practiceId: Id<"practices">;
 }
 
@@ -65,6 +67,7 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
 
 // Helper functions
 export default function BaseScheduleManagement({
+  onNeedRuleSet,
   practiceId,
 }: BaseScheduleManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -140,6 +143,11 @@ export default function BaseScheduleManagement({
     }
 
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
+
       for (const scheduleId of scheduleIds) {
         await deleteScheduleMutation({ scheduleId });
       }
@@ -338,6 +346,7 @@ export default function BaseScheduleManagement({
       <BaseScheduleDialog
         isOpen={isDialogOpen}
         onClose={handleCloseDialog}
+        onNeedRuleSet={onNeedRuleSet}
         practiceId={practiceId}
         schedule={editingSchedule}
       />
@@ -348,6 +357,7 @@ export default function BaseScheduleManagement({
 function BaseScheduleDialog({
   isOpen,
   onClose,
+  onNeedRuleSet,
   practiceId,
   schedule,
 }: BaseScheduleDialogProps) {
@@ -383,6 +393,11 @@ function BaseScheduleDialog({
     },
     onSubmit: async ({ value }) => {
       try {
+        // Ensure we have an unsaved rule set before making changes
+        if (onNeedRuleSet) {
+          await onNeedRuleSet();
+        }
+
         if (schedule) {
           // When editing, check if it's a group edit
           const isGroupEdit = schedule._isGroup ?? false;

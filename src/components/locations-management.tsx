@@ -31,10 +31,14 @@ interface LocationFormData {
 }
 
 interface LocationsManagementProps {
+  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
   practiceId: Id<"practices">;
 }
 
-export function LocationsManagement({ practiceId }: LocationsManagementProps) {
+export function LocationsManagement({ 
+  onNeedRuleSet, 
+  practiceId 
+}: LocationsManagementProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
     _id: Id<"locations">;
@@ -49,6 +53,11 @@ export function LocationsManagement({ practiceId }: LocationsManagementProps) {
 
   const handleCreateLocation = async (data: LocationFormData) => {
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
+
       await createLocationMutation({
         name: data.name.trim(),
         practiceId,
@@ -72,6 +81,11 @@ export function LocationsManagement({ practiceId }: LocationsManagementProps) {
     }
 
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
+
       await updateLocationMutation({
         locationId: editingLocation._id,
         name: data.name.trim(),
@@ -94,6 +108,11 @@ export function LocationsManagement({ practiceId }: LocationsManagementProps) {
     name: string,
   ) => {
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
+
       await deleteLocationMutation({ locationId });
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,

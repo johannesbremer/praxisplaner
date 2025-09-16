@@ -27,6 +27,7 @@ import {
 } from "./ui/kibo-ui/tags/index";
 
 interface AppointmentTypesManagementProps {
+  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
   practiceId: Id<"practices">;
 }
 
@@ -34,10 +35,12 @@ interface PractitionerTagsProps {
   appointmentTypeId: Id<"appointmentTypes">;
   currentPractitionerIds: Id<"practitioners">[];
   duration: number;
+  onNeedRuleSet?: (() => Promise<Id<"ruleSets"> | null | undefined>) | undefined;
   practitionersQuery: undefined | { _id: Id<"practitioners">; name: string }[];
 }
 
 export function AppointmentTypesManagement({
+  onNeedRuleSet,
   practiceId,
 }: AppointmentTypesManagementProps) {
   const appointmentTypesQuery = useQuery(
@@ -112,6 +115,7 @@ export function AppointmentTypesManagement({
                               appointmentTypeId={appointmentType._id}
                               currentPractitionerIds={practitionerIds}
                               duration={Number.parseInt(durationStr)}
+                              onNeedRuleSet={onNeedRuleSet}
                               practitionersQuery={practitionersQuery}
                             />
                           </div>
@@ -136,6 +140,7 @@ function PractitionerTags({
   appointmentTypeId,
   currentPractitionerIds,
   duration,
+  onNeedRuleSet,
   practitionersQuery,
 }: PractitionerTagsProps) {
   const [selectedPractitioners, setSelectedPractitioners] = useState<
@@ -149,6 +154,11 @@ function PractitionerTags({
   const allPractitioners = practitionersQuery ?? [];
 
   const updateDurations = async (newSelectedIds: Id<"practitioners">[]) => {
+    // Ensure we have an unsaved rule set before making changes
+    if (onNeedRuleSet) {
+      await onNeedRuleSet();
+    }
+
     await updateAppointmentTypeMutation({
       appointmentTypeId,
       durations: newSelectedIds.map((id) => ({
