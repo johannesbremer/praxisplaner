@@ -88,6 +88,7 @@ function DragDropCalendar({
   handleSelectSlot,
   maxEndTime,
   minStartTime,
+  resources,
   step,
   timeslots,
 }: {
@@ -102,6 +103,7 @@ function DragDropCalendar({
   handleSelectSlot: (slotInfo: SlotInfo) => void;
   maxEndTime: Date;
   minStartTime: Date;
+  resources: { resourceId: string; resourceTitle: string }[];
   step: number;
   timeslots: number;
 }) {
@@ -205,6 +207,11 @@ function DragDropCalendar({
     },
     onSelectEvent: handleSelectEvent,
     onSelectSlot: handleSelectSlot,
+    // Resource view configuration
+    resourceAccessor: (event: CalendarEvent) => event.resourceId,
+    resourceIdAccessor: "resourceId",
+    resources,
+    resourceTitleAccessor: "resourceTitle",
     selectable: true,
     startAccessor: (event: CalendarEvent) => event.start,
     step,
@@ -338,73 +345,94 @@ export function PraxisCalendar({
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
   // Calculate working practitioners for current date and work hours
-  const { maxEndTime, minStartTime, workingPractitioners } = useMemo(() => {
-    if (!practitionersData || !baseSchedulesData) {
-      return {
-        maxEndTime: new Date(0, 0, 0, 18, 0, 0),
-        minStartTime: new Date(0, 0, 0, 8, 0, 0),
-        workingPractitioners: [],
-      };
-    }
+  const { maxEndTime, minStartTime, resources, workingPractitioners } =
+    useMemo(() => {
+      if (!practitionersData || !baseSchedulesData) {
+        return {
+          maxEndTime: new Date(0, 0, 0, 18, 0, 0),
+          minStartTime: new Date(0, 0, 0, 8, 0, 0),
+          resources: [],
+          workingPractitioners: [],
+        };
+      }
 
-    // Find practitioners working on the current selected day
-    let daySchedules = baseSchedulesData.filter(
-      (schedule: Doc<"baseSchedules"> & { practitionerName: string }) =>
-        schedule.dayOfWeek === currentDayOfWeek,
-    );
-
-    // Filter by location in simulation mode
-    if (simulatedContext?.locationId) {
-      daySchedules = daySchedules.filter(
-        (schedule) => schedule.locationId === simulatedContext.locationId,
+      // Find practitioners working on the current selected day
+      let daySchedules = baseSchedulesData.filter(
+        (schedule: Doc<"baseSchedules"> & { practitionerName: string }) =>
+          schedule.dayOfWeek === currentDayOfWeek,
       );
-    } else if (selectedLocationId) {
-      // Filter by location in real mode
-      daySchedules = daySchedules.filter(
-        (schedule) => schedule.locationId === selectedLocationId,
-      );
-    }
 
-    if (daySchedules.length === 0) {
+      // Filter by location in simulation mode
+      if (simulatedContext?.locationId) {
+        daySchedules = daySchedules.filter(
+          (schedule) => schedule.locationId === simulatedContext.locationId,
+        );
+      } else if (selectedLocationId) {
+        // Filter by location in real mode
+        daySchedules = daySchedules.filter(
+          (schedule) => schedule.locationId === selectedLocationId,
+        );
+      }
+
+      if (daySchedules.length === 0) {
+        return {
+          maxEndTime: new Date(0, 0, 0, 18, 0, 0),
+          minStartTime: new Date(0, 0, 0, 8, 0, 0),
+          resources: [],
+          workingPractitioners: [],
+        };
+      }
+
+      const working = daySchedules.map((schedule) => ({
+        endTime: schedule.endTime,
+        id: schedule.practitionerId,
+        name: schedule.practitionerName,
+        startTime: schedule.startTime,
+      }));
+
+      // Calculate business hours: round to full hours
+      const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
+      const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
+
+      const earliestStartMinutes = Math.min(...startTimes);
+      const latestEndMinutes = Math.max(...endTimes);
+
+      // Round start time down to full hour (e.g., 7:40 -> 7:00, 8:00 -> 8:00)
+      const businessStartHour = Math.floor(earliestStartMinutes / 60);
+
+      // Round end time up to full hour (e.g., 18:05 -> 19:00, 19:00 -> 19:00)
+      const businessEndHour = Math.ceil(latestEndMinutes / 60);
+
+      // Create resources array: practitioners + EKG + Labor (when at least one doc is working)
+      const practitionerResources = working.map((practitioner) => ({
+        resourceId: practitioner.id,
+        resourceTitle: practitioner.name,
+      }));
+
+      // Always add EKG and Labor columns when there's at least one doctor working
+      const specialResources =
+        working.length > 0
+          ? [
+              { resourceId: "ekg", resourceTitle: "EKG" },
+              { resourceId: "labor", resourceTitle: "Labor" },
+            ]
+          : [];
+
+      const allResources = [...practitionerResources, ...specialResources];
+
       return {
-        maxEndTime: new Date(0, 0, 0, 18, 0, 0),
-        minStartTime: new Date(0, 0, 0, 8, 0, 0),
-        workingPractitioners: [],
+        maxEndTime: new Date(0, 0, 0, businessEndHour, 0, 0),
+        minStartTime: new Date(0, 0, 0, businessStartHour, 0, 0),
+        resources: allResources,
+        workingPractitioners: working,
       };
-    }
-
-    const working = daySchedules.map((schedule) => ({
-      endTime: schedule.endTime,
-      id: schedule.practitionerId,
-      name: schedule.practitionerName,
-      startTime: schedule.startTime,
-    }));
-
-    // Calculate business hours: round to full hours
-    const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
-    const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
-
-    const earliestStartMinutes = Math.min(...startTimes);
-    const latestEndMinutes = Math.max(...endTimes);
-
-    // Round start time down to full hour (e.g., 7:40 -> 7:00, 8:00 -> 8:00)
-    const businessStartHour = Math.floor(earliestStartMinutes / 60);
-
-    // Round end time up to full hour (e.g., 18:05 -> 19:00, 19:00 -> 19:00)
-    const businessEndHour = Math.ceil(latestEndMinutes / 60);
-
-    return {
-      maxEndTime: new Date(0, 0, 0, businessEndHour, 0, 0),
-      minStartTime: new Date(0, 0, 0, businessStartHour, 0, 0),
-      workingPractitioners: working,
-    };
-  }, [
-    practitionersData,
-    baseSchedulesData,
-    currentDayOfWeek,
-    simulatedContext,
-    selectedLocationId,
-  ]);
+    }, [
+      practitionersData,
+      baseSchedulesData,
+      currentDayOfWeek,
+      simulatedContext,
+      selectedLocationId,
+    ]);
 
   // Convert convex appointments to calendar events
   const events: CalendarEvent[] = useMemo(() => {
@@ -420,6 +448,8 @@ export function PraxisCalendar({
               patientId: appointment.patientId,
               practitionerId: appointment.practitionerId,
             },
+            // For resource view: use practitioner ID as the resource ID
+            resourceId: appointment.practitionerId || "ekg", // Default to EKG if no practitioner
             start: new Date(appointment.start),
             title: appointment.title,
           }),
@@ -451,6 +481,8 @@ export function PraxisCalendar({
           patientId: appointment.patientId,
           practitionerId: appointment.practitionerId,
         },
+        // For resource view: use practitioner ID as the resource ID
+        resourceId: appointment.practitionerId || "ekg", // Default to EKG if no practitioner
         start: appointment.start,
         title: appointment.title,
       }),
@@ -478,6 +510,10 @@ export function PraxisCalendar({
 
   const handleSelectSlot = useCallback(
     (slotInfo: SlotInfo) => {
+      // Extract resource information from slot selection (which column was clicked)
+      const resourceId = (slotInfo as SlotInfo & { resourceId?: string })
+        .resourceId;
+
       if (onCreateLocalAppointment && simulatedContext) {
         // For simulation mode, create local appointments
         if (!simulatedContext.locationId) {
@@ -486,16 +522,26 @@ export function PraxisCalendar({
         }
 
         const title = globalThis.prompt("Neuer lokaler Termin:");
-        if (title && workingPractitioners.length > 0) {
-          // Use the first available practitioner for simplicity
-          const practitioner = workingPractitioners[0];
-          if (practitioner) {
+        if (title) {
+          // Determine practitioner based on which column was clicked
+          let practitionerId: Id<"practitioners"> | undefined;
+
+          if (resourceId && resourceId !== "ekg" && resourceId !== "labor") {
+            // Clicked on a practitioner column
+            practitionerId = resourceId as Id<"practitioners">;
+          } else {
+            // Clicked on EKG or Labor column, or no resource - use first available practitioner
+            const practitioner = workingPractitioners[0];
+            practitionerId = practitioner?.id;
+          }
+
+          if (practitionerId) {
             onCreateLocalAppointment({
               appointmentType: simulatedContext.appointmentType,
               end: slotInfo.end,
               locationId: simulatedContext.locationId,
-              notes: "Lokaler Simulationstermin",
-              practitionerId: practitioner.id,
+              notes: `Lokaler Simulationstermin${resourceId === "ekg" ? " (EKG)" : resourceId === "labor" ? " (Labor)" : ""}`,
+              practitionerId,
               start: slotInfo.start,
               title,
             });
@@ -505,9 +551,22 @@ export function PraxisCalendar({
         // For regular mode, create real appointments
         const title = globalThis.prompt("Neuer Termin:");
         if (title) {
+          // Determine practitioner based on which column was clicked
+          let practitionerId: Id<"practitioners"> | undefined;
+
+          if (resourceId && resourceId !== "ekg" && resourceId !== "labor") {
+            // Clicked on a practitioner column
+            practitionerId = resourceId as Id<"practitioners">;
+          } else {
+            // Clicked on EKG or Labor column, or no resource - use first available practitioner
+            const practitioner = workingPractitioners[0];
+            practitionerId = practitioner?.id;
+          }
+
           void createAppointmentMutation({
             end: slotInfo.end.toISOString(),
             ...(selectedLocationId && { locationId: selectedLocationId }),
+            ...(practitionerId && { practitionerId }),
             start: slotInfo.start.toISOString(),
             title,
           });
@@ -705,6 +764,24 @@ export function PraxisCalendar({
           </CardContent>
         ) : (
           <CardContent className="p-6">
+            <style
+              dangerouslySetInnerHTML={{
+                __html: `
+                .rbc-time-header {
+                  position: sticky !important;
+                  top: 0 !important;
+                  z-index: 10 !important;
+                  background: white !important;
+                }
+                .rbc-time-gutter {
+                  position: sticky !important;
+                  left: 0 !important;
+                  z-index: 11 !important;
+                  background: white !important;
+                }
+              `,
+              }}
+            />
             <div style={{ height: "2400px" }}>
               <ClientOnly>
                 <DragDropCalendar
@@ -716,6 +793,7 @@ export function PraxisCalendar({
                   handleSelectSlot={handleSelectSlot}
                   maxEndTime={maxEndTime}
                   minStartTime={minStartTime}
+                  resources={resources}
                   step={step}
                   timeslots={timeslots}
                 />

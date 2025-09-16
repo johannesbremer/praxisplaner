@@ -16,6 +16,7 @@ export interface CalendarEvent {
     patientId?: Id<"patients"> | undefined;
     practitionerId?: Id<"practitioners"> | undefined;
   };
+  resourceId?: Id<"practitioners"> | string; // For resource view: practitioner ID or "ekg"/"labor"
   start: Date;
   title: string;
 }
