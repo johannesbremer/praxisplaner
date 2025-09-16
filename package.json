@@ -6,7 +6,7 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "pnpm gen && vite build",
     "dev": "pnpm exec concurrently -r pnpm:dev:web pnpm:dev:db",
     "dev:db": "pnpm exec convex dev",
     "dev:web": "pnpm exec wait-on tcp:127.0.0.1:3210 -t 60000 && vite dev",
@@ -18,7 +18,8 @@
     "lint": "eslint . --fix",
     "lint:check": "eslint . --max-warnings 0",
     "start": "vite start",
-    "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run"
+    "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run",
+    "test-build": "vite build"
   },
   "dependencies": {
     "@convex-dev/react-query": "0.0.0-alpha.11",
@@ -60,7 +61,6 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "tiny-invariant": "^1.3.3",
-    "vite": "^7.1.5",
     "zod": "^4.1.8"
   },
   "devDependencies": {
@@ -101,6 +101,7 @@
     "tw-animate-css": "^1.3.8",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0",
+    "vite": "^7.1.5",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4",
     "wait-on": "^8.0.5"

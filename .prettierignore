@@ -7,3 +7,4 @@ node_modules
 .tanstack
 bundle-analysis.json
 stats.html
+.vercel/

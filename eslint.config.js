@@ -35,6 +35,7 @@ export default tseslint.config(
       ".tanstack",
       "dist",
       ".github/instructions/convex.instructions.md",
+      ".vercel/",
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
