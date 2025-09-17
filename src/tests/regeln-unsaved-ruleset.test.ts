@@ -1,7 +1,7 @@
 // src/tests/regeln-unsaved-ruleset.test.ts
 import { describe, expect, it } from "vitest";
 
-import type { Id } from "../convex/_generated/dataModel";
+import type { Id } from "../../convex/_generated/dataModel";
 
 describe("Regeln Unsaved RuleSet Integration", () => {
   it("should support URL mapping for unsaved rule sets", () => {
@@ -22,21 +22,28 @@ describe("Regeln Unsaved RuleSet Integration", () => {
     ];
 
     const unsavedRuleSet = ruleSetsQuery[0];
+    if (!unsavedRuleSet) {
+      throw new Error("Missing test data: unsavedRuleSet");
+    }
 
     // Test URL slug generation logic
     const generateRuleSetSlug = (
       ruleSetId: Id<"ruleSets"> | undefined,
-      unsavedRuleSet: { _id: Id<"ruleSets"> } | undefined,
-      ruleSetsQuery: { _id: string; description: string }[] | undefined,
+      unsavedRuleSet: undefined | { _id: Id<"ruleSets"> },
+      ruleSetsQuery: undefined | { _id: string; description: string }[],
     ): string | undefined => {
-      if (!ruleSetId) return undefined;
+      if (!ruleSetId) {
+        return undefined;
+      }
 
       if (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) {
         return "ungespeichert";
       }
 
       const found = ruleSetsQuery?.find((rs) => rs._id === ruleSetId);
-      return found ? found.description.toLowerCase().replace(/\s+/g, "-") : undefined;
+      return found
+        ? found.description.toLowerCase().replaceAll(/\s+/g, "-")
+        : undefined;
     };
 
     // Test unsaved rule set URL mapping
@@ -68,25 +75,32 @@ describe("Regeln Unsaved RuleSet Integration", () => {
 
     const parseRuleSetFromUrl = (
       ruleSetParam: string | undefined,
-      unsavedRuleSet: { _id: Id<"ruleSets"> } | undefined,
-      ruleSetsQuery: { _id: string; description: string }[] | undefined,
+      unsavedRuleSet: undefined | { _id: Id<"ruleSets"> },
+      ruleSetsQuery: undefined | { _id: string; description: string }[],
     ): Id<"ruleSets"> | undefined => {
-      if (!ruleSetParam) return undefined;
+      if (!ruleSetParam) {
+        return undefined;
+      }
 
       if (ruleSetParam === "ungespeichert") {
         return unsavedRuleSet?._id;
       }
 
       const found = ruleSetsQuery?.find(
-        (rs) => rs.description.toLowerCase().replace(/\s+/g, "-") === ruleSetParam,
+        (rs) =>
+          rs.description.toLowerCase().replaceAll(/\s+/g, "-") === ruleSetParam,
       );
       return found?._id as Id<"ruleSets"> | undefined;
     };
 
     // Test parsing unsaved rule set from URL
+    const firstRs = ruleSetsQuery[0];
+    if (!firstRs) {
+      throw new Error("Missing test data: firstRs");
+    }
     const parsedUnsaved = parseRuleSetFromUrl(
       "ungespeichert",
-      ruleSetsQuery[0],
+      firstRs,
       ruleSetsQuery,
     );
     expect(parsedUnsaved).toBe("rule-set-1");
@@ -94,7 +108,7 @@ describe("Regeln Unsaved RuleSet Integration", () => {
     // Test parsing saved rule set from URL
     const parsedSaved = parseRuleSetFromUrl(
       "ungespeicherte-änderungen",
-      ruleSetsQuery[0],
+      firstRs,
       ruleSetsQuery,
     );
     expect(parsedSaved).toBe("rule-set-1");
@@ -104,6 +118,8 @@ describe("Regeln Unsaved RuleSet Integration", () => {
     let ensureUnsavedRuleSetCalled = false;
     const mockEnsureUnsavedRuleSet = async () => {
       ensureUnsavedRuleSetCalled = true;
+      // Ensure we have an await expression to satisfy lint rules
+      await Promise.resolve();
       return "new-unsaved-rule-set" as Id<"ruleSets">;
     };
 
@@ -113,42 +129,34 @@ describe("Regeln Unsaved RuleSet Integration", () => {
         name: "Practitioner Management",
         operation: async () => {
           // Simulate creating/updating/deleting practitioner
-          if (mockEnsureUnsavedRuleSet) {
-            await mockEnsureUnsavedRuleSet();
-          }
+          await mockEnsureUnsavedRuleSet();
         },
       },
       {
         name: "Base Schedule Management",
         operation: async () => {
           // Simulate creating/updating/deleting schedule
-          if (mockEnsureUnsavedRuleSet) {
-            await mockEnsureUnsavedRuleSet();
-          }
+          await mockEnsureUnsavedRuleSet();
         },
       },
       {
         name: "Locations Management",
         operation: async () => {
           // Simulate creating/updating/deleting location
-          if (mockEnsureUnsavedRuleSet) {
-            await mockEnsureUnsavedRuleSet();
-          }
+          await mockEnsureUnsavedRuleSet();
         },
       },
       {
         name: "Appointment Types Management",
         operation: async () => {
           // Simulate updating appointment type practitioners
-          if (mockEnsureUnsavedRuleSet) {
-            await mockEnsureUnsavedRuleSet();
-          }
+          await mockEnsureUnsavedRuleSet();
         },
       },
     ];
 
     // Test each management component triggers unsaved state
-    for (const { name, operation } of managementOperations) {
+    for (const { operation } of managementOperations) {
       ensureUnsavedRuleSetCalled = false;
       await operation();
       expect(ensureUnsavedRuleSetCalled).toBe(true);
@@ -173,7 +181,9 @@ describe("Regeln Unsaved RuleSet Integration", () => {
 
     // Simulate the logic for showing unsaved rule set in dropdown
     const getDropdownOptions = (
-      ruleSetsQuery: { _id: string; description: string; isActive: boolean }[] | undefined,
+      ruleSetsQuery:
+        | undefined
+        | { _id: string; description: string; isActive: boolean }[],
     ) => {
       const options = ["active"];
 
