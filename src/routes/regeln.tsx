@@ -1442,6 +1442,11 @@ function SimulationControls({
   simulatedContext: SimulatedContext;
   simulationRuleSetId: Id<"ruleSets"> | undefined;
 }) {
+  // Compute once to avoid duplicate finds
+  const unsavedRuleSet = ruleSetsQuery?.find(
+    (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen",
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -1467,20 +1472,8 @@ function SimulationControls({
             <SelectContent>
               <SelectItem value="active">Aktives Regelset</SelectItem>
               {/* Show unsaved rule set if it exists */}
-              {ruleSetsQuery?.find(
-                (rs) =>
-                  !rs.isActive &&
-                  rs.description === "Ungespeicherte Änderungen",
-              ) && (
-                <SelectItem
-                  value={
-                    ruleSetsQuery.find(
-                      (rs) =>
-                        !rs.isActive &&
-                        rs.description === "Ungespeicherte Änderungen",
-                    )?._id || ""
-                  }
-                >
+              {unsavedRuleSet && (
+                <SelectItem value={unsavedRuleSet._id}>
                   Ungespeicherte Änderungen
                 </SelectItem>
               )}
