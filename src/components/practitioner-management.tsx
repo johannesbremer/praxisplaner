@@ -31,15 +31,22 @@ import { useErrorTracking } from "../utils/error-tracking";
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
   practitioner?: Doc<"practitioners"> | undefined;
 }
 
 interface PractitionerManagementProps {
+  onNeedRuleSet?:
+    | (() => Promise<Id<"ruleSets"> | null | undefined>)
+    | undefined;
   practiceId: Id<"practices">;
 }
 
 export default function PractitionerManagement({
+  onNeedRuleSet,
   practiceId,
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -65,6 +72,11 @@ export default function PractitionerManagement({
     }
 
     try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
+
       await deleteMutation({ practitionerId });
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
@@ -176,6 +188,7 @@ export default function PractitionerManagement({
       <PractitionerDialog
         isOpen={isDialogOpen}
         onClose={handleDialogClose}
+        onNeedRuleSet={onNeedRuleSet}
         practiceId={practiceId}
         practitioner={editingPractitioner}
       />
@@ -186,6 +199,7 @@ export default function PractitionerManagement({
 function PractitionerDialog({
   isOpen,
   onClose,
+  onNeedRuleSet,
   practiceId,
   practitioner,
 }: PractitionerDialogProps) {
@@ -200,6 +214,11 @@ function PractitionerDialog({
     },
     onSubmit: async ({ value }) => {
       try {
+        // Ensure we have an unsaved rule set before making changes
+        if (onNeedRuleSet) {
+          await onNeedRuleSet();
+        }
+
         if (practitioner) {
           // Update existing practitioner
           await updateMutation({
