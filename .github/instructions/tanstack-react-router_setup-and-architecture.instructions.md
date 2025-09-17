@@ -1,7 +1,9 @@
 ---
 applyTo: "**"
 ---
+
 # setup-and-architecture
+
 ## TanStack Router: Setup and Architecture
 
 # Overview
@@ -29,7 +31,7 @@ To get started quickly, head to the next page. For a more lengthy explanation, b
 
 Using a router to build applications is widely regarded as a must-have and is usually one of the first choices you’ll make in your tech stack.
 
-[//]: # 'WhyChooseTanStackRouter'
+[//]: # "WhyChooseTanStackRouter"
 
 **So, why should you choose TanStack Router over another router?**
 
@@ -42,7 +44,7 @@ Both of these frameworks (and their routers) are great, and I can personally att
 
 It's probably no surprise at this point that picking a router is so important that it is often tied 1-to-1 with your choice of framework, since most frameworks rely on a specific router.
 
-[//]: # 'WhyChooseTanStackRouter'
+[//]: # "WhyChooseTanStackRouter"
 
 **Does this mean that TanStack Router is a framework?**
 
@@ -207,22 +209,22 @@ deno add npm:@tanstack/react-router npm:@tanstack/router-plugin npm:@tanstack/re
 
 ```tsx
 // vite.config.ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tanstackRouter } from '@tanstack/router-plugin/vite'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     // Please make sure that '@tanstack/router-plugin' is passed before '@vitejs/plugin-react'
     tanstackRouter({
-      target: 'react',
+      target: "react",
       autoCodeSplitting: true,
     }),
     react(),
     // ...,
   ],
-})
+});
 ```
 
 > [!TIP]
@@ -238,15 +240,15 @@ Create the following files:
 #### `src/routes/__root.tsx`
 
 ```tsx
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 const RootLayout = () => (
   <>
     <div className="p-2 flex gap-2">
       <Link to="/" className="[&.active]:font-bold">
         Home
-      </Link>{' '}
+      </Link>{" "}
       <Link to="/about" className="[&.active]:font-bold">
         About
       </Link>
@@ -255,40 +257,40 @@ const RootLayout = () => (
     <Outlet />
     <TanStackRouterDevtools />
   </>
-)
+);
 
-export const Route = createRootRoute({ component: RootLayout })
+export const Route = createRootRoute({ component: RootLayout });
 ```
 
 #### `src/routes/index.tsx`
 
 ```tsx
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   component: Index,
-})
+});
 
 function Index() {
   return (
     <div className="p-2">
       <h3>Welcome Home!</h3>
     </div>
-  )
+  );
 }
 ```
 
 #### `src/routes/about.tsx`
 
 ```tsx
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/about')({
+export const Route = createFileRoute("/about")({
   component: About,
-})
+});
 
 function About() {
-  return <div className="p-2">Hello from About!</div>
+  return <div className="p-2">Hello from About!</div>;
 }
 ```
 
@@ -299,32 +301,32 @@ Regardless of whether you are using the `@tanstack/router-plugin` package and ru
 Import the generated route tree and create a new router instance:
 
 ```tsx
-import { StrictMode } from 'react'
-import ReactDOM from 'react-dom/client'
-import { RouterProvider, createRouter } from '@tanstack/react-router'
+import { StrictMode } from "react";
+import ReactDOM from "react-dom/client";
+import { RouterProvider, createRouter } from "@tanstack/react-router";
 
 // Import the generated route tree
-import { routeTree } from './routeTree.gen'
+import { routeTree } from "./routeTree.gen";
 
 // Create a new router instance
-const router = createRouter({ routeTree })
+const router = createRouter({ routeTree });
 
 // Register the router instance for type safety
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }
 
 // Render the app
-const rootElement = document.getElementById('root')!
+const rootElement = document.getElementById("root")!;
 if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement)
+  const root = ReactDOM.createRoot(rootElement);
   root.render(
     <StrictMode>
       <RouterProvider router={router} />
     </StrictMode>,
-  )
+  );
 }
 ```
 
@@ -336,8 +338,8 @@ If you are working with this pattern you should change the `id` of the root `<di
 > The following example shows how to configure routes using code, and for simplicity's sake is in a single file for this demo. While code-based generation allows you to declare many routes and even the router instance in a single file, we recommend splitting your routes into separate files for better organization and performance as your application grows.
 
 ```tsx
-import { StrictMode } from 'react'
-import ReactDOM from 'react-dom/client'
+import { StrictMode } from "react";
+import ReactDOM from "react-dom/client";
 import {
   Outlet,
   RouterProvider,
@@ -345,8 +347,8 @@ import {
   createRouter,
   createRoute,
   createRootRoute,
-} from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+} from "@tanstack/react-router";
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -354,7 +356,7 @@ const rootRoute = createRootRoute({
       <div className="p-2 flex gap-2">
         <Link to="/" className="[&.active]:font-bold">
           Home
-        </Link>{' '}
+        </Link>{" "}
         <Link to="/about" className="[&.active]:font-bold">
           About
         </Link>
@@ -364,46 +366,46 @@ const rootRoute = createRootRoute({
       <TanStackRouterDevtools />
     </>
   ),
-})
+});
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/',
+  path: "/",
   component: function Index() {
     return (
       <div className="p-2">
         <h3>Welcome Home!</h3>
       </div>
-    )
+    );
   },
-})
+});
 
 const aboutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/about',
+  path: "/about",
   component: function About() {
-    return <div className="p-2">Hello from About!</div>
+    return <div className="p-2">Hello from About!</div>;
   },
-})
+});
 
-const routeTree = rootRoute.addChildren([indexRoute, aboutRoute])
+const routeTree = rootRoute.addChildren([indexRoute, aboutRoute]);
 
-const router = createRouter({ routeTree })
+const router = createRouter({ routeTree });
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }
 
-const rootElement = document.getElementById('app')!
+const rootElement = document.getElementById("app")!;
 if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement)
+  const root = ReactDOM.createRoot(rootElement);
   root.render(
     <StrictMode>
       <RouterProvider router={router} />
     </StrictMode>,
-  )
+  );
 }
 ```
 
@@ -446,7 +448,7 @@ bun add @tanstack/react-router-devtools
 ## Import the Devtools
 
 ```js
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 ```
 
 ## Using Devtools in production
@@ -454,7 +456,7 @@ import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 The Devtools, if imported as `TanStackRouterDevtools` will not be shown in production. If you want to have devtools in an environment with `process.env.NODE_ENV === 'production'`, use instead `TanStackRouterDevtoolsInProd`, which has all the same options:
 
 ```tsx
-import { TanStackRouterDevtoolsInProd } from '@tanstack/react-router-devtools'
+import { TanStackRouterDevtoolsInProd } from "@tanstack/react-router-devtools";
 ```
 
 ## Using inside of the `RouterProvider`
@@ -469,18 +471,18 @@ const rootRoute = createRootRoute({
       <TanStackRouterDevtools />
     </>
   ),
-})
+});
 
 const routeTree = rootRoute.addChildren([
   // ... other routes
-])
+]);
 
 const router = createRouter({
   routeTree,
-})
+});
 
 function App() {
-  return <RouterProvider router={router} />
+  return <RouterProvider router={router} />;
 }
 ```
 
@@ -495,7 +497,7 @@ function App() {
       <RouterProvider router={router} />
       <TanStackRouterDevtools router={router} />
     </>
-  )
+  );
 }
 ```
 
@@ -546,7 +548,7 @@ function App() {
 To control the position of the devtools, import the `TanStackRouterDevtoolsPanel`:
 
 ```js
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 ```
 
 It can then be attached to provided shadow DOM target:
@@ -678,14 +680,14 @@ npm install -D @tanstack/router-plugin
 And add it to your `vite.config.js`:
 
 ```js
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tanstackRouter } from '@tanstack/router-plugin/vite'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
 export default defineConfig({
   // ...
   plugins: [tanstackRouter(), react()],
-})
+});
 ```
 
 However, if your application does not use Vite, you use one of our other [supported bundlers](../routing/file-based-routing.md#getting-started-with-file-based-routing), or you can use the `@tanstack/router-cli` package to watch for changes in your routes files and automatically update the routes configuration.
@@ -715,8 +717,8 @@ mkdir src/routes
 
 ```tsx
 // src/routes/__root.tsx
-import { createRootRoute, Outlet, Link } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
+import { createRootRoute, Outlet, Link } from "@tanstack/react-router";
+import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 
 export const Route = createRootRoute({
   component: () => {
@@ -732,20 +734,20 @@ export const Route = createRootRoute({
         <Outlet />
         <TanStackRouterDevtools />
       </>
-    )
+    );
   },
-})
+});
 ```
 
 ### Step 6: Create the index route file
 
 ```tsx
 // src/routes/index.tsx
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   component: Index,
-})
+});
 ```
 
 > You will need to move any related components and logic needed for the index route from the `src/index.tsx` file to the `src/routes/index.tsx` file.
@@ -754,20 +756,20 @@ export const Route = createFileRoute('/')({
 
 ```tsx
 // src/routes/posts.tsx
-import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/posts')({
+export const Route = createFileRoute("/posts")({
   component: Posts,
   loader: async () => {
-    const posts = await fetchPosts()
+    const posts = await fetchPosts();
     return {
       posts,
-    }
+    };
   },
-})
+});
 
 function Posts() {
-  const { posts } = Route.useLoaderData()
+  const { posts } = Route.useLoaderData();
   return (
     <div>
       <nav>
@@ -783,7 +785,7 @@ function Posts() {
       </nav>
       <Outlet />
     </div>
-  )
+  );
 }
 ```
 
@@ -793,11 +795,11 @@ function Posts() {
 
 ```tsx
 // src/routes/posts.index.tsx
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/posts/')({
+export const Route = createFileRoute("/posts/")({
   component: PostsIndex,
-})
+});
 ```
 
 > You will need to move any related components and logic needed for the posts index route from the `src/index.tsx` file to the `src/routes/posts.index.tsx` file.
@@ -806,20 +808,20 @@ export const Route = createFileRoute('/posts/')({
 
 ```tsx
 // src/routes/posts.$postId.tsx
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/posts/$postId')({
+export const Route = createFileRoute("/posts/$postId")({
   component: PostsId,
   loader: async ({ params: { postId } }) => {
-    const post = await fetchPost(postId)
+    const post = await fetchPost(postId);
     return {
       post,
-    }
+    };
   },
-})
+});
 
 function PostsId() {
-  const { post } = Route.useLoaderData()
+  const { post } = Route.useLoaderData();
   // ...
 }
 ```
@@ -842,36 +844,36 @@ Once you've generated the route-tree, you can then update the `src/index.tsx` fi
 
 ```tsx
 // src/index.tsx
-import React from 'react'
-import ReactDOM from 'react-dom'
-import { createRouter, RouterProvider } from '@tanstack/react-router'
+import React from "react";
+import ReactDOM from "react-dom";
+import { createRouter, RouterProvider } from "@tanstack/react-router";
 
 // Import the generated route tree
-import { routeTree } from './routeTree.gen'
+import { routeTree } from "./routeTree.gen";
 
 // Create a new router instance
-const router = createRouter({ routeTree })
+const router = createRouter({ routeTree });
 
 // Register the router instance for type safety
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }
 
-const domElementId = 'root' // Assuming you have a root element with the id 'root'
+const domElementId = "root"; // Assuming you have a root element with the id 'root'
 
 // Render the app
-const rootElement = document.getElementById(domElementId)
+const rootElement = document.getElementById(domElementId);
 if (!rootElement) {
-  throw new Error(`Element with id ${domElementId} not found`)
+  throw new Error(`Element with id ${domElementId} not found`);
 }
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <RouterProvider router={router} />
   </React.StrictMode>,
-)
+);
 ```
 
 ### Finished!
@@ -920,21 +922,21 @@ You can restrict access to these routes using a conditional check in the `before
 
 ```tsx
 // src/routes/_pathless-layout.tsx
-import { createFileRoute, Outlet } from '@tanstack/react-router'
-import { isAuthenticated } from '../utils/auth'
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { isAuthenticated } from "../utils/auth";
 
-export const Route = createFileRoute('/_pathless-layout', {
+export const Route = createFileRoute("/_pathless-layout", {
   beforeLoad: async () => {
     // Check if the user is authenticated
-    const authed = await isAuthenticated()
+    const authed = await isAuthenticated();
     if (!authed) {
       // Redirect the user to the login page
-      return '/login'
+      return "/login";
     }
   },
   component: PathlessLayoutRouteComponent,
   // ...
-})
+});
 
 function PathlessLayoutRouteComponent() {
   return (
@@ -942,9 +944,8 @@ function PathlessLayoutRouteComponent() {
       <h1>You are authed</h1>
       <Outlet />
     </div>
-  )
+  );
 }
 ```
 
 </details>
-
