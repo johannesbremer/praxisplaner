@@ -112,26 +112,27 @@ export default function LogicView() {
     api.practices.initializeDefaultPractice,
   );
   // Keep URL in sync (assigned later after data queries)
-  const pushParamsRef: {
-    fn: (
+  const pushParamsRef = React.useRef<
+    (
       tab: string,
       ruleSetId: Id<"ruleSets"> | undefined,
       isNewPatient: boolean,
       date: Date,
-    ) => void;
-  } = {
-    fn: () => {
-      // initialized later once data queries resolve
+    ) => void
+  >(() => {
+    // initialized later once data queries resolve
+  });
+  const pushParams = React.useCallback(
+    (
+      tab: string,
+      ruleSetId: Id<"ruleSets"> | undefined,
+      isNewPatient: boolean,
+      date: Date,
+    ) => {
+      pushParamsRef.current(tab, ruleSetId, isNewPatient, date);
     },
-  };
-  const pushParams = (
-    tab: string,
-    ruleSetId: Id<"ruleSets"> | undefined,
-    isNewPatient: boolean,
-    date: Date,
-  ) => {
-    pushParamsRef.fn(tab, ruleSetId, isNewPatient, date);
-  };
+    [pushParamsRef],
+  );
   const { captureError } = useErrorTracking();
 
   const [selectedRuleSetId, setSelectedRuleSetId] =
@@ -348,7 +349,7 @@ export default function LogicView() {
     existingUnsavedRuleSet;
 
   // Assign URL sync now that dependent data is available
-  pushParamsRef.fn = React.useCallback(
+  pushParamsRef.current = React.useCallback(
     (
       tab: string,
       ruleSetId: Id<"ruleSets"> | undefined,
