@@ -364,7 +364,11 @@ export default function LogicView() {
       // Compute ruleSet slug
       let ruleSetOut: string | undefined;
       if (ruleSetId) {
-        if (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) {
+        // Treat unsaved by object OR by tracked unsavedRuleSetId to avoid timing issues
+        if (
+          (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) ||
+          (unsavedRuleSetId && unsavedRuleSetId === ruleSetId)
+        ) {
           ruleSetOut = "ungespeichert";
         } else {
           const found = ruleSetsQuery?.find(
@@ -421,6 +425,7 @@ export default function LogicView() {
       navigate,
       ruleSetsQuery,
       unsavedRuleSet,
+      unsavedRuleSetId,
       simulatedContext.locationId,
       locationsListQuery,
     ],
@@ -565,6 +570,35 @@ export default function LogicView() {
     simulatedContext.locationId,
   ]);
 
+  // Ensure URL reflects entering the unsaved state when on the main tab
+  React.useEffect(() => {
+    if (activeTab !== "rule-management") {
+      return;
+    }
+    const draftId = unsavedRuleSet?._id ?? unsavedRuleSetId;
+    if (!draftId) {
+      return;
+    }
+    // If URL already reflects unsaved, skip
+    if (ruleSetParam === "ungespeichert") {
+      return;
+    }
+    pushParams(
+      activeTab,
+      draftId,
+      simulatedContext.patient.isNew,
+      selectedDate,
+    );
+  }, [
+    activeTab,
+    unsavedRuleSet?._id,
+    unsavedRuleSetId,
+    ruleSetParam,
+    pushParams,
+    simulatedContext.patient.isNew,
+    selectedDate,
+  ]);
+
   // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
     api.rules.getRulesForRuleSet,
@@ -609,28 +643,68 @@ export default function LogicView() {
 
   // Function to ensure an unsaved rule set exists - called when user starts making changes
   const ensureUnsavedRuleSet = React.useCallback(async () => {
+    // 1) Already tracking an unsaved draft
     if (unsavedRuleSetId) {
-      return unsavedRuleSetId; // Already have an unsaved rule set
+      pushParams(
+        activeTab,
+        unsavedRuleSetId,
+        simulatedContext.patient.isNew,
+        selectedDate,
+      );
+      return unsavedRuleSetId;
     }
 
-    // Check if there's already an existing unsaved rule set we can use
+    // 2) A draft exists in DB but not yet tracked in state
     if (existingUnsavedRuleSet) {
       setUnsavedRuleSetId(existingUnsavedRuleSet._id);
+      pushParams(
+        activeTab,
+        existingUnsavedRuleSet._id,
+        simulatedContext.patient.isNew,
+        selectedDate,
+      );
       return existingUnsavedRuleSet._id;
     }
 
-    // If we have a selected rule set (active or non-active), create an unsaved copy of it
+    // 3) Create a draft from the currently selected rule set
     if (selectedRuleSet) {
-      return await createUnsavedCopy(selectedRuleSet._id);
+      const newId = await createUnsavedCopy(selectedRuleSet._id);
+      if (newId) {
+        pushParams(
+          activeTab,
+          newId,
+          simulatedContext.patient.isNew,
+          selectedDate,
+        );
+      }
+      return newId;
     }
 
-    // If we have an active rule set but no selected rule set, create copy of active
+    // 4) Create a draft from the active rule set
     if (activeRuleSet) {
-      return await createUnsavedCopy(activeRuleSet._id);
+      const newId = await createUnsavedCopy(activeRuleSet._id);
+      if (newId) {
+        pushParams(
+          activeTab,
+          newId,
+          simulatedContext.patient.isNew,
+          selectedDate,
+        );
+      }
+      return newId;
     }
 
-    // Otherwise create initial unsaved rule set
-    return await createInitialUnsaved();
+    // 5) Create the initial draft if there are no rule sets yet
+    const initialId = await createInitialUnsaved();
+    if (initialId) {
+      pushParams(
+        activeTab,
+        initialId,
+        simulatedContext.patient.isNew,
+        selectedDate,
+      );
+    }
+    return initialId;
   }, [
     unsavedRuleSetId,
     existingUnsavedRuleSet,
@@ -638,6 +712,11 @@ export default function LogicView() {
     activeRuleSet,
     createUnsavedCopy,
     createInitialUnsaved,
+    // URL sync deps
+    pushParams,
+    activeTab,
+    simulatedContext.patient.isNew,
+    selectedDate,
   ]);
 
   const handleVersionClick = React.useCallback(
@@ -665,8 +744,24 @@ export default function LogicView() {
       // Switch to the selected version
       setSelectedRuleSetId(versionId);
       setUnsavedRuleSetId(null);
+
+      // Keep URL in sync with the selected rule set (default tab)
+      pushParams(
+        activeTab,
+        versionId,
+        simulatedContext.patient.isNew,
+        selectedDate,
+      );
     },
-    [currentPractice, unsavedRuleSet, selectedRuleSetId],
+    [
+      currentPractice,
+      unsavedRuleSet,
+      selectedRuleSetId,
+      pushParams,
+      activeTab,
+      simulatedContext.patient.isNew,
+      selectedDate,
+    ],
   );
 
   // Show loading state if practice is being initialized
@@ -726,9 +821,23 @@ export default function LogicView() {
       // If we came from the save dialog, switch to the pending rule set
       if (pendingRuleSetId) {
         setSelectedRuleSetId(pendingRuleSetId);
+        // Keep URL in sync with the selected rule set
+        pushParams(
+          activeTab,
+          pendingRuleSetId,
+          simulatedContext.patient.isNew,
+          selectedDate,
+        );
         setPendingRuleSetId(null);
       } else {
         setSelectedRuleSetId(ruleSetId); // Set the activated rule set as selected
+        // Keep URL in sync with the activated rule set
+        pushParams(
+          activeTab,
+          ruleSetId,
+          simulatedContext.patient.isNew,
+          selectedDate,
+        );
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -769,6 +878,14 @@ export default function LogicView() {
           setIsSaveDialogOpen(false);
           setActivationName("");
           toast.success("Änderungen gespeichert");
+
+          // Keep URL in sync with the selected (pending) rule set
+          pushParams(
+            activeTab,
+            pendingRuleSetId,
+            simulatedContext.patient.isNew,
+            selectedDate,
+          );
         } catch (error: unknown) {
           captureError(error, {
             context: "save_only",
@@ -808,6 +925,22 @@ export default function LogicView() {
           if (pendingRuleSetId) {
             setSelectedRuleSetId(pendingRuleSetId);
             setPendingRuleSetId(null);
+            // Keep URL in sync with the newly selected pending rule set
+            pushParams(
+              activeTab,
+              pendingRuleSetId,
+              simulatedContext.patient.isNew,
+              selectedDate,
+            );
+          } else {
+            // If no pending selection, ensure the URL removes the unsaved slug
+            const nextId = selectedRuleSetId ?? undefined;
+            pushParams(
+              activeTab,
+              nextId,
+              simulatedContext.patient.isNew,
+              selectedDate,
+            );
           }
 
           setIsSaveDialogOpen(false);
@@ -1017,9 +1150,7 @@ export default function LogicView() {
 
                           {/* Enable Existing Rule Combobox - Always show */}
                           <RuleEnableCombobox
-                            onNeedRuleSet={() => {
-                              void ensureUnsavedRuleSet();
-                            }}
+                            onNeedRuleSet={ensureUnsavedRuleSet}
                             onRuleEnabled={handleRuleChange}
                             practiceId={currentPractice._id}
                             {...(unsavedRuleSet && {

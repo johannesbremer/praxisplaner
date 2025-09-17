@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 
 interface RuleEnableComboboxProps {
   disabled?: boolean;
-  onNeedRuleSet?: () => void;
+  onNeedRuleSet?: () => Promise<Id<"ruleSets"> | null | undefined>;
   onRuleEnabled?: () => void;
   practiceId: Id<"practices">;
   ruleSetId?: Id<"ruleSets">;
@@ -62,8 +62,21 @@ export function RuleEnableCombobox({
   const enableRuleMutation = useMutation(api.rules.enableRuleInRuleSet);
 
   const handleSelect = async (ruleId: string) => {
-    if (!ruleSetId) {
-      onNeedRuleSet?.();
+    let targetRuleSetId: Id<"ruleSets"> | undefined = ruleSetId;
+    if (!targetRuleSetId && onNeedRuleSet) {
+      const prepared = await onNeedRuleSet();
+      targetRuleSetId = prepared ?? undefined;
+      if (!targetRuleSetId) {
+        // Could not prepare a draft
+        toast.error("Fehler beim Vorbereiten des Regelsets");
+        return;
+      }
+    }
+
+    // Extra safety: ensure we have a rule set id
+    const ensuredRuleSetId = targetRuleSetId;
+    if (!ensuredRuleSetId) {
+      toast.error("Fehler: Kein Regelset verfügbar");
       return;
     }
 
@@ -72,7 +85,7 @@ export function RuleEnableCombobox({
       await enableRuleMutation({
         priority: 100,
         ruleId: ruleId as Id<"rules">,
-        ruleSetId,
+        ruleSetId: ensuredRuleSetId,
       });
 
       toast.success("Regel aktiviert", {
@@ -91,12 +104,14 @@ export function RuleEnableCombobox({
     }
   };
 
-  const handleButtonClick = () => {
-    if (!ruleSetId) {
-      onNeedRuleSet?.();
-      return;
+  const handleButtonClick = async () => {
+    if (!ruleSetId && onNeedRuleSet) {
+      const preparedId = await onNeedRuleSet();
+      if (!preparedId) {
+        toast.error("Fehler beim Vorbereiten des Regelsets");
+        return;
+      }
     }
-
     setOpen(!open);
   };
 
@@ -113,7 +128,9 @@ export function RuleEnableCombobox({
           aria-expanded={open}
           className="w-[250px] justify-between"
           disabled={shouldDisable}
-          onClick={handleButtonClick}
+          onClick={() => {
+            void handleButtonClick();
+          }}
           role="combobox"
           variant="outline"
         >
