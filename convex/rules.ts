@@ -24,11 +24,14 @@ export const validateRuleName = query({
 
     const isUnique = !existingRule || existingRule._id === args.excludeRuleId;
 
+    if (isUnique) {
+      return { isUnique };
+    }
+
     return {
       isUnique,
-      message: isUnique
-        ? undefined
-        : "Eine Regel mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
+      message:
+        "Eine Regel mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
     };
   },
   returns: v.object({
@@ -169,9 +172,7 @@ export const updateRule = mutation({
     // Filter out undefined values to avoid patch issues
     const filteredUpdates: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(args.updates)) {
-      if (value !== undefined) {
-        filteredUpdates[key] = value;
-      }
+      filteredUpdates[key] = value;
     }
 
     await ctx.db.patch(args.ruleId, filteredUpdates);
@@ -380,9 +381,7 @@ export const updateRuleSetRule = mutation({
     // Filter out undefined values
     const filteredUpdates: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(args.updates)) {
-      if (value !== undefined) {
-        filteredUpdates[key] = value;
-      }
+      filteredUpdates[key] = value;
     }
 
     await ctx.db.patch(args.ruleSetRuleId, filteredUpdates);
@@ -739,11 +738,14 @@ export const validateRuleSetName = query({
     const isUnique =
       !existingRuleSet || existingRuleSet._id === args.excludeRuleSetId;
 
+    if (isUnique) {
+      return { isUnique };
+    }
+
     return {
       isUnique,
-      message: isUnique
-        ? undefined
-        : "Ein Regelset mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
+      message:
+        "Ein Regelset mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
     };
   },
   returns: v.object({

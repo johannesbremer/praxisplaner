@@ -10,6 +10,16 @@ import {
   simulatedContextValidator,
 } from "./validators";
 
+interface SchedulingResultSlot {
+  blockedByRuleId?: Id<"rules">;
+  duration: number;
+  locationId?: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+  practitionerName: string;
+  startTime: string;
+  status: "AVAILABLE" | "BLOCKED";
+}
+
 export const getAvailableSlots = query({
   args: {
     dateRange: dateRangeValidator,
@@ -347,15 +357,25 @@ export const getAvailableSlots = query({
     }
 
     // 5. Return the full list of candidate slots with their final status
-    const finalSlots = candidateSlots.map((slot) => ({
-      blockedByRuleId: slot.blockedByRuleId as Id<"rules"> | undefined,
-      duration: slot.duration,
-      locationId: slot.locationId as Id<"locations"> | undefined,
-      practitionerId: slot.practitionerId as Id<"practitioners">,
-      practitionerName: slot.practitionerName,
-      startTime: slot.startTime,
-      status: slot.status,
-    }));
+    const finalSlots: SchedulingResultSlot[] = candidateSlots.map((slot) => {
+      const slotResult: SchedulingResultSlot = {
+        duration: slot.duration,
+        practitionerId: slot.practitionerId as Id<"practitioners">,
+        practitionerName: slot.practitionerName,
+        startTime: slot.startTime,
+        status: slot.status,
+      };
+
+      if (slot.blockedByRuleId) {
+        slotResult.blockedByRuleId = slot.blockedByRuleId as Id<"rules">;
+      }
+
+      if (slot.locationId) {
+        slotResult.locationId = slot.locationId as Id<"locations">;
+      }
+
+      return slotResult;
+    });
 
     log.push(
       `Final result: ${finalSlots.filter((s) => s.status === "AVAILABLE").length} available slots, ${finalSlots.filter((s) => s.status === "BLOCKED").length} blocked slots`,

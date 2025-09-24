@@ -11,24 +11,20 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
+import type {
+  SchedulingDateRange,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
+
 interface PatientViewProps {
-  dateRange: { end: string; start: string };
-  onSlotClick?: (slot: {
-    blockedByRuleId?: Id<"rules"> | undefined;
-    duration: number;
-    locationId?: Id<"locations"> | undefined;
-    practitionerId: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-    status: "AVAILABLE" | "BLOCKED";
-  }) => void;
+  dateRange: SchedulingDateRange;
+  onSlotClick?: (slot: SchedulingSlot) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: Id<"ruleSets"> | undefined;
+  ruleSetId?: SchedulingRuleSetId;
   showDebugInfo?: boolean;
-  simulatedContext: {
-    appointmentType: string;
-    patient: { isNew: boolean };
-  };
+  simulatedContext: SchedulingSimulatedContext;
 }
 
 export function PatientView({
@@ -55,13 +51,16 @@ export function PatientView({
         },
   );
 
-  const allSlots = useMemo(() => slotsResult?.slots ?? [], [slotsResult]);
-  const availableSlots = useMemo(
-    () => allSlots.filter((s) => s.status === "AVAILABLE"),
+  const allSlots = useMemo<SchedulingSlot[]>(
+    () => slotsResult?.slots ?? [],
+    [slotsResult],
+  );
+  const availableSlots = useMemo<SchedulingSlot[]>(
+    () => allSlots.filter((slot) => slot.status === "AVAILABLE"),
     [allSlots],
   );
-  const blockedSlots = useMemo(
-    () => allSlots.filter((s) => s.status === "BLOCKED"),
+  const blockedSlots = useMemo<SchedulingSlot[]>(
+    () => allSlots.filter((slot) => slot.status === "BLOCKED"),
     [allSlots],
   );
 
@@ -82,7 +81,7 @@ export function PatientView({
 
   const datesWithAvailabilities = useMemo(() => {
     const set = new Set(
-      availableSlots.map((s) => new Date(s.startTime).toDateString()),
+      availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
     );
     return set;
   }, [availableSlots]);
@@ -97,7 +96,7 @@ export function PatientView({
   // Selected day state defaults to first day with availability
   const firstAvailableDate = useMemo(() => {
     const first = [...datesWithAvailabilities]
-      .map((ds) => new Date(ds))
+      .map((dateString) => new Date(dateString))
       .toSorted((a, b) => a.getTime() - b.getTime())[0];
     return first;
   }, [datesWithAvailabilities]);
@@ -122,12 +121,14 @@ export function PatientView({
     }
     return availableSlots
       .filter(
-        (s) =>
-          new Date(s.startTime).toDateString() === selectedDate.toDateString(),
+        (slot) =>
+          new Date(slot.startTime).toDateString() ===
+          selectedDate.toDateString(),
       )
       .toSorted(
-        (a, b) =>
-          new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+        (slotA, slotB) =>
+          new Date(slotA.startTime).getTime() -
+          new Date(slotB.startTime).getTime(),
       );
   }, [availableSlots, selectedDate]);
 

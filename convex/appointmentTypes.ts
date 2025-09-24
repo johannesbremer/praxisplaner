@@ -93,9 +93,11 @@ export const getAppointmentTypes = query({
           }
         }
 
+        const hasDurations = Object.keys(durations).length > 0;
+
         return {
           ...appointmentType,
-          durations: Object.keys(durations).length > 0 ? durations : undefined,
+          ...(hasDurations ? { durations } : {}),
         };
       }),
     );

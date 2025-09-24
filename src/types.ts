@@ -2,6 +2,16 @@
 
 import type { Doc, Id } from "../convex/_generated/dataModel";
 
+export type SchedulingDateRange = SchedulingQuery["_args"]["dateRange"];
+export type SchedulingResult = SchedulingQuery["_returnType"];
+
+export type SchedulingRuleSetId = SchedulingQuery["_args"]["ruleSetId"];
+export type SchedulingSimulatedContext =
+  SchedulingQuery["_args"]["simulatedContext"];
+export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
+type ConvexApi = typeof import("../convex/_generated/api").api;
+type SchedulingQuery = ConvexApi["scheduling"]["getAvailableSlots"];
+
 // --- Application Types ---
 
 // Calendar Event types for react-big-calendar

@@ -20,38 +20,28 @@ import {
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
+import type {
+  SchedulingDateRange,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
 import type { LocalAppointment } from "../utils/local-appointments";
 
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
 
 interface PatientFocusedViewProps {
-  dateRange: { end: string; start: string };
+  dateRange: SchedulingDateRange;
   localAppointments?: LocalAppointment[];
   onCreateLocalAppointment?: (
     appointment: Omit<LocalAppointment, "id" | "isLocal">,
   ) => void;
-  onSlotClick?: (slot: {
-    blockedByRuleId?: Id<"rules"> | undefined;
-    duration: number;
-    locationId?: Id<"locations"> | undefined;
-    practitionerId: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-    status: "AVAILABLE" | "BLOCKED";
-  }) => void;
-  onUpdateSimulatedContext?: (context: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  }) => void;
+  onSlotClick?: (slot: SchedulingSlot) => void;
+  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: Id<"ruleSets"> | undefined;
-  simulatedContext: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  };
+  ruleSetId?: SchedulingRuleSetId;
+  simulatedContext: SchedulingSimulatedContext;
 }
 
 export function PatientFocusedView({
@@ -95,13 +85,21 @@ export function PatientFocusedView({
   const calendarDateRange = {
     end: calendarEndDate.toISOString(),
     start: calendarStartDate.toISOString(),
-  };
+  } satisfies SchedulingDateRange;
 
   // Create the simulated context with selected location
-  const effectiveSimulatedContext = {
-    ...simulatedContext,
-    locationId: selectedLocationId,
-  };
+  const effectiveSimulatedContext: SchedulingSimulatedContext = (() => {
+    if (selectedLocationId) {
+      return {
+        ...simulatedContext,
+        locationId: selectedLocationId,
+      } as SchedulingSimulatedContext;
+    }
+
+    const contextWithoutLocation = { ...simulatedContext };
+    delete contextWithoutLocation.locationId;
+    return contextWithoutLocation as SchedulingSimulatedContext;
+  })();
 
   const slotsResult = useQuery(
     api.scheduling.getAvailableSlots,
@@ -126,8 +124,11 @@ export function PatientFocusedView({
   const safeLocations = locationsQuery ?? [];
 
   // Process slots data only when we have it
-  const allSlots = useMemo(() => slotsResult?.slots ?? [], [slotsResult]);
-  const availableSlots = useMemo(
+  const allSlots = useMemo<SchedulingSlot[]>(
+    () => slotsResult?.slots ?? [],
+    [slotsResult],
+  );
+  const availableSlots = useMemo<SchedulingSlot[]>(
     () => allSlots.filter((slot) => slot.status === "AVAILABLE"),
     [allSlots],
   );
@@ -157,7 +158,7 @@ export function PatientFocusedView({
   );
 
   const datesWithAvailabilities = new Set(
-    availableSlots.map((s) => new Date(s.startTime).toDateString()),
+    availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
   );
 
   // Disable dates inside the 5-day window that have no availabilities, and also outside window
@@ -176,7 +177,7 @@ export function PatientFocusedView({
   // Selection state for integrated calendar + times
   const firstAvailableDate = (() => {
     const list = [...datesWithAvailabilities]
-      .map((ds) => new Date(ds))
+      .map((dateString) => new Date(dateString))
       .toSorted((a, b) => a.getTime() - b.getTime());
     return list[0];
   })();
@@ -200,13 +201,14 @@ export function PatientFocusedView({
   const slotsForSelectedDate = selectedDate
     ? availableSlots
         .filter(
-          (s) =>
-            new Date(s.startTime).toDateString() ===
+          (slot) =>
+            new Date(slot.startTime).toDateString() ===
             selectedDate.toDateString(),
         )
         .toSorted(
-          (a, b) =>
-            new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+          (slotA, slotB) =>
+            new Date(slotA.startTime).getTime() -
+            new Date(slotB.startTime).getTime(),
         )
     : [];
 
@@ -229,10 +231,11 @@ export function PatientFocusedView({
           onLocationSelect={(locationId: Id<"locations">) => {
             setSelectedLocationId(locationId);
             // Update simulated context with the selected location
-            onUpdateSimulatedContext?.({
+            const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
               locationId,
-            });
+            };
+            onUpdateSimulatedContext?.(updatedContext);
           }}
           selectedLocationId={selectedLocationId}
         />

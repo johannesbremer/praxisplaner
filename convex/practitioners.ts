@@ -46,9 +46,7 @@ export const updatePractitioner = mutation({
     // Filter out undefined values to avoid patch issues
     const filteredUpdates: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(args.updates)) {
-      if (value !== undefined) {
-        filteredUpdates[key] = value;
-      }
+      filteredUpdates[key] = value;
     }
 
     await ctx.db.patch(args.practitionerId, filteredUpdates);

@@ -9,31 +9,22 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
+import type {
+  SchedulingDateRange,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
+
 import { LocationSelector } from "./location-selector";
 
 interface DebugViewProps {
-  dateRange: { end: string; start: string };
-  onSlotClick?: (slot: {
-    blockedByRuleId?: Id<"rules"> | undefined;
-    duration: number;
-    locationId?: Id<"locations"> | undefined;
-    practitionerId: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-    status: "AVAILABLE" | "BLOCKED";
-  }) => void;
-  onUpdateSimulatedContext?: (context: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  }) => void;
+  dateRange: SchedulingDateRange;
+  onSlotClick?: (slot: SchedulingSlot) => void;
+  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: Id<"ruleSets"> | undefined;
-  simulatedContext: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  };
+  ruleSetId?: SchedulingRuleSetId;
+  simulatedContext: SchedulingSimulatedContext;
 }
 
 export function DebugView({
@@ -52,6 +43,19 @@ export function DebugView({
     Id<"locations"> | undefined
   >(simulatedContext.locationId);
 
+  const sanitizedSimulatedContext: SchedulingSimulatedContext = (() => {
+    if (selectedLocationId) {
+      return {
+        ...simulatedContext,
+        locationId: selectedLocationId,
+      } as SchedulingSimulatedContext;
+    }
+
+    const contextWithoutLocation = { ...simulatedContext };
+    delete contextWithoutLocation.locationId;
+    return contextWithoutLocation as SchedulingSimulatedContext;
+  })();
+
   const slotsResult = useQuery(
     api.scheduling.getAvailableSlots,
     ruleSetId
@@ -59,12 +63,12 @@ export function DebugView({
           dateRange,
           practiceId,
           ruleSetId,
-          simulatedContext,
+          simulatedContext: sanitizedSimulatedContext,
         }
       : {
           dateRange,
           practiceId,
-          simulatedContext,
+          simulatedContext: sanitizedSimulatedContext,
         },
   );
 
@@ -82,14 +86,14 @@ export function DebugView({
   }
 
   const availableSlots = slotsResult.slots.filter(
-    (slot) => slot.status === "AVAILABLE",
+    (slot): slot is SchedulingSlot => slot.status === "AVAILABLE",
   );
   const blockedSlots = slotsResult.slots.filter(
-    (slot) => slot.status === "BLOCKED",
+    (slot): slot is SchedulingSlot => slot.status === "BLOCKED",
   );
 
   // Group slots by date
-  const slotsByDate = new Map<string, typeof slotsResult.slots>();
+  const slotsByDate = new Map<string, SchedulingSlot[]>();
   for (const slot of slotsResult.slots) {
     const date = new Date(slot.startTime).toDateString();
     if (!slotsByDate.has(date)) {
@@ -225,10 +229,11 @@ export function DebugView({
           locations={locationsQuery}
           onLocationSelect={(locationId: Id<"locations">) => {
             setSelectedLocationId(locationId);
-            onUpdateSimulatedContext?.({
+            const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
               locationId,
-            });
+            };
+            onUpdateSimulatedContext?.(updatedContext);
           }}
           selectedLocationId={selectedLocationId}
         />

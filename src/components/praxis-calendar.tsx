@@ -26,7 +26,12 @@ import {
 } from "@/components/ui/mini-calendar";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import type { CalendarEvent } from "../types";
+import type {
+  CalendarEvent,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
 
 import { api } from "../../convex/_generated/api";
 import { slugify } from "../utils/slug";
@@ -52,29 +57,13 @@ interface PraxisCalendarProps {
     locationId: Id<"locations">,
     locationName: string,
   ) => void;
-  onSlotClick?: (slot: {
-    blockedByRuleId?: Id<"rules"> | undefined;
-    duration: number;
-    locationId?: Id<"locations"> | undefined;
-    practitionerId: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-    status: "AVAILABLE" | "BLOCKED";
-  }) => void;
-  onUpdateSimulatedContext?: (context: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  }) => void;
+  onSlotClick?: (slot: SchedulingSlot) => void;
+  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId?: Id<"practices">;
-  ruleSetId?: Id<"ruleSets">;
+  ruleSetId?: SchedulingRuleSetId;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
-  simulatedContext?: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  };
+  simulatedContext?: SchedulingSimulatedContext;
   simulationDate?: Date;
 }
 

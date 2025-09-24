@@ -41,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
+import type { SchedulingSimulatedContext, SchedulingSlot } from "../types";
 
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
@@ -113,21 +114,8 @@ interface SaveDialogFormProps {
   setActivationName: (name: string) => void;
 }
 
-interface SimulatedContext {
-  appointmentType: string;
-  locationId?: Id<"locations"> | undefined;
-  patient: { isNew: boolean };
-}
-
-interface SlotDetails {
-  blockedByRuleId?: Id<"rules"> | undefined;
-  duration: number;
-  locationId?: Id<"locations"> | undefined;
-  practitionerId: Id<"practitioners">;
-  practitionerName: string;
-  startTime: string;
-  status: "AVAILABLE" | "BLOCKED";
-}
+type SimulatedContext = SchedulingSimulatedContext;
+type SlotDetails = SchedulingSlot;
 
 // Helper: slugify German names to URL-safe strings
 export default function LogicView() {

@@ -1,36 +1,26 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import type {
+  SchedulingDateRange,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
 import type { LocalAppointment } from "../utils/local-appointments";
 
 import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
-  dateRange: { end: string; start: string };
+  dateRange: SchedulingDateRange;
   localAppointments?: LocalAppointment[];
   onCreateLocalAppointment?: (
     appointment: Omit<LocalAppointment, "id" | "isLocal">,
   ) => void;
-  onSlotClick?: (slot: {
-    blockedByRuleId?: Id<"rules"> | undefined;
-    duration: number;
-    locationId?: Id<"locations"> | undefined;
-    practitionerId: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-    status: "AVAILABLE" | "BLOCKED";
-  }) => void;
-  onUpdateSimulatedContext?: (context: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  }) => void;
+  onSlotClick?: (slot: SchedulingSlot) => void;
+  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: Id<"ruleSets"> | undefined;
-  simulatedContext: {
-    appointmentType: string;
-    locationId?: Id<"locations"> | undefined;
-    patient: { isNew: boolean };
-  };
+  ruleSetId?: SchedulingRuleSetId;
+  simulatedContext: SchedulingSimulatedContext;
 }
 
 export function MedicalStaffView({

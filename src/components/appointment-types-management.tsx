@@ -26,12 +26,19 @@ import {
   TagsValue,
 } from "./ui/kibo-ui/tags/index";
 
+type AppointmentType = AppointmentTypesResult[number];
 interface AppointmentTypesManagementProps {
   onNeedRuleSet?:
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
 }
+type AppointmentTypesResult =
+  (typeof api.appointmentTypes.getAppointmentTypes)["_returnType"];
+type Practitioner = PractitionersResult[number];
+
+type PractitionersResult =
+  (typeof api.practitioners.getPractitioners)["_returnType"];
 
 interface PractitionerTagsProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -40,7 +47,7 @@ interface PractitionerTagsProps {
   onNeedRuleSet?:
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
-  practitionersQuery: undefined | { _id: Id<"practitioners">; name: string }[];
+  practitionersQuery: Practitioner[] | undefined;
 }
 
 export function AppointmentTypesManagement({
@@ -56,6 +63,9 @@ export function AppointmentTypesManagement({
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
     practiceId,
   });
+
+  const appointmentTypes: AppointmentType[] = appointmentTypesQuery ?? [];
+  const practitioners: Practitioner[] = practitionersQuery ?? [];
 
   return (
     <Card>
@@ -79,7 +89,7 @@ export function AppointmentTypesManagement({
           <div className="text-center py-4 text-muted-foreground">
             Lade Terminarten...
           </div>
-        ) : appointmentTypesQuery.length === 0 ? (
+        ) : appointmentTypes.length === 0 ? (
           <div className="text-center py-8">
             <Package2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
             <div className="text-muted-foreground">
@@ -92,11 +102,11 @@ export function AppointmentTypesManagement({
         ) : (
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">
-              {appointmentTypesQuery.length} Terminarten verfügbar
+              {appointmentTypes.length} Terminarten verfügbar
             </div>
 
             <div className="grid gap-3">
-              {appointmentTypesQuery.map((appointmentType) => (
+              {appointmentTypes.map((appointmentType) => (
                 <div
                   className="border rounded-lg p-3"
                   key={appointmentType._id}
@@ -120,7 +130,7 @@ export function AppointmentTypesManagement({
                               currentPractitionerIds={practitionerIds}
                               duration={Number.parseInt(durationStr)}
                               onNeedRuleSet={onNeedRuleSet}
-                              practitionersQuery={practitionersQuery}
+                              practitionersQuery={practitioners}
                             />
                           </div>
                         ))}

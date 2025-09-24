@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import type {
+  SchedulingDateRange,
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+  SchedulingSlot,
+} from "../types";
+
 import { DebugView } from "./debug-view";
 import { MedicalStaffDisplay } from "./medical-staff-display";
 import { PatientBookingFlow } from "./patient-booking-flow";
@@ -40,30 +47,20 @@ interface SimulationPanelProps {
       }[];
 }
 
-interface SlotDetails {
-  blockedByRuleId?: Id<"rules"> | undefined;
-  duration: number;
-  locationId?: Id<"locations"> | undefined;
-  practitionerId: Id<"practitioners">;
-  practitionerName: string;
-  startTime: string;
-  status: "AVAILABLE" | "BLOCKED";
-}
-
 export function SimulationPanel({
   practiceId,
   ruleSetsQuery,
 }: SimulationPanelProps) {
   // Simulation state
-  const [simulatedContext, setSimulatedContext] = useState({
-    appointmentType: "Erstberatung",
-    patient: { isNew: true },
-  });
+  const [simulatedContext, setSimulatedContext] =
+    useState<SchedulingSimulatedContext>({
+      appointmentType: "Erstberatung",
+      patient: { isNew: true },
+    });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
-  const [simulationRuleSetId, setSimulationRuleSetId] = useState<
-    Id<"ruleSets"> | undefined
-  >();
+  const [selectedSlot, setSelectedSlot] = useState<null | SchedulingSlot>(null);
+  const [simulationRuleSetId, setSimulationRuleSetId] =
+    useState<SchedulingRuleSetId>();
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -73,7 +70,7 @@ export function SimulationPanel({
   const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
   const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
 
-  const dateRange = {
+  const dateRange: SchedulingDateRange = {
     end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
   };
@@ -88,7 +85,7 @@ export function SimulationPanel({
     setSelectedSlot(null);
   };
 
-  const handleSlotClick = (slot: SlotDetails) => {
+  const handleSlotClick = (slot: SchedulingSlot) => {
     setSelectedSlot(slot);
   };
 
