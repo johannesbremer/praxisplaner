@@ -124,7 +124,7 @@ export function useRegelnUrl(options: {
   unsavedRuleSet?: null | { _id: Id<"ruleSets"> };
 }) {
   const navigate = useNavigate();
-  const routeSearch = useSearch({
+  const routeSearch: RegelnSearchParams = useSearch({
     from: "/regeln",
   });
 
@@ -136,15 +136,15 @@ export function useRegelnUrl(options: {
   function navigateWithOptionalParams(
     nextState: Partial<RegelnNavigationState>,
   ) {
-    const mergedState = {
+    const mergedState: RegelnNavigationState = {
       ...currentRouteState,
       ...nextState,
-    } as RegelnNavigationState;
+    };
 
     const nextSearch = buildRegelnSearchFromState(mergedState);
     void navigate({
       replace: false,
-      search: () => nextSearch,
+      search: nextSearch,
       to: "/regeln",
     });
   }

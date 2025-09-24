@@ -18,7 +18,7 @@ import toast from "react-hot-toast";
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 
-export function createRouter() {
+export function getRouter() {
   if (typeof document !== "undefined") {
     notifyManager.setScheduler(globalThis.requestAnimationFrame);
   }
@@ -101,10 +101,4 @@ export function createRouter() {
   );
 
   return router;
-}
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: ReturnType<typeof createRouter>;
-  }
 }

@@ -8,3 +8,4 @@ node_modules
 bundle-analysis.json
 stats.html
 .vercel/
+dist/

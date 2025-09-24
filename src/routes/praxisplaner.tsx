@@ -3,9 +3,9 @@
 import { useConvexMutation } from "@convex-dev/react-query";
 import {
   createFileRoute,
+  getRouteApi,
   useLocation,
   useNavigate,
-  useParams,
 } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
@@ -52,6 +52,8 @@ export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
 });
 
+const praxisplanerOptionalRoute = getRouteApi("/praxisplaner/{-$tab}/{-$date}");
+
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
 const IDB_GDT_PERMISSION_KEY = "gdtDirPermission";
 
@@ -67,7 +69,8 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 
 export function PraxisPlanerComponent() {
   const navigate = useNavigate();
-  const { date: dateParam, tab: tabParam } = useParams({ strict: false });
+  const { date: dateParam, tab: tabParam }: { date?: string; tab?: string } =
+    praxisplanerOptionalRoute.useParams();
   const location = useLocation();
 
   // Parse date param (YYYY-MM-DD) -> Date
@@ -219,11 +222,9 @@ export function PraxisPlanerComponent() {
       if (tab === "settings") {
         // Navigate using the typed optional route with tab param
         void navigate({
-          params: (prev: { date?: string; tab?: string }) => {
-            const next = { ...prev } as { date?: string; tab?: string };
-            delete next.date;
-            next.tab = "nerds";
-            return next;
+          params: {
+            date: undefined,
+            tab: "nerds",
           },
           replace: false,
           to: "/praxisplaner/{-$tab}/{-$date}",

@@ -1,4 +1,5 @@
-import { tanstackStart } from "@tanstack/react-start-plugin";
+import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
@@ -10,12 +11,9 @@ export default defineConfig({
       projects: ["./tsconfig.json"],
     }),
     tanstackStart({
-      customViteReactPlugin: true,
-      target: "vercel",
-      tsr: {
-        srcDirectory: "src",
-      },
+      srcDirectory: "src",
     }),
+    nitroV2Plugin(),
     react({
       babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] },
     }),

@@ -19,4 +19,5 @@ stats.html
 /api/
 /server/build
 /public/build
+/dist/
 .vercel
