@@ -1,15 +1,11 @@
 // src/routes/regeln.tsx
 import { useForm } from "@tanstack/react-form";
-import {
-  createFileRoute,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { Plus, RefreshCw, Save } from "lucide-react";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -60,10 +56,51 @@ import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 import { useLocalAppointments } from "../utils/local-appointments";
-import { slugify } from "../utils/slug";
+import {
+  EXISTING_PATIENT_SEGMENT,
+  NEW_PATIENT_SEGMENT,
+  type RegelnSearchParams,
+  type RegelnTabParam,
+  useRegelnUrl,
+} from "../utils/regeln-url";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
+  validateSearch: (search): RegelnSearchParams => {
+    const params = search;
+
+    const result: RegelnSearchParams = {};
+
+    if (params["tab"] === "mitarbeiter" || params["tab"] === "debug") {
+      result.tab = params["tab"] as RegelnTabParam;
+    }
+
+    if (
+      typeof params["location"] === "string" &&
+      params["location"].length > 0
+    ) {
+      result.location = params["location"];
+    }
+
+    if (
+      typeof params["date"] === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(params["date"])
+    ) {
+      result.date = params["date"];
+    }
+
+    if (params["patientType"] === EXISTING_PATIENT_SEGMENT) {
+      result.patientType = EXISTING_PATIENT_SEGMENT;
+    } else if (params["patientType"] === NEW_PATIENT_SEGMENT) {
+      result.patientType = NEW_PATIENT_SEGMENT;
+    }
+
+    if (typeof params["ruleSet"] === "string" && params["ruleSet"].length > 0) {
+      result.ruleSet = params["ruleSet"];
+    }
+
+    return result;
+  },
 });
 
 interface SaveDialogFormProps {
@@ -94,127 +131,36 @@ interface SlotDetails {
 
 // Helper: slugify German names to URL-safe strings
 export default function LogicView() {
-  const navigate = useNavigate();
-  // With prefixed optional segments, TanStack still exposes bare param names
-  // because only the suffix/prefix is part of the path, not the param key.
-  const {
-    date: dateParam,
-    location: locationParam,
-    patientType: patientTypeParam,
-    ruleSet: ruleSetParam,
-    tab: tabParam,
-  } = useParams({ strict: false });
-  // Guard to avoid the URL-sync effect from immediately overriding user tab changes
-  const tabSyncGuardRef = React.useRef(false);
+  // URL helpers: central source of truth for parsing and navigation
+  // URL is the source of truth. No local tab/date/patientType/ruleSet state.
   // Practices and initialization
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
-  // Keep URL in sync (assigned later after data queries)
-  const pushParamsRef = React.useRef<
-    (
-      tab: string,
-      ruleSetId: Id<"ruleSets"> | undefined,
-      isNewPatient: boolean,
-      date: Date,
-    ) => void
-  >(() => {
-    // initialized later once data queries resolve
-  });
-  const pushParams = React.useCallback(
-    (
-      tab: string,
-      ruleSetId: Id<"ruleSets"> | undefined,
-      isNewPatient: boolean,
-      date: Date,
-    ) => {
-      pushParamsRef.current(tab, ruleSetId, isNewPatient, date);
-    },
-    [pushParamsRef],
-  );
+  // pushParams will be defined after data queries and derived state
   const { captureError } = useErrorTracking();
 
-  const [selectedRuleSetId, setSelectedRuleSetId] =
-    useState<Id<"ruleSets"> | null>(null);
+  // No explicit selected saved rule set state; selection is driven by URL
   const [unsavedRuleSetId, setUnsavedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
-  const [pendingRuleSetId, setPendingRuleSetId] =
-    useState<Id<"ruleSets"> | null>(null);
+  const [pendingRuleSetId, setPendingRuleSetId] = useState<
+    Id<"ruleSets"> | undefined
+  >();
   const [activationName, setActivationName] = useState("");
 
   // Local appointments for simulation
   const { addLocalAppointment, clearAllLocalAppointments, localAppointments } =
     useLocalAppointments();
 
-  // Simulation state - moved from SimulationPanel
-  const initialTab =
-    tabParam === "mitarbeiter"
-      ? "staff-view"
-      : tabParam === "debug"
-        ? "debug-views"
-        : "rule-management";
-
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
-
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     appointmentType: "Erstberatung",
-    patient: { isNew: patientTypeParam !== "bestand" },
+    patient: { isNew: true },
   });
-  const parseYmd = (ymd?: string): Date | undefined => {
-    if (!ymd) {
-      return undefined;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-      return undefined;
-    }
-    const [ys, ms, ds] = ymd.split("-");
-    const y = Number(ys);
-    const m = Number(ms);
-    const d = Number(ds);
-    const dt = new Date(y, m - 1, d);
-    return Number.isNaN(dt.getTime()) ? undefined : dt;
-  };
-  const isToday = (dt?: Date) => {
-    if (!dt) {
-      return true;
-    }
-    const now = new Date();
-    return (
-      dt.getFullYear() === now.getFullYear() &&
-      dt.getMonth() === now.getMonth() &&
-      dt.getDate() === now.getDate()
-    );
-  };
-  const formatYmd = (dt: Date): string => {
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, "0");
-    const d = String(dt.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  };
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    parseYmd(dateParam) ?? new Date(),
-  );
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
-  const [simulationRuleSetId, setSimulationRuleSetId] = useState<
-    Id<"ruleSets"> | undefined
-  >();
-  // Keep URL in sync: will be assigned after data queries below
-
-  // Create date range representing a full calendar day without timezone issues
-  const year = selectedDate.getFullYear();
-  const month = selectedDate.getMonth();
-  const date = selectedDate.getDate();
-
-  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
-  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
-
-  const dateRange = {
-    end: endOfDay.toISOString(),
-    start: startOfDay.toISOString(),
-  };
+  // URL will be parsed after queries and unsaved draft are known
 
   const handleSlotClick = (slot: SlotDetails) => {
     setSelectedSlot(slot);
@@ -334,9 +280,7 @@ export default function LogicView() {
   const activeRuleSet = ruleSetsQuery?.find(
     (rs: { isActive: boolean }) => rs.isActive,
   );
-  const selectedRuleSet = ruleSetsQuery?.find(
-    (rs: { _id: string }) => rs._id === selectedRuleSetId,
-  );
+  // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
 
   // Find any existing unsaved rule set (not active and no explicit selection)
   const existingUnsavedRuleSet = ruleSetsQuery?.find(
@@ -348,89 +292,52 @@ export default function LogicView() {
     ruleSetsQuery?.find((rs: { _id: string }) => rs._id === unsavedRuleSetId) ??
     existingUnsavedRuleSet;
 
-  // Assign URL sync now that dependent data is available
-  pushParamsRef.current = React.useCallback(
-    (
-      tab: string,
-      ruleSetId: Id<"ruleSets"> | undefined,
-      isNewPatient: boolean,
-      date: Date,
-    ) => {
-      const tabOut =
-        tab === "staff-view"
-          ? "mitarbeiter"
-          : tab === "debug-views"
-            ? "debug"
-            : undefined;
-      // Compute ruleSet slug
-      let ruleSetOut: string | undefined;
-      if (ruleSetId) {
-        // Treat unsaved by object OR by tracked unsavedRuleSetId to avoid timing issues
-        if (
-          (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) ||
-          (unsavedRuleSetId && unsavedRuleSetId === ruleSetId)
-        ) {
-          ruleSetOut = "ungespeichert";
-        } else {
-          const found = ruleSetsQuery?.find(
-            (rs: { _id: string }) => rs._id === ruleSetId,
-          );
-          ruleSetOut = found ? slugify(found.description) : undefined;
-        }
-      }
-      const patientTypeOut = isNewPatient ? undefined : "bestand";
-      // Compute location slug from simulatedContext
-      let locationOut: string | undefined;
-      if (simulatedContext.locationId && Array.isArray(locationsListQuery)) {
-        const loc = locationsListQuery.find(
-          (l: { _id: string }) => l._id === simulatedContext.locationId,
-        );
-        locationOut = loc ? slugify(loc.name) : undefined;
-      }
-      // Date is omitted when today, unless we need it to carry later segments (e.g. tab)
-      let dateOut = isToday(date) ? undefined : formatYmd(date);
-      if (
-        !dateOut &&
-        (tabOut !== undefined ||
-          ruleSetOut !== undefined ||
-          patientTypeOut !== undefined ||
-          locationOut !== undefined)
-      ) {
-        // Force include today's date to allow later segments while keeping a single alias order
-        dateOut = formatYmd(date);
-      }
-      // Build a concrete path in declared param order: /regeln/{tab}/{location}/{date}/{patientType}/{ruleSet}
-      const parts: string[] = ["/regeln"];
-      if (tabOut) {
-        parts.push(tabOut);
-      }
-      if (locationOut) {
-        parts.push(locationOut);
-      }
-      if (dateOut) {
-        parts.push(dateOut);
-      }
-      if (patientTypeOut) {
-        parts.push(patientTypeOut);
-      }
-      if (ruleSetOut) {
-        parts.push(ruleSetOut);
-      }
-      if (parts.length === 1) {
-        void navigate({ replace: false, to: "/regeln" });
-      } else {
-        void navigate({ replace: false, to: parts.join("/") });
-      }
-    },
-    [
-      navigate,
-      ruleSetsQuery,
-      unsavedRuleSet,
-      unsavedRuleSetId,
-      simulatedContext.locationId,
-      locationsListQuery,
-    ],
+  // URL derivations & actions (now that we have queries and unsavedRuleSet)
+  const {
+    activeTab,
+    isNewPatient,
+    locationIdFromUrl,
+    navigateTab,
+    pushUrl,
+    raw,
+    ruleSetIdFromUrl,
+    selectedDate,
+  } = useRegelnUrl({
+    locationsListQuery,
+    ruleSetsQuery,
+    unsavedRuleSet: unsavedRuleSet ?? null,
+  });
+
+  const selectedRuleSet = useMemo(
+    () => ruleSetsQuery?.find((rs) => rs._id === ruleSetIdFromUrl),
+    [ruleSetsQuery, ruleSetIdFromUrl],
   );
+
+  // Helper to push the canonical URL reflecting current UI intent
+  // pushUrl and navigateTab come from useRegelnUrl
+
+  // Ensure the URL reflects an existing unsaved draft selection
+  // If an unsaved rule set exists but the URL doesn't say 'ungespeichert',
+  // navigate to include it so the URL remains the single source of truth.
+  React.useEffect(() => {
+    // Only enforce when the ruleSet segment is missing entirely.
+    // Do NOT override a user-chosen named rule set in the URL.
+    if (
+      unsavedRuleSet &&
+      !raw.ruleSet &&
+      // Avoid navigating before we know the date from URL/state
+      selectedDate instanceof Date
+    ) {
+      pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
+    }
+  }, [
+    unsavedRuleSet,
+    raw.ruleSet,
+    activeTab,
+    simulatedContext.patient.isNew,
+    selectedDate,
+    pushUrl,
+  ]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = () => {
@@ -438,11 +345,9 @@ export default function LogicView() {
       appointmentType: "Erstberatung",
       patient: { isNew: true },
     });
-    setSelectedDate(new Date());
-    setSimulationRuleSetId(undefined);
     setSelectedSlot(null);
     clearAllLocalAppointments();
-    pushParams(activeTab, undefined, true, new Date());
+    pushUrl({ date: new Date(), isNewPatient: true, ruleSetId: undefined });
   };
 
   // Auto-detect existing unsaved rule set on load
@@ -465,140 +370,34 @@ export default function LogicView() {
   }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
 
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
-  const currentWorkingRuleSet =
-    unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet;
+  const currentWorkingRuleSet = useMemo(
+    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
+    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
+  );
 
-  // Sync current working rule set with simulation controls
+  // Keep patient.isNew in local simulatedContext in sync with URL
   React.useEffect(() => {
-    // Don't override if URL or user already chose a specific simulation rule set
-    if (ruleSetParam) {
-      return;
-    }
-    if (simulationRuleSetId !== undefined) {
-      return;
-    }
-    if (currentWorkingRuleSet) {
-      setSimulationRuleSetId(currentWorkingRuleSet._id);
-    } else {
-      setSimulationRuleSetId(undefined);
-    }
-  }, [currentWorkingRuleSet, ruleSetParam, simulationRuleSetId]);
-
-  // Sync local state when URL params change externally
-  const isNewPatientCurrent = simulatedContext.patient.isNew;
-  const prevTabParamRef = React.useRef<string | undefined>(undefined);
-  React.useEffect(() => {
-    // Don't early return; still update prev ref below
-    tabSyncGuardRef.current &&= false;
-    // Update activeTab based on explicit tab params; avoid resetting to default
-    if (tabParam === "mitarbeiter" && activeTab !== "staff-view") {
-      setActiveTab("staff-view");
-    } else if (tabParam === "debug" && activeTab !== "debug-views") {
-      setActiveTab("debug-views");
-    } else if (
-      tabParam === undefined &&
-      prevTabParamRef.current !== undefined &&
-      activeTab !== "rule-management"
-    ) {
-      // Only collapse to default when transitioning from a defined tab to undefined
-      setActiveTab("rule-management");
-    }
-
-    const date = parseYmd(dateParam);
-    if (date && formatYmd(date) !== formatYmd(selectedDate)) {
-      setSelectedDate(date);
-    }
-
-    const newIsNew = patientTypeParam !== "bestand";
-    if (newIsNew !== isNewPatientCurrent) {
+    if (simulatedContext.patient.isNew !== isNewPatient) {
       setSimulatedContext((prev) => ({
         ...prev,
-        patient: { isNew: newIsNew },
+        patient: { isNew: isNewPatient },
       }));
     }
-  }, [
-    tabParam,
-    dateParam,
-    patientTypeParam,
-    activeTab,
-    selectedDate,
-    isNewPatientCurrent,
-    simulationRuleSetId,
-  ]);
-  React.useEffect(() => {
-    prevTabParamRef.current = tabParam;
-  }, [tabParam]);
+  }, [isNewPatient, simulatedContext.patient.isNew]);
 
   // Map URL slugs -> internal IDs for rule set and location
   React.useEffect(() => {
-    // Rule set slug mapping
-    if (typeof ruleSetParam === "string") {
-      let nextId: Id<"ruleSets"> | undefined;
-      if (ruleSetParam === "ungespeichert") {
-        nextId = unsavedRuleSet?._id;
-      } else if (ruleSetsQuery) {
-        const found = ruleSetsQuery.find(
-          (rs: { description: string }) =>
-            slugify(rs.description) === ruleSetParam,
-        );
-        nextId = found?._id;
-      }
-      if (nextId !== simulationRuleSetId) {
-        setSimulationRuleSetId(nextId);
-      }
-    }
-
-    // Location slug mapping
     if (
-      typeof locationParam === "string" &&
-      Array.isArray(locationsListQuery)
+      locationIdFromUrl &&
+      simulatedContext.locationId !== locationIdFromUrl
     ) {
-      const foundLoc = locationsListQuery.find(
-        (l: { name: string }) => slugify(l.name) === locationParam,
-      );
-      const foundId = foundLoc?._id as Id<"locations"> | undefined;
-      if (foundId && simulatedContext.locationId !== foundId) {
-        setSimulatedContext((prev) => ({ ...prev, locationId: foundId }));
-      }
+      setSimulatedContext((prev) => ({
+        ...prev,
+        locationId: locationIdFromUrl,
+      }));
     }
-  }, [
-    ruleSetParam,
-    locationParam,
-    ruleSetsQuery,
-    locationsListQuery,
-    unsavedRuleSet,
-    simulationRuleSetId,
-    simulatedContext.locationId,
-  ]);
-
-  // Ensure URL reflects entering the unsaved state when on the main tab
-  React.useEffect(() => {
-    if (activeTab !== "rule-management") {
-      return;
-    }
-    const draftId = unsavedRuleSet?._id ?? unsavedRuleSetId;
-    if (!draftId) {
-      return;
-    }
-    // If URL already reflects unsaved, skip
-    if (ruleSetParam === "ungespeichert") {
-      return;
-    }
-    pushParams(
-      activeTab,
-      draftId,
-      simulatedContext.patient.isNew,
-      selectedDate,
-    );
-  }, [
-    activeTab,
-    unsavedRuleSet?._id,
-    unsavedRuleSetId,
-    ruleSetParam,
-    pushParams,
-    simulatedContext.patient.isNew,
-    selectedDate,
-  ]);
+  }, [locationIdFromUrl, simulatedContext.locationId]);
+  // No automatic URL mutation when unsaved exists; only mutate on user actions
 
   // Fetch rules for the current working rule set (only enabled ones)
   const rulesQuery = useQuery(
@@ -607,6 +406,19 @@ export default function LogicView() {
       ? { enabledOnly: true, ruleSetId: currentWorkingRuleSet._id }
       : "skip",
   );
+
+  // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const date = selectedDate.getDate();
+
+  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
+
+  const dateRange = {
+    end: endOfDay.toISOString(),
+    start: startOfDay.toISOString(),
+  };
 
   // Function to create an unsaved copy when modifying a saved rule set
   const createUnsavedCopy = React.useCallback(
@@ -646,24 +458,14 @@ export default function LogicView() {
   const ensureUnsavedRuleSet = React.useCallback(async () => {
     // 1) Already tracking an unsaved draft
     if (unsavedRuleSetId) {
-      pushParams(
-        activeTab,
-        unsavedRuleSetId,
-        simulatedContext.patient.isNew,
-        selectedDate,
-      );
+      pushUrl({ ruleSetId: unsavedRuleSetId });
       return unsavedRuleSetId;
     }
 
     // 2) A draft exists in DB but not yet tracked in state
     if (existingUnsavedRuleSet) {
       setUnsavedRuleSetId(existingUnsavedRuleSet._id);
-      pushParams(
-        activeTab,
-        existingUnsavedRuleSet._id,
-        simulatedContext.patient.isNew,
-        selectedDate,
-      );
+      pushUrl({ ruleSetId: existingUnsavedRuleSet._id });
       return existingUnsavedRuleSet._id;
     }
 
@@ -671,12 +473,7 @@ export default function LogicView() {
     if (selectedRuleSet) {
       const newId = await createUnsavedCopy(selectedRuleSet._id);
       if (newId) {
-        pushParams(
-          activeTab,
-          newId,
-          simulatedContext.patient.isNew,
-          selectedDate,
-        );
+        pushUrl({ ruleSetId: newId });
       }
       return newId;
     }
@@ -685,12 +482,7 @@ export default function LogicView() {
     if (activeRuleSet) {
       const newId = await createUnsavedCopy(activeRuleSet._id);
       if (newId) {
-        pushParams(
-          activeTab,
-          newId,
-          simulatedContext.patient.isNew,
-          selectedDate,
-        );
+        pushUrl({ ruleSetId: newId });
       }
       return newId;
     }
@@ -698,12 +490,7 @@ export default function LogicView() {
     // 5) Create the initial draft if there are no rule sets yet
     const initialId = await createInitialUnsaved();
     if (initialId) {
-      pushParams(
-        activeTab,
-        initialId,
-        simulatedContext.patient.isNew,
-        selectedDate,
-      );
+      pushUrl({ ruleSetId: initialId });
     }
     return initialId;
   }, [
@@ -713,11 +500,7 @@ export default function LogicView() {
     activeRuleSet,
     createUnsavedCopy,
     createInitialUnsaved,
-    // URL sync deps
-    pushParams,
-    activeTab,
-    simulatedContext.patient.isNew,
-    selectedDate,
+    pushUrl,
   ]);
 
   const handleVersionClick = React.useCallback(
@@ -729,40 +512,19 @@ export default function LogicView() {
 
       const versionId = version.hash as Id<"ruleSets">;
 
-      // If we have unsaved changes, show save dialog first
-      if (unsavedRuleSet) {
+      // If we have unsaved changes and the target is not the unsaved draft, show save dialog
+      if (unsavedRuleSet && versionId !== unsavedRuleSet._id) {
         setPendingRuleSetId(versionId);
         setActivationName("");
         setIsSaveDialogOpen(true);
         return;
       }
 
-      // If clicking on the currently selected version, do nothing
-      if (selectedRuleSetId === versionId) {
-        return;
-      }
-
-      // Switch to the selected version
-      setSelectedRuleSetId(versionId);
+      // Navigate to the chosen version
       setUnsavedRuleSetId(null);
-
-      // Keep URL in sync with the selected rule set (default tab)
-      pushParams(
-        activeTab,
-        versionId,
-        simulatedContext.patient.isNew,
-        selectedDate,
-      );
+      pushUrl({ ruleSetId: versionId });
     },
-    [
-      currentPractice,
-      unsavedRuleSet,
-      selectedRuleSetId,
-      pushParams,
-      activeTab,
-      simulatedContext.patient.isNew,
-      selectedDate,
-    ],
+    [currentPractice, unsavedRuleSet, pushUrl],
   );
 
   // Show loading state if practice is being initialized
@@ -819,26 +581,13 @@ export default function LogicView() {
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
 
-      // If we came from the save dialog, switch to the pending rule set
-      if (pendingRuleSetId) {
-        setSelectedRuleSetId(pendingRuleSetId);
-        // Keep URL in sync with the selected rule set
-        pushParams(
-          activeTab,
-          pendingRuleSetId,
-          simulatedContext.patient.isNew,
-          selectedDate,
-        );
-        setPendingRuleSetId(null);
-      } else {
-        setSelectedRuleSetId(ruleSetId); // Set the activated rule set as selected
+      // If we came from the save dialog, switch to the pending rule set (or active when undefined)
+      if (pendingRuleSetId === undefined) {
         // Keep URL in sync with the activated rule set
-        pushParams(
-          activeTab,
-          ruleSetId,
-          simulatedContext.patient.isNew,
-          selectedDate,
-        );
+        pushUrl({ ruleSetId });
+      } else {
+        pushUrl({ ruleSetId: pendingRuleSetId });
+        setPendingRuleSetId(undefined);
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -863,7 +612,7 @@ export default function LogicView() {
 
   // Save dialog handlers
   const handleSaveOnly = (name: string) => {
-    if (currentWorkingRuleSet && pendingRuleSetId) {
+    if (currentWorkingRuleSet && pendingRuleSetId !== undefined) {
       // Activate current working rule set with the given name, then switch to pending
       void (async () => {
         try {
@@ -873,20 +622,14 @@ export default function LogicView() {
             ruleSetId: currentWorkingRuleSet._id,
           });
 
-          setSelectedRuleSetId(pendingRuleSetId);
           setUnsavedRuleSetId(null);
-          setPendingRuleSetId(null);
+          setPendingRuleSetId(undefined);
           setIsSaveDialogOpen(false);
           setActivationName("");
           toast.success("Änderungen gespeichert");
 
           // Keep URL in sync with the selected (pending) rule set
-          pushParams(
-            activeTab,
-            pendingRuleSetId,
-            simulatedContext.patient.isNew,
-            selectedDate,
-          );
+          pushUrl({ ruleSetId: pendingRuleSetId });
         } catch (error: unknown) {
           captureError(error, {
             context: "save_only",
@@ -923,26 +666,9 @@ export default function LogicView() {
 
           setUnsavedRuleSetId(null);
 
-          if (pendingRuleSetId) {
-            setSelectedRuleSetId(pendingRuleSetId);
-            setPendingRuleSetId(null);
-            // Keep URL in sync with the newly selected pending rule set
-            pushParams(
-              activeTab,
-              pendingRuleSetId,
-              simulatedContext.patient.isNew,
-              selectedDate,
-            );
-          } else {
-            // If no pending selection, ensure the URL removes the unsaved slug
-            const nextId = selectedRuleSetId ?? undefined;
-            pushParams(
-              activeTab,
-              nextId,
-              simulatedContext.patient.isNew,
-              selectedDate,
-            );
-          }
+          // Navigate to target (pending or active)
+          pushUrl({ ruleSetId: pendingRuleSetId });
+          setPendingRuleSetId(undefined);
 
           setIsSaveDialogOpen(false);
           setActivationName("");
@@ -980,14 +706,7 @@ export default function LogicView() {
         <Tabs
           className="space-y-6"
           onValueChange={(val) => {
-            tabSyncGuardRef.current = true;
-            setActiveTab(val);
-            pushParams(
-              val,
-              simulationRuleSetId,
-              simulatedContext.patient.isNew,
-              selectedDate,
-            );
+            navigateTab(val as typeof activeTab);
           }}
           value={activeTab}
         >
@@ -1023,9 +742,9 @@ export default function LogicView() {
                           <div className="border rounded-lg p-4">
                             <VersionGraph
                               onVersionClick={handleVersionClick}
-                              {...((unsavedRuleSetId || selectedRuleSetId) && {
+                              {...((unsavedRuleSetId || ruleSetIdFromUrl) && {
                                 selectedVersionId: (unsavedRuleSetId ||
-                                  selectedRuleSetId) as string,
+                                  ruleSetIdFromUrl) as string,
                               })}
                               versions={versionsQuery}
                             />
@@ -1208,44 +927,34 @@ export default function LogicView() {
                     onSlotClick={handleSlotClick}
                     onUpdateSimulatedContext={setSimulatedContext}
                     practiceId={currentPractice._id}
-                    ruleSetId={simulationRuleSetId}
+                    ruleSetId={ruleSetIdFromUrl}
                     simulatedContext={simulatedContext}
                   />
                 </div>
 
                 <SimulationControls
                   onDateChange={(d) => {
-                    setSelectedDate(d);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      simulatedContext.patient.isNew,
-                      d,
-                    );
+                    pushUrl({ date: d });
                   }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      ctx.patient.isNew,
-                      selectedDate,
-                    );
+                    pushUrl({ isNewPatient: ctx.patient.isNew });
                   }}
                   onSimulationRuleSetChange={(id) => {
-                    setSimulationRuleSetId(id);
-                    pushParams(
-                      activeTab,
-                      id,
-                      simulatedContext.patient.isNew,
-                      selectedDate,
-                    );
+                    // If unsaved exists and target is not the unsaved id, show save dialog
+                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
+                      setPendingRuleSetId(id);
+                      setActivationName("");
+                      setIsSaveDialogOpen(true);
+                      return;
+                    }
+                    pushUrl({ ruleSetId: id });
                   }}
                   ruleSetsQuery={ruleSetsQuery}
                   selectedDate={selectedDate}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={simulationRuleSetId}
+                  simulationRuleSetId={ruleSetIdFromUrl}
                 />
               </div>
             </div>
@@ -1270,43 +979,32 @@ export default function LogicView() {
                   onSlotClick={handleSlotClick}
                   onUpdateSimulatedContext={setSimulatedContext}
                   practiceId={currentPractice._id}
-                  ruleSetId={simulationRuleSetId}
+                  ruleSetId={ruleSetIdFromUrl}
                   simulatedContext={simulatedContext}
                 />
 
                 <SimulationControls
                   onDateChange={(d) => {
-                    setSelectedDate(d);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      simulatedContext.patient.isNew,
-                      d,
-                    );
+                    pushUrl({ date: d });
                   }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      ctx.patient.isNew,
-                      selectedDate,
-                    );
+                    pushUrl({ isNewPatient: ctx.patient.isNew });
                   }}
                   onSimulationRuleSetChange={(id) => {
-                    setSimulationRuleSetId(id);
-                    pushParams(
-                      activeTab,
-                      id,
-                      simulatedContext.patient.isNew,
-                      selectedDate,
-                    );
+                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
+                      setPendingRuleSetId(id);
+                      setActivationName("");
+                      setIsSaveDialogOpen(true);
+                      return;
+                    }
+                    pushUrl({ ruleSetId: id });
                   }}
                   ruleSetsQuery={ruleSetsQuery}
                   selectedDate={selectedDate}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={simulationRuleSetId}
+                  simulationRuleSetId={ruleSetIdFromUrl}
                 />
               </div>
             </div>
@@ -1322,7 +1020,7 @@ export default function LogicView() {
                     onSlotClick={handleSlotClick}
                     onUpdateSimulatedContext={setSimulatedContext}
                     practiceId={currentPractice._id}
-                    ruleSetId={simulationRuleSetId}
+                    ruleSetId={ruleSetIdFromUrl}
                     simulatedContext={simulatedContext}
                   />
 
@@ -1331,37 +1029,26 @@ export default function LogicView() {
 
                 <SimulationControls
                   onDateChange={(d) => {
-                    setSelectedDate(d);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      simulatedContext.patient.isNew,
-                      d,
-                    );
+                    pushUrl({ date: d });
                   }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushParams(
-                      activeTab,
-                      simulationRuleSetId,
-                      ctx.patient.isNew,
-                      selectedDate,
-                    );
+                    pushUrl({ isNewPatient: ctx.patient.isNew });
                   }}
                   onSimulationRuleSetChange={(id) => {
-                    setSimulationRuleSetId(id);
-                    pushParams(
-                      activeTab,
-                      id,
-                      simulatedContext.patient.isNew,
-                      selectedDate,
-                    );
+                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
+                      setPendingRuleSetId(id);
+                      setActivationName("");
+                      setIsSaveDialogOpen(true);
+                      return;
+                    }
+                    pushUrl({ ruleSetId: id });
                   }}
                   ruleSetsQuery={ruleSetsQuery}
                   selectedDate={selectedDate}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={simulationRuleSetId}
+                  simulationRuleSetId={ruleSetIdFromUrl}
                 />
               </div>
             </div>
@@ -1374,7 +1061,7 @@ export default function LogicView() {
         onOpenChange={(open) => {
           setIsSaveDialogOpen(open);
           if (!open) {
-            setPendingRuleSetId(null);
+            setPendingRuleSetId(undefined);
             setActivationName("");
           }
         }}
