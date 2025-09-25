@@ -291,7 +291,25 @@ export function PraxisCalendar({
   );
 
   // Get current date info - use simulationDate if provided, otherwise use current date
-  const [currentDate, setCurrentDate] = useState(simulationDate ?? new Date());
+  const currentDate = useMemo(
+    () => simulationDate ?? new Date(),
+    [simulationDate],
+  );
+
+  const emitDateChange = useCallback(
+    (nextDate: Date) => {
+      if (
+        currentDate.getFullYear() === nextDate.getFullYear() &&
+        currentDate.getMonth() === nextDate.getMonth() &&
+        currentDate.getDate() === nextDate.getDate()
+      ) {
+        return;
+      }
+
+      onDateChange?.(nextDate);
+    },
+    [currentDate, onDateChange],
+  );
 
   // Local state for selected location (for non-simulation mode)
   const [selectedLocationId, setSelectedLocationId] = useState<
@@ -322,14 +340,6 @@ export function PraxisCalendar({
       }
     }
   }, [locationSlug, locationsData, selectedLocationId, onLocationResolved]);
-
-  // Update currentDate when simulationDate changes
-  useEffect(() => {
-    if (simulationDate) {
-      setCurrentDate(simulationDate);
-      onDateChange?.(simulationDate);
-    }
-  }, [simulationDate, onDateChange]);
 
   const currentDayOfWeek = currentDate.getDay(); // 0 = Sunday
 
@@ -668,17 +678,8 @@ export function PraxisCalendar({
           <CardContent className="p-4">
             <MiniCalendar
               days={7}
-              onStartDateChange={(date) => {
-                // Set to the first day of the week containing the selected date
-                const startOfWeek = new Date(date);
-                startOfWeek.setDate(date.getDate() - date.getDay());
-                setCurrentDate(date);
-                onDateChange?.(date);
-              }}
-              onValueChange={(d) => {
-                setCurrentDate(d);
-                onDateChange?.(d);
-              }}
+              onStartDateChange={emitDateChange}
+              onValueChange={emitDateChange}
               startDate={currentDate}
               value={currentDate}
             >

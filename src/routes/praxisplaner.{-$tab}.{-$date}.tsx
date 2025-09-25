@@ -1,8 +1,24 @@
 // src/routes/praxisplaner.{-$tab}.{-$date}.tsx
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { PraxisPlanerComponent } from "./praxisplaner";
+import {
+  normalizePraxisplanerSearch,
+  Route as PraxisplanerRoute,
+  type PraxisplanerSearchParams,
+} from "./praxisplaner";
 
 export const Route = createFileRoute("/praxisplaner/{-$tab}/{-$date}")({
-  component: PraxisPlanerComponent,
+  beforeLoad: ({ params }) => {
+    const nextSearch: PraxisplanerSearchParams = normalizePraxisplanerSearch({
+      date: params.date,
+      tab: params.tab,
+    });
+
+    redirect({
+      replace: true,
+      search: nextSearch,
+      throw: true,
+      to: PraxisplanerRoute.fullPath,
+    });
+  },
 });

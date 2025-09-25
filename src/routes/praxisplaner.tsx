@@ -1,15 +1,10 @@
 // src/routes/praxisplaner.tsx
 
 import { useConvexMutation } from "@convex-dev/react-query";
-import {
-  createFileRoute,
-  getRouteApi,
-  useLocation,
-  useNavigate,
-} from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -48,11 +43,91 @@ import {
 } from "../utils/browser-api";
 import { useErrorTracking } from "../utils/error-tracking";
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const NERDS_TAB_SEARCH_VALUE = "nerds" as const;
+const CALENDAR_TAB = "calendar" as const;
+const SETTINGS_TAB = "settings" as const;
+const PATIENT_TAB_PREFIX = "patient-";
+
+const isValidDateString = (value: unknown): value is string =>
+  typeof value === "string" && DATE_REGEX.test(value);
+
+export interface PraxisplanerSearchParams {
+  date?: string;
+  tab?: typeof NERDS_TAB_SEARCH_VALUE;
+}
+
+export const normalizePraxisplanerSearch = (
+  search: Record<string, unknown>,
+): PraxisplanerSearchParams => {
+  const params: PraxisplanerSearchParams = {};
+
+  if (isValidDateString(search["date"])) {
+    params.date = search["date"];
+  }
+
+  if (search["tab"] === NERDS_TAB_SEARCH_VALUE) {
+    params.tab = NERDS_TAB_SEARCH_VALUE;
+  }
+
+  return params;
+};
+
+const parseYmd = (ymd?: string): Date | undefined => {
+  if (!ymd || !DATE_REGEX.test(ymd)) {
+    return undefined;
+  }
+
+  const [ys, ms, ds] = ymd.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const d = Number(ds);
+
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? undefined : dt;
+};
+
+const formatYmd = (dt: Date): string => {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const isToday = (dt?: Date) => {
+  if (!dt) {
+    return true;
+  }
+  const now = new Date();
+  return (
+    dt.getFullYear() === now.getFullYear() &&
+    dt.getMonth() === now.getMonth() &&
+    dt.getDate() === now.getDate()
+  );
+};
+
+const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
+  tab === NERDS_TAB_SEARCH_VALUE ? SETTINGS_TAB : CALENDAR_TAB;
+
+const buildSearchFromState = (
+  date: Date,
+  tab: string,
+): PraxisplanerSearchParams => {
+  if (tab === SETTINGS_TAB) {
+    return { tab: NERDS_TAB_SEARCH_VALUE };
+  }
+
+  const dateOut = isToday(date) ? undefined : formatYmd(date);
+  return dateOut ? { date: dateOut } : {};
+};
+
+const getPatientTabId = (patientId: Doc<"patients">["patientId"]) =>
+  `${PATIENT_TAB_PREFIX}${patientId}`;
+
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
+  validateSearch: normalizePraxisplanerSearch,
 });
-
-const praxisplanerOptionalRoute = getRouteApi("/praxisplaner/{-$tab}/{-$date}");
 
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
 const IDB_GDT_PERMISSION_KEY = "gdtDirPermission";
@@ -68,46 +143,8 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 };
 
 export function PraxisPlanerComponent() {
-  const navigate = useNavigate();
-  const { date: dateParam, tab: tabParam }: { date?: string; tab?: string } =
-    praxisplanerOptionalRoute.useParams();
-  const location = useLocation();
-
-  // Parse date param (YYYY-MM-DD) -> Date
-  const parseYmd = (ymd?: string): Date | undefined => {
-    if (!ymd) {
-      return undefined;
-    }
-    // Expecting 4-2-2 digits
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-      return undefined;
-    }
-    const [ys, ms, ds] = ymd.split("-");
-    const y = Number(ys);
-    const m = Number(ms);
-    const d = Number(ds);
-    const dt = new Date(y, m - 1, d);
-    return Number.isNaN(dt.getTime()) ? undefined : dt;
-  };
-
-  const formatYmd = (dt: Date): string => {
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, "0");
-    const d = String(dt.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  };
-
-  const isToday = (dt?: Date) => {
-    if (!dt) {
-      return true;
-    }
-    const now = new Date();
-    return (
-      dt.getFullYear() === now.getFullYear() &&
-      dt.getMonth() === now.getMonth() &&
-      dt.getDate() === now.getDate()
-    );
-  };
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { date: dateParam, tab: tabParam } = Route.useSearch();
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
@@ -121,14 +158,12 @@ export function PraxisPlanerComponent() {
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
-  const initialDate = parseYmd(dateParam);
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    initialDate ?? new Date(),
+  const selectedDate = useMemo(
+    () => parseYmd(dateParam) ?? new Date(),
+    [dateParam],
   );
   const [activeTab, setActiveTab] = useState<string>(() =>
-    location.pathname.endsWith("/nerds") || tabParam === "nerds"
-      ? "settings"
-      : "calendar",
+    tabFromSearch(tabParam),
   );
   const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
 
@@ -157,7 +192,7 @@ export function PraxisPlanerComponent() {
   // Tab management functions
   const openPatientTab = useCallback(
     (patientId: Doc<"patients">["patientId"], patientName?: string) => {
-      const tabId = `patient-${patientId}`;
+      const tabId = getPatientTabId(patientId);
       const title = patientName || `Patient ${patientId}`;
 
       // Check if tab already exists
@@ -186,14 +221,14 @@ export function PraxisPlanerComponent() {
 
   const closePatientTab = useCallback(
     (patientId: Doc<"patients">["patientId"]) => {
-      const tabId = `patient-${patientId}`;
+      const tabId = getPatientTabId(patientId);
       setPatientTabs((prev) =>
         prev.filter((tab) => tab.patientId !== patientId),
       );
 
       // If we're closing the active tab, switch to calendar
       if (activeTab === tabId) {
-        setActiveTab("calendar");
+        setActiveTab(CALENDAR_TAB);
       }
 
       addGdtLog(`❌ Closed tab for Patient ${patientId}.`);
@@ -202,43 +237,38 @@ export function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    // Keep local states in sync if URL params change externally
-    const nextDate = parseYmd(dateParam);
-    if (nextDate && formatYmd(nextDate) !== formatYmd(selectedDate)) {
-      setSelectedDate(nextDate);
-    }
-    const isSettingsPath =
-      location.pathname.endsWith("/nerds") || tabParam === "nerds";
-    const nextTab = isSettingsPath ? "settings" : "calendar";
-    if (nextTab !== activeTab) {
-      setActiveTab(nextTab);
-    }
-  }, [dateParam, tabParam, location.pathname, activeTab, selectedDate]);
+    setActiveTab((current) => {
+      const nextTab = tabFromSearch(tabParam);
+      return current === nextTab ? current : nextTab;
+    });
+  }, [tabParam]);
 
   // Helper to push URL state
   const pushParams = useCallback(
     (d: Date, tab: string) => {
-      const dateOut = isToday(d) ? undefined : formatYmd(d);
-      if (tab === "settings") {
-        // Navigate using the typed optional route with tab param
-        void navigate({
-          params: {
-            date: undefined,
-            tab: "nerds",
-          },
-          replace: false,
-          to: "/praxisplaner/{-$tab}/{-$date}",
-        });
+      const nextSearch = buildSearchFromState(d, tab);
+
+      if (nextSearch.date === dateParam && nextSearch.tab === tabParam) {
         return;
       }
-      // Calendar tab: include date only if not today
-      if (dateOut) {
-        void navigate({ replace: false, to: "/praxisplaner/" + dateOut });
-      } else {
-        void navigate({ replace: false, to: "/praxisplaner" });
-      }
+
+      void navigate({
+        search: nextSearch,
+        to: Route.fullPath,
+      });
     },
-    [navigate],
+    [dateParam, navigate, tabParam],
+  );
+
+  const handleDateChange = useCallback(
+    (nextDate: Date) => {
+      if (activeTab !== CALENDAR_TAB) {
+        return;
+      }
+
+      pushParams(nextDate, activeTab);
+    },
+    [activeTab, pushParams],
   );
 
   // We sync to URL on interactions (tab/date handlers). No effect needed.
@@ -1046,40 +1076,52 @@ export function PraxisPlanerComponent() {
       >
         <div className="border-b px-6 py-3">
           <TabsList className="h-auto">
-            <TabsTrigger className="flex items-center gap-2" value="calendar">
+            <TabsTrigger
+              className="flex items-center gap-2"
+              value={CALENDAR_TAB}
+            >
               <CalendarIcon className="h-4 w-4" />
               Terminkalender
             </TabsTrigger>
-            <TabsTrigger className="flex items-center gap-2" value="settings">
+            <TabsTrigger
+              className="flex items-center gap-2"
+              value={SETTINGS_TAB}
+            >
               <Settings className="h-4 w-4" />
               Für Nerds
             </TabsTrigger>
-            {patientTabs.map((tab) => (
-              <TabsTrigger
-                className="flex items-center gap-2 group relative"
-                key={`patient-${tab.patientId}`}
-                value={`patient-${tab.patientId}`}
-              >
-                <User className="h-4 w-4" />
-                {tab.title}
-                <Button
-                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    closePatientTab(tab.patientId);
-                  }}
-                  size="sm"
-                  variant="ghost"
+            {patientTabs.map((tab) => {
+              const tabId = getPatientTabId(tab.patientId);
+              return (
+                <TabsTrigger
+                  className="flex items-center gap-2 group relative"
+                  key={tabId}
+                  value={tabId}
                 >
-                  <X className="h-3 w-3" />
-                </Button>
-              </TabsTrigger>
-            ))}
+                  <User className="h-4 w-4" />
+                  {tab.title}
+                  <Button
+                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closePatientTab(tab.patientId);
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <TabsContent className="h-full overflow-auto p-6" value="calendar">
+          <TabsContent
+            className="h-full overflow-auto p-6"
+            value={CALENDAR_TAB}
+          >
             <div className="container mx-auto max-w-7xl">
               <div className="mb-6">
                 <h1 className="text-3xl font-bold tracking-tight mb-2">
@@ -1090,28 +1132,29 @@ export function PraxisPlanerComponent() {
                 </p>
               </div>
               <PraxisCalendar
-                onDateChange={(d) => {
-                  setSelectedDate(d);
-                }}
+                onDateChange={handleDateChange}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}
               />
             </div>
           </TabsContent>
 
-          <TabsContent className="h-full overflow-auto" value="settings">
+          <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>
             {settingsContent}
           </TabsContent>
 
-          {patientTabs.map((tab) => (
-            <TabsContent
-              className="h-full overflow-auto"
-              key={`patient-${tab.patientId}`}
-              value={`patient-${tab.patientId}`}
-            >
-              <PatientTab patientId={tab.patientId} />
-            </TabsContent>
-          ))}
+          {patientTabs.map((tab) => {
+            const tabId = getPatientTabId(tab.patientId);
+            return (
+              <TabsContent
+                className="h-full overflow-auto"
+                key={tabId}
+                value={tabId}
+              >
+                <PatientTab patientId={tab.patientId} />
+              </TabsContent>
+            );
+          })}
         </div>
       </Tabs>
     </div>
