@@ -16,8 +16,7 @@
     "gen:convex": "pnpm exec convex codegen",
     "gen:routes": "pnpm exec tsr generate",
     "lint": "eslint . --fix",
-    "lint:check": "eslint . --max-warnings 0",
-    "lint:version": "eslint -v",
+    "lint:check": "eslint . --max-warnings 0 --debug",
     "start": "vite start",
     "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run",
     "test-build": "vite build"
