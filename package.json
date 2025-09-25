@@ -17,6 +17,7 @@
     "gen:routes": "pnpm exec tsr generate",
     "lint": "eslint . --fix",
     "lint:check": "eslint . --max-warnings 0",
+    "lint:version": "eslint -v",
     "start": "vite start",
     "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run",
     "test-build": "vite build"
