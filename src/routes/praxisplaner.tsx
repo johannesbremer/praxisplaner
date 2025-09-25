@@ -144,7 +144,9 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 
 export function PraxisPlanerComponent() {
   const navigate = useNavigate({ from: Route.fullPath });
-  const { date: dateParam, tab: tabParam } = Route.useSearch();
+  const search: PraxisplanerSearchParams = Route.useSearch();
+  const dateParam = search.date;
+  const tabParam = search.tab;
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
