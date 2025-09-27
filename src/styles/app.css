@@ -71,6 +71,8 @@
   --device-iphone-button: #b9bbbe;
   --device-iphone-frame-surface: #f4f5f6;
   --device-iphone-stripe-color: rgba(0, 0, 0, 0.14);
+  --device-iphone-screen: var(--card);
+  --device-xdr-screen: var(--card);
 }
 
 .dark {
@@ -137,6 +139,8 @@
   --device-iphone-button: #333130;
   --device-iphone-frame-surface: #101010;
   --device-iphone-stripe-color: rgba(255, 255, 255, 0.14);
+  --device-iphone-screen: var(--card);
+  --device-xdr-screen: var(--card);
 }
 
 @theme inline {
@@ -245,7 +249,7 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   height: 830px;
   width: 390px;
   overflow: hidden;
-  background: white;
+  background: var(--device-iphone-screen);
 }
 
 .device-iphone-14-pro .device-stripe::after,
@@ -418,7 +422,7 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: white;
+  background: var(--device-xdr-screen);
 }
 
 .device-pro-display-xdr .device-power {
