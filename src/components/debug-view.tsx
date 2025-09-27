@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
 
 import type {
@@ -207,17 +208,15 @@ export function DebugView({
           )}
 
           {slotsResult.log.length > 0 && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div className="mt-4">
               <h4 className="font-semibold mb-2 text-sm">
                 Rule Processing Log
               </h4>
-              <div className="space-y-1 font-mono text-xs max-h-32 overflow-y-auto">
-                {slotsResult.log.map((logEntry, index) => (
-                  <div className="text-muted-foreground" key={index}>
-                    {logEntry}
-                  </div>
-                ))}
-              </div>
+              <ScrollArea className="h-40 rounded-md border bg-muted p-3">
+                <pre className="font-mono text-xs whitespace-pre-wrap leading-relaxed text-muted-foreground">
+                  {slotsResult.log.join("\n")}
+                </pre>
+              </ScrollArea>
             </div>
           )}
         </CardContent>
