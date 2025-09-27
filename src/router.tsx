@@ -51,7 +51,9 @@ export function getRouter() {
     mutationCache: new MutationCache({
       onError: (error) => {
         const errorMessage =
-          error instanceof Error ? error.message : "An unknown error occurred";
+          error instanceof Error
+            ? error.message
+            : "Ein unbekannter Fehler ist aufgetreten";
 
         // Capture mutation errors with PostHog
         captureErrorGlobal(error, {
@@ -72,25 +74,24 @@ export function getRouter() {
         { error, reset }: ErrorComponentProps, // Type annotation is still valid
       ) => (
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
-          <h1>Something went wrong!</h1>
+          <h1>Etwas ist schiefgelaufen!</h1>
           <p>{error instanceof Error ? error.message : String(error)}</p>
           <button
             onClick={reset}
             style={{ marginTop: "10px", padding: "8px 16px" }}
           >
-            Try Again
+            Erneut versuchen
           </button>
         </div>
       ),
       defaultNotFoundComponent: () => (
         <div style={{ padding: "20px", textAlign: "center" }}>
-          <h1>404 - Page Not Found</h1>
-          <p>The page you are looking for does not exist.</p>
+          <h1>404 – Seite nicht gefunden</h1>
+          <p>Die von Ihnen angeforderte Seite existiert nicht.</p>
         </div>
       ),
-      defaultPreload: "intent",
+      defaultPreload: "viewport",
       routeTree,
-      scrollRestoration: true,
       Wrap: ({ children }) => (
         <ConvexProvider client={convexQueryClient.convexClient}>
           {children}
