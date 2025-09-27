@@ -125,6 +125,7 @@ export default tseslint.config(
             "Blob",
             "CustomEvent",
             "DOMException",
+            "localStorage",
           ],
         },
       ],

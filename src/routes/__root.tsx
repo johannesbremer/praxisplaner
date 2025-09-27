@@ -55,6 +55,8 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 // Icons and UI components for the HomePage content
 import { Clock, Settings } from "lucide-react";
 
+import { ModeToggle } from "@/components/mode-toggle";
+import { ThemeProvider } from "@/components/theme-provider";
 import {
   Card,
   CardContent,
@@ -210,9 +212,16 @@ export function PraxisplanerHomePageContent() {
 function RootComponent() {
   return (
     <RootDocument>
-      <PostHogWrapper>
-        <Outlet />
-      </PostHogWrapper>
+      <ThemeProvider defaultTheme="system" storageKey="praxisplaner-theme">
+        <PostHogWrapper>
+          <div className="min-h-screen">
+            <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
+              <ModeToggle />
+            </div>
+            <Outlet />
+          </div>
+        </PostHogWrapper>
+      </ThemeProvider>
     </RootDocument>
   );
 }
