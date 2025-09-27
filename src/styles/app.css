@@ -399,6 +399,7 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   padding: 12px;
   position: relative;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .device-pro-display-xdr .device-frame::before {
