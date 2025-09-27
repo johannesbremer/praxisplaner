@@ -7,13 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -102,9 +96,6 @@ export function SimulationPanel({
       <Card>
         <CardHeader>
           <CardTitle>Simulation Controls</CardTitle>
-          <CardDescription>
-            Konfigurieren Sie den Kontext für die Simulation
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -228,9 +219,6 @@ export function SimulationPanel({
           <Card>
             <CardHeader>
               <CardTitle>Slot Inspector</CardTitle>
-              <CardDescription>
-                Klicken Sie auf einen Termin für Details
-              </CardDescription>
             </CardHeader>
             <CardContent>
               {selectedSlot ? (

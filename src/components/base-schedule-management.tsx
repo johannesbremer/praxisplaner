@@ -9,13 +9,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -243,9 +237,6 @@ export default function BaseScheduleManagement({
               <Calendar className="h-5 w-5" />
               Arbeitszeiten
             </CardTitle>
-            <CardDescription>
-              Definieren Sie die Arbeitszeiten und Pausenzeiten für jeden Arzt
-            </CardDescription>
           </div>
           <Button
             onClick={() => {

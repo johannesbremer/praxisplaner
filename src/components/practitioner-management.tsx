@@ -8,13 +8,7 @@ import { toast } from "sonner";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -107,10 +101,6 @@ export default function PractitionerManagement({
               <User className="h-5 w-5" />
               Ärzte verwalten
             </CardTitle>
-            <CardDescription>
-              Verwalten Sie die Ärzte in Ihrer Praxis. Diese können in Regeln
-              referenziert werden.
-            </CardDescription>
           </div>
           <Button
             onClick={() => {

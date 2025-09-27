@@ -218,11 +218,11 @@ export function PatientFocusedView({
         {/* Header */}
         <div>
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
-          <p className="text-sm text-muted-foreground">
-            {selectedLocationId
-              ? "Wählen Sie Ihre gewünschte Terminart und einen passenden Termin"
-              : "Wählen Sie zuerst einen Standort für Ihren Termin"}
-          </p>
+          {selectedLocationId && (
+            <p className="text-sm text-muted-foreground">
+              Wählen Sie Ihre gewünschte Terminart und einen passenden Termin
+            </p>
+          )}
         </div>
 
         {/* Location Selection */}

@@ -683,10 +683,6 @@ function LogicView() {
         <h1 className="text-3xl font-bold mb-2">
           Regelverwaltung & Simulation
         </h1>
-        <p className="text-muted-foreground">
-          Verwalten Sie Regelsets und testen Sie diese in verschiedenen
-          Ansichten
-        </p>
       </div>
 
       {/* Page-level Tabs */}
@@ -716,11 +712,12 @@ function LogicView() {
                   <Card>
                     <CardHeader>
                       <CardTitle>Regelset Auswahl</CardTitle>
-                      <CardDescription>
-                        {ruleSetsQuery && ruleSetsQuery.length === 0
-                          ? "Erstellen Sie Ihr erstes Regelset durch das Hinzufügen von Regeln, Ärzten oder Arbeitszeiten."
-                          : "Wählen Sie ein gespeichertes Regelset aus oder arbeiten Sie mit ungespeicherten Änderungen."}
-                      </CardDescription>
+                      {ruleSetsQuery && ruleSetsQuery.length === 0 && (
+                        <CardDescription>
+                          Erstellen Sie Ihr erstes Regelset durch das Hinzufügen
+                          von Regeln, Ärzten oder Arbeitszeiten.
+                        </CardDescription>
+                      )}
                     </CardHeader>
                     <CardContent className="space-y-4">
                       {/* Show version graph when there are saved rule sets */}
@@ -1258,9 +1255,6 @@ function SimulationControls({
     <Card>
       <CardHeader>
         <CardTitle>Simulation Controls</CardTitle>
-        <CardDescription>
-          Konfigurieren Sie den Kontext für die Simulation
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
@@ -1366,9 +1360,6 @@ function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
     <Card>
       <CardHeader>
         <CardTitle>Slot Inspector</CardTitle>
-        <CardDescription>
-          Klicken Sie auf einen Termin für Details
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {selectedSlot ? (

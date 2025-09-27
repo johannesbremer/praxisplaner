@@ -6,13 +6,7 @@ import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -157,9 +151,6 @@ export function LocationsManagement({
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Standorte</CardTitle>
-            <CardDescription>
-              Verwalten Sie die Standorte Ihrer Praxis
-            </CardDescription>
           </div>
           <Dialog
             onOpenChange={setIsCreateDialogOpen}

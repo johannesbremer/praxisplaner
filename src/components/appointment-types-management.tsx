@@ -4,13 +4,7 @@ import { useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 import { CsvImport } from "./csv-import";
@@ -75,10 +69,6 @@ export function AppointmentTypesManagement({
             <Package2 className="h-5 w-5" />
             <div>
               <CardTitle>Terminarten</CardTitle>
-              <CardDescription>
-                Verwalten Sie Terminarten und deren Dauern für verschiedene
-                Ärzte und Standorte
-              </CardDescription>
             </div>
           </div>
           <CsvImport practiceId={practiceId} />
