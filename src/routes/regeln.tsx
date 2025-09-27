@@ -118,7 +118,7 @@ type SimulatedContext = SchedulingSimulatedContext;
 type SlotDetails = SchedulingSlot;
 
 // Helper: slugify German names to URL-safe strings
-export default function LogicView() {
+function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
   // URL is the source of truth. No local tab/date/patientType/ruleSet state.
   // Practices and initialization

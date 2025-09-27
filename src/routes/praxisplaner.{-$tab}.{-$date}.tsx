@@ -3,9 +3,9 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import {
   normalizePraxisplanerSearch,
-  Route as PraxisplanerRoute,
   type PraxisplanerSearchParams,
-} from "./praxisplaner";
+} from "../utils/praxisplaner-search";
+import { Route as PraxisplanerRoute } from "./praxisplaner";
 
 export const Route = createFileRoute("/praxisplaner/{-$tab}/{-$date}")({
   beforeLoad: ({ params }) => {

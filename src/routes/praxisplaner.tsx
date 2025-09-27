@@ -42,36 +42,16 @@ import {
   SafeFileSystemObserver,
 } from "../utils/browser-api";
 import { useErrorTracking } from "../utils/error-tracking";
+import {
+  DATE_REGEX,
+  NERDS_TAB_SEARCH_VALUE,
+  normalizePraxisplanerSearch,
+  type PraxisplanerSearchParams,
+} from "../utils/praxisplaner-search";
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const NERDS_TAB_SEARCH_VALUE = "nerds" as const;
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
 const PATIENT_TAB_PREFIX = "patient-";
-
-const isValidDateString = (value: unknown): value is string =>
-  typeof value === "string" && DATE_REGEX.test(value);
-
-export interface PraxisplanerSearchParams {
-  date?: string;
-  tab?: typeof NERDS_TAB_SEARCH_VALUE;
-}
-
-export const normalizePraxisplanerSearch = (
-  search: Record<string, unknown>,
-): PraxisplanerSearchParams => {
-  const params: PraxisplanerSearchParams = {};
-
-  if (isValidDateString(search["date"])) {
-    params.date = search["date"];
-  }
-
-  if (search["tab"] === NERDS_TAB_SEARCH_VALUE) {
-    params.tab = NERDS_TAB_SEARCH_VALUE;
-  }
-
-  return params;
-};
 
 const parseYmd = (ymd?: string): Date | undefined => {
   if (!ymd || !DATE_REGEX.test(ymd)) {
@@ -142,7 +122,7 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
   return "outline";
 };
 
-export function PraxisPlanerComponent() {
+function PraxisPlanerComponent() {
   const navigate = useNavigate({ from: Route.fullPath });
   const search: PraxisplanerSearchParams = Route.useSearch();
   const dateParam = search.date;
