@@ -166,7 +166,7 @@ export function LocationsManagement({
             open={isCreateDialogOpen}
           >
             <DialogTrigger asChild>
-              <Button size="sm">
+              <Button size="sm" variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
                 Standort hinzufügen
               </Button>

@@ -251,6 +251,8 @@ export default function BaseScheduleManagement({
             onClick={() => {
               setIsDialogOpen(true);
             }}
+            size="sm"
+            variant="outline"
           >
             <Plus className="h-4 w-4 mr-2" />
             Arbeitszeit hinzufügen

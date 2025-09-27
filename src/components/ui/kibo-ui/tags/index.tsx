@@ -138,6 +138,7 @@ export const TagsValue = ({
   children,
   className,
   onRemove,
+  variant = "outline",
   ...props
 }: TagsValueProps & { onRemove?: () => void }) => {
   const handleRemove: MouseEventHandler<HTMLDivElement> = (event) => {
@@ -147,7 +148,11 @@ export const TagsValue = ({
   };
 
   return (
-    <Badge className={cn("flex items-center gap-2", className)} {...props}>
+    <Badge
+      className={cn("flex items-center gap-2", className)}
+      variant={variant}
+      {...props}
+    >
       {children}
       {onRemove && (
         // biome-ignore lint/a11y/noStaticElementInteractions: "This is a clickable badge"
