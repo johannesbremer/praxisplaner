@@ -7,7 +7,7 @@ import type { BranchPathType, Version, VersionNode } from "./types";
 
 export const defaultStyle = {
   branchColors: [
-    "#010A40",
+    "#8F00FF",
     "#FC42C9",
     "#3D91F0",
     "#29E3C1",

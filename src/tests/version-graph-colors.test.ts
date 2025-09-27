@@ -11,7 +11,7 @@ describe("Version Graph Colors", () => {
   it("should assign colors based on a stable, sorted order of branch signatures, not array index", () => {
     // Setup test data
     const branchColors = [
-      "#010A40", // Color 0
+      "#8F00FF", // Color 0
       "#FC42C9", // Color 1
       "#3D91F0", // Color 2
     ];
@@ -69,7 +69,7 @@ describe("Version Graph Colors", () => {
   });
 
   it("should cycle through colors when there are more branches than colors", () => {
-    const branchColors = ["#010A40", "#FC42C9"];
+    const branchColors = ["#8F00FF", "#FC42C9"];
     const versionsMap = new Map<string, VersionNode>();
 
     const columns: BranchPathType[][] = [
@@ -87,7 +87,7 @@ describe("Version Graph Colors", () => {
   });
 
   it("should produce a deterministic color assignment", () => {
-    const branchColors = ["#010A40", "#FC42C9", "#3D91F0"];
+    const branchColors = ["#8F00FF", "#FC42C9", "#3D91F0"];
 
     // Define a consistent data structure
     const createColumns = (): BranchPathType[][] => [
