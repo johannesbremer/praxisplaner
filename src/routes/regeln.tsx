@@ -84,10 +84,10 @@ export const Route = createFileRoute("/regeln")({
     }
 
     if (
-      typeof params["date"] === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(params["date"])
+      typeof params["datum"] === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(params["datum"])
     ) {
-      result.date = params["date"];
+      result.datum = params["datum"];
     }
 
     if (params["patientType"] === EXISTING_PATIENT_SEGMENT) {
@@ -96,8 +96,11 @@ export const Route = createFileRoute("/regeln")({
       result.patientType = NEW_PATIENT_SEGMENT;
     }
 
-    if (typeof params["ruleSet"] === "string" && params["ruleSet"].length > 0) {
-      result.ruleSet = params["ruleSet"];
+    if (
+      typeof params["regelwerk"] === "string" &&
+      params["regelwerk"].length > 0
+    ) {
+      result.regelwerk = params["regelwerk"];
     }
 
     return result;

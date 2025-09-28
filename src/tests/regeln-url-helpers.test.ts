@@ -17,10 +17,10 @@ describe("Regeln search helpers", () => {
     });
 
     expect(search).toEqual({
-      date: "2025-01-30",
+      datum: "2025-01-30",
       location: "praxis-am-markt",
       patientType: EXISTING_PATIENT_SEGMENT,
-      ruleSet: "wintersprechzeiten-2025",
+      regelwerk: "wintersprechzeiten-2025",
       tab: "debug",
     });
   });
@@ -37,9 +37,9 @@ describe("Regeln search helpers", () => {
     expect(search).toEqual({
       patientType: NEW_PATIENT_SEGMENT,
     });
-    expect(Object.hasOwn(search, "date")).toBe(false);
+    expect(Object.hasOwn(search, "datum")).toBe(false);
     expect(Object.hasOwn(search, "location")).toBe(false);
-    expect(Object.hasOwn(search, "ruleSet")).toBe(false);
+    expect(Object.hasOwn(search, "regelwerk")).toBe(false);
     expect(Object.hasOwn(search, "tab")).toBe(false);
   });
 });
