@@ -162,7 +162,7 @@ export function LocationsManagement({
                         <Input
                           id="location-name"
                           onBlur={field.handleBlur}
-                          onChange={e => field.handleChange(e.target.value)}
+                          onChange={(e) => { field.handleChange(e.target.value); }}
                           placeholder="z.B. Hauptstandort, Zweigstelle Nord"
                           required
                           value={field.state.value}
