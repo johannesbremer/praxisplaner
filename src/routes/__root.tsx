@@ -2,7 +2,8 @@
 // react-scan must be imported before React and TanStack Start
 import type { QueryClient } from "@tanstack/react-query";
 
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools/production";
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
   ClientOnly,
   createRootRouteWithContext,
@@ -11,7 +12,7 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { useEffect } from "react";
@@ -241,8 +242,24 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <ReactQueryDevtools />
-        <TanStackRouterDevtools position="bottom-right" />
+        <ClientOnly fallback={null}>
+          <TanStackDevtools
+            plugins={[
+              {
+                name: "TanStack Query",
+                render: <ReactQueryDevtoolsPanel />,
+              },
+              {
+                name: "TanStack Router",
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+              //{
+              //  name: 'TanStack Form',
+              //  render: <ReactFormDevtoolsPanel />,
+              //},
+            ]}
+          />
+        </ClientOnly>
         <Toaster position="top-right" richColors />
         <Scripts />
       </body>
