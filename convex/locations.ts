@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { createAndThrow } from "../src/utils/error-tracking";
 import { mutation, query } from "./_generated/server";
 
 /**
@@ -34,8 +35,14 @@ export const createLocation = mutation({
       .first();
 
     if (existingLocation) {
-      throw new Error(
+      createAndThrow(
         `Location "${args.name}" already exists for this practice`,
+        {
+          context: "location_creation",
+          existingLocationId: existingLocation._id,
+          locationName: args.name,
+          practiceId: args.practiceId,
+        },
       );
     }
 
@@ -60,7 +67,10 @@ export const updateLocation = mutation({
   handler: async (ctx, args) => {
     const location = await ctx.db.get(args.locationId);
     if (!location) {
-      throw new Error("Location not found");
+      createAndThrow("Location not found", {
+        context: "location_update",
+        locationId: args.locationId,
+      });
     }
 
     // Check if another location with this name already exists for this practice
@@ -78,8 +88,15 @@ export const updateLocation = mutation({
       .first();
 
     if (existingLocation) {
-      throw new Error(
+      createAndThrow(
         `Location "${args.name}" already exists for this practice`,
+        {
+          context: "location_update",
+          existingLocationId: existingLocation._id,
+          locationId: args.locationId,
+          locationName: args.name,
+          practiceId: location.practiceId,
+        },
       );
     }
 
@@ -99,7 +116,10 @@ export const deleteLocation = mutation({
   handler: async (ctx, args) => {
     const location = await ctx.db.get(args.locationId);
     if (!location) {
-      throw new Error("Location not found");
+      createAndThrow("Location not found", {
+        context: "location_deletion",
+        locationId: args.locationId,
+      });
     }
 
     // Check if any appointments are using this location
@@ -109,7 +129,11 @@ export const deleteLocation = mutation({
       .first();
 
     if (appointmentsUsingLocation) {
-      throw new Error("Cannot delete location that is used by appointments");
+      createAndThrow("Cannot delete location that is used by appointments", {
+        appointmentId: appointmentsUsingLocation._id,
+        context: "location_deletion",
+        locationId: args.locationId,
+      });
     }
 
     // Check if any rules are using this location
@@ -119,7 +143,11 @@ export const deleteLocation = mutation({
       .first();
 
     if (rulesUsingLocation) {
-      throw new Error("Cannot delete location that is used by rules");
+      createAndThrow("Cannot delete location that is used by rules", {
+        context: "location_deletion",
+        locationId: args.locationId,
+        ruleId: rulesUsingLocation._id,
+      });
     }
 
     await ctx.db.delete(args.locationId);

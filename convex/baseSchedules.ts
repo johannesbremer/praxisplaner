@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
+import { createAndThrow } from "../src/utils/error-tracking";
 import { mutation, query } from "./_generated/server";
 import { breakTimesValidator } from "./validators";
 
@@ -12,7 +13,10 @@ function timeToMinutes(time: string): number {
   const hours = parts[0];
   const minutes = parts[1];
   if (!hours || !minutes) {
-    throw new Error("Invalid time format");
+    createAndThrow("Invalid time format", {
+      context: "time_parsing",
+      timeString: time,
+    });
   }
   return Number.parseInt(hours, 10) * 60 + Number.parseInt(minutes, 10);
 }
@@ -29,15 +33,23 @@ export const createBaseSchedule = mutation({
   handler: async (ctx, args) => {
     // Validate day of week
     if (args.dayOfWeek < 0 || args.dayOfWeek > 6) {
-      throw new Error(
+      createAndThrow(
         "Day of week must be between 0 (Sunday) and 6 (Saturday)",
+        {
+          context: "base_schedule_validation",
+          dayOfWeek: args.dayOfWeek,
+        },
       );
     }
 
     // Validate time format (HH:MM)
     const timeRegex = /^(?:[01]?\d|2[0-3]):[0-5]\d$/;
     if (!timeRegex.test(args.startTime) || !timeRegex.test(args.endTime)) {
-      throw new Error("Time must be in HH:MM format");
+      createAndThrow("Time must be in HH:MM format", {
+        context: "base_schedule_validation",
+        endTime: args.endTime,
+        startTime: args.startTime,
+      });
     }
 
     // Validate that start time is before end time
@@ -45,7 +57,13 @@ export const createBaseSchedule = mutation({
     const endMinutes = timeToMinutes(args.endTime);
 
     if (startMinutes >= endMinutes) {
-      throw new Error("Start time must be before end time");
+      createAndThrow("Start time must be before end time", {
+        context: "base_schedule_validation",
+        endMinutes,
+        endTime: args.endTime,
+        startMinutes,
+        startTime: args.startTime,
+      });
     }
 
     // Validate break times

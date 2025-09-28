@@ -5,6 +5,7 @@ import { useCallback } from "react";
 
 /**
  * Utility for error tracking with PostHog.
+ * All errors are now automatically collected before being thrown.
  */
 
 /**
@@ -16,15 +17,6 @@ export function useErrorTracking() {
 
   const captureError = useCallback(
     (error: unknown, context?: Record<string, unknown>) => {
-      // Skip error tracking in development unless explicitly enabled for testing
-      if (
-        import.meta.env.DEV &&
-        !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"]
-      ) {
-        console.error("Error (PostHog disabled in dev):", error, context);
-        return;
-      }
-
       // Convert error to Error instance if needed
       const errorInstance =
         error instanceof Error ? error : new Error(String(error));
@@ -34,7 +26,24 @@ export function useErrorTracking() {
     [posthog],
   );
 
-  return { captureError };
+  const captureAndThrow = useCallback(
+    (error: unknown, context?: Record<string, unknown>): never => {
+      captureError(error, context);
+      const errorInstance =
+        error instanceof Error ? error : new Error(String(error));
+      throw errorInstance;
+    },
+    [captureError],
+  );
+
+  const createAndThrow = useCallback(
+    (message: string, context?: Record<string, unknown>): never => {
+      return captureAndThrow(new Error(message), context);
+    },
+    [captureAndThrow],
+  );
+
+  return { captureAndThrow, captureError, createAndThrow };
 }
 
 /**
@@ -45,12 +54,6 @@ export function captureErrorGlobal(
   error: unknown,
   context?: Record<string, unknown>,
 ) {
-  // Skip error tracking in development unless explicitly enabled for testing
-  if (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"]) {
-    console.error("Error (PostHog disabled in dev):", error, context);
-    return;
-  }
-
   // Convert error to Error instance if needed
   const errorInstance =
     error instanceof Error ? error : new Error(String(error));
@@ -73,4 +76,30 @@ export function captureErrorGlobal(
     // Fallback to console if PostHog is not available
     console.error("Error (PostHog not available):", error, context);
   }
+}
+
+/**
+ * Captures error and throws it. ALWAYS use this instead of direct throw.
+ */
+export function captureAndThrow(
+  error: unknown,
+  context?: Record<string, unknown>,
+): never {
+  const errorInstance =
+    error instanceof Error ? error : new Error(String(error));
+
+  // Always capture error in browser environment
+  captureErrorGlobal(errorInstance, context);
+
+  throw errorInstance;
+}
+
+/**
+ * Creates and throws an error with tracking. Use instead of `throw new Error()`.
+ */
+export function createAndThrow(
+  message: string,
+  context?: Record<string, unknown>,
+): never {
+  return captureAndThrow(new Error(message), context);
 }
