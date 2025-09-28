@@ -1,6 +1,7 @@
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit2, Plus, Trash2 } from "lucide-react";
-import React, { useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -20,10 +21,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
-interface LocationFormData {
-  name: string;
-}
-
 interface LocationsManagementProps {
   onNeedRuleSet?:
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
@@ -40,63 +37,62 @@ export function LocationsManagement({
     _id: Id<"locations">;
     name: string;
   }>(null);
-  const [formData, setFormData] = useState<LocationFormData>({ name: "" });
 
   const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
   const createLocationMutation = useMutation(api.locations.createLocation);
   const updateLocationMutation = useMutation(api.locations.updateLocation);
   const deleteLocationMutation = useMutation(api.locations.deleteLocation);
 
-  const handleCreateLocation = async (data: LocationFormData) => {
-    try {
-      // Ensure we have an unsaved rule set before making changes
-      if (onNeedRuleSet) {
-        await onNeedRuleSet();
-      }
+  const form = useForm({
+    defaultValues: {
+      name: "",
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        if (onNeedRuleSet) {
+          await onNeedRuleSet();
+        }
 
-      await createLocationMutation({
-        name: data.name.trim(),
-        practiceId,
-      });
-      toast.success("Standort erstellt", {
-        description: `Standort "${data.name}" wurde erfolgreich erstellt.`,
-      });
-      setIsCreateDialogOpen(false);
-      setFormData({ name: "" });
-    } catch (error) {
-      toast.error("Fehler beim Erstellen", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-    }
+        if (editingLocation) {
+          await updateLocationMutation({
+            locationId: editingLocation._id,
+            name: value.name.trim(),
+          });
+          toast.success("Standort aktualisiert", {
+            description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
+          });
+          setEditingLocation(null);
+        } else {
+          await createLocationMutation({
+            name: value.name.trim(),
+            practiceId,
+          });
+          toast.success("Standort erstellt", {
+            description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
+          });
+          setIsCreateDialogOpen(false);
+        }
+
+        form.reset();
+      } catch (error) {
+        const action = editingLocation ? "Aktualisieren" : "Erstellen";
+        toast.error(`Fehler beim ${action}`, {
+          description:
+            error instanceof Error ? error.message : "Unbekannter Fehler",
+        });
+      }
+    },
+  });
+
+  const openEditDialog = (location: { _id: Id<"locations">; name: string }) => {
+    setEditingLocation(location);
+    form.setFieldValue("name", location.name);
   };
 
-  const handleUpdateLocation = async (data: LocationFormData) => {
-    if (!editingLocation) {
-      return;
-    }
-
-    try {
-      // Ensure we have an unsaved rule set before making changes
-      if (onNeedRuleSet) {
-        await onNeedRuleSet();
-      }
-
-      await updateLocationMutation({
-        locationId: editingLocation._id,
-        name: data.name.trim(),
-      });
-      toast.success("Standort aktualisiert", {
-        description: `Standort "${data.name}" wurde erfolgreich aktualisiert.`,
-      });
-      setEditingLocation(null);
-      setFormData({ name: "" });
-    } catch (error) {
-      toast.error("Fehler beim Aktualisieren", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-    }
+  const closeDialogs = () => {
+    setIsCreateDialogOpen(false);
+    setEditingLocation(null);
+    form.reset();
   };
 
   const handleDeleteLocation = async (
@@ -118,30 +114,6 @@ export function LocationsManagement({
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
-    }
-  };
-
-  const openEditDialog = (location: { _id: Id<"locations">; name: string }) => {
-    setEditingLocation(location);
-    setFormData({ name: location.name });
-  };
-
-  const closeDialogs = () => {
-    setIsCreateDialogOpen(false);
-    setEditingLocation(null);
-    setFormData({ name: "" });
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim()) {
-      return;
-    }
-
-    if (editingLocation) {
-      void handleUpdateLocation(formData);
-    } else {
-      void handleCreateLocation(formData);
     }
   };
 
@@ -169,20 +141,44 @@ export function LocationsManagement({
                   Erstellen Sie einen neuen Standort für Ihre Praxis.
                 </DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleSubmit}>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void form.handleSubmit();
+                }}
+              >
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="location-name">Standortname</Label>
-                    <Input
-                      id="location-name"
-                      onChange={(e) => {
-                        setFormData({ ...formData, name: e.target.value });
-                      }}
-                      placeholder="z.B. Hauptstandort, Zweigstelle Nord"
-                      required
-                      value={formData.name}
-                    />
-                  </div>
+                  <form.Field
+                    name="name"
+                    validators={{
+                      onChange: ({ value }) =>
+                        value.trim()
+                          ? undefined
+                          : "Standortname ist erforderlich",
+                    }}
+                  >
+                    {(field) => (
+                      <div className="space-y-2">
+                        <Label htmlFor="location-name">Standortname</Label>
+                        <Input
+                          id="location-name"
+                          onBlur={field.handleBlur}
+                          onChange={(e) => {
+                            field.handleChange(e.target.value);
+                          }}
+                          placeholder="z.B. Hauptstandort, Zweigstelle Nord"
+                          required
+                          value={field.state.value}
+                        />
+                        {field.state.meta.errors.length > 0 && (
+                          <p className="text-sm text-red-600">
+                            {field.state.meta.errors[0]}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </form.Field>
                 </div>
                 <DialogFooter className="mt-6">
                   <Button
@@ -192,9 +188,18 @@ export function LocationsManagement({
                   >
                     Abbrechen
                   </Button>
-                  <Button disabled={!formData.name.trim()} type="submit">
-                    Erstellen
-                  </Button>
+                  <form.Subscribe
+                    selector={(state) => [state.canSubmit, state.isSubmitting]}
+                  >
+                    {([canSubmit, isSubmitting]) => (
+                      <Button
+                        disabled={!canSubmit || isSubmitting}
+                        type="submit"
+                      >
+                        {isSubmitting ? "Erstelle..." : "Erstellen"}
+                      </Button>
+                    )}
+                  </form.Subscribe>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -271,28 +276,58 @@ export function LocationsManagement({
                 Bearbeiten Sie die Details des Standorts.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmit}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void form.handleSubmit();
+              }}
+            >
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-location-name">Standortname</Label>
-                  <Input
-                    id="edit-location-name"
-                    onChange={(e) => {
-                      setFormData({ ...formData, name: e.target.value });
-                    }}
-                    placeholder="z.B. Hauptstandort, Zweigstelle Nord"
-                    required
-                    value={formData.name}
-                  />
-                </div>
+                <form.Field
+                  name="name"
+                  validators={{
+                    onChange: ({ value }) =>
+                      value.trim()
+                        ? undefined
+                        : "Standortname ist erforderlich",
+                  }}
+                >
+                  {(field) => (
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-location-name">Standortname</Label>
+                      <Input
+                        id="edit-location-name"
+                        onBlur={field.handleBlur}
+                        onChange={(e) => {
+                          field.handleChange(e.target.value);
+                        }}
+                        placeholder="z.B. Hauptstandort, Zweigstelle Nord"
+                        required
+                        value={field.state.value}
+                      />
+                      {field.state.meta.errors.length > 0 && (
+                        <p className="text-sm text-red-600">
+                          {field.state.meta.errors[0]}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </form.Field>
               </div>
               <DialogFooter className="mt-6">
                 <Button onClick={closeDialogs} type="button" variant="outline">
                   Abbrechen
                 </Button>
-                <Button disabled={!formData.name.trim()} type="submit">
-                  Speichern
-                </Button>
+                <form.Subscribe
+                  selector={(state) => [state.canSubmit, state.isSubmitting]}
+                >
+                  {([canSubmit, isSubmitting]) => (
+                    <Button disabled={!canSubmit || isSubmitting} type="submit">
+                      {isSubmitting ? "Speichere..." : "Speichern"}
+                    </Button>
+                  )}
+                </form.Subscribe>
               </DialogFooter>
             </form>
           </DialogContent>
