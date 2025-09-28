@@ -34,6 +34,7 @@ import type {
 } from "../types";
 
 import { api } from "../../convex/_generated/api";
+import { captureErrorGlobal } from "../utils/error-tracking";
 import { slugify } from "../utils/slug";
 import { LocationSelector } from "./location-selector";
 
@@ -122,6 +123,10 @@ function DragDropCalendar({
         setIsLoaded(true);
       })
       .catch((error: unknown) => {
+        captureErrorGlobal(error, {
+          context: "PraxisCalendar - Failed to load drag and drop calendar",
+          fallbackMode: true,
+        });
         console.warn(
           "Failed to load drag and drop calendar, falling back to regular calendar:",
           error,
@@ -260,6 +265,10 @@ export function PraxisCalendar({
         const id = await initializePracticeMutation({});
         setPracticeId(id);
       } catch (error) {
+        captureErrorGlobal(error, {
+          context: "PraxisCalendar - Failed to initialize practice",
+          propPracticeId,
+        });
         console.error("Failed to initialize practice:", error);
       }
     };

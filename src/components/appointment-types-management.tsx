@@ -1,12 +1,14 @@
 import { useMutation, useQuery } from "convex/react";
 import { CheckIcon, Package2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
+import { useErrorTracking } from "../utils/error-tracking";
 import { CsvImport } from "./csv-import";
 import {
   Tags,
@@ -151,6 +153,7 @@ function PractitionerTags({
     Id<"practitioners">[]
   >(currentPractitionerIds);
 
+  const { captureError } = useErrorTracking();
   const updateAppointmentTypeMutation = useMutation(
     api.appointmentTypes.updateAppointmentType,
   );
@@ -158,18 +161,31 @@ function PractitionerTags({
   const allPractitioners = practitionersQuery ?? [];
 
   const updateDurations = async (newSelectedIds: Id<"practitioners">[]) => {
-    // Ensure we have an unsaved rule set before making changes
-    if (onNeedRuleSet) {
-      await onNeedRuleSet();
-    }
+    try {
+      // Ensure we have an unsaved rule set before making changes
+      if (onNeedRuleSet) {
+        await onNeedRuleSet();
+      }
 
-    await updateAppointmentTypeMutation({
-      appointmentTypeId,
-      durations: newSelectedIds.map((id) => ({
+      await updateAppointmentTypeMutation({
+        appointmentTypeId,
+        durations: newSelectedIds.map((id) => ({
+          duration,
+          practitionerId: id,
+        })),
+      });
+    } catch (error: unknown) {
+      captureError(error, {
+        appointmentTypeId,
+        context: "AppointmentTypesManagement - Update durations",
         duration,
-        practitionerId: id,
-      })),
-    });
+        practitionerCount: newSelectedIds.length,
+      });
+      toast.error("Fehler beim Aktualisieren", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
   };
 
   const handleRemove = (practitionerId: Id<"practitioners">) => {

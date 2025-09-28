@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
+import { useErrorTracking } from "../utils/error-tracking";
 import RuleCreationFormNew from "./rule-creation-form-new";
 
 interface RuleListNewProps {
@@ -35,6 +36,7 @@ export function RuleListNew({
   rules,
   ruleSetId,
 }: RuleListNewProps) {
+  const { captureError } = useErrorTracking();
   const disableRuleMutation = useMutation(api.rules.disableRuleInRuleSet);
   const updateRuleSetRuleMutation = useMutation(api.rules.updateRuleSetRule);
 
@@ -58,7 +60,13 @@ export function RuleListNew({
         description: "Die Regel wurde in diesem Regelset deaktiviert.",
       });
       onRuleChanged?.();
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "RuleListNew - Toggle rule (disable)",
+        ruleId: rule._id,
+        ruleName: rule.name,
+        ruleSetId,
+      });
       toast.error("Fehler beim Deaktivieren der Regel", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -77,7 +85,14 @@ export function RuleListNew({
       });
       toast.success("Priorität geändert");
       onRuleChanged?.();
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "RuleListNew - Change priority",
+        newPriority,
+        oldPriority: rule.priority,
+        ruleId: rule._id,
+        ruleSetRuleId: rule.ruleSetRuleId,
+      });
       toast.error("Fehler beim Ändern der Priorität", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",

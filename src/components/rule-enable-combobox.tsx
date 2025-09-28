@@ -24,6 +24,8 @@ import {
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
+import { useErrorTracking } from "../utils/error-tracking";
+
 interface RuleEnableComboboxProps {
   disabled?: boolean;
   onNeedRuleSet?: () => Promise<Id<"ruleSets"> | null | undefined>;
@@ -42,6 +44,8 @@ export function RuleEnableCombobox({
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState("");
   const [searchTerm, setSearchTerm] = React.useState("");
+
+  const { captureError } = useErrorTracking();
 
   // Check if there are any rules globally for this practice
   const allRulesQuery = useQuery(api.rules.getAllRulesForPractice, {
@@ -96,7 +100,13 @@ export function RuleEnableCombobox({
       setSearchTerm(""); // Clear search term
       setOpen(false);
       onRuleEnabled?.();
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "RuleEnableCombobox - Enable rule",
+        practiceId,
+        ruleId,
+        ruleSetId: ensuredRuleSetId,
+      });
       toast.error("Fehler beim Aktivieren der Regel", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
