@@ -19,6 +19,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
+import { useErrorTracking } from "../utils/error-tracking";
+
 interface CsvImportProps {
   onImportComplete?: () => void;
   practiceId: Id<"practices">;
@@ -30,6 +32,7 @@ export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
   const [csvContent, setCsvContent] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
 
+  const { captureError } = useErrorTracking();
   const importMutation = useMutation(
     api.appointmentTypes.importAppointmentTypesFromCsv,
   );
@@ -62,7 +65,13 @@ export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
       .then((content) => {
         setCsvContent(content);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        captureError(error, {
+          context: "CsvImport - File read error",
+          fileName: file.name,
+          fileSize: file.size,
+          practiceId,
+        });
         toast.error("Fehler beim Lesen der Datei");
       });
   };
@@ -94,7 +103,13 @@ export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
       setCsvFile(null);
       setCsvContent("");
       onImportComplete?.();
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "CsvImport - Import mutation error",
+        csvLength: csvContent.length,
+        fileName: csvFile?.name,
+        practiceId,
+      });
       toast.error("Import fehlgeschlagen", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",

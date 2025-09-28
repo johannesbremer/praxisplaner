@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
+import { useErrorTracking } from "../utils/error-tracking";
+
 interface LocationsManagementProps {
   onNeedRuleSet?:
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
@@ -38,6 +40,7 @@ export function LocationsManagement({
     name: string;
   }>(null);
 
+  const { captureError } = useErrorTracking();
   const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
   const createLocationMutation = useMutation(api.locations.createLocation);
   const updateLocationMutation = useMutation(api.locations.updateLocation);
@@ -74,8 +77,14 @@ export function LocationsManagement({
         }
 
         form.reset();
-      } catch (error) {
+      } catch (error: unknown) {
         const action = editingLocation ? "Aktualisieren" : "Erstellen";
+        captureError(error, {
+          context: `LocationsManagement - ${action} location`,
+          editingLocation: Boolean(editingLocation),
+          locationName: value.name,
+          practiceId,
+        });
         toast.error(`Fehler beim ${action}`, {
           description:
             error instanceof Error ? error.message : "Unbekannter Fehler",
@@ -109,7 +118,13 @@ export function LocationsManagement({
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "LocationsManagement - Delete location",
+        locationId,
+        locationName: name,
+        practiceId,
+      });
       toast.error("Fehler beim Löschen", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
