@@ -72,7 +72,7 @@ export function LocationsManagement({
           });
           setIsCreateDialogOpen(false);
         }
-        
+
         form.reset();
       } catch (error) {
         const action = editingLocation ? "Aktualisieren" : "Erstellen";
@@ -153,7 +153,9 @@ export function LocationsManagement({
                     name="name"
                     validators={{
                       onChange: ({ value }) =>
-                        value.trim() ? undefined : "Standortname ist erforderlich",
+                        value.trim()
+                          ? undefined
+                          : "Standortname ist erforderlich",
                     }}
                   >
                     {(field) => (
@@ -162,7 +164,9 @@ export function LocationsManagement({
                         <Input
                           id="location-name"
                           onBlur={field.handleBlur}
-                          onChange={(e) => { field.handleChange(e.target.value); }}
+                          onChange={(e) => {
+                            field.handleChange(e.target.value);
+                          }}
                           placeholder="z.B. Hauptstandort, Zweigstelle Nord"
                           required
                           value={field.state.value}
@@ -188,7 +192,10 @@ export function LocationsManagement({
                     selector={(state) => [state.canSubmit, state.isSubmitting]}
                   >
                     {([canSubmit, isSubmitting]) => (
-                      <Button disabled={!canSubmit || isSubmitting} type="submit">
+                      <Button
+                        disabled={!canSubmit || isSubmitting}
+                        type="submit"
+                      >
                         {isSubmitting ? "Erstelle..." : "Erstellen"}
                       </Button>
                     )}
@@ -281,7 +288,9 @@ export function LocationsManagement({
                   name="name"
                   validators={{
                     onChange: ({ value }) =>
-                      value.trim() ? undefined : "Standortname ist erforderlich",
+                      value.trim()
+                        ? undefined
+                        : "Standortname ist erforderlich",
                   }}
                 >
                   {(field) => (
@@ -290,7 +299,9 @@ export function LocationsManagement({
                       <Input
                         id="edit-location-name"
                         onBlur={field.handleBlur}
-                        onChange={(e) => { field.handleChange(e.target.value); }}
+                        onChange={(e) => {
+                          field.handleChange(e.target.value);
+                        }}
                         placeholder="z.B. Hauptstandort, Zweigstelle Nord"
                         required
                         value={field.state.value}
