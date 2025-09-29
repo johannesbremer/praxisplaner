@@ -41,10 +41,7 @@ interface Appointment {
   title: string;
 }
 
-const START_HOUR = 8;
-const END_HOUR = 19;
 const SLOT_DURATION = 5; // minutes
-const TOTAL_SLOTS = ((END_HOUR - START_HOUR) * 60) / SLOT_DURATION;
 
 const APPOINTMENT_COLORS = [
   "bg-blue-500",
@@ -229,11 +226,26 @@ export function NewCalendar({
 
   const currentDayOfWeek = selectedDate.getDay(); // 0 = Sunday
 
-  // Calculate working practitioners for current date and work hours
-  const { columns, workingPractitioners } = useMemo(() => {
+  // Helper function to convert time string to minutes
+  const timeToMinutes = useCallback((timeStr: string): number => {
+    const [hours, minutes] = timeStr.split(":").map(Number);
+    return (hours ?? 0) * 60 + (minutes ?? 0);
+  }, []);
+
+  // Calculate working practitioners for current date and dynamic business hours
+  const {
+    businessEndHour,
+    businessStartHour,
+    columns,
+    totalSlots,
+    workingPractitioners,
+  } = useMemo(() => {
     if (!practitionersData || !baseSchedulesData) {
       return {
+        businessEndHour: 0,
+        businessStartHour: 0,
         columns: [],
+        totalSlots: 0,
         workingPractitioners: [],
       };
     }
@@ -247,18 +259,23 @@ export function NewCalendar({
     // Filter by location in simulation mode
     if (simulatedContext?.locationId) {
       daySchedules = daySchedules.filter(
-        (schedule) => schedule.locationId === simulatedContext.locationId,
+        (schedule: Doc<"baseSchedules">) =>
+          schedule.locationId === simulatedContext.locationId,
       );
     } else if (selectedLocationId) {
       // Filter by location in real mode
       daySchedules = daySchedules.filter(
-        (schedule) => schedule.locationId === selectedLocationId,
+        (schedule: Doc<"baseSchedules">) =>
+          schedule.locationId === selectedLocationId,
       );
     }
 
     if (daySchedules.length === 0) {
       return {
+        businessEndHour: 0,
+        businessStartHour: 0,
         columns: [],
+        totalSlots: 0,
         workingPractitioners: [],
       };
     }
@@ -270,14 +287,15 @@ export function NewCalendar({
       startTime: schedule.startTime,
     }));
 
-    // Calculate business hours: round to full hours
-    // Note: We could calculate business start/end hours here if needed for calendar bounds
-    // const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
-    // const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
-    // const earliestStartMinutes = Math.min(...startTimes);
-    // const latestEndMinutes = Math.max(...endTimes);
-    // const businessStartHour = Math.floor(earliestStartMinutes / 60);
-    // const businessEndHour = Math.ceil(latestEndMinutes / 60);
+    // Calculate dynamic business hours based on practitioner schedules
+    const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
+    const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
+    const earliestStartMinutes = Math.min(...startTimes);
+    const latestEndMinutes = Math.max(...endTimes);
+    const businessStartHour = Math.floor(earliestStartMinutes / 60);
+    const businessEndHour = Math.ceil(latestEndMinutes / 60);
+    const totalSlots =
+      ((businessEndHour - businessStartHour) * 60) / SLOT_DURATION;
 
     // Create columns: practitioners + EKG + Labor
     const practitionerColumns = working.map((practitioner) => ({
@@ -297,7 +315,10 @@ export function NewCalendar({
     const allColumns = [...practitionerColumns, ...specialColumns];
 
     return {
+      businessEndHour,
+      businessStartHour,
       columns: allColumns,
+      totalSlots,
       workingPractitioners: working,
     };
   }, [
@@ -306,6 +327,7 @@ export function NewCalendar({
     currentDayOfWeek,
     simulatedContext,
     selectedLocationId,
+    timeToMinutes,
   ]);
 
   // Convert appointments to calendar format
@@ -416,40 +438,47 @@ export function NewCalendar({
   ]);
 
   // Helper functions
-  const timeToSlot = useCallback((time: string) => {
-    const [hours, minutes] = time.split(":").map(Number);
-    const totalMinutes = ((hours ?? 0) - START_HOUR) * 60 + (minutes ?? 0);
-    return Math.floor(totalMinutes / SLOT_DURATION);
-  }, []);
+  const timeToSlot = useCallback(
+    (time: string) => {
+      const [hours, minutes] = time.split(":").map(Number);
+      const totalMinutes =
+        ((hours ?? 0) - businessStartHour) * 60 + (minutes ?? 0);
+      return Math.floor(totalMinutes / SLOT_DURATION);
+    },
+    [businessStartHour],
+  );
 
-  const slotToTime = useCallback((slot: number) => {
-    const totalMinutes = slot * SLOT_DURATION;
-    const hours = Math.floor(totalMinutes / 60) + START_HOUR;
-    const minutes = totalMinutes % 60;
-    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
-  }, []);
-
-  // Remove unused function
-  // function timeToMinutes(timeStr: string): number {
-  //   const [hours, minutes] = timeStr.split(":").map(Number);
-  //   return (hours ?? 0) * 60 + (minutes ?? 0);
-  // }
+  const slotToTime = useCallback(
+    (slot: number) => {
+      const totalMinutes = slot * SLOT_DURATION;
+      const hours = Math.floor(totalMinutes / 60) + businessStartHour;
+      const minutes = totalMinutes % 60;
+      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+    },
+    [businessStartHour],
+  );
 
   const getCurrentTimeSlot = useCallback(() => {
-    if (!isSameDay(currentTime, selectedDate)) {
+    if (!isSameDay(currentTime, selectedDate) || totalSlots === 0) {
       return -1;
     }
 
     const hours = currentTime.getHours();
     const minutes = currentTime.getMinutes();
 
-    if (hours < START_HOUR || hours >= END_HOUR) {
+    if (hours < businessStartHour || hours >= businessEndHour) {
       return -1;
     }
 
-    const totalMinutes = (hours - START_HOUR) * 60 + minutes;
+    const totalMinutes = (hours - businessStartHour) * 60 + minutes;
     return totalMinutes / SLOT_DURATION;
-  }, [currentTime, selectedDate]);
+  }, [
+    currentTime,
+    selectedDate,
+    businessStartHour,
+    businessEndHour,
+    totalSlots,
+  ]);
 
   const checkCollision = useCallback(
     (
@@ -485,17 +514,17 @@ export function NewCalendar({
       const durationSlots = Math.ceil(duration / SLOT_DURATION);
 
       if (!checkCollision(column, targetSlot, duration, excludeId)) {
-        return Math.max(0, Math.min(TOTAL_SLOTS - durationSlots, targetSlot));
+        return Math.max(0, Math.min(totalSlots - durationSlots, targetSlot));
       }
 
       let bestSlot = targetSlot;
       let minDistance = Number.POSITIVE_INFINITY;
 
-      for (let distance = 0; distance <= TOTAL_SLOTS; distance++) {
+      for (let distance = 0; distance <= totalSlots; distance++) {
         const slotAbove = targetSlot - distance;
         if (
           slotAbove >= 0 &&
-          slotAbove + durationSlots <= TOTAL_SLOTS &&
+          slotAbove + durationSlots <= totalSlots &&
           !checkCollision(column, slotAbove, duration, excludeId) &&
           distance < minDistance
         ) {
@@ -507,7 +536,7 @@ export function NewCalendar({
           const slotBelow = targetSlot + distance;
           if (
             slotBelow >= 0 &&
-            slotBelow + durationSlots <= TOTAL_SLOTS &&
+            slotBelow + durationSlots <= totalSlots &&
             !checkCollision(column, slotBelow, duration, excludeId) &&
             distance < minDistance
           ) {
@@ -521,9 +550,9 @@ export function NewCalendar({
         }
       }
 
-      return Math.max(0, Math.min(TOTAL_SLOTS - durationSlots, bestSlot));
+      return Math.max(0, Math.min(totalSlots - durationSlots, bestSlot));
     },
-    [checkCollision],
+    [checkCollision, totalSlots],
   );
 
   const getMaxAvailableDuration = useCallback(
@@ -543,11 +572,11 @@ export function NewCalendar({
 
       const maxSlots = nextOccupiedSlot
         ? nextOccupiedSlot.start - startSlot
-        : TOTAL_SLOTS - startSlot;
+        : totalSlots - startSlot;
 
       return Math.max(SLOT_DURATION, maxSlots * SLOT_DURATION);
     },
-    [appointments, timeToSlot],
+    [appointments, timeToSlot, totalSlots],
   );
 
   // Drag and drop handlers
@@ -566,7 +595,7 @@ export function NewCalendar({
       const y = e.clientY - rect.top;
       const targetSlot = Math.max(
         0,
-        Math.min(TOTAL_SLOTS - 1, Math.floor(y / 16)),
+        Math.min(totalSlots - 1, Math.floor(y / 16)),
       );
 
       const availableSlot = findNearestAvailableSlot(
@@ -823,7 +852,7 @@ export function NewCalendar({
   // Render functions
   const renderTimeSlots = () => {
     const slots = [];
-    for (let i = 0; i < TOTAL_SLOTS; i++) {
+    for (let i = 0; i < totalSlots; i++) {
       const time = slotToTime(i);
       const isHour = i % 12 === 0;
 
@@ -1049,6 +1078,22 @@ export function NewCalendar({
     );
   }
 
+  // Early return if no practitioners are working on the selected day
+  if (workingPractitioners.length === 0 || totalSlots === 0) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center h-96 pt-6">
+          <div className="text-center">
+            <p className="text-lg font-medium mb-2">Keine Termine verfügbar</p>
+            <p className="text-muted-foreground">
+              Am {format(selectedDate, "dd.MM.yyyy")} arbeitet niemand.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="flex h-screen">
@@ -1266,7 +1311,7 @@ export function NewCalendar({
                         handleDrop(e, column.id);
                       }}
                     >
-                      {Array.from({ length: TOTAL_SLOTS }, (_, i) => (
+                      {Array.from({ length: totalSlots }, (_, i) => (
                         <div
                           className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
                           key={i}
