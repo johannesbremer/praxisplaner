@@ -1078,22 +1078,6 @@ export function NewCalendar({
     );
   }
 
-  // Early return if no practitioners are working on the selected day
-  if (workingPractitioners.length === 0 || totalSlots === 0) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center h-96 pt-6">
-          <div className="text-center">
-            <p className="text-lg font-medium mb-2">Keine Termine verfügbar</p>
-            <p className="text-muted-foreground">
-              Am {format(selectedDate, "dd.MM.yyyy")} arbeitet niemand.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <div className="flex h-screen">
@@ -1253,15 +1237,15 @@ export function NewCalendar({
                   </AlertDescription>
                 </Alert>
               </div>
-            ) : workingPractitioners.length === 0 || columns.length === 0 ? (
+            ) : workingPractitioners.length === 0 ||
+              columns.length === 0 ||
+              totalSlots === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <Alert className="w-auto max-w-md">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Keine Ärzte verfügbar</AlertTitle>
+                  <AlertTitle>Keine Termine verfügbar</AlertTitle>
                   <AlertDescription>
-                    Es sind keine Ärzte für{" "}
-                    {format(selectedDate, "EEEE, dd.MM.yyyy", { locale: de })}{" "}
-                    eingeplant
+                    Am {format(selectedDate, "dd.MM.yyyy")} arbeitet niemand
                     {selectedLocationId || simulatedContext?.locationId
                       ? " an diesem Standort"
                       : " (alle Standorte)"}
