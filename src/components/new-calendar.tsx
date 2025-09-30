@@ -690,10 +690,15 @@ export function NewCalendar({
         draggedAppointment.id,
       );
 
-      setDragPreview({
-        column,
-        slot: availableSlot,
-        visible: true,
+      setDragPreview((prev) => {
+        if (
+          prev.visible &&
+          prev.column === column &&
+          prev.slot === availableSlot
+        ) {
+          return prev; // no change
+        }
+        return { column, slot: availableSlot, visible: true };
       });
       if (import.meta.env.DEV) {
         emitCalendarEvent("custom-devtools:calendar-drag", {
