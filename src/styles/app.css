@@ -437,6 +437,21 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   width: 100%;
   overflow: hidden;
   background: var(--device-xdr-screen);
+  position: relative;
+  display: flex;
+}
+
+/* Make sidebar work within constrained containers like XDR device */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-container"] {
+  position: relative !important;
+  height: 100% !important;
+  inset: unset !important;
+  left: unset !important;
+  right: unset !important;
+}
+
+.device-pro-display-xdr .device-screen [data-slot="sidebar-gap"] {
+  display: none !important;
 }
 
 .device-pro-display-xdr .device-power {

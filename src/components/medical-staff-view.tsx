@@ -38,7 +38,7 @@ export function MedicalStaffView({
 
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
-    <div className="h-full w-full overflow-auto p-6 space-y-6">
+    <div className="h-full w-full">
       <PraxisCalendar
         localAppointments={localAppointments}
         {...(onCreateLocalAppointment && { onCreateLocalAppointment })}

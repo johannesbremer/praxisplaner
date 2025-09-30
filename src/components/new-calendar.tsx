@@ -5,13 +5,13 @@ import type React from "react";
 import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
 import { addDays, format, isSameDay, isToday, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
-import { AlertCircle, CalendarIcon, Plus } from "lucide-react";
+import { AlertCircle, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../types";
@@ -20,7 +20,7 @@ import type { LocalAppointment } from "../utils/local-appointments";
 import { api } from "../../convex/_generated/api";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { slugify } from "../utils/slug";
-import { LocationSelector } from "./location-selector";
+import { CalendarSidebar } from "./calendar-sidebar";
 
 // Types for the new calendar - using Convex types for e2e type safety
 interface Appointment {
@@ -1079,120 +1079,49 @@ export function NewCalendar({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex h-screen">
-        <div className="w-80 border-r border-border bg-card p-6">
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground mb-2">
-                Praxis Terminkalender
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Termine verwalten und planen
-              </p>
-            </div>
-
-            {showGdtAlert && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Keine GDT-Verbindung</AlertTitle>
-                <AlertDescription>
-                  Keine Verbindung mit dem PVS möglich!
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <CalendarIcon className="h-4 w-4" />
-                <span className="font-medium">Datum auswählen</span>
-              </div>
-              <Calendar
-                className="rounded-md border-0"
-                mode="single"
-                onSelect={(date) => {
-                  if (date) {
-                    handleDateChange(date);
-                  }
-                }}
-                selected={selectedDate}
-              />
-            </Card>
-
-            {/* Location Selection */}
-            {locationsData && locationsData.length > 0 && (
-              <Card className="p-4">
-                <div className="mb-3">
-                  <span className="font-medium">Standort</span>
-                </div>
-                <LocationSelector
-                  locations={locationsData}
-                  onLocationSelect={(locationId) => {
-                    if (simulatedContext && onUpdateSimulatedContext) {
-                      // Simulation mode: update simulated context
-                      const newContext = {
-                        appointmentType: simulatedContext.appointmentType,
-                        locationId,
-                        patient: simulatedContext.patient,
-                      };
-                      onUpdateSimulatedContext(newContext);
-                    } else {
-                      // Real mode: update local state
-                      setSelectedLocationId(locationId);
-                    }
-                    const found = locationsData.find(
-                      (l) => l._id === locationId,
-                    );
-                    if (found && onLocationResolved) {
-                      onLocationResolved(locationId, found.name);
-                    }
-                  }}
-                  selectedLocationId={
-                    simulatedContext?.locationId || selectedLocationId
-                  }
-                />
-              </Card>
-            )}
-
-            <Card className="p-4">
-              <h3 className="font-medium mb-3">Legende</h3>
-              <div className="space-y-2">
-                {columns.map((column, index) => (
-                  <div className="flex items-center gap-2" key={column.id}>
-                    <div
-                      className={`w-3 h-3 rounded ${APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length]} opacity-80`}
-                    />
-                    <span className="text-sm">{column.title}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <h3 className="font-medium mb-3">Bedienung</h3>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                <div>• Termine ziehen zum Verschieben</div>
-                <div>• Unteren Rand ziehen zum Ändern der Dauer</div>
-                <div>• Klick auf leere Stellen für neue Termine</div>
-                <div>• Klick auf Termin zum Bearbeiten</div>
-                <div>• Rechtsklick auf Termin zum Löschen</div>
-              </div>
-            </Card>
-
-            <div className="text-xs text-muted-foreground">
-              <div>Aktuelle Zeit: {format(currentTime, "HH:mm")}</div>
-              <div>Gewählt: {format(selectedDate, "dd.MM.yyyy")}</div>
-              <div>Tag: {format(selectedDate, "EEEE", { locale: de })}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col">
+    <SidebarProvider>
+      <div className="flex h-full w-full">
+        <CalendarSidebar
+          columns={columns}
+          currentTime={currentTime}
+          locationsData={locationsData}
+          onDateChange={handleDateChange}
+          onLocationSelect={(locationId) => {
+            if (simulatedContext && onUpdateSimulatedContext) {
+              // Simulation mode: update simulated context
+              const newContext = {
+                appointmentType: simulatedContext.appointmentType,
+                ...(locationId && { locationId }),
+                patient: simulatedContext.patient,
+              };
+              onUpdateSimulatedContext(newContext);
+            } else {
+              // Real mode: update local state
+              setSelectedLocationId(locationId);
+            }
+            if (locationId) {
+              const found = locationsData?.find((l) => l._id === locationId);
+              if (found && onLocationResolved) {
+                onLocationResolved(locationId, found.name);
+              }
+            }
+          }}
+          selectedDate={selectedDate}
+          selectedLocationId={
+            simulatedContext?.locationId || selectedLocationId
+          }
+          showGdtAlert={showGdtAlert}
+        />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Main content area */}
           <div className="border-b border-border bg-card px-6 py-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">
-                {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
-              </h2>
+              <div className="flex items-center gap-3">
+                <SidebarTrigger />
+                <h2 className="text-xl font-semibold">
+                  {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
+                </h2>
+              </div>
               <div className="flex items-center gap-2">
                 <Button
                   onClick={() => {
@@ -1328,6 +1257,6 @@ export function NewCalendar({
           </div>
         </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }
