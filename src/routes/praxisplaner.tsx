@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { Doc } from "../../convex/_generated/dataModel";
@@ -1100,25 +1101,15 @@ function PraxisPlanerComponent() {
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <TabsContent
-            className="h-full overflow-auto p-6"
-            value={CALENDAR_TAB}
-          >
-            <div className="container mx-auto max-w-7xl">
-              <div className="mb-6">
-                <h1 className="text-3xl font-bold tracking-tight mb-2">
-                  Terminkalender
-                </h1>
-                <p className="text-muted-foreground">
-                  Verwalten Sie Ihre Praxistermine mit 5-Minuten-Intervallen
-                </p>
-              </div>
+          <TabsContent className="h-full" value={CALENDAR_TAB}>
+            {/* SidebarProvider required for calendar sidebar context */}
+            <SidebarProvider className="flex h-full w-full">
               <PraxisCalendar
                 onDateChange={handleDateChange}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}
               />
-            </div>
+            </SidebarProvider>
           </TabsContent>
 
           <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>

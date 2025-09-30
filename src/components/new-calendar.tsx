@@ -56,6 +56,53 @@ const APPOINTMENT_COLORS = [
   "bg-gray-500",
 ];
 
+// Compare two appointment arrays for structural equality (only the fields
+// that affect rendering & interactions are considered). This prevents
+// needless state updates that can cascade into re-renders and effects.
+function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const A = a[i]!; // Safe due to bounds check above
+    const B = b[i]!;
+    if (A.id !== B.id) {
+      return false;
+    }
+    if (A.startTime !== B.startTime) {
+      return false;
+    }
+    if (A.duration !== B.duration) {
+      return false;
+    }
+    if (A.column !== B.column) {
+      return false;
+    }
+    if (A.title !== B.title) {
+      return false;
+    }
+    if (A.color !== B.color) {
+      return false;
+    }
+    if (A.resource?.practitionerId !== B.resource?.practitionerId) {
+      return false;
+    }
+    if (A.resource?.patientId !== B.resource?.patientId) {
+      return false;
+    }
+    if (A.resource?.locationId !== B.resource?.locationId) {
+      return false;
+    }
+    if (A.resource?.appointmentType !== B.resource?.appointmentType) {
+      return false;
+    }
+  }
+  return true;
+}
+
 interface NewCalendarProps {
   localAppointments?: LocalAppointment[];
   locationSlug?: string | undefined;
@@ -115,6 +162,8 @@ export function NewCalendar({
   }>(null);
   const [autoScrollInterval, setAutoScrollInterval] =
     useState<NodeJS.Timeout | null>(null);
+  const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
 
   // Local state for selected location
@@ -123,13 +172,10 @@ export function NewCalendar({
   >(externalSelectedLocationId);
 
   useEffect(() => {
-    if (
-      externalSelectedLocationId &&
-      externalSelectedLocationId !== selectedLocationId
-    ) {
+    if (externalSelectedLocationId) {
       setSelectedLocationId(externalSelectedLocationId);
     }
-  }, [externalSelectedLocationId, selectedLocationId]);
+  }, [externalSelectedLocationId]);
 
   // Initialize practice
   const initializePracticeMutation = useConvexMutation(
@@ -186,13 +232,19 @@ export function NewCalendar({
 
   // Resolve location slug from URL once locations data is available
   useEffect(() => {
-    if (!locationSlug || !locationsData || selectedLocationId) {
+    if (
+      !locationSlug ||
+      !locationsData ||
+      selectedLocationId ||
+      hasResolvedLocationRef.current
+    ) {
       return;
     }
     const match = locationsData.find(
       (l: { name: string }) => slugify(l.name) === locationSlug,
     );
     if (match) {
+      hasResolvedLocationRef.current = true;
       setSelectedLocationId(match._id);
       if (onLocationResolved) {
         onLocationResolved(match._id, match.name);
@@ -330,60 +382,59 @@ export function NewCalendar({
     timeToMinutes,
   ]);
 
-  // Convert appointments to calendar format
-  useEffect(() => {
-    let convexAppointments: Appointment[] = [];
+  // Build latest combined appointments snapshot (remote + local) in a memo.
+  const combinedDerivedAppointments = useMemo(() => {
+    const convexAppointments: Appointment[] = appointmentsData
+      ? appointmentsData
+          .filter((appointment: Doc<"appointments">) => {
+            const appointmentDate = parseISO(appointment.start);
+            return isSameDay(appointmentDate, selectedDate);
+          })
+          .map(
+            (appointment: Doc<"appointments">, index): Appointment | null => {
+              const start = parseISO(appointment.start);
+              const end = parseISO(appointment.end);
+              const duration = Math.round(
+                (end.getTime() - start.getTime()) / (1000 * 60),
+              );
 
-    if (appointmentsData) {
-      convexAppointments = appointmentsData
-        .filter((appointment: Doc<"appointments">) => {
-          const appointmentDate = parseISO(appointment.start);
-          return isSameDay(appointmentDate, selectedDate);
-        })
-        .map((appointment: Doc<"appointments">, index): Appointment | null => {
-          const start = parseISO(appointment.start);
-          const end = parseISO(appointment.end);
-          const duration = Math.round(
-            (end.getTime() - start.getTime()) / (1000 * 60),
-          );
+              if (
+                simulatedContext?.locationId &&
+                appointment.locationId !== simulatedContext.locationId
+              ) {
+                return null;
+              }
+              if (
+                !simulatedContext?.locationId &&
+                selectedLocationId &&
+                appointment.locationId !== selectedLocationId
+              ) {
+                return null;
+              }
 
-          // Filter by location in simulation mode
-          if (
-            simulatedContext?.locationId &&
-            appointment.locationId !== simulatedContext.locationId
-          ) {
-            return null;
-          } else if (
-            selectedLocationId &&
-            appointment.locationId !== selectedLocationId
-          ) {
-            // Filter by location in real mode
-            return null;
-          }
-
-          return {
-            color:
-              APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
-              "bg-gray-500",
-            column: appointment.practitionerId || "ekg",
-            convexId: appointment._id,
-            duration,
-            id: appointment._id,
-            resource: {
-              appointmentType: appointment.appointmentType,
-              locationId: appointment.locationId,
-              notes: appointment.notes,
-              patientId: appointment.patientId,
-              practitionerId: appointment.practitionerId,
+              return {
+                color:
+                  APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
+                  "bg-gray-500",
+                column: appointment.practitionerId || "ekg",
+                convexId: appointment._id,
+                duration,
+                id: appointment._id,
+                resource: {
+                  appointmentType: appointment.appointmentType,
+                  locationId: appointment.locationId,
+                  notes: appointment.notes,
+                  patientId: appointment.patientId,
+                  practitionerId: appointment.practitionerId,
+                },
+                startTime: format(start, "HH:mm"),
+                title: appointment.title,
+              };
             },
-            startTime: format(start, "HH:mm"),
-            title: appointment.title,
-          };
-        })
-        .filter((apt): apt is Appointment => apt !== null);
-    }
+          )
+          .filter((apt): apt is Appointment => apt !== null)
+      : [];
 
-    // Convert local appointments
     const localAppointmentsList: Appointment[] = localAppointments
       .filter((appointment) => isSameDay(appointment.start, selectedDate))
       .map((appointment, index): Appointment | null => {
@@ -392,17 +443,17 @@ export function NewCalendar({
             (1000 * 60),
         );
 
-        // Filter by location in simulation mode
         if (
           simulatedContext?.locationId &&
           appointment.locationId !== simulatedContext.locationId
         ) {
           return null;
-        } else if (
+        }
+        if (
+          !simulatedContext?.locationId &&
           selectedLocationId &&
           appointment.locationId !== selectedLocationId
         ) {
-          // Filter by location in real mode
           return null;
         }
 
@@ -428,14 +479,25 @@ export function NewCalendar({
       })
       .filter((apt): apt is Appointment => apt !== null);
 
-    setAppointments([...convexAppointments, ...localAppointmentsList]);
+    return [...convexAppointments, ...localAppointmentsList];
   }, [
     appointmentsData,
     localAppointments,
     selectedDate,
-    simulatedContext,
+    simulatedContext?.locationId,
     selectedLocationId,
   ]);
+
+  // Only update state if something *actually* changed. This breaks the
+  // potential feedback loop where upstream query hooks emit new array
+  // references each render even when the logical data is unchanged.
+  useEffect(() => {
+    setAppointments((prev) =>
+      areAppointmentsEqual(prev, combinedDerivedAppointments)
+        ? prev
+        : combinedDerivedAppointments,
+    );
+  }, [combinedDerivedAppointments]);
 
   // Helper functions
   const timeToSlot = useCallback(
@@ -629,6 +691,7 @@ export function NewCalendar({
     if (autoScrollInterval) {
       clearInterval(autoScrollInterval);
       setAutoScrollInterval(null);
+      autoScrollIntervalRef.current = null;
     }
 
     if (
@@ -645,9 +708,11 @@ export function NewCalendar({
         if (newScrollTop === 0) {
           clearInterval(interval);
           setAutoScrollInterval(null);
+          autoScrollIntervalRef.current = null;
         }
       }, 16);
       setAutoScrollInterval(interval);
+      autoScrollIntervalRef.current = interval;
     } else if (
       containerRect.bottom - mouseY < scrollThreshold &&
       scrollContainer.scrollTop <
@@ -665,9 +730,11 @@ export function NewCalendar({
         if (newScrollTop === maxScroll) {
           clearInterval(interval);
           setAutoScrollInterval(null);
+          autoScrollIntervalRef.current = null;
         }
       }, 16);
       setAutoScrollInterval(interval);
+      autoScrollIntervalRef.current = interval;
     }
   };
 
@@ -677,6 +744,7 @@ export function NewCalendar({
     if (autoScrollInterval) {
       clearInterval(autoScrollInterval);
       setAutoScrollInterval(null);
+      autoScrollIntervalRef.current = null;
     }
 
     if (!draggedAppointment) {
@@ -728,6 +796,7 @@ export function NewCalendar({
     if (autoScrollInterval) {
       clearInterval(autoScrollInterval);
       setAutoScrollInterval(null);
+      autoScrollIntervalRef.current = null;
     }
 
     setDraggedAppointment(null);
@@ -1053,14 +1122,15 @@ export function NewCalendar({
     selectedDate,
   ]);
 
-  // Cleanup auto scroll interval
+  // Cleanup auto scroll interval on unmount
   useEffect(() => {
     return () => {
-      if (autoScrollInterval) {
-        clearInterval(autoScrollInterval);
+      if (autoScrollIntervalRef.current) {
+        clearInterval(autoScrollIntervalRef.current);
+        autoScrollIntervalRef.current = null;
       }
     };
-  }, [autoScrollInterval]);
+  }, []);
 
   // Early return if data is loading
   if (
@@ -1079,7 +1149,7 @@ export function NewCalendar({
   }
 
   return (
-    <>
+    <div className="flex h-full w-full">
       <CalendarSidebar
         columns={columns}
         currentTime={currentTime}
@@ -1253,6 +1323,6 @@ export function NewCalendar({
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
