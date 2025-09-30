@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../types";
@@ -1079,184 +1079,180 @@ export function NewCalendar({
   }
 
   return (
-    <SidebarProvider>
-      <div className="flex h-full w-full">
-        <CalendarSidebar
-          columns={columns}
-          currentTime={currentTime}
-          locationsData={locationsData}
-          onDateChange={handleDateChange}
-          onLocationSelect={(locationId) => {
-            if (simulatedContext && onUpdateSimulatedContext) {
-              // Simulation mode: update simulated context
-              const newContext = {
-                appointmentType: simulatedContext.appointmentType,
-                ...(locationId && { locationId }),
-                patient: simulatedContext.patient,
-              };
-              onUpdateSimulatedContext(newContext);
-            } else {
-              // Real mode: update local state
-              setSelectedLocationId(locationId);
-            }
-            if (locationId) {
-              const found = locationsData?.find((l) => l._id === locationId);
-              if (found && onLocationResolved) {
-                onLocationResolved(locationId, found.name);
-              }
-            }
-          }}
-          selectedDate={selectedDate}
-          selectedLocationId={
-            simulatedContext?.locationId || selectedLocationId
+    <>
+      <CalendarSidebar
+        columns={columns}
+        currentTime={currentTime}
+        locationsData={locationsData}
+        onDateChange={handleDateChange}
+        onLocationSelect={(locationId) => {
+          if (simulatedContext && onUpdateSimulatedContext) {
+            // Simulation mode: update simulated context
+            const newContext = {
+              appointmentType: simulatedContext.appointmentType,
+              ...(locationId && { locationId }),
+              patient: simulatedContext.patient,
+            };
+            onUpdateSimulatedContext(newContext);
+          } else {
+            // Real mode: update local state
+            setSelectedLocationId(locationId);
           }
-          showGdtAlert={showGdtAlert}
-        />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Main content area */}
-          <div className="border-b border-border bg-card px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <SidebarTrigger />
-                <h2 className="text-xl font-semibold">
-                  {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
-                </h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => {
-                    handleDateChange(addDays(selectedDate, -1));
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  Zurück
-                </Button>
-                <Button
-                  disabled={isToday(selectedDate)}
-                  onClick={() => {
-                    handleDateChange(new Date());
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  Heute
-                </Button>
-                <Button
-                  onClick={() => {
-                    handleDateChange(addDays(selectedDate, 1));
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  Vor
-                </Button>
-              </div>
+          if (locationId) {
+            const found = locationsData?.find((l) => l._id === locationId);
+            if (found && onLocationResolved) {
+              onLocationResolved(locationId, found.name);
+            }
+          }
+        }}
+        selectedDate={selectedDate}
+        selectedLocationId={simulatedContext?.locationId || selectedLocationId}
+        showGdtAlert={showGdtAlert}
+      />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Main content area */}
+        <div className="border-b border-border bg-card px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <SidebarTrigger />
+              <h2 className="text-xl font-semibold">
+                {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => {
+                  handleDateChange(addDays(selectedDate, -1));
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Zurück
+              </Button>
+              <Button
+                disabled={isToday(selectedDate)}
+                onClick={() => {
+                  handleDateChange(new Date());
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Heute
+              </Button>
+              <Button
+                onClick={() => {
+                  handleDateChange(addDays(selectedDate, 1));
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Vor
+              </Button>
             </div>
           </div>
+        </div>
 
-          <div className="flex-1 overflow-auto">
-            {simulatedContext && !simulatedContext.locationId ? (
-              <div className="flex items-center justify-center h-full">
-                <Alert className="w-auto max-w-md">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Standort auswählen</AlertTitle>
-                  <AlertDescription>
-                    Bitte wählen Sie einen Standort aus, um Termine anzuzeigen.
-                  </AlertDescription>
-                </Alert>
-              </div>
-            ) : workingPractitioners.length === 0 ||
-              columns.length === 0 ||
-              totalSlots === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <Alert className="w-auto max-w-md">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Keine Termine verfügbar</AlertTitle>
-                  <AlertDescription>
-                    Am {format(selectedDate, "dd.MM.yyyy")} arbeitet niemand
-                    {selectedLocationId || simulatedContext?.locationId
-                      ? " an diesem Standort"
-                      : " (alle Standorte)"}
-                    .
-                  </AlertDescription>
-                </Alert>
-              </div>
-            ) : (
-              <div
-                className={`grid min-h-full`}
-                ref={calendarRef}
-                style={{
-                  gridTemplateColumns: `80px repeat(${columns.length}, 1fr)`,
-                }}
-              >
-                <div className="border-r border-border bg-muted/30 sticky left-0 z-10">
-                  <div className="h-12 border-b border-border bg-card flex items-center px-3 sticky top-0 z-20">
-                    <span className="text-sm font-medium text-muted-foreground">
-                      Zeit
-                    </span>
-                  </div>
-                  <div className="relative">{renderTimeSlots()}</div>
+        <div className="flex-1 overflow-auto">
+          {simulatedContext && !simulatedContext.locationId ? (
+            <div className="flex items-center justify-center h-full">
+              <Alert className="w-auto max-w-md">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Standort auswählen</AlertTitle>
+                <AlertDescription>
+                  Bitte wählen Sie einen Standort aus, um Termine anzuzeigen.
+                </AlertDescription>
+              </Alert>
+            </div>
+          ) : workingPractitioners.length === 0 ||
+            columns.length === 0 ||
+            totalSlots === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <Alert className="w-auto max-w-md">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Keine Termine verfügbar</AlertTitle>
+                <AlertDescription>
+                  Am {format(selectedDate, "dd.MM.yyyy")} arbeitet niemand
+                  {selectedLocationId || simulatedContext?.locationId
+                    ? " an diesem Standort"
+                    : " (alle Standorte)"}
+                  .
+                </AlertDescription>
+              </Alert>
+            </div>
+          ) : (
+            <div
+              className={`grid min-h-full`}
+              ref={calendarRef}
+              style={{
+                gridTemplateColumns: `80px repeat(${columns.length}, 1fr)`,
+              }}
+            >
+              <div className="border-r border-border bg-muted/30 sticky left-0 z-10">
+                <div className="h-12 border-b border-border bg-card flex items-center px-3 sticky top-0 z-20">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Zeit
+                  </span>
                 </div>
-
-                {columns.map((column) => (
-                  <div
-                    className="border-r border-border last:border-r-0"
-                    key={column.id}
-                  >
-                    <div className="h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-10">
-                      <span className="font-medium">{column.title}</span>
-                    </div>
-                    <div
-                      className="relative min-h-full"
-                      onDragLeave={() => {
-                        if (dragPreview.column === column.id) {
-                          setDragPreview((prev) => ({
-                            ...prev,
-                            visible: false,
-                          }));
-                        }
-                      }}
-                      onDragOver={(e) => {
-                        handleDragOver(e, column.id);
-                      }}
-                      onDrop={(e) => {
-                        handleDrop(e, column.id);
-                      }}
-                    >
-                      {Array.from({ length: totalSlots }, (_, i) => (
-                        <div
-                          className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
-                          key={i}
-                          onClick={() => {
-                            addAppointment(column.id, i);
-                          }}
-                        >
-                          <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
-                            <Plus className="h-3 w-3 text-muted-foreground" />
-                          </div>
-                        </div>
-                      ))}
-
-                      {currentTimeSlot >= 0 && (
-                        <div
-                          className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
-                          style={{ top: `${currentTimeSlot * 16}px` }}
-                        >
-                          <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full" />
-                        </div>
-                      )}
-
-                      {renderDragPreview(column.id)}
-                      {renderAppointments(column.id)}
-                    </div>
-                  </div>
-                ))}
+                <div className="relative">{renderTimeSlots()}</div>
               </div>
-            )}
-          </div>
+
+              {columns.map((column) => (
+                <div
+                  className="border-r border-border last:border-r-0"
+                  key={column.id}
+                >
+                  <div className="h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-10">
+                    <span className="font-medium">{column.title}</span>
+                  </div>
+                  <div
+                    className="relative min-h-full"
+                    onDragLeave={() => {
+                      if (dragPreview.column === column.id) {
+                        setDragPreview((prev) => ({
+                          ...prev,
+                          visible: false,
+                        }));
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      handleDragOver(e, column.id);
+                    }}
+                    onDrop={(e) => {
+                      handleDrop(e, column.id);
+                    }}
+                  >
+                    {Array.from({ length: totalSlots }, (_, i) => (
+                      <div
+                        className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
+                        key={i}
+                        onClick={() => {
+                          addAppointment(column.id, i);
+                        }}
+                      >
+                        <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
+                          <Plus className="h-3 w-3 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+
+                    {currentTimeSlot >= 0 && (
+                      <div
+                        className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
+                        style={{ top: `${currentTimeSlot * 16}px` }}
+                      >
+                        <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full" />
+                      </div>
+                    )}
+
+                    {renderDragPreview(column.id)}
+                    {renderAppointments(column.id)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
-    </SidebarProvider>
+    </>
   );
 }

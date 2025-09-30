@@ -1,5 +1,7 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import { SidebarProvider } from "@/components/ui/sidebar";
+
 import type {
   SchedulingDateRange,
   SchedulingRuleSetId,
@@ -38,17 +40,19 @@ export function MedicalStaffView({
 
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
-    <div className="h-full w-full">
-      <PraxisCalendar
-        localAppointments={localAppointments}
-        {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
-        {...(onSlotClick && { onSlotClick })}
-        practiceId={practiceId}
-        {...(ruleSetId && { ruleSetId })}
-        simulatedContext={simulatedContext}
-        {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
-        simulationDate={simulationDate}
-      />
-    </div>
+    <SidebarProvider>
+      <div className="flex h-full w-full">
+        <PraxisCalendar
+          localAppointments={localAppointments}
+          {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
+          {...(onSlotClick && { onSlotClick })}
+          practiceId={practiceId}
+          {...(ruleSetId && { ruleSetId })}
+          simulatedContext={simulatedContext}
+          {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
+          simulationDate={simulationDate}
+        />
+      </div>
+    </SidebarProvider>
   );
 }

@@ -57,15 +57,6 @@ export function CalendarSidebar({
   return (
     <Sidebar collapsible="icon" side="left" variant="inset">
       <SidebarHeader>
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">
-            Praxis Terminkalender
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Termine verwalten und planen
-          </p>
-        </div>
-
         {showGdtAlert && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
