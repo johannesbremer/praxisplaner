@@ -59,50 +59,6 @@ const APPOINTMENT_COLORS = [
 // Compare two appointment arrays for structural equality (only the fields
 // that affect rendering & interactions are considered). This prevents
 // needless state updates that can cascade into re-renders and effects.
-function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    const A = a[i]!; // Safe due to bounds check above
-    const B = b[i]!;
-    if (A.id !== B.id) {
-      return false;
-    }
-    if (A.startTime !== B.startTime) {
-      return false;
-    }
-    if (A.duration !== B.duration) {
-      return false;
-    }
-    if (A.column !== B.column) {
-      return false;
-    }
-    if (A.title !== B.title) {
-      return false;
-    }
-    if (A.color !== B.color) {
-      return false;
-    }
-    if (A.resource?.practitionerId !== B.resource?.practitionerId) {
-      return false;
-    }
-    if (A.resource?.patientId !== B.resource?.patientId) {
-      return false;
-    }
-    if (A.resource?.locationId !== B.resource?.locationId) {
-      return false;
-    }
-    if (A.resource?.appointmentType !== B.resource?.appointmentType) {
-      return false;
-    }
-  }
-  return true;
-}
-
 interface NewCalendarProps {
   localAppointments?: LocalAppointment[];
   locationSlug?: string | undefined;
@@ -1325,4 +1281,52 @@ export function NewCalendar({
       </div>
     </div>
   );
+}
+
+function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; i++) {
+    const A = a[i];
+    const B = b[i];
+    if (!A || !B) {
+      return false;
+    }
+    if (A.id !== B.id) {
+      return false;
+    }
+    if (A.startTime !== B.startTime) {
+      return false;
+    }
+    if (A.duration !== B.duration) {
+      return false;
+    }
+    if (A.column !== B.column) {
+      return false;
+    }
+    if (A.title !== B.title) {
+      return false;
+    }
+    if (A.color !== B.color) {
+      return false;
+    }
+    if (A.resource?.practitionerId !== B.resource?.practitionerId) {
+      return false;
+    }
+    if (A.resource?.patientId !== B.resource?.patientId) {
+      return false;
+    }
+    if (A.resource?.locationId !== B.resource?.locationId) {
+      return false;
+    }
+    if (A.resource?.appointmentType !== B.resource?.appointmentType) {
+      return false;
+    }
+  }
+  return true;
 }
