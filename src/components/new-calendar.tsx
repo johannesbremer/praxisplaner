@@ -1190,79 +1190,82 @@ export function NewCalendar({
   }
 
   return (
-    <div className="flex h-full w-full">
-      <CalendarSidebar
-        columns={columns}
-        currentTime={currentTime}
-        locationsData={locationsData}
-        onDateChange={handleDateChange}
-        onLocationSelect={(locationId) => {
-          if (simulatedContext && onUpdateSimulatedContext) {
-            // Simulation mode: update simulated context
-            const newContext = {
-              appointmentType: simulatedContext.appointmentType,
-              ...(locationId && { locationId }),
-              patient: simulatedContext.patient,
-            };
-            onUpdateSimulatedContext(newContext);
-          } else {
-            // Real mode: update local state
-            setSelectedLocationId(locationId);
-          }
-          if (locationId) {
-            const found = locationsData?.find((l) => l._id === locationId);
-            if (found && onLocationResolved) {
-              onLocationResolved(locationId, found.name);
-            }
-          }
-        }}
-        selectedDate={selectedDate}
-        selectedLocationId={simulatedContext?.locationId || selectedLocationId}
-        showGdtAlert={showGdtAlert}
-      />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Main content area */}
-        <div className="border-b border-border bg-card px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger />
-              <h2 className="text-xl font-semibold">
-                {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => {
-                  handleDateChange(addDays(selectedDate, -1));
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Zurück
-              </Button>
-              <Button
-                disabled={isToday(selectedDate)}
-                onClick={() => {
-                  handleDateChange(new Date());
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Heute
-              </Button>
-              <Button
-                onClick={() => {
-                  handleDateChange(addDays(selectedDate, 1));
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Vor
-              </Button>
-            </div>
+    <div className="flex h-full w-full flex-col">
+      {/* Header */}
+      <div className="border-b border-border bg-card px-6 py-4 z-20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <SidebarTrigger />
+            <h2 className="text-xl font-semibold">
+              {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => {
+                handleDateChange(addDays(selectedDate, -1));
+              }}
+              size="sm"
+              variant="outline"
+            >
+              Zurück
+            </Button>
+            <Button
+              disabled={isToday(selectedDate)}
+              onClick={() => {
+                handleDateChange(new Date());
+              }}
+              size="sm"
+              variant="outline"
+            >
+              Heute
+            </Button>
+            <Button
+              onClick={() => {
+                handleDateChange(addDays(selectedDate, 1));
+              }}
+              size="sm"
+              variant="outline"
+            >
+              Vor
+            </Button>
           </div>
         </div>
+      </div>
 
+      {/* Content area with sidebar */}
+      <div className="flex flex-1 overflow-hidden">
+        <CalendarSidebar
+          columns={columns}
+          currentTime={currentTime}
+          locationsData={locationsData}
+          onDateChange={handleDateChange}
+          onLocationSelect={(locationId) => {
+            if (simulatedContext && onUpdateSimulatedContext) {
+              // Simulation mode: update simulated context
+              const newContext = {
+                appointmentType: simulatedContext.appointmentType,
+                ...(locationId && { locationId }),
+                patient: simulatedContext.patient,
+              };
+              onUpdateSimulatedContext(newContext);
+            } else {
+              // Real mode: update local state
+              setSelectedLocationId(locationId);
+            }
+            if (locationId) {
+              const found = locationsData?.find((l) => l._id === locationId);
+              if (found && onLocationResolved) {
+                onLocationResolved(locationId, found.name);
+              }
+            }
+          }}
+          selectedDate={selectedDate}
+          selectedLocationId={
+            simulatedContext?.locationId || selectedLocationId
+          }
+          showGdtAlert={showGdtAlert}
+        />
         <div className="flex-1 overflow-auto">
           {simulatedContext && !simulatedContext.locationId ? (
             <div className="flex items-center justify-center h-full">

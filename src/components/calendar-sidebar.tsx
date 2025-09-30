@@ -55,7 +55,7 @@ export function CalendarSidebar({
   showGdtAlert = false,
 }: CalendarSidebarProps) {
   return (
-    <Sidebar collapsible="icon" side="left" variant="inset">
+    <Sidebar collapsible="offcanvas" side="left" variant="inset">
       <SidebarHeader>
         {showGdtAlert && (
           <Alert variant="destructive">
