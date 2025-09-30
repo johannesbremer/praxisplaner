@@ -441,17 +441,52 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   display: flex;
 }
 
-/* Make sidebar work within constrained containers like XDR device */
-.device-pro-display-xdr .device-screen [data-slot="sidebar-container"] {
-  position: relative !important;
-  height: 100% !important;
-  inset: unset !important;
-  left: unset !important;
-  right: unset !important;
+/* Scale content inside XDR device to 75% */
+.device-pro-display-xdr .device-screen > * {
+  zoom: 0.75;
+  width: 100%;
+  height: 100%;
 }
 
-.device-pro-display-xdr .device-screen [data-slot="sidebar-gap"] {
+/* Force desktop sidebar behavior within XDR device (no mobile sheet) */
+.device-pro-display-xdr .device-screen [data-slot="sidebar"] {
+  display: block !important;
+}
+
+/* Force desktop sidebar container to show (overrides hidden md:block) */
+.device-pro-display-xdr .device-screen .group.peer[data-slot="sidebar"] {
+  display: block !important;
+}
+
+/* Force sidebar container to display (overrides hidden md:flex) */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-container"] {
+  display: flex !important;
+  position: absolute !important;
+  height: 100% !important;
+}
+
+/* Force sidebar inner content to be visible */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-inner"] {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Hide mobile sheet sidebar within XDR device */
+.device-pro-display-xdr .device-screen [data-slot="sheet"],
+.device-pro-display-xdr .device-screen [data-slot="sheet-portal"],
+.device-pro-display-xdr .device-screen [data-vaul-drawer] {
   display: none !important;
+}
+
+/* Make sidebar trigger work as desktop button within XDR device */
+.device-pro-display-xdr .device-screen [data-sidebar="trigger"] {
+  display: flex !important;
+}
+
+/* Make sidebar work within constrained containers like XDR device */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-gap"] {
+  display: block !important;
 }
 
 .device-pro-display-xdr .device-power {
