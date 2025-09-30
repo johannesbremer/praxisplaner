@@ -1236,7 +1236,6 @@ export function NewCalendar({
       {/* Content area with sidebar */}
       <div className="flex flex-1 overflow-hidden">
         <CalendarSidebar
-          columns={columns}
           currentTime={currentTime}
           locationsData={locationsData}
           onDateChange={handleDateChange}
