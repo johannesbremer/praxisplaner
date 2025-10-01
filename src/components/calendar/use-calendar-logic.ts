@@ -63,6 +63,7 @@ export function useCalendarLogic({
   const autoScrollAnimationRef = useRef<null | number>(null);
   const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const justFinishedResizingRef = useRef<null | string>(null);
   const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
 
   // Devtools instrumentation
@@ -1240,6 +1241,11 @@ export function useCalendarLogic({
   };
 
   const handleEditAppointment = (appointment: Appointment) => {
+    // Prevent opening edit dialog if we just finished resizing this appointment
+    if (justFinishedResizingRef.current === appointment.id) {
+      return;
+    }
+
     const openEditDialog = (target: Appointment) => {
       openAppointmentDialog({
         defaultTitle: target.title,
@@ -1466,6 +1472,14 @@ export function useCalendarLogic({
     };
 
     const handleMouseUp = () => {
+      if (resizing) {
+        // Mark this appointment as just resized to prevent immediate edit dialog
+        justFinishedResizingRef.current = resizing.appointmentId;
+        // Clear the flag after a short delay (enough time for click event to be processed)
+        setTimeout(() => {
+          justFinishedResizingRef.current = null;
+        }, 100);
+      }
       setResizing(null);
     };
 
