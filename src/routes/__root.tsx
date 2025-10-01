@@ -19,6 +19,7 @@ import { useEffect } from "react";
 import { scan } from "react-scan";
 import { Toaster } from "sonner";
 
+import { CalendarDevtoolsPanel } from "../devtools/calendar-devtools-panel";
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
@@ -244,6 +245,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         {children}
         <ClientOnly fallback={null}>
           <TanStackDevtools
+            eventBusConfig={{ debug: false }}
             plugins={[
               {
                 name: "TanStack Query",
@@ -253,10 +255,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 name: "TanStack Router",
                 render: <TanStackRouterDevtoolsPanel />,
               },
-              //{
-              //  name: 'TanStack Form',
-              //  render: <ReactFormDevtoolsPanel />,
-              //},
+              ...(import.meta.env.DEV
+                ? [
+                    {
+                      name: "Calendar Diagnostics",
+                      render: <CalendarDevtoolsPanel />,
+                    },
+                  ]
+                : []),
             ]}
           />
         </ClientOnly>

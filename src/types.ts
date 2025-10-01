@@ -1,6 +1,6 @@
 // src/types.ts
 
-import type { Doc, Id } from "../convex/_generated/dataModel";
+import type { Doc } from "../convex/_generated/dataModel";
 
 export type SchedulingDateRange = SchedulingQuery["_args"]["dateRange"];
 export type SchedulingResult = SchedulingQuery["_returnType"];
@@ -11,25 +11,6 @@ export type SchedulingSimulatedContext =
 export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
 type ConvexApi = typeof import("../convex/_generated/api").api;
 type SchedulingQuery = ConvexApi["scheduling"]["getAvailableSlots"];
-
-// --- Application Types ---
-
-// Calendar Event types for react-big-calendar
-export interface CalendarEvent {
-  end: Date;
-  id: Id<"appointments"> | string; // Allow both Convex IDs and local string IDs
-  resource?: {
-    appointmentType?: string | undefined;
-    isLocal?: boolean; // Flag for local appointments
-    locationId?: Id<"locations"> | undefined;
-    notes?: string | undefined;
-    patientId?: Id<"patients"> | undefined;
-    practitionerId?: Id<"practitioners"> | undefined;
-  };
-  resourceId?: Id<"practitioners"> | string; // For resource view: practitioner ID or "ekg"/"labor"
-  start: Date;
-  title: string;
-}
 
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";

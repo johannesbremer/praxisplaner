@@ -1,12 +1,62 @@
 import { v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
+
 import { mutation, query } from "./_generated/server";
+
+type AppointmentDoc = Doc<"appointments">;
+
+type AppointmentScope = "all" | "real" | "simulation";
+
+function combineForSimulationScope(
+  appointments: AppointmentDoc[],
+): AppointmentDoc[] {
+  const simulationAppointments = appointments.filter(
+    (appointment) => appointment.isSimulation === true,
+  );
+
+  const replacedIds = new Set(
+    simulationAppointments
+      .map((appointment) => appointment.replacesAppointmentId)
+      .filter(Boolean),
+  );
+
+  const realAppointments = appointments.filter(
+    (appointment) =>
+      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
+  );
+
+  const merged = [...realAppointments, ...simulationAppointments];
+
+  return merged.toSorted((a, b) => a.start.localeCompare(b.start));
+}
 
 // Query to get all appointments
 export const getAppointments = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("appointments").order("asc").collect();
+  args: {
+    scope: v.optional(
+      v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const scope: AppointmentScope = args.scope ?? "real";
+
+    const appointments = await ctx.db
+      .query("appointments")
+      .order("asc")
+      .collect();
+
+    if (scope === "simulation") {
+      return combineForSimulationScope(appointments);
+    }
+
+    if (scope === "all") {
+      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+    }
+
+    return appointments
+      .filter((appointment) => appointment.isSimulation !== true)
+      .toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(
     v.object({
@@ -15,11 +65,12 @@ export const getAppointments = query({
       appointmentType: v.optional(v.string()),
       createdAt: v.int64(),
       end: v.string(),
+      isSimulation: v.optional(v.boolean()),
       lastModified: v.int64(),
-      locationId: v.optional(v.id("locations")),
-      notes: v.optional(v.string()),
+      locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
       practitionerId: v.optional(v.id("practitioners")),
+      replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
       title: v.string(),
     }),
@@ -30,10 +81,13 @@ export const getAppointments = query({
 export const getAppointmentsInRange = query({
   args: {
     end: v.string(),
+    scope: v.optional(
+      v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+    ),
     start: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const appointments = await ctx.db
       .query("appointments")
       .withIndex("by_start")
       .filter((q) =>
@@ -43,6 +97,20 @@ export const getAppointmentsInRange = query({
         ),
       )
       .collect();
+
+    const scope: AppointmentScope = args.scope ?? "real";
+
+    if (scope === "simulation") {
+      return combineForSimulationScope(appointments);
+    }
+
+    if (scope === "all") {
+      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+    }
+
+    return appointments
+      .filter((appointment) => appointment.isSimulation !== true)
+      .toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(
     v.object({
@@ -51,11 +119,12 @@ export const getAppointmentsInRange = query({
       appointmentType: v.optional(v.string()),
       createdAt: v.int64(),
       end: v.string(),
+      isSimulation: v.optional(v.boolean()),
       lastModified: v.int64(),
-      locationId: v.optional(v.id("locations")),
-      notes: v.optional(v.string()),
+      locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
       practitionerId: v.optional(v.id("practitioners")),
+      replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
       title: v.string(),
     }),
@@ -67,19 +136,32 @@ export const createAppointment = mutation({
   args: {
     appointmentType: v.optional(v.string()),
     end: v.string(),
-    locationId: v.optional(v.id("locations")),
-    notes: v.optional(v.string()),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
     title: v.string(),
   },
   handler: async (ctx, args) => {
     const now = BigInt(Date.now());
+    const { isSimulation, replacesAppointmentId, ...rest } = args;
+
+    if (replacesAppointmentId && isSimulation !== true) {
+      throw new Error(
+        "Only simulated appointments can replace existing appointments.",
+      );
+    }
+
     return await ctx.db.insert("appointments", {
-      ...args,
+      ...rest,
       createdAt: now,
+      isSimulation: isSimulation ?? false,
       lastModified: now,
+      ...(replacesAppointmentId !== undefined && {
+        replacesAppointmentId,
+      }),
     });
   },
   returns: v.id("appointments"),
@@ -91,10 +173,11 @@ export const updateAppointment = mutation({
     appointmentType: v.optional(v.string()),
     end: v.optional(v.string()),
     id: v.id("appointments"),
+    isSimulation: v.optional(v.boolean()),
     locationId: v.optional(v.id("locations")),
-    notes: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.optional(v.string()),
     title: v.optional(v.string()),
   },
@@ -128,4 +211,22 @@ export const deleteAppointment = mutation({
     return null;
   },
   returns: v.null(),
+});
+
+// Mutation to delete all simulated appointments
+export const deleteAllSimulatedAppointments = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const simulatedAppointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_isSimulation", (q) => q.eq("isSimulation", true))
+      .collect();
+
+    for (const appointment of simulatedAppointments) {
+      await ctx.db.delete(appointment._id);
+    }
+
+    return simulatedAppointments.length;
+  },
+  returns: v.number(),
 });

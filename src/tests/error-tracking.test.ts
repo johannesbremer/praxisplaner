@@ -121,7 +121,14 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, context);
+      // captureErrorGlobal converts DOMException to Error, so we expect an Error instance
+      expect(mockCaptureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        context,
+      );
+      const capturedError = mockCaptureException.mock.calls[0]?.[0] as Error;
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(capturedError.message).toBe("NotAllowedError: Access denied");
     });
   });
 

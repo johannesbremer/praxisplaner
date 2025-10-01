@@ -126,6 +126,7 @@ export default tseslint.config(
             "CustomEvent",
             "DOMException",
             "localStorage",
+            "crypto",
           ],
         },
       ],

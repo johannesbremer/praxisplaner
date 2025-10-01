@@ -8,12 +8,13 @@ export default defineSchema({
     start: v.string(), // ISO datetime string
     title: v.string(),
 
-    // Optional fields
+    // Additional fields
     appointmentType: v.optional(v.string()),
-    locationId: v.optional(v.id("locations")),
-    notes: v.optional(v.string()),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
 
     // Metadata
     createdAt: v.int64(),
@@ -22,7 +23,9 @@ export default defineSchema({
     .index("by_start", ["start"])
     .index("by_patientId", ["patientId"])
     .index("by_practitionerId", ["practitionerId"])
-    .index("by_start_end", ["start", "end"]),
+    .index("by_start_end", ["start", "end"])
+    .index("by_isSimulation", ["isSimulation"])
+    .index("by_replacesAppointmentId", ["replacesAppointmentId"]),
 
   appointmentTypeDurations: defineTable({
     appointmentTypeId: v.id("appointmentTypes"),

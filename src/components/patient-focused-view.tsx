@@ -26,17 +26,12 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
-import type { LocalAppointment } from "../utils/local-appointments";
 
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
 
 interface PatientFocusedViewProps {
   dateRange: SchedulingDateRange;
-  localAppointments?: LocalAppointment[];
-  onCreateLocalAppointment?: (
-    appointment: Omit<LocalAppointment, "id" | "isLocal">,
-  ) => void;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
@@ -46,10 +41,6 @@ interface PatientFocusedViewProps {
 
 export function PatientFocusedView({
   dateRange,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
-  localAppointments: _localAppointments = [],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used later
-  onCreateLocalAppointment: _onCreateLocalAppointment,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
