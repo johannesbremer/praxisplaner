@@ -128,19 +128,8 @@ export function NewCalendar({
   const renderCountRef = useRef(0);
   const effectCountersRef = useRef<Record<string, number>>({});
   renderCountRef.current += 1;
-  if (import.meta.env.DEV) {
-    const now = Date.now();
-    emitCalendarEvent("custom-devtools:calendar-render", {
-      lastRenderAt: now,
-      renders: renderCountRef.current,
-    });
-    emitCalendarEvent("custom-devtools:calendar-performance", {
-      lastCommitAt: now,
-      renderDeltaMs: now - lastRenderRef.current,
-      sinceMountMs: now - mountTimeRef.current,
-    });
-    lastRenderRef.current = now;
-  }
+
+  // Track effect executions (called from useEffect hooks)
   function trackEffect(name: string) {
     if (!import.meta.env.DEV) {
       return;
@@ -152,6 +141,24 @@ export function NewCalendar({
       name,
     });
   }
+
+  // Emit devtools events after render (in useEffect)
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+    const now = Date.now();
+    emitCalendarEvent("custom-devtools:calendar-render", {
+      lastRenderAt: now,
+      renders: renderCountRef.current,
+    });
+    emitCalendarEvent("custom-devtools:calendar-performance", {
+      lastCommitAt: now,
+      renderDeltaMs: now - lastRenderRef.current,
+      sinceMountMs: now - mountTimeRef.current,
+    });
+    lastRenderRef.current = now;
+  });
 
   // Local state for selected location
   const [selectedLocationId, setSelectedLocationId] = useState<
@@ -508,42 +515,70 @@ export function NewCalendar({
       if (areAppointmentsEqual(prev, combinedDerivedAppointments)) {
         return prev;
       }
-      if (import.meta.env.DEV) {
-        const prevIds = new Set(prev.map((a) => a.id));
-        const nextIds = new Set(combinedDerivedAppointments.map((a) => a.id));
-        const added: string[] = [];
-        const removed: string[] = [];
-        for (const id of prevIds) {
-          if (!nextIds.has(id)) {
-            removed.push(id);
-          }
-        }
-        for (const id of nextIds) {
-          if (!prevIds.has(id)) {
-            added.push(id);
-          }
-        }
-        const updated: string[] = [];
-        for (const next of combinedDerivedAppointments) {
-          const prevMatch = prev.find((p) => p.id === next.id);
-          if (
-            prevMatch &&
-            (prevMatch.startTime !== next.startTime ||
-              prevMatch.duration !== next.duration ||
-              prevMatch.column !== next.column)
-          ) {
-            updated.push(next.id);
-          }
-        }
-        emitCalendarEvent("custom-devtools:calendar-appointments", {
-          count: combinedDerivedAppointments.length,
-          diff: { added, removed, updated },
-          lastChangeAt: Date.now(),
-        });
-      }
       return combinedDerivedAppointments;
     });
   }, [appointmentsHash, combinedDerivedAppointments]);
+
+  // Track appointment changes for devtools (after state update)
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    // Calculate diff for devtools
+    const prevIds = new Set(appointments.map((a) => a.id));
+    const nextIds = new Set(combinedDerivedAppointments.map((a) => a.id));
+    const added: string[] = [];
+    const removed: string[] = [];
+
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) {
+        removed.push(id);
+      }
+    }
+    for (const id of nextIds) {
+      if (!prevIds.has(id)) {
+        added.push(id);
+      }
+    }
+
+    const updated: string[] = [];
+    for (const next of combinedDerivedAppointments) {
+      const prevMatch = appointments.find((p) => p.id === next.id);
+      if (
+        prevMatch &&
+        (prevMatch.startTime !== next.startTime ||
+          prevMatch.duration !== next.duration ||
+          prevMatch.column !== next.column)
+      ) {
+        updated.push(next.id);
+      }
+    }
+
+    if (added.length > 0 || removed.length > 0 || updated.length > 0) {
+      emitCalendarEvent("custom-devtools:calendar-appointments", {
+        count: combinedDerivedAppointments.length,
+        diff: { added, removed, updated },
+        lastChangeAt: Date.now(),
+      });
+    }
+  }, [appointments, combinedDerivedAppointments]);
+
+  // Emit drag events when drag state changes
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+    if (draggedAppointment) {
+      emitCalendarEvent("custom-devtools:calendar-drag", {
+        column: dragPreview.column,
+        dragging: true,
+        slotIndex: dragPreview.slot,
+      });
+    } else {
+      emitCalendarEvent("custom-devtools:calendar-drag", { dragging: false });
+    }
+  }, [draggedAppointment, dragPreview.column, dragPreview.slot]);
 
   // Helper functions
   const timeToSlot = useCallback(
@@ -723,13 +758,6 @@ export function NewCalendar({
         }
         return { column, slot: availableSlot, visible: true };
       });
-      if (import.meta.env.DEV) {
-        emitCalendarEvent("custom-devtools:calendar-drag", {
-          column,
-          dragging: true,
-          slotIndex: availableSlot,
-        });
-      }
 
       handleAutoScroll(e);
     }
@@ -848,9 +876,6 @@ export function NewCalendar({
 
     setDraggedAppointment(null);
     setDragPreview({ column: "", slot: 0, visible: false });
-    if (import.meta.env.DEV) {
-      emitCalendarEvent("custom-devtools:calendar-drag", { dragging: false });
-    }
   };
 
   const handleDragEnd = () => {
@@ -862,9 +887,6 @@ export function NewCalendar({
 
     setDraggedAppointment(null);
     setDragPreview({ column: "", slot: 0, visible: false });
-    if (import.meta.env.DEV) {
-      emitCalendarEvent("custom-devtools:calendar-drag", { dragging: false });
-    }
   };
 
   const handleResizeStart = (
