@@ -118,8 +118,6 @@ export function NewCalendar({
     originalDuration: number;
     startY: number;
   }>(null);
-  const [autoScrollInterval, setAutoScrollInterval] =
-    useState<NodeJS.Timeout | null>(null);
   const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
@@ -778,9 +776,8 @@ export function NewCalendar({
     const scrollThreshold = 50;
     const scrollSpeed = 10;
 
-    if (autoScrollInterval) {
-      clearInterval(autoScrollInterval);
-      setAutoScrollInterval(null);
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
       autoScrollIntervalRef.current = null;
     }
 
@@ -797,11 +794,9 @@ export function NewCalendar({
 
         if (newScrollTop === 0) {
           clearInterval(interval);
-          setAutoScrollInterval(null);
           autoScrollIntervalRef.current = null;
         }
       }, 16);
-      setAutoScrollInterval(interval);
       autoScrollIntervalRef.current = interval;
     } else if (
       containerRect.bottom - mouseY < scrollThreshold &&
@@ -819,11 +814,9 @@ export function NewCalendar({
 
         if (newScrollTop === maxScroll) {
           clearInterval(interval);
-          setAutoScrollInterval(null);
           autoScrollIntervalRef.current = null;
         }
       }, 16);
-      setAutoScrollInterval(interval);
       autoScrollIntervalRef.current = interval;
     }
   };
@@ -831,9 +824,8 @@ export function NewCalendar({
   const handleDrop = async (e: React.DragEvent, column: string) => {
     e.preventDefault();
 
-    if (autoScrollInterval) {
-      clearInterval(autoScrollInterval);
-      setAutoScrollInterval(null);
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
       autoScrollIntervalRef.current = null;
     }
 
@@ -892,9 +884,8 @@ export function NewCalendar({
   };
 
   const handleDragEnd = () => {
-    if (autoScrollInterval) {
-      clearInterval(autoScrollInterval);
-      setAutoScrollInterval(null);
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
       autoScrollIntervalRef.current = null;
     }
 
