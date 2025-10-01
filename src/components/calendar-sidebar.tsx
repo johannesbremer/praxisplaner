@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { AlertCircle } from "lucide-react";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calendar } from "@/components/ui/calendar";
@@ -17,27 +17,45 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 
+import { useCalendarContext } from "./calendar-context";
 import { LocationSelector } from "./location-selector";
 
-interface CalendarSidebarProps {
-  currentTime: Date;
-  locationsData?: Doc<"locations">[] | undefined;
-  onDateChange: (date: Date) => void;
-  onLocationSelect: (locationId: Id<"locations"> | undefined) => void;
-  selectedDate: Date;
-  selectedLocationId: Id<"locations"> | undefined;
-  showGdtAlert?: boolean;
-}
+export function CalendarSidebar() {
+  const {
+    currentTime,
+    locationsData,
+    onDateChange,
+    onLocationResolved,
+    onLocationSelect,
+    onUpdateSimulatedContext,
+    selectedDate,
+    selectedLocationId,
+    showGdtAlert,
+    simulatedContext,
+  } = useCalendarContext();
 
-export function CalendarSidebar({
-  currentTime,
-  locationsData,
-  onDateChange,
-  onLocationSelect,
-  selectedDate,
-  selectedLocationId,
-  showGdtAlert = false,
-}: CalendarSidebarProps) {
+  const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
+    if (simulatedContext && onUpdateSimulatedContext) {
+      // Simulation mode: update simulated context
+      const newContext = {
+        appointmentType: simulatedContext.appointmentType,
+        ...(locationId && { locationId }),
+        patient: simulatedContext.patient,
+      };
+      onUpdateSimulatedContext(newContext);
+    } else {
+      // Real mode: update local state
+      onLocationSelect(locationId);
+    }
+
+    if (locationId) {
+      const found = locationsData?.find((l) => l._id === locationId);
+      if (found && onLocationResolved) {
+        onLocationResolved(locationId, found.name);
+      }
+    }
+  };
+
   return (
     <Sidebar collapsible="offcanvas" side="left" variant="sidebar">
       <SidebarHeader />
@@ -74,7 +92,7 @@ export function CalendarSidebar({
             <SidebarGroupContent>
               <LocationSelector
                 locations={locationsData}
-                onLocationSelect={onLocationSelect}
+                onLocationSelect={handleLocationSelect}
                 selectedLocationId={selectedLocationId}
               />
             </SidebarGroupContent>
