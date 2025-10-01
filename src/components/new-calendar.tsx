@@ -163,7 +163,10 @@ export function NewCalendar({
   >(externalSelectedLocationId);
 
   useEffect(() => {
-    if (externalSelectedLocationId) {
+    if (
+      externalSelectedLocationId &&
+      externalSelectedLocationId !== selectedLocationId
+    ) {
       setSelectedLocationId(externalSelectedLocationId);
       if (import.meta.env.DEV) {
         const map = effectCountersRef.current;
@@ -175,7 +178,7 @@ export function NewCalendar({
         });
       }
     }
-  }, [externalSelectedLocationId]);
+  }, [externalSelectedLocationId, selectedLocationId]);
 
   // Initialize practice
   const initializePracticeMutation = useConvexMutation(
