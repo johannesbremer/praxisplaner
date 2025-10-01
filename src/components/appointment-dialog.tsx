@@ -45,8 +45,14 @@ export function AppointmentDialog({
       title: defaultTitle,
     },
     onSubmit: async ({ value }) => {
-      await onSubmit(value.title);
-      onOpenChange(false);
+      try {
+        await onSubmit(value.title);
+        onOpenChange(false);
+      } catch (error) {
+        // Error is already handled by the caller (toast + logging)
+        // Just prevent dialog from closing
+        console.error("Dialog onSubmit error:", error);
+      }
     },
   });
 
