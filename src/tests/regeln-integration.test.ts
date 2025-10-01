@@ -1,111 +1,80 @@
 import { describe, expect, it } from "vitest";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
-import type { LocalAppointment } from "../utils/local-appointments";
+import type { SchedulingSimulatedContext } from "../types";
 
-describe("Regeln Integration - Core Functionality", () => {
-  it("should define LocalAppointment interface correctly", () => {
-    const mockAppointment: LocalAppointment = {
+const baseAppointment: Doc<"appointments"> = {
+  _creationTime: 0,
+  _id: "appointment-base" as Id<"appointments">,
+  createdAt: 0n,
+  end: "2024-01-15T11:00:00Z",
+  lastModified: 0n,
+  locationId: "location1" as Id<"locations">,
+  start: "2024-01-15T10:00:00Z",
+  title: "Simulationstermin",
+};
+
+const createAppointment = (
+  overrides: Partial<Doc<"appointments">> = {},
+): Doc<"appointments"> => ({
+  ...baseAppointment,
+  ...overrides,
+});
+
+describe("Regeln Integration - Simulation Metadata", () => {
+  it("marks calendar events as simulation when flag is set", () => {
+    const practitionerId = "practitioner1" as Id<"practitioners">;
+    const event = createAppointment({
+      _id: "sim-appointment-123" as Id<"appointments">,
       appointmentType: "Erstberatung",
-      end: new Date("2024-01-15T11:00:00Z"),
-      id: "local-123456-abcdef",
-      isLocal: true,
-      locationId: "location1" as Id<"locations">,
-      notes: "Test appointment",
-      practitionerId: "practitioner1" as Id<"practitioners">,
-      start: new Date("2024-01-15T10:00:00Z"),
-      title: "Test Appointment",
-    };
+      isSimulation: true,
+      practitionerId,
+    });
 
-    // Verify all required fields are present and typed correctly
-    expect(mockAppointment.id).toBe("local-123456-abcdef");
-    expect(mockAppointment.title).toBe("Test Appointment");
-    expect(mockAppointment.start).toBeInstanceOf(Date);
-    expect(mockAppointment.end).toBeInstanceOf(Date);
-    expect(mockAppointment.appointmentType).toBe("Erstberatung");
-    expect(mockAppointment.practitionerId).toBe("practitioner1");
-    expect(mockAppointment.isLocal).toBe(true);
-    expect(mockAppointment.notes).toBe("Test appointment");
+    expect(event.isSimulation).toBe(true);
+    expect(event.appointmentType).toBe("Erstberatung");
+    expect(event.locationId).toBe("location1");
+    expect(event.practitionerId).toBe(practitionerId);
   });
 
-  it("should create proper local appointment structure", () => {
-    const baseAppointment = {
-      appointmentType: "Nachuntersuchung",
-      end: new Date(),
-      practitionerId: "practitioner1" as Id<"practitioners">,
-      start: new Date(),
-      title: "Local Test",
-    };
+  it("defaults to real appointments when simulation flag is absent", () => {
+    const event = createAppointment({
+      _id: "real-appointment-001" as Id<"appointments">,
+      title: "Regulärer Termin",
+    });
 
-    // Simulate the addLocalAppointment logic
-    const localAppointment: LocalAppointment = {
-      ...baseAppointment,
-      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-      isLocal: true,
-    };
-
-    expect(localAppointment.isLocal).toBe(true);
-    expect(localAppointment.id).toMatch(/^local-\d+-[a-z0-9]+$/);
-    expect(localAppointment.title).toBe("Local Test");
-    expect(localAppointment.appointmentType).toBe("Nachuntersuchung");
+    expect(event.isSimulation).toBeUndefined();
   });
 
-  it("should validate required fields are present", () => {
-    const appointment: Omit<LocalAppointment, "id" | "isLocal"> = {
-      appointmentType: "Vorsorge",
-      end: new Date("2024-01-15T11:00:00Z"),
-      practitionerId: "practitioner2" as Id<"practitioners">,
-      start: new Date("2024-01-15T10:00:00Z"),
-      title: "Required Fields Test",
-    };
-
-    // All required fields should be present
-    expect(appointment).toHaveProperty("title");
-    expect(appointment).toHaveProperty("start");
-    expect(appointment).toHaveProperty("end");
-    expect(appointment).toHaveProperty("appointmentType");
-    expect(appointment).toHaveProperty("practitionerId");
-
-    // Verify types
-    expect(typeof appointment.title).toBe("string");
-    expect(appointment.start).toBeInstanceOf(Date);
-    expect(appointment.end).toBeInstanceOf(Date);
-    expect(typeof appointment.appointmentType).toBe("string");
-    expect(typeof appointment.practitionerId).toBe("string");
-  });
-
-  it("should handle optional fields correctly", () => {
-    const fullAppointment: LocalAppointment = {
+  it("allows updating simulated context dynamically", () => {
+    const context: SchedulingSimulatedContext = {
       appointmentType: "Akutsprechstunde",
-      end: new Date(),
-      id: "local-test-id",
-      isLocal: true,
+      patient: { isNew: true },
+    } as SchedulingSimulatedContext;
+
+    const updatedContext: SchedulingSimulatedContext = {
+      ...context,
       locationId: "location2" as Id<"locations">,
-      notes: "Optional field test",
-      patientId: "patient1" as Id<"patients">,
-      practitionerId: "practitioner3" as Id<"practitioners">,
-      start: new Date(),
-      title: "Full Appointment",
-    };
+      patient: { isNew: false },
+    } as SchedulingSimulatedContext;
 
-    const minimalAppointment: LocalAppointment = {
-      appointmentType: "Erstberatung",
-      end: new Date(),
-      id: "local-minimal-id",
-      isLocal: true,
-      practitionerId: "practitioner4" as Id<"practitioners">,
-      start: new Date(),
-      title: "Minimal Appointment",
-    };
+    expect(updatedContext.appointmentType).toBe("Akutsprechstunde");
+    expect(updatedContext.patient.isNew).toBe(false);
+    expect(updatedContext.locationId).toBe("location2");
+  });
 
-    // Both should be valid LocalAppointment objects
-    expect(fullAppointment.locationId).toBe("location2");
-    expect(fullAppointment.patientId).toBe("patient1");
-    expect(fullAppointment.notes).toBe("Optional field test");
+  it("preserves practitioner metadata for simulation events", () => {
+    const practitionerId = "practitionerX" as Id<"practitioners">;
 
-    expect(minimalAppointment.locationId).toBeUndefined();
-    expect(minimalAppointment.patientId).toBeUndefined();
-    expect(minimalAppointment.notes).toBeUndefined();
+    const event = createAppointment({
+      _id: "sim-appointment-practitioner" as Id<"appointments">,
+      isSimulation: true,
+      practitionerId,
+      title: "Simulation mit Arzt",
+    });
+
+    expect(event.practitionerId).toBe(practitionerId);
+    expect(event.isSimulation).toBe(true);
   });
 });

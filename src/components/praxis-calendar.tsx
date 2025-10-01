@@ -4,15 +4,10 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
-import type { LocalAppointment } from "../utils/local-appointments";
 
 import { NewCalendar } from "./new-calendar";
 
 interface PraxisCalendarProps {
-  localAppointments?: LocalAppointment[];
-  onCreateLocalAppointment?: (
-    appointment: Omit<LocalAppointment, "id" | "isLocal">,
-  ) => void;
   // Notify parent when the current date changes
   locationSlug?: string | undefined;
   onDateChange?: (date: Date) => void;

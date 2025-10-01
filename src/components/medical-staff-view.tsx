@@ -8,16 +8,11 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
-import type { LocalAppointment } from "../utils/local-appointments";
 
 import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
   dateRange: SchedulingDateRange;
-  localAppointments?: LocalAppointment[];
-  onCreateLocalAppointment?: (
-    appointment: Omit<LocalAppointment, "id" | "isLocal">,
-  ) => void;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
@@ -27,8 +22,6 @@ interface MedicalStaffViewProps {
 
 export function MedicalStaffView({
   dateRange,
-  localAppointments = [],
-  onCreateLocalAppointment,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -43,8 +36,6 @@ export function MedicalStaffView({
     <SidebarProvider>
       <div className="flex h-full w-full">
         <PraxisCalendar
-          localAppointments={localAppointments}
-          {...(onCreateLocalAppointment && { onCreateLocalAppointment })}
           {...(onSlotClick && { onSlotClick })}
           practiceId={practiceId}
           {...(ruleSetId && { ruleSetId })}

@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
+import { useMutation, useQuery } from "convex/react";
 import {
   addDays,
   addMinutes,
@@ -26,7 +26,6 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../types";
-import type { LocalAppointment } from "../utils/local-appointments";
 
 import { api } from "../../convex/_generated/api";
 import { emitCalendarEvent } from "../devtools/event-client";
@@ -43,11 +42,12 @@ interface Appointment {
   convexId?: Id<"appointments">; // Original Convex ID for real appointments
   duration: number; // in minutes
   id: string;
+  isSimulation: boolean;
+  replacesAppointmentId?: Id<"appointments"> | null;
   resource?: {
     appointmentType?: Doc<"appointments">["appointmentType"];
-    isLocal?: boolean;
+    isSimulation?: boolean;
     locationId?: Doc<"appointments">["locationId"];
-    notes?: Doc<"appointments">["notes"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
   };
@@ -74,11 +74,7 @@ const APPOINTMENT_COLORS = [
 // that affect rendering & interactions are considered). This prevents
 // needless state updates that can cascade into re-renders and effects.
 interface NewCalendarProps {
-  localAppointments?: LocalAppointment[];
   locationSlug?: string | undefined;
-  onCreateLocalAppointment?: (
-    appointment: Omit<LocalAppointment, "id" | "isLocal">,
-  ) => void;
   onDateChange?: (date: Date) => void;
   onLocationResolved?: (
     locationId: Id<"locations">,
@@ -93,9 +89,7 @@ interface NewCalendarProps {
 }
 
 export function NewCalendar({
-  localAppointments = [],
   locationSlug,
-  onCreateLocalAppointment,
   onDateChange,
   onLocationResolved,
   onUpdateSimulatedContext,
@@ -183,7 +177,7 @@ export function NewCalendar({
   }, [externalSelectedLocationId, selectedLocationId]);
 
   // Initialize practice
-  const initializePracticeMutation = useConvexMutation(
+  const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
 
@@ -209,30 +203,102 @@ export function NewCalendar({
     void initPractice();
   }, [initializePracticeMutation, propPracticeId]);
 
+  const appointmentScope = simulatedContext ? "simulation" : "real";
+  const appointmentsQueryArgs = useMemo(
+    () => ({ scope: appointmentScope as "all" | "real" | "simulation" }),
+    [appointmentScope],
+  );
+
   // Query data - only run if we have a practice ID
-  const appointmentsData = useConvexQuery(api.appointments.getAppointments);
-  const practitionersData = useConvexQuery(
+  const appointmentsData = useQuery(
+    api.appointments.getAppointments,
+    appointmentsQueryArgs,
+  );
+  const practitionersData = useQuery(
     api.practitioners.getPractitioners,
     practiceId ? { practiceId } : "skip",
   );
-  const baseSchedulesData = useConvexQuery(
+  const baseSchedulesData = useQuery(
     api.baseSchedules.getAllBaseSchedules,
     practiceId ? { practiceId } : "skip",
   );
-  const locationsData = useConvexQuery(
+  const locationsData = useQuery(
     api.locations.getLocations,
     practiceId ? { practiceId } : "skip",
   );
 
   // Mutations
-  const createAppointmentMutation = useConvexMutation(
+  const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
   );
-  const updateAppointmentMutation = useConvexMutation(
+  const updateAppointmentMutation = useMutation(
     api.appointments.updateAppointment,
   );
-  const deleteAppointmentMutation = useConvexMutation(
+  const deleteAppointmentMutation = useMutation(
     api.appointments.deleteAppointment,
+  );
+
+  const runCreateAppointment = useCallback(
+    async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+      return await createAppointmentMutation.withOptimisticUpdate(
+        (localStore, optimisticArgs) => {
+          const existingAppointments = localStore.getQuery(
+            api.appointments.getAppointments,
+            appointmentsQueryArgs,
+          );
+
+          if (!existingAppointments) {
+            return;
+          }
+
+          const now = Date.now();
+          const tempId = globalThis.crypto.randomUUID() as Id<"appointments">;
+
+          const newAppointment: Doc<"appointments"> = {
+            _creationTime: now,
+            _id: tempId,
+            createdAt: BigInt(now),
+            end: optimisticArgs.end,
+            isSimulation: optimisticArgs.isSimulation ?? false,
+            lastModified: BigInt(now),
+            locationId: optimisticArgs.locationId,
+            start: optimisticArgs.start,
+            title: optimisticArgs.title,
+          };
+
+          if (optimisticArgs.practitionerId !== undefined) {
+            newAppointment.practitionerId = optimisticArgs.practitionerId;
+          }
+
+          if (optimisticArgs.patientId !== undefined) {
+            newAppointment.patientId = optimisticArgs.patientId;
+          }
+
+          if (optimisticArgs.appointmentType !== undefined) {
+            newAppointment.appointmentType = optimisticArgs.appointmentType;
+          }
+
+          if (optimisticArgs.replacesAppointmentId !== undefined) {
+            newAppointment.replacesAppointmentId =
+              optimisticArgs.replacesAppointmentId;
+          }
+
+          const baseList =
+            optimisticArgs.replacesAppointmentId === undefined
+              ? existingAppointments
+              : existingAppointments.filter(
+                  (apt) => apt._id !== optimisticArgs.replacesAppointmentId,
+                );
+
+          localStore.setQuery(
+            api.appointments.getAppointments,
+            appointmentsQueryArgs,
+            [...baseList, newAppointment],
+          );
+        },
+      )(args);
+    },
+    [createAppointmentMutation, appointmentsQueryArgs],
   );
 
   // Resolve location slug from URL once locations data is available
@@ -428,10 +494,13 @@ export function NewCalendar({
                 convexId: appointment._id,
                 duration,
                 id: appointment._id,
+                isSimulation: appointment.isSimulation === true,
+                replacesAppointmentId:
+                  appointment.replacesAppointmentId ?? null,
                 resource: {
                   appointmentType: appointment.appointmentType,
+                  isSimulation: appointment.isSimulation === true,
                   locationId: appointment.locationId,
-                  notes: appointment.notes,
                   patientId: appointment.patientId,
                   practitionerId: appointment.practitionerId,
                 },
@@ -443,54 +512,9 @@ export function NewCalendar({
           .filter((apt): apt is Appointment => apt !== null)
       : [];
 
-    const localAppointmentsList: Appointment[] = localAppointments
-      .filter((appointment) => isSameDay(appointment.start, selectedDate))
-      .map((appointment, index): Appointment | null => {
-        const duration = Math.round(
-          (appointment.end.getTime() - appointment.start.getTime()) /
-            (1000 * 60),
-        );
-
-        if (
-          simulatedContext?.locationId &&
-          appointment.locationId !== simulatedContext.locationId
-        ) {
-          return null;
-        }
-        if (
-          !simulatedContext?.locationId &&
-          selectedLocationId &&
-          appointment.locationId !== selectedLocationId
-        ) {
-          return null;
-        }
-
-        return {
-          color:
-            APPOINTMENT_COLORS[
-              (convexAppointments.length + index) % APPOINTMENT_COLORS.length
-            ] ?? "bg-gray-500",
-          column: appointment.practitionerId || "ekg",
-          duration,
-          id: appointment.id,
-          resource: {
-            appointmentType: appointment.appointmentType,
-            isLocal: true,
-            locationId: appointment.locationId,
-            notes: appointment.notes,
-            patientId: appointment.patientId,
-            practitionerId: appointment.practitionerId,
-          },
-          startTime: format(appointment.start, "HH:mm"),
-          title: appointment.title,
-        };
-      })
-      .filter((apt): apt is Appointment => apt !== null);
-
-    return [...convexAppointments, ...localAppointmentsList];
+    return convexAppointments;
   }, [
     appointmentsData,
-    localAppointments,
     selectedDate,
     simulatedContext?.locationId,
     selectedLocationId,
@@ -502,7 +526,7 @@ export function NewCalendar({
     return combinedDerivedAppointments
       .map(
         (a) =>
-          `${a.id}:${a.startTime}:${a.duration}:${a.column}:${a.title}:${a.color}:${a.resource?.practitionerId ?? ""}:${a.resource?.patientId ?? ""}:${a.resource?.locationId ?? ""}:${a.resource?.appointmentType ?? ""}`,
+          `${a.id}:${a.startTime}:${a.duration}:${a.column}:${a.title}:${a.color}:${a.replacesAppointmentId ?? ""}:${a.resource?.practitionerId ?? ""}:${a.resource?.patientId ?? ""}:${a.resource?.locationId ?? ""}:${a.resource?.appointmentType ?? ""}`,
       )
       .join("|");
   }, [combinedDerivedAppointments]);
@@ -751,6 +775,148 @@ export function NewCalendar({
     [appointments, timeToSlot, totalSlots],
   );
 
+  interface SimulationConversionOptions {
+    columnOverride?: string;
+    durationMinutes?: number;
+    endISO?: string;
+    locationId?: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+    startISO?: string;
+    title?: string;
+  }
+
+  const convertRealAppointmentToSimulation = useCallback(
+    async (
+      appointment: Appointment,
+      options: SimulationConversionOptions = {},
+    ): Promise<Appointment | null> => {
+      if (
+        !simulatedContext ||
+        appointment.isSimulation ||
+        !appointment.convexId
+      ) {
+        return appointment;
+      }
+
+      const baseStartDate =
+        options.startISO === undefined
+          ? parse(appointment.startTime, "HH:mm", selectedDate)
+          : new Date(options.startISO);
+
+      if (Number.isNaN(baseStartDate.getTime())) {
+        toast.error("Startzeit konnte nicht ermittelt werden");
+        return null;
+      }
+
+      const startISO = options.startISO ?? baseStartDate.toISOString();
+
+      const baseEndDate =
+        options.endISO === undefined
+          ? addMinutes(baseStartDate, appointment.duration)
+          : new Date(options.endISO);
+
+      if (Number.isNaN(baseEndDate.getTime())) {
+        toast.error("Endzeit konnte nicht ermittelt werden");
+        return null;
+      }
+
+      const endISO = options.endISO ?? baseEndDate.toISOString();
+
+      const practitionerId =
+        options.practitionerId ??
+        (appointment.column !== "ekg" && appointment.column !== "labor"
+          ? (appointment.column as Id<"practitioners">)
+          : appointment.resource?.practitionerId);
+
+      const contextWithLocation = (
+        simulatedContext as undefined | { locationId?: Id<"locations"> }
+      )?.locationId;
+
+      const locationId =
+        options.locationId ??
+        contextWithLocation ??
+        appointment.resource?.locationId ??
+        selectedLocationId;
+
+      const title = options.title ?? appointment.title;
+
+      if (!locationId) {
+        toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+        return null;
+      }
+
+      try {
+        const newId = await runCreateAppointment({
+          end: endISO,
+          isSimulation: true,
+          locationId,
+          ...(appointment.resource?.appointmentType !== undefined && {
+            appointmentType: appointment.resource.appointmentType,
+          }),
+          ...(appointment.resource?.patientId && {
+            patientId: appointment.resource.patientId,
+          }),
+          ...(practitionerId && { practitionerId }),
+          replacesAppointmentId: appointment.convexId,
+          start: startISO,
+          title,
+        });
+
+        const durationMinutes =
+          options.durationMinutes ??
+          Math.max(
+            SLOT_DURATION,
+            Math.round(
+              (new Date(endISO).getTime() - new Date(startISO).getTime()) /
+                60000,
+            ),
+          );
+
+        const updatedAppointment: Appointment = {
+          ...appointment,
+          column: options.columnOverride ?? appointment.column,
+          convexId: newId,
+          duration: durationMinutes,
+          id: newId,
+          isSimulation: true,
+          replacesAppointmentId: appointment.convexId,
+          resource: {
+            ...appointment.resource,
+            isSimulation: true,
+            locationId,
+            practitionerId:
+              practitionerId ?? appointment.resource?.practitionerId,
+          },
+          startTime: format(new Date(startISO), "HH:mm"),
+          title,
+        };
+
+        setAppointments((prev) =>
+          prev.map((apt) =>
+            apt.id === appointment.id ? updatedAppointment : apt,
+          ),
+        );
+
+        return updatedAppointment;
+      } catch (error) {
+        captureErrorGlobal(error, {
+          appointmentId: appointment.convexId,
+          context: "NewCalendar - Failed to create simulated replacement",
+          overrides: options,
+        });
+        toast.error("Simulierter Termin konnte nicht erstellt werden");
+        return null;
+      }
+    },
+    [
+      simulatedContext,
+      runCreateAppointment,
+      selectedDate,
+      selectedLocationId,
+      setAppointments,
+    ],
+  );
+
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, appointment: Appointment) => {
     setDraggedAppointment(appointment);
@@ -875,26 +1041,61 @@ export function NewCalendar({
 
     // Update appointment
     if (draggedAppointment.convexId) {
-      // Real appointment - update in Convex
       const newPractitionerId =
         column !== "ekg" && column !== "labor"
           ? (column as Id<"practitioners">)
           : draggedAppointment.resource?.practitionerId;
 
-      try {
-        await updateAppointmentMutation({
-          end: endDate.toISOString(),
-          id: draggedAppointment.convexId,
-          start: startDate.toISOString(),
+      if (simulatedContext && !draggedAppointment.isSimulation) {
+        await convertRealAppointmentToSimulation(draggedAppointment, {
+          columnOverride: column,
+          durationMinutes: draggedAppointment.duration,
+          endISO: endDate.toISOString(),
           ...(newPractitionerId && { practitionerId: newPractitionerId }),
+          startISO: startDate.toISOString(),
         });
-      } catch (error) {
-        captureErrorGlobal(error, {
-          appointmentId: draggedAppointment.convexId,
-          context: "NewCalendar - Failed to update appointment (drag)",
-        });
-        toast.error("Termin konnte nicht verschoben werden");
-        console.error("Failed to update appointment:", error);
+      } else {
+        try {
+          await updateAppointmentMutation.withOptimisticUpdate(
+            (localStore, args) => {
+              const existingAppointments = localStore.getQuery(
+                api.appointments.getAppointments,
+                appointmentsQueryArgs,
+              );
+              if (existingAppointments) {
+                const updatedAppointments = existingAppointments.map((apt) =>
+                  apt._id === args.id
+                    ? {
+                        ...apt,
+                        ...(args.end && { end: args.end }),
+                        ...(args.start && { start: args.start }),
+                        ...(args.practitionerId && {
+                          practitionerId: args.practitionerId,
+                        }),
+                      }
+                    : apt,
+                );
+                localStore.setQuery(
+                  api.appointments.getAppointments,
+                  appointmentsQueryArgs,
+                  updatedAppointments,
+                );
+              }
+            },
+          )({
+            end: endDate.toISOString(),
+            id: draggedAppointment.convexId,
+            start: startDate.toISOString(),
+            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+          });
+        } catch (error) {
+          captureErrorGlobal(error, {
+            appointmentId: draggedAppointment.convexId,
+            context: "NewCalendar - Failed to update appointment (drag)",
+          });
+          toast.error("Termin konnte nicht verschoben werden");
+          console.error("Failed to update appointment:", error);
+        }
       }
     } else {
       // Local appointment - just update local state
@@ -928,6 +1129,46 @@ export function NewCalendar({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    const targetAppointment = appointments.find(
+      (apt) => apt.id === appointmentId,
+    );
+
+    if (
+      simulatedContext &&
+      targetAppointment &&
+      !targetAppointment.isSimulation &&
+      targetAppointment.convexId
+    ) {
+      void (async () => {
+        const startDate = parse(
+          targetAppointment.startTime,
+          "HH:mm",
+          selectedDate,
+        );
+        if (Number.isNaN(startDate.getTime())) {
+          toast.error("Startzeit konnte nicht ermittelt werden");
+          return;
+        }
+        const endDate = addMinutes(startDate, targetAppointment.duration);
+        const converted = await convertRealAppointmentToSimulation(
+          targetAppointment,
+          {
+            durationMinutes: targetAppointment.duration,
+            endISO: endDate.toISOString(),
+            startISO: startDate.toISOString(),
+          },
+        );
+        if (converted) {
+          setResizing({
+            appointmentId: converted.id,
+            originalDuration: currentDuration,
+            startY: e.clientY,
+          });
+        }
+      })();
+      return;
+    }
+
     setResizing({
       appointmentId,
       originalDuration: currentDuration,
@@ -949,8 +1190,8 @@ export function NewCalendar({
 
       const endDate = addMinutes(startDate, duration);
 
-      if (onCreateLocalAppointment && simulatedContext) {
-        // For simulation mode, create local appointments
+      if (simulatedContext) {
+        // For simulation mode, create simulated appointments in Convex
         if (!simulatedContext.locationId) {
           alert("Bitte wählen Sie zuerst einen Standort aus.");
           return;
@@ -958,7 +1199,7 @@ export function NewCalendar({
 
         openAppointmentDialog({
           description: `Erstellen Sie einen neuen Simulationstermin für ${format(startDate, "HH:mm", { locale: de })}.`,
-          onSubmit: (title) => {
+          onSubmit: async (title) => {
             let practitionerId: Id<"practitioners"> | undefined;
 
             if (column !== "ekg" && column !== "labor") {
@@ -969,18 +1210,69 @@ export function NewCalendar({
             }
 
             if (practitionerId && simulatedContext.locationId) {
-              onCreateLocalAppointment({
-                appointmentType: simulatedContext.appointmentType,
-                end: endDate,
-                locationId: simulatedContext.locationId,
-                notes: `Lokaler Simulationstermin${column === "ekg" ? " (EKG)" : column === "labor" ? " (Labor)" : ""}`,
-                practitionerId,
-                start: startDate,
-                title,
-              });
+              try {
+                await createAppointmentMutation.withOptimisticUpdate(
+                  (localStore, args) => {
+                    const existingAppointments = localStore.getQuery(
+                      api.appointments.getAppointments,
+                      appointmentsQueryArgs,
+                    );
+                    if (existingAppointments) {
+                      const now = Date.now();
+                      const tempId =
+                        globalThis.crypto.randomUUID() as Id<"appointments">;
+                      const newAppointment: Doc<"appointments"> = {
+                        _creationTime: now,
+                        _id: tempId,
+                        createdAt: BigInt(now),
+                        end: args.end,
+                        isSimulation: true,
+                        lastModified: BigInt(now),
+                        locationId: args.locationId,
+                        start: args.start,
+                        title: args.title,
+                        ...(args.practitionerId !== undefined && {
+                          practitionerId: args.practitionerId,
+                        }),
+                        ...(args.patientId !== undefined && {
+                          patientId: args.patientId,
+                        }),
+                        ...(args.appointmentType !== undefined && {
+                          appointmentType: args.appointmentType,
+                        }),
+                      };
+                      localStore.setQuery(
+                        api.appointments.getAppointments,
+                        appointmentsQueryArgs,
+                        [...existingAppointments, newAppointment],
+                      );
+                    }
+                  },
+                )({
+                  appointmentType: simulatedContext.appointmentType,
+                  end: endDate.toISOString(),
+                  isSimulation: true,
+                  locationId: simulatedContext.locationId,
+                  practitionerId,
+                  start: startDate.toISOString(),
+                  title,
+                });
+                toast.success("Simulationstermin erstellt");
+              } catch (error) {
+                captureErrorGlobal(error, {
+                  context:
+                    "NewCalendar - Failed to create simulation appointment",
+                  title,
+                });
+                toast.error("Simulationstermin konnte nicht erstellt werden");
+                console.error(
+                  "Failed to create simulation appointment:",
+                  error,
+                );
+              }
             }
           },
-          title: "Neuer lokaler Termin",
+          title: "Neuer Simulationstermin",
           type: "create",
         });
       } else {
@@ -998,11 +1290,23 @@ export function NewCalendar({
             }
 
             try {
-              await createAppointmentMutation({
+              const targetLocationId =
+                (
+                  simulatedContext as
+                    | undefined
+                    | { locationId?: Id<"locations"> }
+                )?.locationId ?? selectedLocationId;
+
+              if (!targetLocationId) {
+                toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+                return;
+              }
+              await runCreateAppointment({
                 end: endDate.toISOString(),
+                isSimulation: false,
+                locationId: targetLocationId,
                 start: startDate.toISOString(),
                 title,
-                ...(selectedLocationId && { locationId: selectedLocationId }),
                 ...(practitionerId && { practitionerId }),
               });
               toast.success("Termin erstellt");
@@ -1024,44 +1328,113 @@ export function NewCalendar({
 
   // Edit appointment
   const handleEditAppointment = (appointment: Appointment) => {
-    if (appointment.resource?.isLocal) {
-      return; // Skip local appointments for now
-    }
+    const openEditDialog = (target: Appointment) => {
+      openAppointmentDialog({
+        defaultTitle: target.title,
+        description: `Bearbeiten Sie den Termin "${target.title}".`,
+        onSubmit: async (newTitle) => {
+          if (newTitle === target.title) {
+            return;
+          }
 
-    openAppointmentDialog({
-      defaultTitle: appointment.title,
-      description: `Bearbeiten Sie den Termin "${appointment.title}".`,
-      onSubmit: async (newTitle) => {
-        if (newTitle !== appointment.title && appointment.convexId) {
+          const convexId = target.convexId;
+          if (convexId === undefined) {
+            return;
+          }
+
           try {
-            await updateAppointmentMutation({
-              id: appointment.convexId,
+            await updateAppointmentMutation.withOptimisticUpdate(
+              (localStore, args) => {
+                const existingAppointments = localStore.getQuery(
+                  api.appointments.getAppointments,
+                  appointmentsQueryArgs,
+                );
+                if (existingAppointments) {
+                  const updatedAppointments = existingAppointments.map((apt) =>
+                    apt._id === args.id && args.title
+                      ? { ...apt, title: args.title }
+                      : apt,
+                  );
+                  localStore.setQuery(
+                    api.appointments.getAppointments,
+                    appointmentsQueryArgs,
+                    updatedAppointments,
+                  );
+                }
+              },
+            )({
+              id: convexId,
               title: newTitle,
             });
             toast.success("Termin aktualisiert");
           } catch (error) {
             captureErrorGlobal(error, {
-              appointmentId: appointment.convexId,
+              appointmentId: convexId,
               context: "NewCalendar - Failed to update appointment title",
             });
             toast.error("Termin konnte nicht aktualisiert werden");
             console.error("Failed to update appointment:", error);
           }
+        },
+        title: "Termin bearbeiten",
+        type: "edit",
+      });
+    };
+
+    if (simulatedContext && !appointment.isSimulation) {
+      if (appointment.convexId === undefined) {
+        openEditDialog(appointment);
+        return;
+      }
+
+      void (async () => {
+        const startDate = parse(appointment.startTime, "HH:mm", selectedDate);
+        if (Number.isNaN(startDate.getTime())) {
+          toast.error("Startzeit konnte nicht ermittelt werden");
+          return;
         }
-      },
-      title: "Termin bearbeiten",
-      type: "edit",
-    });
+
+        const endDate = addMinutes(startDate, appointment.duration);
+        const converted = await convertRealAppointmentToSimulation(
+          appointment,
+          {
+            endISO: endDate.toISOString(),
+            startISO: startDate.toISOString(),
+            title: appointment.title,
+          },
+        );
+
+        if (converted) {
+          openEditDialog(converted);
+        }
+      })();
+      return;
+    }
+
+    openEditDialog(appointment);
   };
 
   // Delete appointment
   const handleDeleteAppointment = (appointment: Appointment) => {
-    if (appointment.resource?.isLocal) {
-      return; // Skip local appointments for now
-    }
-
     if (appointment.convexId && confirm("Termin löschen?")) {
-      void deleteAppointmentMutation({
+      void deleteAppointmentMutation.withOptimisticUpdate(
+        (localStore, args) => {
+          const existingAppointments = localStore.getQuery(
+            api.appointments.getAppointments,
+            appointmentsQueryArgs,
+          );
+          if (existingAppointments) {
+            const updatedAppointments = existingAppointments.filter(
+              (apt) => apt._id !== args.id,
+            );
+            localStore.setQuery(
+              api.appointments.getAppointments,
+              appointmentsQueryArgs,
+              updatedAppointments,
+            );
+          }
+        },
+      )({
         id: appointment.convexId,
       });
     }
@@ -1138,6 +1511,7 @@ export function NewCalendar({
             <div
               className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
               onMouseDown={(e) => {
+                e.stopPropagation(); // Prevent triggering the parent onClick (edit dialog)
                 handleResizeStart(e, appointment.id, appointment.duration);
               }}
             >
@@ -1228,7 +1602,11 @@ export function NewCalendar({
             ),
           );
 
-          if (appointment.convexId) {
+          const convexId = appointment.convexId;
+          if (convexId !== undefined) {
+            if (simulatedContext && !appointment.isSimulation) {
+              return;
+            }
             // Real appointment - also update in Convex
             const startDate = parse(
               appointment.startTime,
@@ -1239,11 +1617,30 @@ export function NewCalendar({
               return;
             }
             const endDate = addMinutes(startDate, newDuration);
-            const convexId = appointment.convexId; // Capture for closure
 
             void (async () => {
               try {
-                await updateAppointmentMutation({
+                await updateAppointmentMutation.withOptimisticUpdate(
+                  (localStore, args) => {
+                    const existingAppointments = localStore.getQuery(
+                      api.appointments.getAppointments,
+                      appointmentsQueryArgs,
+                    );
+                    if (existingAppointments) {
+                      const updatedAppointments = existingAppointments.map(
+                        (apt) =>
+                          apt._id === args.id && args.end
+                            ? { ...apt, end: args.end }
+                            : apt,
+                      );
+                      localStore.setQuery(
+                        api.appointments.getAppointments,
+                        appointmentsQueryArgs,
+                        updatedAppointments,
+                      );
+                    }
+                  },
+                )({
                   end: endDate.toISOString(),
                   id: convexId,
                 });
@@ -1282,8 +1679,10 @@ export function NewCalendar({
     appointments,
     timeToSlot,
     checkCollision,
+    appointmentsQueryArgs,
     updateAppointmentMutation,
     selectedDate,
+    simulatedContext,
   ]);
 
   // Cleanup auto scroll interval on unmount
@@ -1529,10 +1928,13 @@ function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
       A.column !== B.column ||
       A.title !== B.title ||
       A.color !== B.color ||
+      A.isSimulation !== B.isSimulation ||
+      A.replacesAppointmentId !== B.replacesAppointmentId ||
       A.resource?.practitionerId !== B.resource?.practitionerId ||
       A.resource?.patientId !== B.resource?.patientId ||
       A.resource?.locationId !== B.resource?.locationId ||
-      A.resource?.appointmentType !== B.resource?.appointmentType
+      A.resource?.appointmentType !== B.resource?.appointmentType ||
+      A.resource?.isSimulation !== B.resource?.isSimulation
     ) {
       return false;
     }
