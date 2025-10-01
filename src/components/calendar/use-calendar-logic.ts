@@ -476,13 +476,7 @@ export function useCalendarLogic({
     }
 
     prevHashRef.current = appointmentsHash;
-
-    setAppointments((prev) => {
-      if (areAppointmentsEqual(prev, combinedDerivedAppointments)) {
-        return prev;
-      }
-      return combinedDerivedAppointments;
-    });
+    setAppointments(combinedDerivedAppointments);
   }, [appointmentsHash, combinedDerivedAppointments]);
 
   // Track appointment changes for devtools
@@ -1549,39 +1543,4 @@ export function useCalendarLogic({
     totalSlots,
     workingPractitioners,
   };
-}
-
-function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
-  if (a === b) {
-    return true;
-  }
-  const len = a.length;
-  if (len !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < len; i++) {
-    const A = a[i];
-    const B = b[i];
-    if (!A || !B) {
-      return false;
-    }
-    if (
-      A.id !== B.id ||
-      A.startTime !== B.startTime ||
-      A.duration !== B.duration ||
-      A.column !== B.column ||
-      A.title !== B.title ||
-      A.color !== B.color ||
-      A.isSimulation !== B.isSimulation ||
-      A.replacesAppointmentId !== B.replacesAppointmentId ||
-      A.resource?.practitionerId !== B.resource?.practitionerId ||
-      A.resource?.patientId !== B.resource?.patientId ||
-      A.resource?.locationId !== B.resource?.locationId ||
-      A.resource?.appointmentType !== B.resource?.appointmentType ||
-      A.resource?.isSimulation !== B.resource?.isSimulation
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
