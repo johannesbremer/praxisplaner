@@ -33,6 +33,11 @@ export function CalendarAppointment({
   const height = (appointment.duration / slotDuration) * 16;
   const top = startSlot * 16;
 
+  // Calculate number of slots
+  const slots = appointment.duration / slotDuration;
+  const isSingleSlot = slots === 1; // 5 minutes
+  const isTwoSlotsOrLess = slots <= 2; // 10 minutes or less
+
   return (
     <div
       className={`absolute left-1 right-1 ${appointment.color} text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
@@ -57,22 +62,34 @@ export function CalendarAppointment({
         } as React.CSSProperties
       }
     >
-      <div className="p-1 h-full flex flex-col justify-between pb-2">
-        <div>
+      <div
+        className={`h-full flex ${isTwoSlotsOrLess ? "flex-row items-center gap-1" : "flex-col justify-between pb-2"} ${isSingleSlot ? "px-0.5 py-0" : "p-1"}`}
+      >
+        <div
+          className={
+            isTwoSlotsOrLess ? "flex items-center gap-1 flex-1 min-w-0" : ""
+          }
+        >
           <div className="font-medium truncate">{appointment.title}</div>
-          <div className="text-xs opacity-90">{appointment.startTime}</div>
+          <div
+            className={`text-xs opacity-90 ${isTwoSlotsOrLess ? "whitespace-nowrap" : ""}`}
+          >
+            {appointment.startTime}
+          </div>
         </div>
       </div>
 
-      <div
-        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          onResizeStart(e, appointment.id, appointment.duration);
-        }}
-      >
-        <div className="w-8 h-0.5 bg-white/60 rounded" />
-      </div>
+      {!isSingleSlot && (
+        <div
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, appointment.id, appointment.duration);
+          }}
+        >
+          <div className="w-8 h-0.5 bg-white/60 rounded" />
+        </div>
+      )}
     </div>
   );
 }

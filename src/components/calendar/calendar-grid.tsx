@@ -143,19 +143,23 @@ export function CalendarGrid({
               void onDrop(e, column.id);
             }}
           >
-            {Array.from({ length: totalSlots }, (_, i) => (
-              <div
-                className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
-                key={i}
-                onClick={() => {
-                  onAddAppointment(column.id, i);
-                }}
-              >
-                <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
-                  <Plus className="h-3 w-3 text-muted-foreground" />
+            {Array.from({ length: totalSlots }, (_, i) => {
+              const isHour = i % 12 === 0;
+              const isHalfHour = i % 6 === 0 && !isHour;
+              return (
+                <div
+                  className={`h-4 hover:bg-muted/50 cursor-pointer group ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
+                  key={i}
+                  onClick={() => {
+                    onAddAppointment(column.id, i);
+                  }}
+                >
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
+                    <Plus className="h-3 w-3 text-muted-foreground" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {currentTimeSlot >= 0 && (
               <div

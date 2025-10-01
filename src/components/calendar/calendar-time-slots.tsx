@@ -12,21 +12,21 @@ export function CalendarTimeSlots({
   const renderTimeSlots = () => {
     const slots = [];
     for (let i = 0; i < totalSlots; i++) {
-      const time = slotToTime(i);
       const isHour = i % 12 === 0;
+      const isHalfHour = i % 6 === 0 && !isHour;
+      const isNextHour = (i + 1) % 12 === 0;
+      const nextTime = isNextHour ? slotToTime(i + 1) : null;
 
       slots.push(
         <div
-          className={`border-b border-border/30 ${isHour ? "border-border" : ""}`}
+          className={`h-4 flex items-center ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
           key={i}
         >
-          <div className="h-4 flex items-center">
-            {isHour && (
-              <span className="text-xs text-muted-foreground w-16 pr-2 text-right">
-                {time}
-              </span>
-            )}
-          </div>
+          {nextTime && (
+            <span className="text-xs text-muted-foreground w-16 pr-2 text-right">
+              {nextTime}
+            </span>
+          )}
         </div>,
       );
     }

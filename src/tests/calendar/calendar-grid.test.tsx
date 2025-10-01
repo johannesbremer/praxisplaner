@@ -117,12 +117,13 @@ describe("CalendarGrid", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       // Each column should have totalSlots slots
-      const slotsInFirstColumn = container.querySelectorAll(
-        String.raw`.border-b.border-border\/30`,
-      );
+      // All slots have h-4 class, but we need to exclude the time column
+      // The time column also has h-4 slots, so we count all and divide by (columns + 1)
+      const allSlots = container.querySelectorAll(".h-4");
 
-      // Verify slots exist
-      expect(slotsInFirstColumn.length).toBeGreaterThan(0);
+      // Total should be totalSlots * (columns + 1 for time column)
+      // But we can also just check that we have slots
+      expect(allSlots.length).toBeGreaterThan(0);
     });
 
     test("renders with no appointments", () => {

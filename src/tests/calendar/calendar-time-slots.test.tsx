@@ -37,10 +37,11 @@ describe("CalendarTimeSlots", () => {
   test("displays hour labels at correct intervals", () => {
     render(<CalendarTimeSlots {...defaultProps} />);
 
-    // Hours should be displayed at every 12th slot (0, 12, 24, etc.)
-    expect(screen.getByText("00:00")).toBeInTheDocument();
+    // Hours are displayed one row before the hour marker (at i where i+1 % 12 === 0)
+    // So 01:00 appears at slot 11, 02:00 at slot 23, 03:00 at slot 35, etc.
     expect(screen.getByText("01:00")).toBeInTheDocument();
     expect(screen.getByText("02:00")).toBeInTheDocument();
+    expect(screen.getByText("03:00")).toBeInTheDocument();
   });
 
   test("does not display time labels for non-hour slots", () => {
@@ -54,14 +55,19 @@ describe("CalendarTimeSlots", () => {
   test("applies stronger border to hour slots", () => {
     const { container } = render(<CalendarTimeSlots {...defaultProps} />);
 
-    // First slot (hour marker) should have border-border class
-    const slots = container.querySelectorAll(".border-b");
-    const firstSlot = slots[0];
-    expect(firstSlot).toHaveClass("border-border");
+    // Select slots from within the relative container (excluding the header)
+    const timeColumn = container.querySelector(".relative");
+    const slots = timeColumn?.querySelectorAll(".border-b");
 
-    // Non-hour slot should have border-border/30 class
-    const secondSlot = slots[1];
-    expect(secondSlot).toHaveClass("border-border/30");
+    // First slot (hour marker at slot 0) should have border-t-2 for the top border
+    const firstSlot = slots?.[0];
+    expect(firstSlot).toHaveClass("border-t-2", "border-t-border");
+
+    // Non-hour, non-half-hour slot should have only bottom border with 30% opacity
+    const secondSlot = slots?.[1];
+    expect(secondSlot).toHaveClass("border-b-border/30");
+    expect(secondSlot).not.toHaveClass("border-t-2");
+    expect(secondSlot).not.toHaveClass("border-t");
   });
 
   test("renders current time indicator when currentTimeSlot is valid", () => {
@@ -118,12 +124,14 @@ describe("CalendarTimeSlots", () => {
     expect(timeColumn).toHaveClass("sticky", "left-0");
   });
 
-  test("calls slotToTime for each hour slot", () => {
+  test("calls slotToTime for hour labels", () => {
     mockSlotToTime.mockClear();
     render(<CalendarTimeSlots {...defaultProps} />);
 
-    // Should be called for every slot to determine the time
-    expect(mockSlotToTime).toHaveBeenCalledTimes(defaultProps.totalSlots);
+    // slotToTime is now only called for slots where (i + 1) % 12 === 0
+    // This happens 12 times for 144 slots (every 12th slot, offset by 1)
+    // Slots 11, 23, 35, 47, 59, 71, 83, 95, 107, 119, 131, 143
+    expect(mockSlotToTime).toHaveBeenCalledTimes(12);
   });
 
   test("handles zero totalSlots gracefully", () => {
