@@ -3,7 +3,17 @@
 import type React from "react";
 
 import { useConvexMutation, useConvexQuery } from "@convex-dev/react-query";
-import { addDays, format, isSameDay, isToday, parseISO } from "date-fns";
+import {
+  addDays,
+  addMinutes,
+  differenceInMinutes,
+  format,
+  isSameDay,
+  isToday,
+  parse,
+  parseISO,
+  startOfDay,
+} from "date-fns";
 import { de } from "date-fns/locale";
 import { AlertCircle, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -270,8 +280,11 @@ export function NewCalendar({
 
   // Helper function to convert time string to minutes
   const timeToMinutes = useCallback((timeStr: string): number => {
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    return (hours ?? 0) * 60 + (minutes ?? 0);
+    const parsed = parse(timeStr, "HH:mm", new Date(0));
+    if (Number.isNaN(parsed.getTime())) {
+      return 0;
+    }
+    return differenceInMinutes(parsed, startOfDay(parsed));
   }, []);
 
   // Calculate working practitioners for current date and dynamic business hours
@@ -586,22 +599,23 @@ export function NewCalendar({
   // Helper functions
   const timeToSlot = useCallback(
     (time: string) => {
-      const [hours, minutes] = time.split(":").map(Number);
-      const totalMinutes =
-        ((hours ?? 0) - businessStartHour) * 60 + (minutes ?? 0);
-      return Math.floor(totalMinutes / SLOT_DURATION);
+      const minutesFromMidnight = timeToMinutes(time);
+      const minutesFromStart = minutesFromMidnight - businessStartHour * 60;
+      return Math.floor(minutesFromStart / SLOT_DURATION);
     },
-    [businessStartHour],
+    [businessStartHour, timeToMinutes],
   );
 
   const slotToTime = useCallback(
     (slot: number) => {
-      const totalMinutes = slot * SLOT_DURATION;
-      const hours = Math.floor(totalMinutes / 60) + businessStartHour;
-      const minutes = totalMinutes % 60;
-      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+      const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+      const dateForSlot = addMinutes(
+        startOfDay(selectedDate),
+        minutesFromStart,
+      );
+      return format(dateForSlot, "HH:mm");
     },
-    [businessStartHour],
+    [businessStartHour, selectedDate],
   );
 
   const getCurrentTimeSlot = useCallback(() => {
@@ -609,20 +623,27 @@ export function NewCalendar({
       return -1;
     }
 
-    const hours = currentTime.getHours();
-    const minutes = currentTime.getMinutes();
+    const minutesFromMidnight = differenceInMinutes(
+      currentTime,
+      startOfDay(currentTime),
+    );
+    const minutesFromStart = minutesFromMidnight - businessStartHour * 60;
+    const totalBusinessMinutes = (businessEndHour - businessStartHour) * 60;
 
-    if (hours < businessStartHour || hours >= businessEndHour) {
+    if (
+      minutesFromStart < 0 ||
+      minutesFromStart >= totalBusinessMinutes ||
+      Number.isNaN(minutesFromStart)
+    ) {
       return -1;
     }
 
-    const totalMinutes = (hours - businessStartHour) * 60 + minutes;
-    return totalMinutes / SLOT_DURATION;
+    return minutesFromStart / SLOT_DURATION;
   }, [
+    businessEndHour,
+    businessStartHour,
     currentTime,
     selectedDate,
-    businessStartHour,
-    businessEndHour,
     totalSlots,
   ]);
 
@@ -838,13 +859,14 @@ export function NewCalendar({
     const newTime = slotToTime(finalSlot);
 
     // Calculate new end time based on duration
-    const startDate = new Date(selectedDate);
-    const [hours, minutes] = newTime.split(":").map(Number);
-    startDate.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+    const startDate = parse(newTime, "HH:mm", selectedDate);
+    if (Number.isNaN(startDate.getTime())) {
+      setDraggedAppointment(null);
+      setDragPreview({ column: "", slot: 0, visible: false });
+      return;
+    }
 
-    const endDate = new Date(
-      startDate.getTime() + draggedAppointment.duration * 60 * 1000,
-    );
+    const endDate = addMinutes(startDate, draggedAppointment.duration);
 
     // Update appointment
     if (draggedAppointment.convexId) {
@@ -915,12 +937,12 @@ export function NewCalendar({
 
     if (duration >= SLOT_DURATION) {
       const startTime = slotToTime(slot);
-      const [hours, minutes] = startTime.split(":").map(Number);
+      const startDate = parse(startTime, "HH:mm", selectedDate);
+      if (Number.isNaN(startDate.getTime())) {
+        return;
+      }
 
-      const startDate = new Date(selectedDate);
-      startDate.setHours(hours ?? 0, minutes ?? 0, 0, 0);
-
-      const endDate = new Date(startDate.getTime() + duration * 60 * 1000);
+      const endDate = addMinutes(startDate, duration);
 
       if (onCreateLocalAppointment && simulatedContext) {
         // For simulation mode, create local appointments
@@ -1184,14 +1206,15 @@ export function NewCalendar({
         ) {
           if (appointment.convexId) {
             // Real appointment - calculate new end time and update in Convex
-            const startDate = new Date(selectedDate);
-            const [hours, minutes] = appointment.startTime
-              .split(":")
-              .map(Number);
-            startDate.setHours(hours ?? 0, minutes ?? 0, 0, 0);
-            const endDate = new Date(
-              startDate.getTime() + newDuration * 60 * 1000,
+            const startDate = parse(
+              appointment.startTime,
+              "HH:mm",
+              selectedDate,
             );
+            if (Number.isNaN(startDate.getTime())) {
+              return;
+            }
+            const endDate = addMinutes(startDate, newDuration);
             const convexId = appointment.convexId; // Capture for closure
 
             void (async () => {
