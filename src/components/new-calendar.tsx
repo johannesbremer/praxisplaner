@@ -129,19 +129,6 @@ export function NewCalendar({
   const effectCountersRef = useRef<Record<string, number>>({});
   renderCountRef.current += 1;
 
-  // Track effect executions (called from useEffect hooks)
-  function trackEffect(name: string) {
-    if (!import.meta.env.DEV) {
-      return;
-    }
-    const map = effectCountersRef.current;
-    map[name] = (map[name] ?? 0) + 1;
-    emitCalendarEvent("custom-devtools:calendar-effect", {
-      count: map[name],
-      name,
-    });
-  }
-
   // Emit devtools events after render (in useEffect)
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -168,7 +155,15 @@ export function NewCalendar({
   useEffect(() => {
     if (externalSelectedLocationId) {
       setSelectedLocationId(externalSelectedLocationId);
-      trackEffect("externalLocationSync");
+      if (import.meta.env.DEV) {
+        const map = effectCountersRef.current;
+        const name = "externalLocationSync";
+        map[name] = (map[name] ?? 0) + 1;
+        emitCalendarEvent("custom-devtools:calendar-effect", {
+          count: map[name],
+          name,
+        });
+      }
     }
   }, [externalSelectedLocationId]);
 
@@ -501,7 +496,15 @@ export function NewCalendar({
   // potential feedback loop where upstream query hooks emit new array
   // references each render even when the logical data is unchanged.
   useEffect(() => {
-    trackEffect("appointmentsSync");
+    if (import.meta.env.DEV) {
+      const map = effectCountersRef.current;
+      const name = "appointmentsSync";
+      map[name] = (map[name] ?? 0) + 1;
+      emitCalendarEvent("custom-devtools:calendar-effect", {
+        count: map[name],
+        name,
+      });
+    }
 
     // Quick hash comparison first - O(1) instead of O(n)
     if (prevHashRef.current === appointmentsHash) {
