@@ -76,6 +76,8 @@ export function CalendarSidebar() {
           <SidebarGroupContent className="flex items-center justify-center">
             <Calendar
               className="rounded-md border-0"
+              disabled={{ dayOfWeek: [0, 6] }}
+              locale={de}
               mode="single"
               onSelect={(date) => {
                 if (date) {
@@ -83,6 +85,7 @@ export function CalendarSidebar() {
                 }
               }}
               selected={selectedDate}
+              weekStartsOn={1}
             />
           </SidebarGroupContent>
         </SidebarGroup>
