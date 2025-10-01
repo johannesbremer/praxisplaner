@@ -32,6 +32,7 @@ import { api } from "../../convex/_generated/api";
 import { emitCalendarEvent } from "../devtools/event-client";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { slugify } from "../utils/slug";
+import { useAppointmentDialog } from "./appointment-dialog";
 import { CalendarProvider } from "./calendar-context";
 import { CalendarSidebar } from "./calendar-sidebar";
 
@@ -132,6 +133,7 @@ export function NewCalendar({
   const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
   // --- Devtools Instrumentation ---
   const mountTimeRef = useRef<number>(Date.now());
   const lastRenderRef = useRef<number>(mountTimeRef.current);
@@ -933,7 +935,7 @@ export function NewCalendar({
     });
   };
 
-  const addAppointment = async (column: string, slot: number) => {
+  const addAppointment = (column: string, slot: number) => {
     const defaultDuration = 30;
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
     const duration = Math.min(defaultDuration, maxAvailableDuration);
@@ -954,91 +956,102 @@ export function NewCalendar({
           return;
         }
 
-        const title = globalThis.prompt("Neuer lokaler Termin:");
-        if (title) {
-          let practitionerId: Id<"practitioners"> | undefined;
+        openAppointmentDialog({
+          description: `Erstellen Sie einen neuen Simulationstermin für ${format(startDate, "HH:mm", { locale: de })}.`,
+          onSubmit: (title) => {
+            let practitionerId: Id<"practitioners"> | undefined;
 
-          if (column !== "ekg" && column !== "labor") {
-            practitionerId = column as Id<"practitioners">;
-          } else {
-            const practitioner = workingPractitioners[0];
-            practitionerId = practitioner?.id;
-          }
+            if (column !== "ekg" && column !== "labor") {
+              practitionerId = column as Id<"practitioners">;
+            } else {
+              const practitioner = workingPractitioners[0];
+              practitionerId = practitioner?.id;
+            }
 
-          if (practitionerId) {
-            onCreateLocalAppointment({
-              appointmentType: simulatedContext.appointmentType,
-              end: endDate,
-              locationId: simulatedContext.locationId,
-              notes: `Lokaler Simulationstermin${column === "ekg" ? " (EKG)" : column === "labor" ? " (Labor)" : ""}`,
-              practitionerId,
-              start: startDate,
-              title,
-            });
-          }
-        }
+            if (practitionerId && simulatedContext.locationId) {
+              onCreateLocalAppointment({
+                appointmentType: simulatedContext.appointmentType,
+                end: endDate,
+                locationId: simulatedContext.locationId,
+                notes: `Lokaler Simulationstermin${column === "ekg" ? " (EKG)" : column === "labor" ? " (Labor)" : ""}`,
+                practitionerId,
+                start: startDate,
+                title,
+              });
+            }
+          },
+          title: "Neuer lokaler Termin",
+          type: "create",
+        });
       } else {
         // For regular mode, create real appointments
-        const title = globalThis.prompt("Neuer Termin:");
-        if (title) {
-          let practitionerId: Id<"practitioners"> | undefined;
+        openAppointmentDialog({
+          description: `Erstellen Sie einen neuen Termin für ${format(startDate, "HH:mm", { locale: de })}.`,
+          onSubmit: async (title) => {
+            let practitionerId: Id<"practitioners"> | undefined;
 
-          if (column !== "ekg" && column !== "labor") {
-            practitionerId = column as Id<"practitioners">;
-          } else {
-            const practitioner = workingPractitioners[0];
-            practitionerId = practitioner?.id;
-          }
+            if (column !== "ekg" && column !== "labor") {
+              practitionerId = column as Id<"practitioners">;
+            } else {
+              const practitioner = workingPractitioners[0];
+              practitionerId = practitioner?.id;
+            }
 
-          try {
-            await createAppointmentMutation({
-              end: endDate.toISOString(),
-              start: startDate.toISOString(),
-              title,
-              ...(selectedLocationId && { locationId: selectedLocationId }),
-              ...(practitionerId && { practitionerId }),
-            });
-            toast.success("Termin erstellt");
-          } catch (error) {
-            captureErrorGlobal(error, {
-              context: "NewCalendar - Failed to create appointment",
-              title,
-            });
-            toast.error("Termin konnte nicht erstellt werden");
-            console.error("Failed to create appointment:", error);
-          }
-        }
+            try {
+              await createAppointmentMutation({
+                end: endDate.toISOString(),
+                start: startDate.toISOString(),
+                title,
+                ...(selectedLocationId && { locationId: selectedLocationId }),
+                ...(practitionerId && { practitionerId }),
+              });
+              toast.success("Termin erstellt");
+            } catch (error) {
+              captureErrorGlobal(error, {
+                context: "NewCalendar - Failed to create appointment",
+                title,
+              });
+              toast.error("Termin konnte nicht erstellt werden");
+              console.error("Failed to create appointment:", error);
+            }
+          },
+          title: "Neuer Termin",
+          type: "create",
+        });
       }
     }
   };
 
   // Edit appointment
-  const handleEditAppointment = async (appointment: Appointment) => {
+  const handleEditAppointment = (appointment: Appointment) => {
     if (appointment.resource?.isLocal) {
       return; // Skip local appointments for now
     }
 
-    const newTitle = globalThis.prompt("Termin bearbeiten:", appointment.title);
-    if (
-      newTitle !== null &&
-      newTitle !== appointment.title &&
-      appointment.convexId
-    ) {
-      try {
-        await updateAppointmentMutation({
-          id: appointment.convexId,
-          title: newTitle,
-        });
-        toast.success("Termin aktualisiert");
-      } catch (error) {
-        captureErrorGlobal(error, {
-          appointmentId: appointment.convexId,
-          context: "NewCalendar - Failed to update appointment title",
-        });
-        toast.error("Termin konnte nicht aktualisiert werden");
-        console.error("Failed to update appointment:", error);
-      }
-    }
+    openAppointmentDialog({
+      defaultTitle: appointment.title,
+      description: `Bearbeiten Sie den Termin "${appointment.title}".`,
+      onSubmit: async (newTitle) => {
+        if (newTitle !== appointment.title && appointment.convexId) {
+          try {
+            await updateAppointmentMutation({
+              id: appointment.convexId,
+              title: newTitle,
+            });
+            toast.success("Termin aktualisiert");
+          } catch (error) {
+            captureErrorGlobal(error, {
+              appointmentId: appointment.convexId,
+              context: "NewCalendar - Failed to update appointment title",
+            });
+            toast.error("Termin konnte nicht aktualisiert werden");
+            console.error("Failed to update appointment:", error);
+          }
+        }
+      },
+      title: "Termin bearbeiten",
+      type: "edit",
+    });
   };
 
   // Delete appointment
@@ -1096,7 +1109,7 @@ export function NewCalendar({
             draggable
             key={appointment.id}
             onClick={() => {
-              void handleEditAppointment(appointment);
+              handleEditAppointment(appointment);
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -1206,8 +1219,17 @@ export function NewCalendar({
             appointment.id,
           )
         ) {
+          // Always optimistically update local state first
+          setAppointments((prev) =>
+            prev.map((apt) =>
+              apt.id === resizing.appointmentId
+                ? { ...apt, duration: newDuration }
+                : apt,
+            ),
+          );
+
           if (appointment.convexId) {
-            // Real appointment - calculate new end time and update in Convex
+            // Real appointment - also update in Convex
             const startDate = parse(
               appointment.startTime,
               "HH:mm",
@@ -1233,17 +1255,10 @@ export function NewCalendar({
                 });
                 toast.error("Termin-Dauer konnte nicht aktualisiert werden");
                 console.error("Failed to update appointment duration:", error);
+                // Revert optimistic update on error by forcing a refresh
+                setAppointments((prev) => [...prev]);
               }
             })();
-          } else {
-            // Local appointment - update local state
-            setAppointments((prev) =>
-              prev.map((apt) =>
-                apt.id === resizing.appointmentId
-                  ? { ...apt, duration: newDuration }
-                  : apt,
-              ),
-            );
           }
         }
       }
@@ -1450,7 +1465,7 @@ export function NewCalendar({
                           className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
                           key={i}
                           onClick={() => {
-                            void addAppointment(column.id, i);
+                            addAppointment(column.id, i);
                           }}
                         >
                           <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
@@ -1482,6 +1497,7 @@ export function NewCalendar({
           </div>
         </div>
       </div>
+      {Dialog}
     </CalendarProvider>
   );
 }
