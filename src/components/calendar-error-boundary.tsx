@@ -62,12 +62,6 @@ export class CalendarErrorBoundary extends Component<Props, State> {
 
     // Call optional error handler
     this.props.onError?.(error, errorInfo);
-
-    // Log to console in development
-    if (import.meta.env.DEV) {
-      console.error("Calendar Error Boundary caught an error:", error);
-      console.error("Component Stack:", errorInfo.componentStack);
-    }
   }
 
   handleReload = (): void => {

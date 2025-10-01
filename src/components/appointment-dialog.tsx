@@ -15,6 +15,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { captureErrorGlobal } from "../utils/error-tracking";
+
 interface AppointmentDialogProps {
   defaultTitle?: string;
   description?: string;
@@ -51,7 +53,10 @@ export function AppointmentDialog({
       } catch (error) {
         // Error is already handled by the caller (toast + logging)
         // Just prevent dialog from closing
-        console.error("Dialog onSubmit error:", error);
+        captureErrorGlobal(error, {
+          context: "AppointmentDialog - onSubmit error",
+          title: value.title,
+        });
       }
     },
   });

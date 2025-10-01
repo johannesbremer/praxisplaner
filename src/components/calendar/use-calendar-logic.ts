@@ -133,7 +133,6 @@ export function useCalendarLogic({
           context: "NewCalendar - Failed to initialize practice",
           propPracticeId,
         });
-        console.error("Failed to initialize practice:", error);
       }
     };
 
@@ -1011,7 +1010,6 @@ export function useCalendarLogic({
             context: "NewCalendar - Failed to update appointment (drag)",
           });
           toast.error("Termin konnte nicht verschoben werden");
-          console.error("Failed to update appointment:", error);
         }
       }
     } else {
@@ -1180,10 +1178,6 @@ export function useCalendarLogic({
                   title,
                 });
                 toast.error("Simulationstermin konnte nicht erstellt werden");
-                console.error(
-                  "Failed to create simulation appointment:",
-                  error,
-                );
               }
             }
           },
@@ -1230,7 +1224,6 @@ export function useCalendarLogic({
                 title,
               });
               toast.error("Termin konnte nicht erstellt werden");
-              console.error("Failed to create appointment:", error);
             }
           },
           title: "Neuer Termin",
@@ -1291,7 +1284,6 @@ export function useCalendarLogic({
               context: "NewCalendar - Failed to update appointment title",
             });
             toast.error("Termin konnte nicht aktualisiert werden");
-            console.error("Failed to update appointment:", error);
           }
         },
         title: "Termin bearbeiten",
@@ -1370,11 +1362,6 @@ export function useCalendarLogic({
   // Handle mouse move for resizing
   useEffect(() => {
     let mounted = true;
-    let debounceTimer: null | ReturnType<typeof setTimeout> = null;
-    let pendingMutation: null | {
-      convexId: Id<"appointments">;
-      endDate: Date;
-    } = null;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizing || !mounted) {
@@ -1401,7 +1388,6 @@ export function useCalendarLogic({
             appointment.id,
           )
         ) {
-          // Update local state immediately for smooth UI
           setAppointments((prev) =>
             prev.map((apt) =>
               apt.id === resizing.appointmentId
@@ -1425,84 +1411,12 @@ export function useCalendarLogic({
             }
             const endDate = addMinutes(startDate, newDuration);
 
-            // Debounce the mutation - only fire after user stops dragging for 150ms
-            if (debounceTimer) {
-              clearTimeout(debounceTimer);
-            }
-
-            pendingMutation = { convexId, endDate };
-
-            debounceTimer = setTimeout(() => {
-              if (!mounted || !pendingMutation) {
+            void (async () => {
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+              if (!mounted) {
                 return;
               }
 
-              const { convexId: id, endDate: end } = pendingMutation;
-              pendingMutation = null;
-
-              void (async () => {
-                try {
-                  await updateAppointmentMutation.withOptimisticUpdate(
-                    (localStore, args) => {
-                      const existingAppointments = localStore.getQuery(
-                        api.appointments.getAppointments,
-                        appointmentsQueryArgs,
-                      );
-                      if (existingAppointments) {
-                        const updatedAppointments = existingAppointments.map(
-                          (apt) =>
-                            apt._id === args.id && args.end
-                              ? { ...apt, end: args.end }
-                              : apt,
-                        );
-                        localStore.setQuery(
-                          api.appointments.getAppointments,
-                          appointmentsQueryArgs,
-                          updatedAppointments,
-                        );
-                      }
-                    },
-                  )({
-                    end: end.toISOString(),
-                    id,
-                  });
-                } catch (error) {
-                  captureErrorGlobal(error, {
-                    appointmentId: id,
-                    context:
-                      "NewCalendar - Failed to update appointment duration",
-                  });
-                  toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-                  console.error(
-                    "Failed to update appointment duration:",
-                    error,
-                  );
-                  setAppointments((prev) => [...prev]);
-                }
-              })();
-            }, 150);
-          }
-        }
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (resizing) {
-        // Mark this appointment as just resized to prevent immediate edit dialog
-        justFinishedResizingRef.current = resizing.appointmentId;
-        // Clear the flag after a short delay (enough time for click event to be processed)
-        setTimeout(() => {
-          justFinishedResizingRef.current = null;
-        }, 100);
-
-        // Fire any pending mutation immediately on mouse up
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          if (pendingMutation && mounted) {
-            const { convexId: id, endDate: end } = pendingMutation;
-            pendingMutation = null;
-
-            void (async () => {
               try {
                 await updateAppointmentMutation.withOptimisticUpdate(
                   (localStore, args) => {
@@ -1525,22 +1439,37 @@ export function useCalendarLogic({
                     }
                   },
                 )({
-                  end: end.toISOString(),
-                  id,
+                  end: endDate.toISOString(),
+                  id: convexId,
                 });
               } catch (error) {
+                // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+                if (!mounted) {
+                  return;
+                }
+
                 captureErrorGlobal(error, {
-                  appointmentId: id,
+                  appointmentId: convexId,
                   context:
                     "NewCalendar - Failed to update appointment duration",
                 });
                 toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-                console.error("Failed to update appointment duration:", error);
                 setAppointments((prev) => [...prev]);
               }
             })();
           }
         }
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (resizing) {
+        // Mark this appointment as just resized to prevent immediate edit dialog
+        justFinishedResizingRef.current = resizing.appointmentId;
+        // Clear the flag after a short delay (enough time for click event to be processed)
+        setTimeout(() => {
+          justFinishedResizingRef.current = null;
+        }, 100);
       }
       setResizing(null);
     };
@@ -1552,10 +1481,6 @@ export function useCalendarLogic({
 
     return () => {
       mounted = false;
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
-      pendingMutation = null;
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
