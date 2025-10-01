@@ -7,6 +7,7 @@ import { addDays, format, isSameDay, isToday, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { AlertCircle, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -827,7 +828,7 @@ export function NewCalendar({
     }
   };
 
-  const handleDrop = (e: React.DragEvent, column: string) => {
+  const handleDrop = async (e: React.DragEvent, column: string) => {
     e.preventDefault();
 
     if (autoScrollInterval) {
@@ -860,12 +861,21 @@ export function NewCalendar({
           ? (column as Id<"practitioners">)
           : draggedAppointment.resource?.practitionerId;
 
-      void updateAppointmentMutation({
-        end: endDate.toISOString(),
-        id: draggedAppointment.convexId,
-        start: startDate.toISOString(),
-        ...(newPractitionerId && { practitionerId: newPractitionerId }),
-      });
+      try {
+        await updateAppointmentMutation({
+          end: endDate.toISOString(),
+          id: draggedAppointment.convexId,
+          start: startDate.toISOString(),
+          ...(newPractitionerId && { practitionerId: newPractitionerId }),
+        });
+      } catch (error) {
+        captureErrorGlobal(error, {
+          appointmentId: draggedAppointment.convexId,
+          context: "NewCalendar - Failed to update appointment (drag)",
+        });
+        toast.error("Termin konnte nicht verschoben werden");
+        console.error("Failed to update appointment:", error);
+      }
     } else {
       // Local appointment - just update local state
       setAppointments((prev) =>
@@ -906,7 +916,7 @@ export function NewCalendar({
     });
   };
 
-  const addAppointment = (column: string, slot: number) => {
+  const addAppointment = async (column: string, slot: number) => {
     const defaultDuration = 30;
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
     const duration = Math.min(defaultDuration, maxAvailableDuration);
@@ -963,20 +973,30 @@ export function NewCalendar({
             practitionerId = practitioner?.id;
           }
 
-          void createAppointmentMutation({
-            end: endDate.toISOString(),
-            start: startDate.toISOString(),
-            title,
-            ...(selectedLocationId && { locationId: selectedLocationId }),
-            ...(practitionerId && { practitionerId }),
-          });
+          try {
+            await createAppointmentMutation({
+              end: endDate.toISOString(),
+              start: startDate.toISOString(),
+              title,
+              ...(selectedLocationId && { locationId: selectedLocationId }),
+              ...(practitionerId && { practitionerId }),
+            });
+            toast.success("Termin erstellt");
+          } catch (error) {
+            captureErrorGlobal(error, {
+              context: "NewCalendar - Failed to create appointment",
+              title,
+            });
+            toast.error("Termin konnte nicht erstellt werden");
+            console.error("Failed to create appointment:", error);
+          }
         }
       }
     }
   };
 
   // Edit appointment
-  const handleEditAppointment = (appointment: Appointment) => {
+  const handleEditAppointment = async (appointment: Appointment) => {
     if (appointment.resource?.isLocal) {
       return; // Skip local appointments for now
     }
@@ -987,10 +1007,20 @@ export function NewCalendar({
       newTitle !== appointment.title &&
       appointment.convexId
     ) {
-      void updateAppointmentMutation({
-        id: appointment.convexId,
-        title: newTitle,
-      });
+      try {
+        await updateAppointmentMutation({
+          id: appointment.convexId,
+          title: newTitle,
+        });
+        toast.success("Termin aktualisiert");
+      } catch (error) {
+        captureErrorGlobal(error, {
+          appointmentId: appointment.convexId,
+          context: "NewCalendar - Failed to update appointment title",
+        });
+        toast.error("Termin konnte nicht aktualisiert werden");
+        console.error("Failed to update appointment:", error);
+      }
     }
   };
 
@@ -1049,7 +1079,7 @@ export function NewCalendar({
             draggable
             key={appointment.id}
             onClick={() => {
-              handleEditAppointment(appointment);
+              void handleEditAppointment(appointment);
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -1170,11 +1200,24 @@ export function NewCalendar({
             const endDate = new Date(
               startDate.getTime() + newDuration * 60 * 1000,
             );
+            const convexId = appointment.convexId; // Capture for closure
 
-            void updateAppointmentMutation({
-              end: endDate.toISOString(),
-              id: appointment.convexId,
-            });
+            void (async () => {
+              try {
+                await updateAppointmentMutation({
+                  end: endDate.toISOString(),
+                  id: convexId,
+                });
+              } catch (error) {
+                captureErrorGlobal(error, {
+                  appointmentId: convexId,
+                  context:
+                    "NewCalendar - Failed to update appointment duration",
+                });
+                toast.error("Termin-Dauer konnte nicht aktualisiert werden");
+                console.error("Failed to update appointment duration:", error);
+              }
+            })();
           } else {
             // Local appointment - update local state
             setAppointments((prev) =>
@@ -1379,7 +1422,7 @@ export function NewCalendar({
                       handleDragOver(e, column.id);
                     }}
                     onDrop={(e) => {
-                      handleDrop(e, column.id);
+                      void handleDrop(e, column.id);
                     }}
                   >
                     {Array.from({ length: totalSlots }, (_, i) => (
@@ -1387,7 +1430,7 @@ export function NewCalendar({
                         className="h-4 border-b border-border/30 hover:bg-muted/50 cursor-pointer group"
                         key={i}
                         onClick={() => {
-                          addAppointment(column.id, i);
+                          void addAppointment(column.id, i);
                         }}
                       >
                         <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
