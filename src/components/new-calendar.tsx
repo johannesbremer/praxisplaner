@@ -1301,7 +1301,7 @@ export function NewCalendar({
               }}
             >
               <div className="border-r border-border bg-muted/30 sticky left-0 z-10">
-                <div className="h-12 border-b border-border bg-card flex items-center px-3 sticky top-0 z-20">
+                <div className="h-12 border-b border-border bg-card flex items-center px-3 sticky top-0 z-30">
                   <span className="text-sm font-medium text-muted-foreground">
                     Zeit
                   </span>
@@ -1314,7 +1314,7 @@ export function NewCalendar({
                   className="border-r border-border last:border-r-0"
                   key={column.id}
                 >
-                  <div className="h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-10">
+                  <div className="h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-30">
                     <span className="font-medium">{column.title}</span>
                   </div>
                   <div
