@@ -79,17 +79,15 @@ export function CalendarAppointment({
         </div>
       </div>
 
-      {!isSingleSlot && (
-        <div
-          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, appointment.id, appointment.duration);
-          }}
-        >
-          <div className="w-8 h-0.5 bg-white/60 rounded" />
-        </div>
-      )}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onResizeStart(e, appointment.id, appointment.duration);
+        }}
+      >
+        <div className="w-8 h-0.5 bg-white/60 rounded" />
+      </div>
     </div>
   );
 }
