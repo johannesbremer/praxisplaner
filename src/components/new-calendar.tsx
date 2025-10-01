@@ -1089,7 +1089,7 @@ export function NewCalendar({
           <div
             className={`absolute left-1 right-1 ${appointment.color} text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
               isDragging ? "opacity-50" : "opacity-100"
-            }`}
+            } h-[var(--calendar-appointment-height)] min-h-4 top-[var(--calendar-appointment-top)]`}
             draggable
             key={appointment.id}
             onClick={() => {
@@ -1103,16 +1103,14 @@ export function NewCalendar({
             onDragStart={(e) => {
               handleDragStart(e, appointment);
             }}
-            style={{
-              height: `${height}px`,
-              minHeight: "16px",
-              top: `${top}px`,
-            }}
+            style={
+              {
+                "--calendar-appointment-height": `${height}px`,
+                "--calendar-appointment-top": `${top}px`,
+              } as React.CSSProperties
+            }
           >
-            <div
-              className="p-1 h-full flex flex-col justify-between"
-              style={{ paddingBottom: "8px" }}
-            >
+            <div className="p-1 h-full flex flex-col justify-between pb-2">
               <div>
                 <div className="font-medium truncate">{appointment.title}</div>
                 <div className="text-xs opacity-90">
@@ -1148,12 +1146,13 @@ export function NewCalendar({
 
     return (
       <div
-        className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-white border-dashed rounded z-20`}
-        style={{
-          height: `${height}px`,
-          minHeight: "16px",
-          top: `${top}px`,
-        }}
+        className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-white border-dashed rounded z-20 h-[var(--calendar-appointment-height)] min-h-4 top-[var(--calendar-appointment-top)]`}
+        style={
+          {
+            "--calendar-appointment-height": `${height}px`,
+            "--calendar-appointment-top": `${top}px`,
+          } as React.CSSProperties
+        }
       >
         <div className="p-1 text-white text-xs">
           <div className="font-medium truncate">{draggedAppointment.title}</div>
@@ -1401,11 +1400,13 @@ export function NewCalendar({
               </div>
             ) : (
               <div
-                className={`grid min-h-full`}
+                className="grid min-h-full [grid-template-columns:var(--calendar-grid-template-columns)]"
                 ref={calendarRef}
-                style={{
-                  gridTemplateColumns: `80px repeat(${columns.length}, 1fr)`,
-                }}
+                style={
+                  {
+                    "--calendar-grid-template-columns": `80px repeat(${columns.length}, 1fr)`,
+                  } as React.CSSProperties
+                }
               >
                 <div className="border-r border-border bg-muted/30 sticky left-0 z-10">
                   <div className="h-12 border-b border-border bg-card flex items-center px-3 sticky top-0 z-30">
@@ -1457,8 +1458,12 @@ export function NewCalendar({
 
                       {currentTimeSlot >= 0 && (
                         <div
-                          className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
-                          style={{ top: `${currentTimeSlot * 16}px` }}
+                          className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 top-[var(--calendar-current-time-top)]"
+                          style={
+                            {
+                              "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
+                            } as React.CSSProperties
+                          }
                         >
                           <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full" />
                         </div>
