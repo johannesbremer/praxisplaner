@@ -476,12 +476,35 @@ export function NewCalendar({
     selectedLocationId,
   ]);
 
+  // Memoize a hash of the appointments to enable quick equality checks
+  // This avoids O(n) deep comparison on every render
+  const appointmentsHash = useMemo(() => {
+    return combinedDerivedAppointments
+      .map(
+        (a) =>
+          `${a.id}:${a.startTime}:${a.duration}:${a.column}:${a.title}:${a.color}:${a.resource?.practitionerId ?? ""}:${a.resource?.patientId ?? ""}:${a.resource?.locationId ?? ""}:${a.resource?.appointmentType ?? ""}`,
+      )
+      .join("|");
+  }, [combinedDerivedAppointments]);
+
+  // Track the previous hash to detect changes
+  const prevHashRef = useRef<string>("");
+
   // Only update state if something *actually* changed. This breaks the
   // potential feedback loop where upstream query hooks emit new array
   // references each render even when the logical data is unchanged.
   useEffect(() => {
     trackEffect("appointmentsSync");
+
+    // Quick hash comparison first - O(1) instead of O(n)
+    if (prevHashRef.current === appointmentsHash) {
+      return;
+    }
+
+    prevHashRef.current = appointmentsHash;
+
     setAppointments((prev) => {
+      // Double-check with deep comparison to handle hash collisions
       if (areAppointmentsEqual(prev, combinedDerivedAppointments)) {
         return prev;
       }
@@ -520,7 +543,7 @@ export function NewCalendar({
       }
       return combinedDerivedAppointments;
     });
-  }, [combinedDerivedAppointments]);
+  }, [appointmentsHash, combinedDerivedAppointments]);
 
   // Helper functions
   const timeToSlot = useCallback(
@@ -1370,6 +1393,11 @@ export function NewCalendar({
   );
 }
 
+/**
+ * Deep comparison of appointment arrays.
+ * This is only called as a fallback when hash comparison detects a potential change,
+ * protecting against hash collisions while keeping the common case (no changes) fast.
+ */
 function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
   if (a === b) {
     return true;
@@ -1384,34 +1412,19 @@ function areAppointmentsEqual(a: Appointment[], b: Appointment[]): boolean {
     if (!A || !B) {
       return false;
     }
-    if (A.id !== B.id) {
-      return false;
-    }
-    if (A.startTime !== B.startTime) {
-      return false;
-    }
-    if (A.duration !== B.duration) {
-      return false;
-    }
-    if (A.column !== B.column) {
-      return false;
-    }
-    if (A.title !== B.title) {
-      return false;
-    }
-    if (A.color !== B.color) {
-      return false;
-    }
-    if (A.resource?.practitionerId !== B.resource?.practitionerId) {
-      return false;
-    }
-    if (A.resource?.patientId !== B.resource?.patientId) {
-      return false;
-    }
-    if (A.resource?.locationId !== B.resource?.locationId) {
-      return false;
-    }
-    if (A.resource?.appointmentType !== B.resource?.appointmentType) {
+    // Early exit on first mismatch for better performance
+    if (
+      A.id !== B.id ||
+      A.startTime !== B.startTime ||
+      A.duration !== B.duration ||
+      A.column !== B.column ||
+      A.title !== B.title ||
+      A.color !== B.color ||
+      A.resource?.practitionerId !== B.resource?.practitionerId ||
+      A.resource?.patientId !== B.resource?.patientId ||
+      A.resource?.locationId !== B.resource?.locationId ||
+      A.resource?.appointmentType !== B.resource?.appointmentType
+    ) {
       return false;
     }
   }
