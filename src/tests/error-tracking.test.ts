@@ -82,10 +82,10 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error);
 
-      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
-        error,
-        undefined,
-      );
+      expect(mockCaptureException).toHaveBeenCalledTimes(1);
+      const [firstArg, secondArg] = mockCaptureException.mock.calls[0] ?? [];
+      expect(firstArg).toBe(error);
+      expect(secondArg).toBeUndefined();
     });
   });
 
