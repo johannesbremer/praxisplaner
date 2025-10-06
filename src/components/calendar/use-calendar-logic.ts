@@ -289,7 +289,12 @@ export function useCalendarLogic({
   const timeToMinutes = useCallback((timeStr: string): number => {
     const parsed = parse(timeStr, "HH:mm", new Date(0));
     if (Number.isNaN(parsed.getTime())) {
-      return 0;
+      captureErrorGlobal(new Error(`Invalid time format: "${timeStr}"`), {
+        context: "NewCalendar - Invalid time format in timeToMinutes",
+        timeStr,
+        expectedFormat: "HH:mm",
+      });
+      return 0; // Fallback to midnight
     }
     return differenceInMinutes(parsed, startOfDay(parsed));
   }, []);
@@ -581,7 +586,7 @@ export function useCalendarLogic({
       return -1;
     }
 
-    return minutesFromStart / SLOT_DURATION;
+    return Math.floor(minutesFromStart / SLOT_DURATION);
   }, [
     businessEndHour,
     businessStartHour,
