@@ -41,7 +41,6 @@ export function useCalendarLogic({
   const [selectedDate, setSelectedDate] = useState<Date>(
     simulationDate ?? new Date(),
   );
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [practiceId, setPracticeId] = useState<Id<"practices"> | null>(
     propPracticeId ?? null,
@@ -70,11 +69,15 @@ export function useCalendarLogic({
   const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
 
   // Devtools instrumentation
-  const mountTimeRef = useRef<number>(Date.now());
-  const lastRenderRef = useRef<number>(mountTimeRef.current);
+  const [mountTime] = useState(() => Date.now());
+  const mountTimeRef = useRef<number>(mountTime);
+  const lastRenderRef = useRef<number>(mountTime);
   const renderCountRef = useRef(0);
   const effectCountersRef = useRef<Record<string, number>>({});
-  renderCountRef.current += 1;
+
+  useEffect(() => {
+    renderCountRef.current += 1;
+  });
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -93,43 +96,51 @@ export function useCalendarLogic({
     lastRenderRef.current = now;
   });
 
-  // Local state for selected location
+  // Local state for selected location - sync with external prop changes during render
   const [selectedLocationId, setSelectedLocationId] = useState<
     Id<"locations"> | undefined
   >(externalSelectedLocationId);
+  const [prevExternalLocationId, setPrevExternalLocationId] = useState(
+    externalSelectedLocationId,
+  );
 
-  useEffect(() => {
-    if (
-      externalSelectedLocationId &&
-      externalSelectedLocationId !== selectedLocationId
-    ) {
-      setSelectedLocationId(externalSelectedLocationId);
-      if (import.meta.env.DEV) {
-        const map = effectCountersRef.current;
-        const name = "externalLocationSync";
-        map[name] = (map[name] ?? 0) + 1;
-        emitCalendarEvent("custom-devtools:calendar-effect", {
-          count: map[name],
-          name,
-        });
-      }
-    }
-  }, [externalSelectedLocationId, selectedLocationId]);
+  // Sync with external location ID changes during render (safe pattern)
+  if (
+    externalSelectedLocationId !== prevExternalLocationId &&
+    externalSelectedLocationId
+  ) {
+    setPrevExternalLocationId(externalSelectedLocationId);
+    setSelectedLocationId(externalSelectedLocationId);
+  }
 
   // Initialize practice
   const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
 
-  useEffect(() => {
-    if (propPracticeId) {
+  // Track if we've initialized to avoid re-running
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [prevPropPracticeId, setPrevPropPracticeId] = useState(propPracticeId);
+
+  // Sync practice ID from prop during render
+  if (propPracticeId && propPracticeId !== prevPropPracticeId) {
+    setPrevPropPracticeId(propPracticeId);
+    setHasInitialized(true);
+    if (practiceId !== propPracticeId) {
       setPracticeId(propPracticeId);
+    }
+  }
+
+  // Initialize practice via mutation only once if no prop provided
+  useEffect(() => {
+    if (hasInitialized || propPracticeId) {
       return;
     }
 
     const initPractice = async () => {
       try {
         const id = await initializePracticeMutation({});
+        setHasInitialized(true);
         setPracticeId(id);
       } catch (error) {
         captureErrorGlobal(error, {
@@ -140,7 +151,7 @@ export function useCalendarLogic({
     };
 
     void initPractice();
-  }, [initializePracticeMutation, propPracticeId]);
+  }, [hasInitialized, initializePracticeMutation, propPracticeId]);
 
   const appointmentScope = simulatedContext ? "simulation" : "real";
   const appointmentsQueryArgs = useMemo(
@@ -255,19 +266,22 @@ export function useCalendarLogic({
     );
     if (match) {
       hasResolvedLocationRef.current = true;
-      setSelectedLocationId(match._id);
-      if (onLocationResolved) {
-        onLocationResolved(match._id, match.name);
-      }
+      // Use a microtask to avoid setState during render
+      queueMicrotask(() => {
+        setSelectedLocationId(match._id);
+        if (onLocationResolved) {
+          onLocationResolved(match._id, match.name);
+        }
+      });
     }
-  }, [locationSlug, locationsData, selectedLocationId, onLocationResolved]);
+  }, [locationSlug, locationsData, onLocationResolved, selectedLocationId]);
 
-  // Update selected date when simulation date changes
-  useEffect(() => {
-    if (simulationDate) {
-      setSelectedDate(simulationDate);
-    }
-  }, [simulationDate]);
+  // Sync selected date with simulation date during render
+  const [prevSimulationDate, setPrevSimulationDate] = useState(simulationDate);
+  if (simulationDate && simulationDate !== prevSimulationDate) {
+    setPrevSimulationDate(simulationDate);
+    setSelectedDate(simulationDate);
+  }
 
   // Notify parent when date changes
   const handleDateChange = useCallback(
@@ -491,37 +505,25 @@ export function useCalendarLogic({
       .filter((apt): apt is Appointment => apt !== null);
   }, [locationFilteredAppointments]);
 
-  // Memoize appointments hash for quick equality checks
-  const appointmentsHash = useMemo(() => {
-    return combinedDerivedAppointments
-      .map(
-        (a) =>
-          `${a.id}:${a.startTime}:${a.duration}:${a.column}:${a.title}:${a.color}:${a.replacesAppointmentId ?? ""}:${a.resource?.practitionerId ?? ""}:${a.resource?.patientId ?? ""}:${a.resource?.locationId ?? ""}:${a.resource?.appointmentType ?? ""}`,
-      )
-      .join("|");
+  // Derive appointments directly from combinedDerivedAppointments
+  // Convex handles optimistic updates, so we don't need manual state management
+  const appointments = useMemo(() => {
+    return combinedDerivedAppointments;
   }, [combinedDerivedAppointments]);
 
-  const prevHashRef = useRef<string>("");
-
-  // Only update state if something actually changed
+  // Track appointments in devtools
   useEffect(() => {
-    if (import.meta.env.DEV) {
-      const map = effectCountersRef.current;
-      const name = "appointmentsSync";
-      map[name] = (map[name] ?? 0) + 1;
-      emitCalendarEvent("custom-devtools:calendar-effect", {
-        count: map[name],
-        name,
-      });
-    }
-
-    if (prevHashRef.current === appointmentsHash) {
+    if (!import.meta.env.DEV) {
       return;
     }
-
-    prevHashRef.current = appointmentsHash;
-    setAppointments(combinedDerivedAppointments);
-  }, [appointmentsHash, combinedDerivedAppointments]);
+    const map = effectCountersRef.current;
+    const name = "appointmentsSync";
+    map[name] = (map[name] ?? 0) + 1;
+    emitCalendarEvent("custom-devtools:calendar-effect", {
+      count: map[name],
+      name,
+    });
+  }, [combinedDerivedAppointments]);
 
   // Track appointment changes for devtools
   useEffect(() => {
@@ -921,12 +923,7 @@ export function useCalendarLogic({
           title,
         };
 
-        setAppointments((prev) =>
-          prev.map((apt) =>
-            apt.id === appointment.id ? updatedAppointment : apt,
-          ),
-        );
-
+        // Convex optimistic updates will handle the UI update
         return updatedAppointment;
       } catch (error) {
         const errorMessage =
@@ -948,13 +945,7 @@ export function useCalendarLogic({
         return null;
       }
     },
-    [
-      simulatedContext,
-      runCreateAppointment,
-      selectedDate,
-      selectedLocationId,
-      setAppointments,
-    ],
+    [simulatedContext, runCreateAppointment, selectedDate, selectedLocationId],
   );
 
   // Drag and drop handlers
@@ -1138,15 +1129,8 @@ export function useCalendarLogic({
           toast.error("Termin konnte nicht verschoben werden");
         }
       }
-    } else {
-      setAppointments((prev) =>
-        prev.map((apt) =>
-          apt.id === draggedAppointment.id
-            ? { ...apt, column, startTime: newTime }
-            : apt,
-        ),
-      );
     }
+    // Convex optimistic updates will handle the UI update
 
     setDraggedAppointment(null);
     setDragPreview({ column: "", slot: 0, visible: false });
@@ -1514,14 +1498,7 @@ export function useCalendarLogic({
             appointment.id,
           )
         ) {
-          setAppointments((prev) =>
-            prev.map((apt) =>
-              apt.id === resizing.appointmentId
-                ? { ...apt, duration: newDuration }
-                : apt,
-            ),
-          );
-
+          // Convex optimistic updates will handle the UI update
           const convexId = appointment.convexId;
           if (convexId !== undefined) {
             if (simulatedContext && !appointment.isSimulation) {
@@ -1580,7 +1557,7 @@ export function useCalendarLogic({
                     "NewCalendar - Failed to update appointment duration",
                 });
                 toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-                setAppointments((prev) => [...prev]);
+                // Convex will revert the optimistic update on error
               }
             })();
           }

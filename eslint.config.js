@@ -78,12 +78,11 @@ export default tseslint.config(
       // React rules for TypeScript files
       ...reactPlugin.configs.flat.recommended.rules,
       ...reactPlugin.configs.flat["jsx-runtime"].rules,
-      ...reactHooksPlugin.configs.recommended.rules,
+      ...reactHooksPlugin.configs["recommended-latest"][0].rules,
       "react/prop-types": "off", // We're using TypeScript
       "react/react-in-jsx-scope": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-react": "off", // Not needed with React 17+ JSX transform
       "react/jsx-uses-vars": "error",
-      "react-hooks/react-compiler": "error",
 
       // Unicorn rules adjustments
       "unicorn/prefer-at": "off", // Conflicts with Node.js version requirements

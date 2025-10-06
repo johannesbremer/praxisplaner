@@ -1,7 +1,7 @@
 import { useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -101,18 +101,34 @@ export function PatientView({
     return first;
   }, [datesWithAvailabilities]);
 
+  // Initialize selectedDate with firstAvailableDate when available
   const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  const [lastFirstAvailableDate, setLastFirstAvailableDate] = useState<
+    Date | undefined
+  >(firstAvailableDate);
 
-  // Ensure selectedDate initializes when data arrives, and reset selected slot when date changes
-  useEffect(() => {
-    if (!selectedDate && firstAvailableDate) {
-      setSelectedDate(firstAvailableDate);
+  // Sync with firstAvailableDate during render if not set
+  if (
+    !selectedDate &&
+    firstAvailableDate &&
+    lastFirstAvailableDate !== firstAvailableDate
+  ) {
+    setLastFirstAvailableDate(firstAvailableDate);
+    setSelectedDate(firstAvailableDate);
+  }
+
+  // Selected slot state (optional visual selection before continuing)
+  const [selectedSlotKey, setSelectedSlotKey] = useState<null | string>(null);
+
+  // Reset selected slot when date changes by detecting the change during render
+  const dateResetKey = selectedDate?.getTime() ?? "none";
+  const lastDateResetKeyRef = useRef(dateResetKey);
+  if (lastDateResetKeyRef.current !== dateResetKey) {
+    lastDateResetKeyRef.current = dateResetKey;
+    if (selectedSlotKey !== null) {
+      setSelectedSlotKey(null);
     }
-  }, [firstAvailableDate, selectedDate]);
-
-  useEffect(() => {
-    setSelectedSlotKey(null);
-  }, [selectedDate]);
+  }
 
   // Compute day-specific available slots for the side list
   const slotsForSelectedDate = useMemo(() => {
@@ -131,9 +147,6 @@ export function PatientView({
           new Date(slotB.startTime).getTime(),
       );
   }, [availableSlots, selectedDate]);
-
-  // Selected slot state (optional visual selection before continuing)
-  const [selectedSlotKey, setSelectedSlotKey] = useState<null | string>(null);
 
   return (
     <div className="h-full overflow-y-auto">

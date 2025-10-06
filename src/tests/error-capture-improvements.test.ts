@@ -66,7 +66,7 @@ describe("Error Capture Improvements", () => {
       }).not.toThrow();
 
       // But it should capture the error
-      expect(captureErrorGlobal).toHaveBeenCalledWith(
+      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
         expect.any(Error),
         expect.objectContaining({
           context: "FileSystemObserver not supported",
@@ -111,7 +111,7 @@ describe("Error Capture Improvements", () => {
       );
 
       // And it should capture the error
-      expect(captureErrorGlobal).toHaveBeenCalledWith(
+      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
         expect.any(Error),
         expect.objectContaining({
           context: "FileSystemObserver observe called without initialization",
@@ -150,7 +150,7 @@ describe("Error Capture Improvements", () => {
       expect(result.error).toBe(
         "Bitte wählen Sie mindestens einen Wochentag aus",
       );
-      expect(captureErrorGlobal).toHaveBeenCalledWith(
+      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
         validationError,
         expect.objectContaining({
           context: "base_schedule_validation",

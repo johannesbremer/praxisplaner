@@ -68,7 +68,9 @@ describe("CalendarAppointment", () => {
 
     if (appointmentElement) {
       fireEvent.click(appointmentElement);
-      expect(mockHandlers.onEdit).toHaveBeenCalledWith(mockAppointment);
+      expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(
+        mockAppointment,
+      );
     }
   });
 
@@ -78,7 +80,9 @@ describe("CalendarAppointment", () => {
 
     if (appointmentElement) {
       fireEvent.contextMenu(appointmentElement);
-      expect(mockHandlers.onDelete).toHaveBeenCalledWith(mockAppointment);
+      expect(mockHandlers.onDelete).toHaveBeenCalledExactlyOnceWith(
+        mockAppointment,
+      );
     }
   });
 
@@ -163,7 +167,7 @@ describe("CalendarAppointment", () => {
 
     if (resizeHandle) {
       fireEvent.mouseDown(resizeHandle);
-      expect(mockHandlers.onResizeStart).toHaveBeenCalledWith(
+      expect(mockHandlers.onResizeStart).toHaveBeenCalledExactlyOnceWith(
         expect.any(Object),
         mockAppointment.id,
         mockAppointment.duration,

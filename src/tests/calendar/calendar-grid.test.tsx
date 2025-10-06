@@ -189,7 +189,7 @@ describe("CalendarGrid", () => {
         .closest("div");
       if (appointment) {
         fireEvent.click(appointment);
-        expect(mockHandlers.onEditAppointment).toHaveBeenCalledWith(
+        expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
           mockAppointments[0],
         );
       }
@@ -203,9 +203,9 @@ describe("CalendarGrid", () => {
         .closest("div");
       if (appointment) {
         fireEvent.contextMenu(appointment);
-        expect(mockHandlers.onDeleteAppointment).toHaveBeenCalledWith(
-          mockAppointments[0],
-        );
+        expect(
+          mockHandlers.onDeleteAppointment,
+        ).toHaveBeenCalledExactlyOnceWith(mockAppointments[0]);
       }
     });
   });

@@ -53,14 +53,11 @@ export function PatientFocusedView({
   >(simulatedContext.locationId);
 
   // Track calendar navigation independently from simulation dateRange
-  const [calendarStartDate, setCalendarStartDate] = useState(
-    new Date(dateRange.start),
+  // Derive from dateRange.start to avoid setting state in effect
+  const calendarStartDate = useMemo(
+    () => new Date(dateRange.start),
+    [dateRange.start],
   );
-
-  // Sync calendar start date when simulation date changes
-  useEffect(() => {
-    setCalendarStartDate(new Date(dateRange.start));
-  }, [dateRange.start]);
 
   // Fetch available locations
   const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
@@ -172,22 +169,32 @@ export function PatientFocusedView({
       .toSorted((a, b) => a.getTime() - b.getTime());
     return list[0];
   })();
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
-    firstAvailableDate,
-  );
+
+  // Initialize selectedDate from firstAvailableDate if not set
+  const [internalSelectedDate, setInternalSelectedDate] = useState<
+    Date | undefined
+  >(() => firstAvailableDate);
+
+  // Derive selectedDate: use internal state, but fall back to firstAvailableDate if internal is unset
+  const selectedDate = internalSelectedDate ?? firstAvailableDate;
+
+  const setSelectedDate = (date: Date | undefined) => {
+    setInternalSelectedDate(date);
+  };
+
+  // Use a key to reset state when window or date changes
+  const stateResetKey = `${windowStart.getTime()}-${windowEnd.getTime()}-${selectedDate?.getTime() ?? "none"}`;
+
+  // Reset selectedSlotKey when state reset key changes using key-based state
   const [selectedSlotKey, setSelectedSlotKey] = useState<null | string>(null);
+  const [lastResetKey, setLastResetKey] = useState(stateResetKey);
 
-  useEffect(() => {
-    // Reset selection if window shifts
-    setSelectedSlotKey(null);
-    if (!selectedDate && firstAvailableDate) {
-      setSelectedDate(firstAvailableDate);
+  if (lastResetKey !== stateResetKey) {
+    setLastResetKey(stateResetKey);
+    if (selectedSlotKey !== null) {
+      setSelectedSlotKey(null);
     }
-  }, [firstAvailableDate, selectedDate, windowStart, windowEnd]);
-
-  useEffect(() => {
-    setSelectedSlotKey(null);
-  }, [selectedDate]);
+  }
 
   const slotsForSelectedDate = selectedDate
     ? availableSlots

@@ -33,7 +33,10 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, context);
+      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
+        error,
+        context,
+      );
     });
 
     test("should convert non-Error to Error and capture with PostHog", () => {
@@ -44,7 +47,7 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(errorString, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(
+      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
         expect.any(Error),
         context,
       );
@@ -62,7 +65,7 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleSpy).toHaveBeenCalledExactlyOnceWith(
         "Error (PostHog not available):",
         error,
         context,
@@ -79,7 +82,10 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, undefined);
+      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
+        error,
+        undefined,
+      );
     });
   });
 
@@ -97,7 +103,10 @@ describe("Error Tracking", () => {
 
       captureErrorGlobal(error, context);
 
-      expect(mockCaptureException).toHaveBeenCalledWith(error, context);
+      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
+        error,
+        context,
+      );
       const capturedContext = mockCaptureException.mock.calls[0]?.[1];
       expect(capturedContext).toMatchObject({
         context: "GDT file processing error",
@@ -122,7 +131,7 @@ describe("Error Tracking", () => {
       captureErrorGlobal(error, context);
 
       // captureErrorGlobal converts DOMException to Error, so we expect an Error instance
-      expect(mockCaptureException).toHaveBeenCalledWith(
+      expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
         expect.any(Error),
         context,
       );
