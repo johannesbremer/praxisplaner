@@ -3,6 +3,7 @@
 import { addDays, format, isToday } from "date-fns";
 import { de } from "date-fns/locale";
 import { AlertCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,10 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 import type { NewCalendarProps } from "./calendar/types";
 
+import {
+  getPublicHolidayName,
+  getPublicHolidaysData,
+} from "../utils/public-holidays";
 import { CalendarProvider } from "./calendar-context";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { CalendarGrid } from "./calendar/calendar-grid";
@@ -68,6 +73,20 @@ export function NewCalendar({
   const currentDayOfWeek = selectedDate.getDay();
 
   const isTodaySelected = isToday(selectedDate);
+
+  // Load public holidays
+  const [publicHolidaysLoaded, setPublicHolidaysLoaded] = useState(false);
+
+  useEffect(() => {
+    void getPublicHolidaysData().then(() => {
+      setPublicHolidaysLoaded(true);
+    });
+  }, []);
+
+  // Check if selected date is a public holiday
+  const holidayName = publicHolidaysLoaded
+    ? getPublicHolidayName(selectedDate)
+    : undefined;
 
   return (
     <CalendarProvider
@@ -133,19 +152,27 @@ export function NewCalendar({
           {/* Main Content */}
           <div className="flex-1 overflow-auto">
             {practiceId ? (
-              workingPractitioners.length === 0 ? (
+              holidayName || workingPractitioners.length === 0 ? (
                 <Card className="m-8">
                   <CardContent className="pt-6">
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>
-                        Keine Therapeuten für{" "}
-                        {format(selectedDate, "EEEE", { locale: de })}
+                        {holidayName ? (
+                          <>{holidayName}</>
+                        ) : (
+                          <>
+                            Keine Therapeuten für{" "}
+                            {format(selectedDate, "EEEE", { locale: de })}
+                          </>
+                        )}
                       </AlertTitle>
                       <AlertDescription>
-                        {currentDayOfWeek === 0 || currentDayOfWeek === 6
-                          ? "An diesem Tag sind keine Therapeuten eingeplant. Bitte wählen Sie einen Wochentag aus."
-                          : "Es sind noch keine Therapeuten für diesen Tag eingeplant. Bitte erstellen Sie einen Basisplan in den Einstellungen."}
+                        {holidayName
+                          ? "An Feiertagen ist die Praxis geschlossen."
+                          : currentDayOfWeek === 0 || currentDayOfWeek === 6
+                            ? "An diesem Tag sind keine Therapeuten eingeplant. Bitte wählen Sie einen Wochentag aus."
+                            : "Es sind noch keine Therapeuten für diesen Tag eingeplant. Bitte erstellen Sie einen Basisplan in den Einstellungen."}
                       </AlertDescription>
                     </Alert>
                   </CardContent>

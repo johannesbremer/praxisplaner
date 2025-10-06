@@ -27,6 +27,12 @@ import type {
   SchedulingSlot,
 } from "../types";
 
+import {
+  getPublicHolidayName,
+  getPublicHolidays,
+  getPublicHolidaysData,
+  isPublicHolidaySync,
+} from "../utils/public-holidays";
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
 
@@ -62,10 +68,10 @@ export function PatientFocusedView({
   // Fetch available locations
   const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
 
-  // Create expanded date range for calendar (5 days from calendar start)
+  // Create expanded date range for calendar (half a year from calendar start)
   const calendarEndDate = useMemo(() => {
     const d = new Date(calendarStartDate);
-    d.setDate(d.getDate() + 4);
+    d.setDate(d.getDate() + 182);
     d.setHours(23, 59, 59, 999);
     return d;
   }, [calendarStartDate]);
@@ -149,6 +155,27 @@ export function PatientFocusedView({
     availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
   );
 
+  // Load public holidays
+  const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
+  const [publicHolidaysLoaded, setPublicHolidaysLoaded] = useState(false);
+
+  useEffect(() => {
+    void Promise.all([
+      getPublicHolidays().then(setPublicHolidayDates),
+      getPublicHolidaysData(),
+    ]).then(() => {
+      setPublicHolidaysLoaded(true);
+    });
+  }, []);
+
+  const publicHolidaysSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const date of publicHolidayDates) {
+      set.add(format(date, "yyyy-MM-dd"));
+    }
+    return set;
+  }, [publicHolidayDates]);
+
   // Disable dates inside the 5-day window that have no availabilities, and also outside window
   const disabledDates: Matcher[] = [];
   for (
@@ -160,7 +187,11 @@ export function PatientFocusedView({
       disabledDates.push(new Date(d));
     }
   }
-  disabledDates.push({ before: windowStart }, { after: windowEnd });
+  disabledDates.push(
+    { before: windowStart },
+    { after: windowEnd },
+    { dayOfWeek: [0, 6] },
+  );
 
   // Selection state for integrated calendar + times
   const firstAvailableDate = (() => {
@@ -182,6 +213,12 @@ export function PatientFocusedView({
     setInternalSelectedDate(date);
   };
 
+  // Check if selected date is a public holiday
+  const selectedDateHolidayName =
+    publicHolidaysLoaded && selectedDate
+      ? getPublicHolidayName(selectedDate)
+      : undefined;
+
   // Use a key to reset state when window or date changes
   const stateResetKey = `${windowStart.getTime()}-${windowEnd.getTime()}-${selectedDate?.getTime() ?? "none"}`;
 
@@ -196,19 +233,20 @@ export function PatientFocusedView({
     }
   }
 
-  const slotsForSelectedDate = selectedDate
-    ? availableSlots
-        .filter(
-          (slot) =>
-            new Date(slot.startTime).toDateString() ===
-            selectedDate.toDateString(),
-        )
-        .toSorted(
-          (slotA, slotB) =>
-            new Date(slotA.startTime).getTime() -
-            new Date(slotB.startTime).getTime(),
-        )
-    : [];
+  const slotsForSelectedDate =
+    selectedDate && !selectedDateHolidayName
+      ? availableSlots
+          .filter(
+            (slot) =>
+              new Date(slot.startTime).toDateString() ===
+              selectedDate.toDateString(),
+          )
+          .toSorted(
+            (slotA, slotB) =>
+              new Date(slotA.startTime).getTime() -
+              new Date(slotB.startTime).getTime(),
+          )
+      : [];
 
   return (
     <div className="h-full overflow-y-auto">
@@ -280,12 +318,22 @@ export function PatientFocusedView({
                                 weekday: "short",
                               }),
                           }}
+                          locale={de}
                           mode="single"
+                          modifiers={{
+                            publicHoliday: (date) =>
+                              isPublicHolidaySync(date, publicHolidaysSet),
+                          }}
+                          modifiersClassNames={{
+                            publicHoliday:
+                              "bg-muted/40 text-muted-foreground opacity-60",
+                          }}
                           onSelect={(d) => {
                             setSelectedDate(d ?? undefined);
                           }}
                           selected={selectedDate}
                           showOutsideDays={false}
+                          weekStartsOn={1}
                         />
                       </div>
                       <div
@@ -297,7 +345,16 @@ export function PatientFocusedView({
                         )}
                       >
                         <div className="grid gap-2">
-                          {slotsForSelectedDate.length === 0 ? (
+                          {selectedDateHolidayName ? (
+                            <div className="rounded-md border border-muted bg-muted/40 p-3">
+                              <div className="font-medium text-sm mb-1">
+                                {selectedDateHolidayName}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                An Feiertagen ist die Praxis geschlossen.
+                              </div>
+                            </div>
+                          ) : slotsForSelectedDate.length === 0 ? (
                             <div className="text-sm text-muted-foreground">
                               Keine Termine an diesem Tag.
                             </div>
@@ -342,31 +399,33 @@ export function PatientFocusedView({
                   </div>
                 )}
               </ContainerAwareContent>
-              <CardFooter className="flex flex-col gap-3 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
-                <div className="text-sm">
-                  {selectedDate && selectedSlotKey ? (
-                    <>
-                      Termin am
-                      <span className="font-medium">
-                        {" "}
-                        {format(selectedDate, "EEEE, d. MMMM", {
-                          locale: de,
-                        })}{" "}
-                      </span>
-                      ausgewählt.
-                    </>
-                  ) : (
-                    <>Datum und Uhrzeit auswählen.</>
-                  )}
-                </div>
-                <Button
-                  className="w-full md:ml-auto md:w-auto"
-                  disabled={!selectedDate || !selectedSlotKey}
-                  size="sm"
-                >
-                  Termin buchen
-                </Button>
-              </CardFooter>
+              {!selectedDateHolidayName && (
+                <CardFooter className="flex flex-col gap-3 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
+                  <div className="text-sm">
+                    {selectedDate && selectedSlotKey ? (
+                      <>
+                        Termin am
+                        <span className="font-medium">
+                          {" "}
+                          {format(selectedDate, "EEEE, d. MMMM", {
+                            locale: de,
+                          })}{" "}
+                        </span>
+                        ausgewählt.
+                      </>
+                    ) : (
+                      <>Datum und Uhrzeit auswählen.</>
+                    )}
+                  </div>
+                  <Button
+                    className="w-full md:ml-auto md:w-auto"
+                    disabled={!selectedDate || !selectedSlotKey}
+                    size="sm"
+                  >
+                    Termin buchen
+                  </Button>
+                </CardFooter>
+              )}
             </Card>
           </>
         )}

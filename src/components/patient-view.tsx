@@ -1,7 +1,9 @@
+import type { Matcher } from "react-day-picker";
+
 import { useQuery } from "convex/react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -17,6 +19,11 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
+
+import {
+  getPublicHolidays,
+  isPublicHolidaySync,
+} from "../utils/public-holidays";
 
 interface PatientViewProps {
   dateRange: SchedulingDateRange;
@@ -86,11 +93,28 @@ export function PatientView({
     return set;
   }, [availableSlots]);
 
-  const disabledDates = useMemo(() => {
-    // Disable any date in range that has no available slots
-    return allDatesInRange.filter(
+  // Load public holidays
+  const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
+
+  useEffect(() => {
+    void getPublicHolidays().then(setPublicHolidayDates);
+  }, []);
+
+  const publicHolidaysSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const date of publicHolidayDates) {
+      set.add(format(date, "yyyy-MM-dd"));
+    }
+    return set;
+  }, [publicHolidayDates]);
+
+  const disabledMatchers = useMemo<Matcher[]>(() => {
+    // Disable any date in range that has no available slots, plus weekends
+    const unavailableDates = allDatesInRange.filter(
       (d) => !datesWithAvailabilities.has(d.toDateString()),
     );
+
+    return [...unavailableDates, { dayOfWeek: [0, 6] }];
   }, [allDatesInRange, datesWithAvailabilities]);
 
   // Selected day state defaults to first day with availability
@@ -183,19 +207,27 @@ export function PatientView({
                 <Calendar
                   className="bg-transparent p-0 [--cell-size:--spacing(10)] md:[--cell-size:--spacing(12)]"
                   defaultMonth={selectedDate ?? new Date(dateRange.start)}
-                  disabled={disabledDates}
+                  disabled={disabledMatchers}
                   formatters={{
                     formatWeekdayName: (date) =>
                       date.toLocaleString("de-DE", { weekday: "short" }),
                   }}
+                  locale={de}
                   mode="single"
-                  modifiers={{}}
-                  modifiersClassNames={{}}
+                  modifiers={{
+                    publicHoliday: (date) =>
+                      isPublicHolidaySync(date, publicHolidaysSet),
+                  }}
+                  modifiersClassNames={{
+                    publicHoliday:
+                      "bg-muted/40 text-muted-foreground opacity-60",
+                  }}
                   onSelect={(d) => {
                     setSelectedDate(d ?? undefined);
                   }}
                   selected={selectedDate}
                   showOutsideDays={false}
+                  weekStartsOn={1}
                 />
               </div>
               <div className="no-scrollbar inset-y-0 right-0 flex max-h-72 w-full scroll-pb-6 flex-col gap-2 overflow-y-auto border-t p-4 md:absolute md:max-h-none md:w-56 md:border-t-0 md:border-l md:p-6">
