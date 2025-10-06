@@ -276,11 +276,10 @@ describe("Calendar Integration Scenarios", () => {
       const currentHour = 7;
 
       // Test the logic: when before business hours, should return -1
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      const isBeforeHours = currentHour < businessStartHour;
-      expect(isBeforeHours).toBe(true);
+      // With currentHour (7) < businessStartHour (8), current time is before business hours
+      expect(currentHour).toBeLessThan(businessStartHour);
 
-      const currentSlot = isBeforeHours ? -1 : 0;
+      const currentSlot = -1;
       expect(currentSlot).toBe(-1);
     });
 
