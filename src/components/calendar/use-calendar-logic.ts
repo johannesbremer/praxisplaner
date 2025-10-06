@@ -286,15 +286,15 @@ export function useCalendarLogic({
   const currentDayOfWeek = selectedDate.getDay();
 
   // Helper function to convert time string to minutes
-  const timeToMinutes = useCallback((timeStr: string): number => {
+  const timeToMinutes = useCallback((timeStr: string): null | number => {
     const parsed = parse(timeStr, "HH:mm", new Date(0));
     if (Number.isNaN(parsed.getTime())) {
       captureErrorGlobal(new Error(`Invalid time format: "${timeStr}"`), {
         context: "NewCalendar - Invalid time format in timeToMinutes",
-        timeStr,
         expectedFormat: "HH:mm",
+        timeStr,
       });
-      return 0; // Fallback to midnight
+      return null;
     }
     return differenceInMinutes(parsed, startOfDay(parsed));
   }, []);
@@ -344,15 +344,51 @@ export function useCalendarLogic({
       };
     }
 
-    const working = daySchedules.map((schedule) => ({
+    // Validate and filter schedules with invalid times
+    const validSchedules = daySchedules.filter((schedule) => {
+      const startMinutes = timeToMinutes(schedule.startTime);
+      const endMinutes = timeToMinutes(schedule.endTime);
+
+      if (startMinutes === null || endMinutes === null) {
+        toast.error(
+          `Ungültige Zeitangabe für ${schedule.practitionerName}: ${schedule.startTime}-${schedule.endTime}`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    if (validSchedules.length < daySchedules.length) {
+      const invalidCount = daySchedules.length - validSchedules.length;
+      toast.warning(
+        `${invalidCount} Zeitplan${invalidCount > 1 ? "e" : ""} mit ungültigen Zeiten wurde${invalidCount > 1 ? "n" : ""} übersprungen`,
+      );
+    }
+
+    const working = validSchedules.map((schedule) => ({
       endTime: schedule.endTime,
       id: schedule.practitionerId,
       name: schedule.practitionerName,
       startTime: schedule.startTime,
     }));
 
-    const startTimes = daySchedules.map((s) => timeToMinutes(s.startTime));
-    const endTimes = daySchedules.map((s) => timeToMinutes(s.endTime));
+    const startTimes = validSchedules
+      .map((s) => timeToMinutes(s.startTime))
+      .filter((t): t is number => t !== null);
+    const endTimes = validSchedules
+      .map((s) => timeToMinutes(s.endTime))
+      .filter((t): t is number => t !== null);
+
+    if (startTimes.length === 0 || endTimes.length === 0) {
+      return {
+        businessEndHour: 0,
+        businessStartHour: 0,
+        columns: [],
+        totalSlots: 0,
+        workingPractitioners: [],
+      };
+    }
+
     const earliestStartMinutes = Math.min(...startTimes);
     const latestEndMinutes = Math.max(...endTimes);
     const businessStartHour = Math.floor(earliestStartMinutes / 60);
@@ -548,6 +584,9 @@ export function useCalendarLogic({
   const timeToSlot = useCallback(
     (time: string) => {
       const minutesFromMidnight = timeToMinutes(time);
+      if (minutesFromMidnight === null) {
+        return 0; // Fallback to first slot if time is invalid
+      }
       const minutesFromStart = minutesFromMidnight - businessStartHour * 60;
       return Math.floor(minutesFromStart / SLOT_DURATION);
     },
