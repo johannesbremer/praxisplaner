@@ -1,3 +1,5 @@
+import type { Infer } from "convex/values";
+
 import { useMutation, useQuery } from "convex/react";
 import {
   addMinutes,
@@ -16,6 +18,7 @@ import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import { simulatedContextValidator } from "../../../convex/validators";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { slugify } from "../../utils/slug";
@@ -733,6 +736,9 @@ export function useCalendarLogic({
     [appointments, timeToSlot, totalSlots],
   );
 
+  // Use Convex-inferred type for simulatedContext
+  type ValidatedSimulatedContext = Infer<typeof simulatedContextValidator>;
+
   interface SimulationConversionOptions {
     columnOverride?: string;
     durationMinutes?: number;
@@ -743,16 +749,68 @@ export function useCalendarLogic({
     title?: string;
   }
 
+  /**
+   * Converts a real appointment into a simulated appointment for testing scheduling scenarios.
+   *
+   * This function creates a simulated version of a real appointment, which allows testing
+   * "what-if" scenarios without affecting actual appointments. It validates all inputs,
+   * handles type conversions, and ensures end-to-end type safety using Convex types.
+   *
+   * Type Safety Features:
+   * - Uses Convex-inferred types for end-to-end type safety
+   * - Validates simulatedContext structure at runtime with type narrowing
+   * - Explicitly builds appointment data without unsafe spread operators
+   * - Provides specific error messages for each failure scenario
+   * @param appointment The real appointment to convert into a simulation
+   * @param options Optional overrides for the simulated appointment properties
+   * @returns The newly created simulated appointment, or null if conversion fails
+   * @example
+   * ```typescript
+   * const simulated = await convertRealAppointmentToSimulation(
+   *   realAppointment,
+   *   { startISO: "2024-01-15T10:00:00Z", durationMinutes: 45 }
+   * );
+   * ```
+   */
   const convertRealAppointmentToSimulation = useCallback(
     async (
       appointment: Appointment,
       options: SimulationConversionOptions = {},
     ): Promise<Appointment | null> => {
-      if (
-        !simulatedContext ||
-        appointment.isSimulation ||
-        !appointment.convexId
-      ) {
+      /**
+       * Type guard for validating simulatedContext structure.
+       * Ensures the context matches the expected structure from Convex validators.
+       * @param context The context to validate
+       * @returns true if context matches ValidatedSimulatedContext structure
+       */
+      const isValidSimulatedContext = (
+        context: unknown,
+      ): context is ValidatedSimulatedContext => {
+        if (!context || typeof context !== "object") {
+          return false;
+        }
+        const ctx = context as Record<string, unknown>;
+        return (
+          typeof ctx["appointmentType"] === "string" &&
+          typeof ctx["patient"] === "object" &&
+          ctx["patient"] !== null &&
+          typeof (ctx["patient"] as Record<string, unknown>)["isNew"] ===
+            "boolean"
+        );
+      };
+
+      // Early validation checks with specific error messages
+      if (appointment.isSimulation) {
+        return appointment;
+      }
+
+      if (!appointment.convexId) {
+        toast.error("Termin hat keine gültige ID");
+        return null;
+      }
+
+      if (!isValidSimulatedContext(simulatedContext)) {
+        // No simulated context - return original appointment
         return appointment;
       }
 
@@ -780,45 +838,59 @@ export function useCalendarLogic({
 
       const endISO = options.endISO ?? baseEndDate.toISOString();
 
-      const practitionerId =
+      // Extract practitioner ID with proper type safety
+      const practitionerId: Id<"practitioners"> | undefined =
         options.practitionerId ??
         (appointment.column !== "ekg" && appointment.column !== "labor"
           ? (appointment.column as Id<"practitioners">)
           : appointment.resource?.practitionerId);
 
-      const contextWithLocation = (
-        simulatedContext as undefined | { locationId?: Id<"locations"> }
-      )?.locationId;
+      // Use validated simulatedContext with proper typing
+      const contextLocationId: Id<"locations"> | undefined =
+        simulatedContext.locationId;
 
-      const locationId =
+      // Determine location with explicit precedence
+      const locationId: Id<"locations"> | undefined =
         options.locationId ??
-        contextWithLocation ??
+        contextLocationId ??
         appointment.resource?.locationId ??
         selectedLocationId;
 
-      const title = options.title ?? appointment.title;
-
       if (!locationId) {
-        toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+        toast.error(
+          "Standort fehlt. Bitte wählen Sie einen Standort aus oder stellen Sie sicher, dass der Termin einen Standort hat.",
+        );
         return null;
       }
 
+      const title = options.title ?? appointment.title;
+
       try {
-        const newId = await runCreateAppointment({
+        // Build appointment data with proper typing
+        const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
           end: endISO,
           isSimulation: true,
           locationId,
-          ...(appointment.resource?.appointmentType !== undefined && {
-            appointmentType: appointment.resource.appointmentType,
-          }),
-          ...(appointment.resource?.patientId && {
-            patientId: appointment.resource.patientId,
-          }),
-          ...(practitionerId && { practitionerId }),
           replacesAppointmentId: appointment.convexId,
           start: startISO,
           title,
-        });
+        };
+
+        // Add optional fields only if they exist
+        if (appointment.resource?.appointmentType !== undefined) {
+          appointmentData.appointmentType =
+            appointment.resource.appointmentType;
+        }
+
+        if (appointment.resource?.patientId !== undefined) {
+          appointmentData.patientId = appointment.resource.patientId;
+        }
+
+        if (practitionerId !== undefined) {
+          appointmentData.practitionerId = practitionerId;
+        }
+
+        const newId = await runCreateAppointment(appointmentData);
 
         const durationMinutes =
           options.durationMinutes ??
@@ -857,12 +929,22 @@ export function useCalendarLogic({
 
         return updatedAppointment;
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unbekannter Fehler";
+
         captureErrorGlobal(error, {
           appointmentId: appointment.convexId,
           context: "NewCalendar - Failed to create simulated replacement",
-          overrides: options,
+          errorMessage,
+          locationId,
+          options,
+          practitionerId,
+          simulatedContextValid: isValidSimulatedContext(simulatedContext),
         });
-        toast.error("Simulierter Termin konnte nicht erstellt werden");
+
+        toast.error(
+          `Simulierter Termin konnte nicht erstellt werden: ${errorMessage}`,
+        );
         return null;
       }
     },
