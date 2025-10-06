@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { de } from "date-fns/locale";
-import { Plus, RefreshCw, Save } from "lucide-react";
+import { Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -56,7 +56,6 @@ import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
-import { useLocalAppointments } from "../utils/local-appointments";
 import {
   EXISTING_PATIENT_SEGMENT,
   NEW_PATIENT_SEGMENT,
@@ -141,11 +140,15 @@ function LogicView() {
     Id<"ruleSets"> | undefined
   >();
   const [activationName, setActivationName] = useState("");
+  const [isClearingSimulatedAppointments, setIsClearingSimulatedAppointments] =
+    useState(false);
+  const [isResettingSimulation, setIsResettingSimulation] = useState(false);
+
+  const deleteAllSimulatedAppointmentsMutation = useMutation(
+    api.appointments.deleteAllSimulatedAppointments,
+  );
 
   // Local appointments for simulation
-  const { addLocalAppointment, clearAllLocalAppointments, localAppointments } =
-    useLocalAppointments();
-
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     appointmentType: "Erstberatung",
     patient: { isNew: true },
@@ -193,6 +196,49 @@ function LogicView() {
       void handleInitializePractice();
     }
   }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
+
+  const performClearSimulatedAppointments = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      const { silent = false } = options;
+      try {
+        const deletedCount = await deleteAllSimulatedAppointmentsMutation({});
+
+        if (!silent) {
+          if (deletedCount > 0) {
+            toast.success(
+              `${deletedCount} Simulationstermin${deletedCount === 1 ? "" : "e"} gelöscht`,
+            );
+          } else {
+            toast.info("Keine Simulationstermine vorhanden");
+          }
+        }
+
+        return deletedCount;
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "simulation_clear",
+        });
+
+        const description =
+          error instanceof Error ? error.message : "Unbekannter Fehler";
+
+        toast.error("Simulationstermine konnten nicht gelöscht werden", {
+          description,
+        });
+        throw error;
+      }
+    },
+    [captureError, deleteAllSimulatedAppointmentsMutation],
+  );
+
+  const handleClearSimulatedAppointments = useCallback(async () => {
+    try {
+      setIsClearingSimulatedAppointments(true);
+      await performClearSimulatedAppointments();
+    } finally {
+      setIsClearingSimulatedAppointments(false);
+    }
+  }, [performClearSimulatedAppointments]);
 
   // Fetch rule sets for this practice
   const ruleSetsQuery = useQuery(
@@ -331,15 +377,25 @@ function LogicView() {
   ]);
 
   // Reset simulation helper (after pushParams is defined)
-  const resetSimulation = () => {
-    setSimulatedContext({
-      appointmentType: "Erstberatung",
-      patient: { isNew: true },
-    });
-    setSelectedSlot(null);
-    clearAllLocalAppointments();
-    pushUrl({ date: new Date(), isNewPatient: true, ruleSetId: undefined });
-  };
+  const resetSimulation = useCallback(async () => {
+    setIsResettingSimulation(true);
+    try {
+      setSimulatedContext({
+        appointmentType: "Erstberatung",
+        patient: { isNew: true },
+      });
+      setSelectedSlot(null);
+      pushUrl({
+        date: new Date(),
+        isNewPatient: true,
+        ruleSetId: undefined,
+      });
+
+      await performClearSimulatedAppointments({ silent: true });
+    } finally {
+      setIsResettingSimulation(false);
+    }
+  }, [performClearSimulatedAppointments, pushUrl]);
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
@@ -910,8 +966,6 @@ function LogicView() {
                 <div className="flex justify-center">
                   <PatientBookingFlow
                     dateRange={dateRange}
-                    localAppointments={localAppointments}
-                    onCreateLocalAppointment={addLocalAppointment}
                     onSlotClick={handleSlotClick}
                     onUpdateSimulatedContext={setSimulatedContext}
                     practiceId={currentPractice._id}
@@ -921,6 +975,13 @@ function LogicView() {
                 </div>
 
                 <SimulationControls
+                  isClearingSimulatedAppointments={
+                    isClearingSimulatedAppointments
+                  }
+                  isResettingSimulation={isResettingSimulation}
+                  onClearSimulatedAppointments={
+                    handleClearSimulatedAppointments
+                  }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
@@ -962,8 +1023,6 @@ function LogicView() {
               <div className="space-y-6">
                 <MedicalStaffDisplay
                   dateRange={dateRange}
-                  localAppointments={localAppointments}
-                  onCreateLocalAppointment={addLocalAppointment}
                   onSlotClick={handleSlotClick}
                   onUpdateSimulatedContext={setSimulatedContext}
                   practiceId={currentPractice._id}
@@ -972,6 +1031,13 @@ function LogicView() {
                 />
 
                 <SimulationControls
+                  isClearingSimulatedAppointments={
+                    isClearingSimulatedAppointments
+                  }
+                  isResettingSimulation={isResettingSimulation}
+                  onClearSimulatedAppointments={
+                    handleClearSimulatedAppointments
+                  }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
@@ -1016,6 +1082,13 @@ function LogicView() {
                 </div>
 
                 <SimulationControls
+                  isClearingSimulatedAppointments={
+                    isClearingSimulatedAppointments
+                  }
+                  isResettingSimulation={isResettingSimulation}
+                  onClearSimulatedAppointments={
+                    handleClearSimulatedAppointments
+                  }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
@@ -1224,6 +1297,9 @@ function SaveDialogForm({
 
 // Simulation Controls Component - Extracted from SimulationPanel
 function SimulationControls({
+  isClearingSimulatedAppointments,
+  isResettingSimulation,
+  onClearSimulatedAppointments,
   onDateChange,
   onResetSimulation,
   onSimulatedContextChange,
@@ -1233,8 +1309,11 @@ function SimulationControls({
   simulatedContext,
   simulationRuleSetId,
 }: {
+  isClearingSimulatedAppointments: boolean;
+  isResettingSimulation: boolean;
+  onClearSimulatedAppointments: () => Promise<void>;
   onDateChange: (date: Date) => void;
-  onResetSimulation: () => void;
+  onResetSimulation: () => Promise<void>;
   onSimulatedContextChange: (context: SimulatedContext) => void;
   onSimulationRuleSetChange: (ruleSetId: Id<"ruleSets"> | undefined) => void;
   ruleSetsQuery:
@@ -1341,11 +1420,32 @@ function SimulationControls({
 
         <Button
           className="w-full"
-          onClick={onResetSimulation}
+          disabled={isResettingSimulation}
+          onClick={() => {
+            void onResetSimulation();
+          }}
           variant="outline"
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${isResettingSimulation ? "animate-spin" : ""}`}
+          />
           Zurücksetzen
+        </Button>
+
+        <Button
+          className="w-full"
+          disabled={isClearingSimulatedAppointments}
+          onClick={() => {
+            void onClearSimulatedAppointments();
+          }}
+          variant="destructive"
+        >
+          <Trash2
+            className={`h-4 w-4 mr-2 ${
+              isClearingSimulatedAppointments ? "animate-spin" : ""
+            }`}
+          />
+          Alle Simulationstermine löschen
         </Button>
       </CardContent>
     </Card>

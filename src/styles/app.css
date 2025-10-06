@@ -1,9 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* React Big Calendar styles */
-@import "react-big-calendar/lib/css/react-big-calendar.css";
-
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -73,6 +70,14 @@
   --device-iphone-stripe-color: rgba(0, 0, 0, 0.14);
   --device-iphone-screen: var(--card);
   --device-xdr-screen: var(--card);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
@@ -141,6 +146,14 @@
   --device-iphone-stripe-color: rgba(255, 255, 255, 0.14);
   --device-iphone-screen: var(--card);
   --device-xdr-screen: var(--card);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.439 0 0);
 }
 
 @theme inline {
@@ -424,6 +437,56 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   width: 100%;
   overflow: hidden;
   background: var(--device-xdr-screen);
+  position: relative;
+  display: flex;
+}
+
+/* Scale content inside XDR device to 75% */
+.device-pro-display-xdr .device-screen > * {
+  zoom: 0.75;
+  width: 100%;
+  height: 100%;
+}
+
+/* Force desktop sidebar behavior within XDR device (no mobile sheet) */
+.device-pro-display-xdr .device-screen [data-slot="sidebar"] {
+  display: block !important;
+}
+
+/* Force desktop sidebar container to show (overrides hidden md:block) */
+.device-pro-display-xdr .device-screen .group.peer[data-slot="sidebar"] {
+  display: block !important;
+}
+
+/* Force sidebar container to display (overrides hidden md:flex) */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-container"] {
+  display: flex !important;
+  position: absolute !important;
+  height: 100% !important;
+}
+
+/* Force sidebar inner content to be visible */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-inner"] {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Hide mobile sheet sidebar within XDR device */
+.device-pro-display-xdr .device-screen [data-slot="sheet"],
+.device-pro-display-xdr .device-screen [data-slot="sheet-portal"],
+.device-pro-display-xdr .device-screen [data-vaul-drawer] {
+  display: none !important;
+}
+
+/* Make sidebar trigger work as desktop button within XDR device */
+.device-pro-display-xdr .device-screen [data-sidebar="trigger"] {
+  display: flex !important;
+}
+
+/* Make sidebar work within constrained containers like XDR device */
+.device-pro-display-xdr .device-screen [data-slot="sidebar-gap"] {
+  display: block !important;
 }
 
 .device-pro-display-xdr .device-power {
