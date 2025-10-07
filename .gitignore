@@ -21,3 +21,10 @@ stats.html
 /public/build
 /dist/
 .vercel
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

@@ -36,6 +36,11 @@ export default tseslint.config(
       "dist",
       ".github/instructions/convex.instructions.md",
       ".vercel/",
+      "test-results/",
+      "playwright-report/",
+      "blob-report/",
+      "playwright/.cache/",
+      "playwright/.auth/",
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
@@ -108,6 +113,7 @@ export default tseslint.config(
         "error",
         { allowBoolean: true, allowNullish: true, allowNumber: true },
       ],
+      "@typescript-eslint/no-floating-promises": "error",
 
       // Stylistic concerns that don't interfere with Prettier
       "logical-assignment-operators": [
