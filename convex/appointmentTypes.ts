@@ -3,6 +3,11 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
+import {
+  canModifyDirectly,
+  validateEntityBelongsToRuleSet,
+  validateRuleSetBelongsToPractice,
+} from "./ruleSetValidation";
 
 export const createAppointmentType = mutation({
   args: {
@@ -16,6 +21,7 @@ export const createAppointmentType = mutation({
     ),
     name: v.string(),
     practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     // Verify the practice exists
@@ -24,16 +30,25 @@ export const createAppointmentType = mutation({
       throw new Error("Practice not found");
     }
 
-    // Check if appointment type already exists
+    // Validate that the rule set belongs to the practice
+    await validateRuleSetBelongsToPractice(
+      ctx,
+      args.ruleSetId,
+      args.practiceId,
+    );
+
+    // Check if appointment type already exists in this rule set
     const existing = await ctx.db
       .query("appointmentTypes")
-      .withIndex("by_practiceId_name", (q) =>
-        q.eq("practiceId", args.practiceId).eq("name", args.name),
+      .withIndex("by_ruleSetId_name", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("name", args.name),
       )
       .first();
 
     if (existing) {
-      throw new Error("Appointment type with this name already exists");
+      throw new Error(
+        "Appointment type with this name already exists in this rule set",
+      );
     }
 
     // Create the appointment type
@@ -42,6 +57,7 @@ export const createAppointmentType = mutation({
       lastModified: BigInt(Date.now()),
       name: args.name,
       practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
     });
 
     // Create duration entries if provided
@@ -60,14 +76,18 @@ export const createAppointmentType = mutation({
   returns: v.id("appointmentTypes"),
 });
 
+/**
+ * Get all appointment types for a specific rule set.
+ * ruleSetId is required to prevent querying across all rule sets.
+ */
 export const getAppointmentTypes = query({
   args: {
-    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
     // For each appointment type, build the durations structure from the separate table
@@ -134,12 +154,21 @@ export const updateAppointmentType = mutation({
       ),
     ),
     name: v.optional(v.string()),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const appointmentType = await ctx.db.get(args.appointmentTypeId);
     if (!appointmentType) {
       throw new Error("Appointment type not found");
     }
+
+    // Validate the entity and rule set relationship
+    await validateEntityBelongsToRuleSet(
+      ctx,
+      appointmentType,
+      "appointmentTypes",
+      args.ruleSetId,
+    );
 
     const updates: Record<string, unknown> = {
       lastModified: BigInt(Date.now()),
@@ -149,8 +178,28 @@ export const updateAppointmentType = mutation({
       updates["name"] = args.name;
     }
 
-    // Update the appointment type
-    await ctx.db.patch(args.appointmentTypeId, updates);
+    let targetAppointmentTypeId: Id<"appointmentTypes">;
+
+    // Check if we can modify directly or need to copy
+    const shouldCopyOnWrite = !canModifyDirectly(
+      appointmentType.ruleSetId,
+      args.ruleSetId,
+    );
+
+    if (shouldCopyOnWrite) {
+      // Different rule set - create a new appointment type (copy-on-write)
+      targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        createdAt: appointmentType.createdAt,
+        lastModified: BigInt(Date.now()),
+        name: args.name ?? appointmentType.name,
+        practiceId: appointmentType.practiceId,
+        ruleSetId: args.ruleSetId,
+      });
+    } else {
+      // Same rule set - we can patch directly (for ungespeichert)
+      await ctx.db.patch(args.appointmentTypeId, updates);
+      targetAppointmentTypeId = args.appointmentTypeId;
+    }
 
     // If durations are provided, update the durations table
     if (args.durations !== undefined) {
@@ -158,7 +207,7 @@ export const updateAppointmentType = mutation({
       const existingDurations = await ctx.db
         .query("appointmentTypeDurations")
         .withIndex("by_appointmentType", (q) =>
-          q.eq("appointmentTypeId", args.appointmentTypeId),
+          q.eq("appointmentTypeId", targetAppointmentTypeId),
         )
         .collect();
 
@@ -169,21 +218,22 @@ export const updateAppointmentType = mutation({
       // Then, insert the new duration records
       for (const duration of args.durations) {
         await ctx.db.insert("appointmentTypeDurations", {
-          appointmentTypeId: args.appointmentTypeId,
+          appointmentTypeId: targetAppointmentTypeId,
           duration: duration.duration,
           practitionerId: duration.practitionerId,
         });
       }
     }
 
-    return null;
+    return targetAppointmentTypeId;
   },
-  returns: v.null(),
+  returns: v.id("appointmentTypes"),
 });
 
 export const deleteAppointmentType = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const appointmentType = await ctx.db.get(args.appointmentTypeId);
@@ -191,8 +241,81 @@ export const deleteAppointmentType = mutation({
       throw new Error("Appointment type not found");
     }
 
-    await ctx.db.delete(args.appointmentTypeId);
-    return null;
+    // Validate the entity and rule set relationship
+    await validateEntityBelongsToRuleSet(
+      ctx,
+      appointmentType,
+      "appointmentTypes",
+      args.ruleSetId,
+    );
+
+    // Check if we can delete directly or need to copy-on-write
+    const shouldCopyOnWrite = !canModifyDirectly(
+      appointmentType.ruleSetId,
+      args.ruleSetId,
+    );
+
+    if (shouldCopyOnWrite) {
+      // Different rule set - trigger copy-on-write
+      // This means: copy all appointment types from the source rule set to the target rule set,
+      // EXCEPT the one being deleted
+      const allAppointmentTypes = await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId", (q) =>
+          q.eq("ruleSetId", appointmentType.ruleSetId),
+        )
+        .collect();
+
+      for (const sourceType of allAppointmentTypes) {
+        // Skip the appointment type being deleted
+        if (sourceType._id === args.appointmentTypeId) {
+          continue;
+        }
+
+        // Create a new appointment type in the target rule set
+        const newAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+          createdAt: sourceType.createdAt,
+          lastModified: BigInt(Date.now()),
+          name: sourceType.name,
+          practiceId: sourceType.practiceId,
+          ruleSetId: args.ruleSetId,
+        });
+
+        // Copy all durations for this appointment type
+        const durations = await ctx.db
+          .query("appointmentTypeDurations")
+          .withIndex("by_appointmentType", (q) =>
+            q.eq("appointmentTypeId", sourceType._id),
+          )
+          .collect();
+
+        for (const duration of durations) {
+          await ctx.db.insert("appointmentTypeDurations", {
+            appointmentTypeId: newAppointmentTypeId,
+            duration: duration.duration,
+            practitionerId: duration.practitionerId,
+          });
+        }
+      }
+
+      return null;
+    } else {
+      // Same rule set - we can delete directly (for ungespeichert)
+      // Delete all associated durations
+      const durations = await ctx.db
+        .query("appointmentTypeDurations")
+        .withIndex("by_appointmentType", (q) =>
+          q.eq("appointmentTypeId", args.appointmentTypeId),
+        )
+        .collect();
+
+      for (const duration of durations) {
+        await ctx.db.delete(duration._id);
+      }
+
+      await ctx.db.delete(args.appointmentTypeId);
+      return null;
+    }
   },
   returns: v.null(),
 });
@@ -201,6 +324,7 @@ export const importAppointmentTypesFromCsv = mutation({
   args: {
     csvData: v.string(),
     practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const lines = args.csvData.trim().split("\n");
@@ -222,10 +346,10 @@ export const importAppointmentTypesFromCsv = mutation({
       throw new Error("First column must be 'Terminart'");
     }
 
-    // Get all practitioners for this practice
+    // Get all practitioners for this rule set
     const practitioners = await ctx.db
       .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
     const practitionerNameToId = new Map<string, Id<"practitioners">>();
@@ -266,6 +390,7 @@ export const importAppointmentTypesFromCsv = mutation({
         practitionerId = await ctx.db.insert("practitioners", {
           name: practitionerName,
           practiceId: args.practiceId,
+          ruleSetId: args.ruleSetId,
         });
         practitionerNameToId.set(practitionerName, practitionerId);
         newPractitionerIds.set(practitionerName, practitionerId);
@@ -359,6 +484,7 @@ export const importAppointmentTypesFromCsv = mutation({
               lastModified: BigInt(Date.now()),
               name: appointmentTypeName,
               practiceId: args.practiceId,
+              ruleSetId: args.ruleSetId,
             });
           }
 

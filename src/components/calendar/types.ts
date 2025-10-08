@@ -29,6 +29,7 @@ export interface NewCalendarProps {
   ) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId?: Id<"practices">;
+  ruleSetId?: Id<"ruleSets">; // Optional: If not provided, will use unsaved rule set
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;

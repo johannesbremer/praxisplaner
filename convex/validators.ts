@@ -95,9 +95,3 @@ export const ruleUpdateValidator = v.object({
   limit_count: v.optional(v.number()),
   limit_perPractitioner: v.optional(v.boolean()),
 });
-
-// RuleSetRule update data (for junction table)
-export const ruleSetRuleUpdateValidator = v.object({
-  enabled: v.optional(v.boolean()),
-  priority: v.optional(v.number()),
-});

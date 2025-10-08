@@ -28,11 +28,13 @@ interface LocationsManagementProps {
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export function LocationsManagement({
   onNeedRuleSet,
   practiceId,
+  ruleSetId,
 }: LocationsManagementProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
@@ -41,7 +43,7 @@ export function LocationsManagement({
   }>(null);
 
   const { captureError } = useErrorTracking();
-  const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
+  const locationsQuery = useQuery(api.locations.getLocations, { ruleSetId });
   const createLocationMutation = useMutation(api.locations.createLocation);
   const updateLocationMutation = useMutation(api.locations.updateLocation);
   const deleteLocationMutation = useMutation(api.locations.deleteLocation);
@@ -52,23 +54,34 @@ export function LocationsManagement({
     },
     onSubmit: async ({ value }) => {
       try {
+        let ruleSetId: Id<"ruleSets"> | null | undefined;
         if (onNeedRuleSet) {
-          await onNeedRuleSet();
+          ruleSetId = await onNeedRuleSet();
         }
 
         if (editingLocation) {
+          if (!ruleSetId) {
+            toast.error("Keine Regelset-ID verfügbar");
+            return;
+          }
           await updateLocationMutation({
             locationId: editingLocation._id,
             name: value.name.trim(),
+            ruleSetId,
           });
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
           });
           setEditingLocation(null);
         } else {
+          if (!ruleSetId) {
+            toast.error("Keine Regelset-ID verfügbar");
+            return;
+          }
           await createLocationMutation({
             name: value.name.trim(),
             practiceId,
+            ruleSetId,
           });
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
@@ -110,11 +123,17 @@ export function LocationsManagement({
   ) => {
     try {
       // Ensure we have an unsaved rule set before making changes
+      let ruleSetId: Id<"ruleSets"> | null | undefined;
       if (onNeedRuleSet) {
-        await onNeedRuleSet();
+        ruleSetId = await onNeedRuleSet();
       }
 
-      await deleteLocationMutation({ locationId });
+      if (!ruleSetId) {
+        toast.error("Keine Regelset-ID verfügbar");
+        return;
+      }
+
+      await deleteLocationMutation({ locationId, ruleSetId });
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,
       });

@@ -34,6 +34,7 @@ export function useCalendarLogic({
   onLocationResolved,
   onUpdateSimulatedContext,
   practiceId: propPracticeId,
+  ruleSetId: propRuleSetId,
   selectedLocationId: externalSelectedLocationId,
   simulatedContext,
   simulationDate,
@@ -159,6 +160,23 @@ export function useCalendarLogic({
     [appointmentScope],
   );
 
+  // Get the active rule set if not provided (for real booking calendar)
+  const activeRuleSetData = useQuery(
+    api.ruleSets.getActiveRuleSet,
+    propRuleSetId || !practiceId || simulatedContext ? "skip" : { practiceId },
+  );
+
+  // Get the unsaved rule set if not provided (for simulation)
+  const unsavedRuleSetData = useQuery(
+    api.ruleSets.getUnsavedRuleSet,
+    propRuleSetId || !practiceId || !simulatedContext ? "skip" : { practiceId },
+  );
+
+  // Use provided ruleSetId or fall back to appropriate rule set based on mode
+  const ruleSetId =
+    propRuleSetId ??
+    (simulatedContext ? unsavedRuleSetData?._id : activeRuleSetData?._id);
+
   // Query data
   const appointmentsData = useQuery(
     api.appointments.getAppointments,
@@ -166,15 +184,15 @@ export function useCalendarLogic({
   );
   const practitionersData = useQuery(
     api.practitioners.getPractitioners,
-    practiceId ? { practiceId } : "skip",
+    ruleSetId ? { ruleSetId } : "skip",
   );
   const baseSchedulesData = useQuery(
     api.baseSchedules.getAllBaseSchedules,
-    practiceId ? { practiceId } : "skip",
+    ruleSetId ? { ruleSetId } : "skip",
   );
   const locationsData = useQuery(
     api.locations.getLocations,
-    practiceId ? { practiceId } : "skip",
+    ruleSetId ? { ruleSetId } : "skip",
   );
 
   // Mutations

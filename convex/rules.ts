@@ -2,7 +2,8 @@ import { v } from "convex/values";
 
 import { api } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { ruleSetRuleUpdateValidator, ruleUpdateValidator } from "./validators";
+import { validateRuleSetBelongsToPractice } from "./ruleSetValidation";
+import { ruleUpdateValidator } from "./validators";
 
 // ================================
 // RULE VALIDATION FUNCTIONS
@@ -12,13 +13,13 @@ export const validateRuleName = query({
   args: {
     excludeRuleId: v.optional(v.id("rules")),
     name: v.string(),
-    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const existingRule = await ctx.db
       .query("rules")
-      .withIndex("by_practiceId_name", (q) =>
-        q.eq("practiceId", args.practiceId).eq("name", args.name),
+      .withIndex("by_ruleSetId_name", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("name", args.name),
       )
       .first();
 
@@ -41,14 +42,19 @@ export const validateRuleName = query({
 });
 
 // ================================
-// GLOBAL RULE MANAGEMENT
+// RULE MANAGEMENT (Copy-on-Write Pattern)
 // ================================
 
+/**
+ * Create a new rule in a rule set.
+ * Rules can only be created in the "ungespeichert" (unsaved) rule set.
+ */
 export const createRule = mutation({
   args: {
     description: v.string(),
     name: v.string(),
     practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
 
     // Practitioner application
@@ -74,22 +80,30 @@ export const createRule = mutation({
     limit_perPractitioner: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Check if rule name is unique
+    // Validate rule set ownership
+    await validateRuleSetBelongsToPractice(
+      ctx,
+      args.ruleSetId,
+      args.practiceId,
+    );
+
+    // Check if rule name is unique within the rule set
     const nameValidation = await ctx.runQuery(api.rules.validateRuleName, {
       name: args.name,
-      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
     });
 
     if (!nameValidation.isUnique) {
       throw new Error(nameValidation.message || "Rule name is not unique");
     }
 
-    // Create the global rule
+    // Create the rule
     const ruleData: Record<string, unknown> = {
       appliesTo: args.appliesTo,
       description: args.description,
       name: args.name,
       practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
       ruleType: args.ruleType,
     };
 
@@ -145,9 +159,14 @@ export const createRule = mutation({
   returns: v.id("rules"),
 });
 
+/**
+ * Update a rule.
+ * Rules can only be updated in the "ungespeichert" (unsaved) rule set.
+ */
 export const updateRule = mutation({
   args: {
     ruleId: v.id("rules"),
+    ruleSetId: v.id("ruleSets"),
     updates: ruleUpdateValidator,
   },
   handler: async (ctx, args) => {
@@ -156,12 +175,24 @@ export const updateRule = mutation({
       throw new Error("Rule not found");
     }
 
-    // If name is being updated, check uniqueness
+    // Validate rule set ownership
+    await validateRuleSetBelongsToPractice(
+      ctx,
+      args.ruleSetId,
+      rule.practiceId,
+    );
+
+    // Verify rule belongs to the specified rule set
+    if (rule.ruleSetId !== args.ruleSetId) {
+      throw new Error("Rule does not belong to the specified rule set");
+    }
+
+    // If name is being updated, check uniqueness within the rule set
     if (args.updates.name && args.updates.name !== rule.name) {
       const nameValidation = await ctx.runQuery(api.rules.validateRuleName, {
         excludeRuleId: args.ruleId,
         name: args.updates.name,
-        practiceId: rule.practiceId,
+        ruleSetId: rule.ruleSetId,
       });
 
       if (!nameValidation.isUnique) {
@@ -180,9 +211,14 @@ export const updateRule = mutation({
   },
 });
 
+/**
+ * Copy a rule within the same rule set.
+ * Rules can only be copied within the "ungespeichert" (unsaved) rule set.
+ */
 export const copyRule = mutation({
   args: {
     newName: v.string(),
+    ruleSetId: v.id("ruleSets"),
     sourceRuleId: v.id("rules"),
   },
   handler: async (ctx, args) => {
@@ -191,10 +227,22 @@ export const copyRule = mutation({
       throw new Error("Source rule not found");
     }
 
-    // Check if new name is unique
+    // Validate rule set ownership
+    await validateRuleSetBelongsToPractice(
+      ctx,
+      args.ruleSetId,
+      sourceRule.practiceId,
+    );
+
+    // Verify source rule belongs to the specified rule set
+    if (sourceRule.ruleSetId !== args.ruleSetId) {
+      throw new Error("Source rule does not belong to the specified rule set");
+    }
+
+    // Check if new name is unique within the same rule set
     const nameValidation = await ctx.runQuery(api.rules.validateRuleName, {
       name: args.newName,
-      practiceId: sourceRule.practiceId,
+      ruleSetId: sourceRule.ruleSetId,
     });
 
     if (!nameValidation.isUnique) {
@@ -214,9 +262,14 @@ export const copyRule = mutation({
   returns: v.id("rules"),
 });
 
+/**
+ * Delete a rule.
+ * Rules can only be deleted from the "ungespeichert" (unsaved) rule set.
+ */
 export const deleteRule = mutation({
   args: {
     ruleId: v.id("rules"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const rule = await ctx.db.get(args.ruleId);
@@ -224,40 +277,52 @@ export const deleteRule = mutation({
       throw new Error("Rule not found");
     }
 
-    // Delete all ruleSetRules entries for this rule
-    const ruleSetRules = await ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleId", (q) => q.eq("ruleId", args.ruleId))
-      .collect();
+    // Validate rule set ownership
+    await validateRuleSetBelongsToPractice(
+      ctx,
+      args.ruleSetId,
+      rule.practiceId,
+    );
 
-    for (const ruleSetRule of ruleSetRules) {
-      await ctx.db.delete(ruleSetRule._id);
+    // Verify rule belongs to the specified rule set
+    if (rule.ruleSetId !== args.ruleSetId) {
+      throw new Error("Rule does not belong to the specified rule set");
     }
 
-    // Delete the rule itself
+    // Delete the rule
     await ctx.db.delete(args.ruleId);
     return { success: true };
   },
 });
 
-export const getAllRulesForPractice = query({
+// ================================
+// RULE QUERIES
+// ================================
+
+/**
+ * Get all rules for a specific rule set.
+ * ruleSetId is required to prevent querying across all rule sets.
+ */
+export const getAllRulesForRuleSet = query({
   args: {
-    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const rules = await ctx.db
       .query("rules")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
     return rules.toSorted((a, b) => a.name.localeCompare(b.name));
   },
 });
 
-// Full-text search for rules by name and description
+/**
+ * Full-text search for rules by name and description within a specific rule set.
+ */
 export const searchRules = query({
   args: {
-    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
     searchTerm: v.string(),
   },
   handler: async (
@@ -274,22 +339,22 @@ export const searchRules = query({
   > => {
     if (!args.searchTerm.trim()) {
       // Return all rules if no search term
-      return await ctx.runQuery(api.rules.getAllRulesForPractice, {
-        practiceId: args.practiceId,
+      return await ctx.runQuery(api.rules.getAllRulesForRuleSet, {
+        ruleSetId: args.ruleSetId,
       });
     }
 
     const rules = await ctx.db
       .query("rules")
       .withSearchIndex("search_rules", (q) =>
-        q.search("name", args.searchTerm).eq("practiceId", args.practiceId),
+        q.search("name", args.searchTerm).eq("ruleSetId", args.ruleSetId),
       )
       .collect();
 
-    // Also search in descriptions by filtering all rules for the practice
+    // Also search in descriptions by filtering all rules for the rule set
     const allRules = await ctx.db
       .query("rules")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
     const descriptionMatches = allRules.filter((rule) =>
@@ -304,534 +369,4 @@ export const searchRules = query({
 
     return uniqueRules.toSorted((a, b) => a.name.localeCompare(b.name));
   },
-});
-
-// ================================
-// RULE SET RULE MANAGEMENT (Junction Table)
-// ================================
-
-export const enableRuleInRuleSet = mutation({
-  args: {
-    priority: v.number(),
-    ruleId: v.id("rules"),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Check if the rule is already in this rule set
-    const existingRuleSetRule = await ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .filter((q) => q.eq(q.field("ruleId"), args.ruleId))
-      .first();
-
-    if (existingRuleSetRule) {
-      // Update existing entry to enabled
-      await ctx.db.patch(existingRuleSetRule._id, {
-        enabled: true,
-        priority: args.priority,
-      });
-      return existingRuleSetRule._id;
-    } else {
-      // Create new entry
-      const ruleSetRuleId = await ctx.db.insert("ruleSetRules", {
-        enabled: true,
-        priority: args.priority,
-        ruleId: args.ruleId,
-        ruleSetId: args.ruleSetId,
-      });
-      return ruleSetRuleId;
-    }
-  },
-  returns: v.id("ruleSetRules"),
-});
-
-export const disableRuleInRuleSet = mutation({
-  args: {
-    ruleId: v.id("rules"),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    const ruleSetRule = await ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .filter((q) => q.eq(q.field("ruleId"), args.ruleId))
-      .first();
-
-    if (!ruleSetRule) {
-      throw new Error("Rule is not in this rule set");
-    }
-
-    // Set to disabled instead of deleting
-    await ctx.db.patch(ruleSetRule._id, { enabled: false });
-    return { success: true };
-  },
-});
-
-export const updateRuleSetRule = mutation({
-  args: {
-    ruleSetRuleId: v.id("ruleSetRules"),
-    updates: ruleSetRuleUpdateValidator,
-  },
-  handler: async (ctx, args) => {
-    const ruleSetRule = await ctx.db.get(args.ruleSetRuleId);
-    if (!ruleSetRule) {
-      throw new Error("RuleSetRule not found");
-    }
-
-    // Filter out undefined values
-    const filteredUpdates: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(args.updates)) {
-      filteredUpdates[key] = value;
-    }
-
-    await ctx.db.patch(args.ruleSetRuleId, filteredUpdates);
-    return { success: true };
-  },
-});
-
-// ================================
-// RULE SET QUERIES
-// ================================
-
-export const getRulesForRuleSet = query({
-  args: {
-    enabledOnly: v.optional(v.boolean()),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Get ruleSetRules for this rule set
-    let ruleSetRulesQuery = ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId));
-
-    if (args.enabledOnly) {
-      ruleSetRulesQuery = ruleSetRulesQuery.filter((q) =>
-        q.eq(q.field("enabled"), true),
-      );
-    }
-
-    const ruleSetRules = await ruleSetRulesQuery.collect();
-
-    // Get the actual rules
-    const rulesWithRuleSetInfo = await Promise.all(
-      ruleSetRules.map(async (ruleSetRule) => {
-        const rule = await ctx.db.get(ruleSetRule.ruleId);
-        if (!rule) {
-          return null;
-        }
-        return {
-          ...rule,
-          enabled: ruleSetRule.enabled,
-          priority: ruleSetRule.priority,
-          ruleSetRuleId: ruleSetRule._id,
-        };
-      }),
-    );
-
-    // Filter out null values and sort by priority
-    return rulesWithRuleSetInfo
-      .filter((rule) => rule !== null)
-      .toSorted((a, b) => a.priority - b.priority);
-  },
-});
-
-export const getAvailableRulesForRuleSet = query({
-  args: {
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-    searchTerm: v.optional(v.string()),
-  },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<
-    {
-      [key: string]: unknown;
-      _id: string;
-      description: string;
-      name: string;
-      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-    }[]
-  > => {
-    // Get all rules for this practice (or search if searchTerm provided)
-    const allRules: {
-      [key: string]: unknown;
-      _id: string;
-      description: string;
-      name: string;
-      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-    }[] = args.searchTerm
-      ? await ctx.runQuery(api.rules.searchRules, {
-          practiceId: args.practiceId,
-          searchTerm: args.searchTerm,
-        })
-      : await ctx.runQuery(api.rules.getAllRulesForPractice, {
-          practiceId: args.practiceId,
-        });
-
-    // Get rules already in this rule set
-    const ruleSetRules = await ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-
-    // Create a map of rule IDs to their enabled status in this rule set
-    const ruleSetRuleMap = new Map<string, boolean>();
-    for (const rsr of ruleSetRules) {
-      ruleSetRuleMap.set(rsr.ruleId, rsr.enabled);
-    }
-
-    // Filter rules to include:
-    // 1. Rules not in the rule set at all
-    // 2. Rules in the rule set but disabled (can be re-enabled)
-    return allRules.filter((rule: (typeof allRules)[0]) => {
-      const ruleId = rule._id;
-      const isInRuleSet = ruleSetRuleMap.has(ruleId);
-      const isEnabled = ruleSetRuleMap.get(ruleId);
-
-      // Include if not in rule set, or if in rule set but disabled
-      return !isInRuleSet || !isEnabled;
-    });
-  },
-});
-
-// ================================
-// LEGACY COMPATIBILITY (for existing functionality)
-// ================================
-
-// Wrapper functions to maintain compatibility with existing code
-export const createDraftFromActive = mutation({
-  args: {
-    description: v.string(),
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    // Get the current active rule set
-    const practice = await ctx.db.get(args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      throw new Error("No active rule set found to copy from");
-    }
-
-    // Get the current active rule set
-    const activeRuleSet = await ctx.db.get(practice.currentActiveRuleSetId);
-    if (!activeRuleSet) {
-      throw new Error("Active rule set not found");
-    }
-
-    // Create new draft rule set with parent relationship
-    const newVersion = activeRuleSet.version + 1;
-    const newRuleSetId = await ctx.db.insert("ruleSets", {
-      createdAt: Date.now(),
-      createdBy: "system", // TODO: Replace with actual user when auth is implemented
-      description: args.description,
-      parentVersions: [practice.currentActiveRuleSetId],
-      practiceId: args.practiceId,
-      version: newVersion,
-    });
-
-    // Copy all enabled rules from active set to new draft
-    const activeRuleSetRules = await ctx.runQuery(
-      api.rules.getRulesForRuleSet,
-      {
-        enabledOnly: true,
-        ruleSetId: practice.currentActiveRuleSetId,
-      },
-    );
-
-    for (const ruleWithInfo of activeRuleSetRules) {
-      await ctx.runMutation(api.rules.enableRuleInRuleSet, {
-        priority: ruleWithInfo.priority,
-        ruleId: ruleWithInfo._id,
-        ruleSetId: newRuleSetId,
-      });
-    }
-
-    return newRuleSetId;
-  },
-  returns: v.id("ruleSets"),
-});
-
-export const createDraftFromRuleSet = mutation({
-  args: {
-    description: v.string(),
-    practiceId: v.id("practices"),
-    sourceRuleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Get the source rule set
-    const sourceRuleSet = await ctx.db.get(args.sourceRuleSetId);
-    if (!sourceRuleSet) {
-      throw new Error("Source rule set not found");
-    }
-
-    // Verify the rule set belongs to the practice
-    if (sourceRuleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-
-    // Create new draft rule set with parent relationship
-    const newVersion = sourceRuleSet.version + 1;
-    const newRuleSetId = await ctx.db.insert("ruleSets", {
-      createdAt: Date.now(),
-      createdBy: "system", // TODO: Replace with actual user when auth is implemented
-      description: args.description,
-      parentVersions: [args.sourceRuleSetId],
-      practiceId: args.practiceId,
-      version: newVersion,
-    });
-
-    // Copy all enabled rules from source set to new draft
-    const sourceRuleSetRules = await ctx.runQuery(
-      api.rules.getRulesForRuleSet,
-      {
-        enabledOnly: true,
-        ruleSetId: args.sourceRuleSetId,
-      },
-    );
-
-    for (const ruleWithInfo of sourceRuleSetRules) {
-      await ctx.runMutation(api.rules.enableRuleInRuleSet, {
-        priority: ruleWithInfo.priority,
-        ruleId: ruleWithInfo._id,
-        ruleSetId: newRuleSetId,
-      });
-    }
-
-    return newRuleSetId;
-  },
-  returns: v.id("ruleSets"),
-});
-
-export const activateRuleSet = mutation({
-  args: {
-    name: v.string(),
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Verify the rule set belongs to this practice
-    const ruleSet = await ctx.db.get(args.ruleSetId);
-    if (!ruleSet || ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set not found or doesn't belong to this practice");
-    }
-
-    // Update the rule set description with the new name
-    await ctx.db.patch(args.ruleSetId, {
-      description: args.name,
-    });
-
-    // Update the practice's active rule set
-    await ctx.db.patch(args.practiceId, {
-      currentActiveRuleSetId: args.ruleSetId,
-    });
-
-    return { success: true };
-  },
-  returns: v.object({ success: v.boolean() }),
-});
-
-export const deleteRuleSet = mutation({
-  args: {
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Verify the rule set belongs to this practice
-    const ruleSet = await ctx.db.get(args.ruleSetId);
-    if (!ruleSet || ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set not found or doesn't belong to this practice");
-    }
-
-    // Check if this is the active rule set
-    const practice = await ctx.db.get(args.practiceId);
-    if (practice?.currentActiveRuleSetId === args.ruleSetId) {
-      throw new Error("Cannot delete the currently active rule set");
-    }
-
-    // Delete all ruleSetRules for this rule set
-    const ruleSetRules = await ctx.db
-      .query("ruleSetRules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-
-    for (const ruleSetRule of ruleSetRules) {
-      await ctx.db.delete(ruleSetRule._id);
-    }
-
-    // Delete the rule set itself
-    await ctx.db.delete(args.ruleSetId);
-
-    return { success: true };
-  },
-  returns: v.object({ success: v.boolean() }),
-});
-
-export const getRuleSets = query({
-  args: {
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    const ruleSets = await ctx.db
-      .query("ruleSets")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const practice = await ctx.db.get(args.practiceId);
-
-    return ruleSets.map((ruleSet) => ({
-      ...ruleSet,
-      isActive: practice?.currentActiveRuleSetId === ruleSet._id,
-    }));
-  },
-});
-
-export const createInitialRuleSet = mutation({
-  args: {
-    description: v.string(),
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    // Check if practice already has any rule sets
-    const existingRuleSets = await ctx.db
-      .query("ruleSets")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    if (existingRuleSets.length > 0) {
-      throw new Error(
-        "Practice already has rule sets. Use createDraftFromActive instead.",
-      );
-    }
-
-    // Create the first rule set with version 1 and no parents
-    const newRuleSetId = await ctx.db.insert("ruleSets", {
-      createdAt: Date.now(),
-      createdBy: "system", // TODO: Replace with actual user when auth is implemented
-      description: args.description,
-      parentVersions: [], // Initial version has no parents
-      practiceId: args.practiceId,
-      version: 1,
-    });
-
-    // Don't activate automatically - let user add rules and then activate
-    // The rule set remains as a draft until user explicitly activates it
-
-    return newRuleSetId;
-  },
-  returns: v.id("ruleSets"),
-});
-
-export const validateRuleSetName = query({
-  args: {
-    excludeRuleSetId: v.optional(v.id("ruleSets")),
-    name: v.string(),
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    const existingRuleSet = await ctx.db
-      .query("ruleSets")
-      .withIndex("by_practiceId_description", (q) =>
-        q.eq("practiceId", args.practiceId).eq("description", args.name),
-      )
-      .first();
-
-    const isUnique =
-      !existingRuleSet || existingRuleSet._id === args.excludeRuleSetId;
-
-    if (isUnique) {
-      return { isUnique };
-    }
-
-    return {
-      isUnique,
-      message:
-        "Ein Regelset mit diesem Namen existiert bereits. Bitte wählen Sie einen anderen Namen.",
-    };
-  },
-  returns: v.object({
-    isUnique: v.boolean(),
-    message: v.optional(v.string()),
-  }),
-});
-
-// ================================
-// VERSION HISTORY FUNCTIONS
-// ================================
-
-export const getVersionHistory = query({
-  args: {
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    const ruleSets = await ctx.db
-      .query("ruleSets")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const practice = await ctx.db.get(args.practiceId);
-
-    return ruleSets.map((ruleSet) => ({
-      createdAt: ruleSet.createdAt,
-      id: ruleSet._id,
-      isActive: practice?.currentActiveRuleSetId === ruleSet._id,
-      message: ruleSet.description,
-      parents: ruleSet.parentVersions ?? [],
-    }));
-  },
-  returns: v.array(
-    v.object({
-      createdAt: v.number(),
-      id: v.id("ruleSets"),
-      isActive: v.boolean(),
-      message: v.string(),
-      parents: v.array(v.id("ruleSets")),
-    }),
-  ),
-});
-
-export const createVersionFromHistory = mutation({
-  args: {
-    description: v.string(),
-    practiceId: v.id("practices"),
-    sourceVersionId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Get the source version
-    const sourceVersion = await ctx.db.get(args.sourceVersionId);
-    if (!sourceVersion) {
-      throw new Error("Source version not found");
-    }
-
-    // Verify the version belongs to the practice
-    if (sourceVersion.practiceId !== args.practiceId) {
-      throw new Error("Version does not belong to this practice");
-    }
-
-    // Create new version with the source as parent
-    const newVersionId = await ctx.db.insert("ruleSets", {
-      createdAt: Date.now(),
-      createdBy: "system", // TODO: Replace with actual user when auth is implemented
-      description: args.description,
-      parentVersions: [args.sourceVersionId],
-      practiceId: args.practiceId,
-      version: sourceVersion.version + 1,
-    });
-
-    // Copy all enabled rules from source version to new version
-    const sourceRules = await ctx.runQuery(api.rules.getRulesForRuleSet, {
-      enabledOnly: true,
-      ruleSetId: args.sourceVersionId,
-    });
-
-    for (const ruleWithInfo of sourceRules) {
-      await ctx.runMutation(api.rules.enableRuleInRuleSet, {
-        priority: ruleWithInfo.priority,
-        ruleId: ruleWithInfo._id,
-        ruleSetId: newVersionId,
-      });
-    }
-
-    return newVersionId;
-  },
-  returns: v.id("ruleSets"),
 });

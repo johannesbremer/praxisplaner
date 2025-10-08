@@ -66,7 +66,10 @@ export function PatientFocusedView({
   );
 
   // Fetch available locations
-  const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
+  const locationsQuery = useQuery(
+    api.locations.getLocations,
+    ruleSetId ? { ruleSetId } : "skip",
+  );
 
   // Create expanded date range for calendar (half a year from calendar start)
   const calendarEndDate = useMemo(() => {

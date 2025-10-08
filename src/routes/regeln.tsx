@@ -52,7 +52,6 @@ import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import RuleCreationFormNew from "../components/rule-creation-form-new";
-import { RuleEnableCombobox } from "../components/rule-enable-combobox";
 import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
@@ -242,31 +241,44 @@ function LogicView() {
 
   // Fetch rule sets for this practice
   const ruleSetsQuery = useQuery(
-    api.rules.getRuleSets,
+    api.ruleSets.getRuleSets,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
-  // Fetch locations for slug mapping
+
+  // Compute unsaved rule set early so we can use it for other queries
+  const activeRuleSet = ruleSetsQuery?.find(
+    (rs: { isActive: boolean }) => rs.isActive,
+  );
+  const existingUnsavedRuleSet = ruleSetsQuery?.find(
+    (rs: { description: string; isActive: boolean }) =>
+      !rs.isActive && rs.description === "Ungespeicherte Änderungen",
+  );
+  const unsavedRuleSet =
+    ruleSetsQuery?.find((rs: { _id: string }) => rs._id === unsavedRuleSetId) ??
+    existingUnsavedRuleSet;
+
+  // Fetch locations for slug mapping - use unsaved rule set
   const locationsListQuery = useQuery(
     api.locations.getLocations,
-    currentPractice ? { practiceId: currentPractice._id } : "skip",
+    unsavedRuleSet ? { ruleSetId: unsavedRuleSet._id } : "skip",
   );
 
   // Fetch version history for visualization
   const versionsQuery = useQuery(
-    api.rules.getVersionHistory,
+    api.ruleSets.getVersionHistory,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
   // Mutations
-  const createDraftMutation = useMutation(api.rules.createDraftFromActive);
+  const createDraftMutation = useMutation(api.ruleSets.createDraftFromActive);
   const createDraftFromRuleSetMutation = useMutation(
-    api.rules.createDraftFromRuleSet,
+    api.ruleSets.createDraftFromRuleSet,
   );
   const createInitialRuleSetMutation = useMutation(
-    api.rules.createInitialRuleSet,
+    api.ruleSets.createInitialRuleSet,
   );
-  const activateRuleSetMutation = useMutation(api.rules.activateRuleSet);
-  const deleteRuleSetMutation = useMutation(api.rules.deleteRuleSet);
+  const activateRuleSetMutation = useMutation(api.ruleSets.activateRuleSet);
+  const deleteRuleSetMutation = useMutation(api.ruleSets.deleteRuleSet);
 
   // Function to create an initial unsaved rule set
   const createInitialUnsaved = React.useCallback(async () => {
@@ -313,21 +325,6 @@ function LogicView() {
     captureError,
     ruleSetsQuery,
   ]);
-
-  const activeRuleSet = ruleSetsQuery?.find(
-    (rs: { isActive: boolean }) => rs.isActive,
-  );
-  // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
-
-  // Find any existing unsaved rule set (not active and no explicit selection)
-  const existingUnsavedRuleSet = ruleSetsQuery?.find(
-    (rs: { description: string; isActive: boolean }) =>
-      !rs.isActive && rs.description === "Ungespeicherte Änderungen",
-  );
-
-  const unsavedRuleSet =
-    ruleSetsQuery?.find((rs: { _id: string }) => rs._id === unsavedRuleSetId) ??
-    existingUnsavedRuleSet;
 
   // URL derivations & actions (now that we have queries and unsavedRuleSet)
   const {
@@ -446,12 +443,10 @@ function LogicView() {
   }, [locationIdFromUrl, simulatedContext.locationId]);
   // No automatic URL mutation when unsaved exists; only mutate on user actions
 
-  // Fetch rules for the current working rule set (only enabled ones)
+  // Fetch rules for the current working rule set
   const rulesQuery = useQuery(
-    api.rules.getRulesForRuleSet,
-    currentWorkingRuleSet
-      ? { enabledOnly: true, ruleSetId: currentWorkingRuleSet._id }
-      : "skip",
+    api.rules.getAllRulesForRuleSet,
+    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
   );
 
   // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
@@ -911,22 +906,11 @@ function LogicView() {
                               ruleSetId: unsavedRuleSet._id,
                             })}
                           />
-
-                          {/* Enable Existing Rule Combobox - Always show */}
-                          <RuleEnableCombobox
-                            onNeedRuleSet={ensureUnsavedRuleSet}
-                            onRuleEnabled={handleRuleChange}
-                            practiceId={currentPractice._id}
-                            {...(unsavedRuleSet && {
-                              ruleSetId: unsavedRuleSet._id,
-                            })}
-                          />
                         </div>
                       </CardHeader>
                       <CardContent>
                         {rulesQuery && currentWorkingRuleSet ? (
                           <RuleListNew
-                            onNeedRuleSet={ensureUnsavedRuleSet}
                             onRuleChanged={handleRuleChange}
                             practiceId={currentPractice._id}
                             rules={rulesQuery}
@@ -942,22 +926,31 @@ function LogicView() {
                   )}
 
                   {/* Practitioner Management */}
-                  <PractitionerManagement
-                    onNeedRuleSet={ensureUnsavedRuleSet}
-                    practiceId={currentPractice._id}
-                  />
+                  {currentWorkingRuleSet && (
+                    <PractitionerManagement
+                      onNeedRuleSet={ensureUnsavedRuleSet}
+                      practiceId={currentPractice._id}
+                      ruleSetId={currentWorkingRuleSet._id}
+                    />
+                  )}
 
                   {/* Base Schedule Management */}
-                  <BaseScheduleManagement
-                    onNeedRuleSet={ensureUnsavedRuleSet}
-                    practiceId={currentPractice._id}
-                  />
+                  {currentWorkingRuleSet && (
+                    <BaseScheduleManagement
+                      onNeedRuleSet={ensureUnsavedRuleSet}
+                      practiceId={currentPractice._id}
+                      ruleSetId={currentWorkingRuleSet._id}
+                    />
+                  )}
 
                   {/* Locations Management */}
-                  <LocationsManagement
-                    onNeedRuleSet={ensureUnsavedRuleSet}
-                    practiceId={currentPractice._id}
-                  />
+                  {currentWorkingRuleSet && (
+                    <LocationsManagement
+                      onNeedRuleSet={ensureUnsavedRuleSet}
+                      practiceId={currentPractice._id}
+                      ruleSetId={currentWorkingRuleSet._id}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -1009,12 +1002,15 @@ function LogicView() {
             </div>
 
             {/* Full width Appointment Types Management */}
-            <div className="mt-6">
-              <AppointmentTypesManagement
-                onNeedRuleSet={ensureUnsavedRuleSet}
-                practiceId={currentPractice._id}
-              />
-            </div>
+            {currentWorkingRuleSet && (
+              <div className="mt-6">
+                <AppointmentTypesManagement
+                  onNeedRuleSet={ensureUnsavedRuleSet}
+                  practiceId={currentPractice._id}
+                  ruleSetId={currentWorkingRuleSet._id}
+                />
+              </div>
+            )}
           </TabsContent>
 
           {/* Tab 2: Staff View Only */}
@@ -1162,7 +1158,7 @@ function SaveDialogForm({
   setActivationName,
 }: SaveDialogFormProps) {
   const validateRuleSetNameQuery = useQuery(
-    api.rules.validateRuleSetName,
+    api.ruleSets.validateRuleSetName,
     activationName.trim()
       ? {
           name: activationName.trim(),

@@ -45,6 +45,7 @@ interface BaseScheduleDialogProps {
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
   schedule?: ExtendedSchedule | undefined;
 }
 
@@ -53,6 +54,7 @@ interface BaseScheduleManagementProps {
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
@@ -67,6 +69,7 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
 export default function BaseScheduleManagement({
   onNeedRuleSet,
   practiceId,
+  ruleSetId,
 }: BaseScheduleManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ExtendedSchedule>();
@@ -74,10 +77,10 @@ export default function BaseScheduleManagement({
   const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+    ruleSetId,
   });
   const schedulesQuery = useQuery(api.baseSchedules.getAllBaseSchedules, {
-    practiceId,
+    ruleSetId,
   });
 
   const deleteScheduleMutation = useMutation(
@@ -91,6 +94,7 @@ export default function BaseScheduleManagement({
     locationId?: Id<"locations">;
     locationName?: string;
     practitionerId: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
     scheduleIds: Id<"baseSchedules">[];
     startTime: string;
   }) => {
@@ -120,6 +124,7 @@ export default function BaseScheduleManagement({
       endTime: scheduleGroup.endTime,
       locationId: scheduleGroup.locationId || ("" as Id<"locations">),
       practitionerId: scheduleGroup.practitionerId,
+      ruleSetId: scheduleGroup.ruleSetId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
       _groupDaysOfWeek: scheduleGroup.daysOfWeek,
@@ -142,12 +147,18 @@ export default function BaseScheduleManagement({
 
     try {
       // Ensure we have an unsaved rule set before making changes
+      let ruleSetId: Id<"ruleSets"> | null | undefined;
       if (onNeedRuleSet) {
-        await onNeedRuleSet();
+        ruleSetId = await onNeedRuleSet();
+      }
+
+      if (!ruleSetId) {
+        toast.error("Keine Regelset-ID verfügbar");
+        return;
       }
 
       for (const scheduleId of scheduleIds) {
-        await deleteScheduleMutation({ scheduleId });
+        await deleteScheduleMutation({ id: scheduleId, ruleSetId });
       }
       toast.success(
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
@@ -180,6 +191,7 @@ export default function BaseScheduleManagement({
         locationId?: Id<"locations">;
         locationName?: string;
         practitionerId: Id<"practitioners">;
+        ruleSetId: Id<"ruleSets">;
         scheduleIds: Id<"baseSchedules">[];
         startTime: string;
       };
@@ -220,6 +232,7 @@ export default function BaseScheduleManagement({
               locationName: schedule.locationName,
             }),
             practitionerId: schedule.practitionerId,
+            ruleSetId: schedule.ruleSetId,
             scheduleIds: [schedule._id],
             startTime: schedule.startTime,
           },
@@ -345,6 +358,7 @@ export default function BaseScheduleManagement({
         onClose={handleCloseDialog}
         onNeedRuleSet={onNeedRuleSet}
         practiceId={practiceId}
+        ruleSetId={ruleSetId}
         schedule={editingSchedule}
       />
     </Card>
@@ -356,16 +370,17 @@ function BaseScheduleDialog({
   onClose,
   onNeedRuleSet,
   practiceId,
+  ruleSetId,
   schedule,
 }: BaseScheduleDialogProps) {
   const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+    ruleSetId,
   });
 
   const locationsQuery = useQuery(api.locations.getLocations, {
-    practiceId,
+    ruleSetId,
   });
 
   const createScheduleMutation = useMutation(
@@ -391,8 +406,14 @@ function BaseScheduleDialog({
     onSubmit: async ({ value }) => {
       try {
         // Ensure we have an unsaved rule set before making changes
+        let ruleSetId: Id<"ruleSets"> | null | undefined;
         if (onNeedRuleSet) {
-          await onNeedRuleSet();
+          ruleSetId = await onNeedRuleSet();
+        }
+
+        if (!ruleSetId) {
+          toast.error("Keine Regelset-ID verfügbar");
+          return;
         }
 
         if (schedule) {
@@ -422,7 +443,7 @@ function BaseScheduleDialog({
 
           // Delete all existing schedules in the group
           for (const scheduleId of scheduleIdsToDelete) {
-            await deleteScheduleMutation({ scheduleId });
+            await deleteScheduleMutation({ id: scheduleId, ruleSetId });
           }
 
           // Create new schedules for each selected day
@@ -433,12 +454,14 @@ function BaseScheduleDialog({
               endTime: string;
               locationId: Id<"locations">;
               practitionerId: Id<"practitioners">;
+              ruleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
               locationId: value.locationId as Id<"locations">,
               practitionerId: schedule.practitionerId,
+              ruleSetId,
               startTime: value.startTime,
             };
 
@@ -495,6 +518,11 @@ function BaseScheduleDialog({
             return;
           }
 
+          if (!ruleSetId) {
+            toast.error("Keine Regelset-ID verfügbar");
+            return;
+          }
+
           for (const dayOfWeek of value.daysOfWeek) {
             const createData: {
               breakTimes?: { end: string; start: string }[];
@@ -502,12 +530,14 @@ function BaseScheduleDialog({
               endTime: string;
               locationId: Id<"locations">;
               practitionerId: Id<"practitioners">;
+              ruleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
               locationId: value.locationId as Id<"locations">,
               practitionerId: value.practitionerId as Id<"practitioners">,
+              ruleSetId,
               startTime: value.startTime,
             };
 

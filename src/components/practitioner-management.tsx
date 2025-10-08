@@ -37,11 +37,13 @@ interface PractitionerManagementProps {
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export default function PractitionerManagement({
   onNeedRuleSet,
   practiceId,
+  ruleSetId,
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
@@ -51,7 +53,7 @@ export default function PractitionerManagement({
   const { captureError } = useErrorTracking();
 
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+    ruleSetId,
   });
   const deleteMutation = useMutation(api.practitioners.deletePractitioner);
 
@@ -67,11 +69,17 @@ export default function PractitionerManagement({
 
     try {
       // Ensure we have an unsaved rule set before making changes
+      let ruleSetId: Id<"ruleSets"> | null | undefined;
       if (onNeedRuleSet) {
-        await onNeedRuleSet();
+        ruleSetId = await onNeedRuleSet();
       }
 
-      await deleteMutation({ practitionerId });
+      if (!ruleSetId) {
+        toast.error("Keine Regelset-ID verfügbar");
+        return;
+      }
+
+      await deleteMutation({ practitionerId, ruleSetId });
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
       captureError(error, {
@@ -205,14 +213,20 @@ function PractitionerDialog({
     onSubmit: async ({ value }) => {
       try {
         // Ensure we have an unsaved rule set before making changes
+        let ruleSetId: Id<"ruleSets"> | null | undefined;
         if (onNeedRuleSet) {
-          await onNeedRuleSet();
+          ruleSetId = await onNeedRuleSet();
         }
 
         if (practitioner) {
           // Update existing practitioner
+          if (!ruleSetId) {
+            toast.error("Keine Regelset-ID verfügbar");
+            return;
+          }
           await updateMutation({
             practitionerId: practitioner._id,
+            ruleSetId,
             updates: {
               name: value.name,
             },
@@ -220,9 +234,14 @@ function PractitionerDialog({
           toast.success("Arzt aktualisiert");
         } else {
           // Create new practitioner
+          if (!ruleSetId) {
+            toast.error("Keine Regelset-ID verfügbar");
+            return;
+          }
           const createData = {
             name: value.name,
             practiceId,
+            ruleSetId,
           };
           await createMutation(createData);
           toast.success("Arzt erstellt");

@@ -23,10 +23,15 @@ import { useErrorTracking } from "../utils/error-tracking";
 
 interface CsvImportProps {
   onImportComplete?: () => void;
+  onNeedRuleSet?: () => Promise<Id<"ruleSets"> | null | undefined> | undefined;
   practiceId: Id<"practices">;
 }
 
-export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
+export function CsvImport({
+  onImportComplete,
+  onNeedRuleSet,
+  practiceId,
+}: CsvImportProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvContent, setCsvContent] = useState<string>("");
@@ -90,9 +95,22 @@ export function CsvImport({ onImportComplete, practiceId }: CsvImportProps) {
     setIsImporting(true);
 
     try {
+      // Ensure we have an unsaved rule set before importing
+      let ruleSetId: Id<"ruleSets"> | null | undefined;
+      if (onNeedRuleSet) {
+        ruleSetId = await onNeedRuleSet();
+      }
+
+      if (!ruleSetId) {
+        toast.error("Keine Regelset-ID verfügbar");
+        setIsImporting(false);
+        return;
+      }
+
       const result = await importMutation({
         csvData: csvContent,
         practiceId,
+        ruleSetId,
       });
 
       toast.success("Import erfolgreich!", {

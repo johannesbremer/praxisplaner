@@ -4,6 +4,7 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
+import type { NewCalendarProps } from "./calendar/types";
 
 import { NewCalendar } from "./new-calendar";
 
@@ -27,5 +28,5 @@ interface PraxisCalendarProps {
 
 export function PraxisCalendar(props: PraxisCalendarProps) {
   // Simply pass through all props to the NewCalendar component
-  return <NewCalendar {...props} />;
+  return <NewCalendar {...(props as NewCalendarProps)} />;
 }
