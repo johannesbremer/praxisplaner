@@ -518,10 +518,7 @@ function BaseScheduleDialog({
             return;
           }
 
-          if (!ruleSetId) {
-            toast.error("Keine Regelset-ID verfügbar");
-            return;
-          }
+
 
           for (const dayOfWeek of value.daysOfWeek) {
             const createData: {
