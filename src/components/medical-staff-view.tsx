@@ -9,7 +9,7 @@ import type {
   SchedulingSlot,
 } from "../types";
 
-import { PraxisCalendar } from "./praxis-calendar";
+import { NewCalendar } from "./new-calendar";
 
 interface MedicalStaffViewProps {
   dateRange: SchedulingDateRange;
@@ -35,7 +35,7 @@ export function MedicalStaffView({
   return (
     <SidebarProvider>
       <div className="flex h-full w-full">
-        <PraxisCalendar
+        <NewCalendar
           {...(onSlotClick && { onSlotClick })}
           practiceId={practiceId}
           {...(ruleSetId && { ruleSetId })}

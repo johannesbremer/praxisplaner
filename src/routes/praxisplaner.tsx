@@ -35,8 +35,8 @@ import {
   extractPatientData,
   parseGdtContent,
 } from "../../convex/gdt/processing";
+import { NewCalendar } from "../components/new-calendar";
 import { PatientTab } from "../components/patient-tab";
-import { PraxisCalendar } from "../components/praxis-calendar";
 import {
   isDOMException,
   isFileSystemObserverSupported,
@@ -1104,7 +1104,7 @@ function PraxisPlanerComponent() {
           <TabsContent className="h-full" value={CALENDAR_TAB}>
             {/* SidebarProvider required for calendar sidebar context */}
             <SidebarProvider className="flex h-full w-full">
-              <PraxisCalendar
+              <NewCalendar
                 onDateChange={handleDateChange}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}
