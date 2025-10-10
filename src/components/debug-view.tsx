@@ -36,8 +36,11 @@ export function DebugView({
   ruleSetId,
   simulatedContext,
 }: DebugViewProps) {
-  // Get locations for this practice
-  const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
+  // Get locations for this rule set
+  const locationsQuery = useQuery(
+    api.locations.getLocations,
+    ruleSetId ? { ruleSetId } : "skip",
+  );
 
   // Local state for selected location
   const [selectedLocationId, setSelectedLocationId] = useState<

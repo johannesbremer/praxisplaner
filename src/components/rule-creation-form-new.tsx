@@ -61,12 +61,10 @@ export default function RuleCreationFormNew({
   const { captureError } = useErrorTracking();
 
   const createRuleMutation = useMutation(api.rules.createRule);
-  const enableRuleInRuleSetMutation = useMutation(
-    api.rules.enableRuleInRuleSet,
+  const practitionersQuery = useQuery(
+    api.practitioners.getPractitioners,
+    ruleSetId ? { ruleSetId } : "skip",
   );
-  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
-  });
 
   const form = useForm({
     defaultValues: {
@@ -137,24 +135,12 @@ export default function RuleCreationFormNew({
           ruleData["limit_perPractitioner"] = value.limit_perPractitioner;
         }
 
-        const newRuleId = await createRuleMutation(
+        await createRuleMutation(
           ruleData as Parameters<typeof createRuleMutation>[0],
         );
 
-        // If a ruleSetId is provided, auto-enable this rule in that rule set
-        if (ruleSetId) {
-          // For now, use a default priority of 100. We can improve this later
-          await enableRuleInRuleSetMutation({
-            priority: 100,
-            ruleId: newRuleId,
-            ruleSetId,
-          });
-        }
-
         toast.success("Regel erstellt", {
-          description: ruleSetId
-            ? "Die neue Regel wurde erfolgreich erstellt und aktiviert."
-            : "Die neue Regel wurde erfolgreich erstellt.",
+          description: "Die neue Regel wurde erfolgreich erstellt.",
         });
 
         // Reset form

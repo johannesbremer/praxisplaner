@@ -1,7 +1,7 @@
-import type { GdtField, PatientInsertFields } from "./types";
+import type { GdtField } from "./types";
 
 import { GDT_FIELD_IDS } from "./types";
-import { isValidDate, parseGdtLine } from "./validation";
+import { parseGdtLine } from "./validation";
 
 /** Parses the entire GDT file content into an array of GdtField objects. */
 export function parseGdtContent(content: string): GdtField[] {
@@ -31,58 +31,4 @@ export function parseGdtContent(content: string): GdtField[] {
   }
 
   return fields;
-}
-
-/** Extracts and transforms GDT fields into patient data format. */
-export function extractPatientData(
-  fields: GdtField[],
-): Omit<
-  PatientInsertFields,
-  "createdAt" | "lastModified" | "sourceGdtFileName"
-> {
-  // Initialize with required fields
-  const patientData: Omit<
-    PatientInsertFields,
-    "createdAt" | "lastModified" | "sourceGdtFileName"
-  > = {
-    patientId: 0,
-  };
-
-  // GDT field mapping with field-specific validation/transformation
-  for (const field of fields) {
-    switch (field.fieldId) {
-      case GDT_FIELD_IDS.BIRTH_DATE: {
-        const dateResult = isValidDate(field.content);
-        if (dateResult.isValid) {
-          patientData.dateOfBirth = dateResult.value;
-        }
-        break;
-      }
-      case GDT_FIELD_IDS.CITY: {
-        patientData.city = field.content;
-        break;
-      }
-      case GDT_FIELD_IDS.FIRST_NAME: {
-        patientData.firstName = field.content;
-        break;
-      }
-      case GDT_FIELD_IDS.LAST_NAME: {
-        patientData.lastName = field.content;
-        break;
-      }
-      case GDT_FIELD_IDS.PATIENT_ID: {
-        const parsedId = Number.parseInt(field.content.trim(), 10);
-        if (!Number.isNaN(parsedId)) {
-          patientData.patientId = parsedId;
-        }
-        break;
-      }
-      case GDT_FIELD_IDS.STREET: {
-        patientData.street = field.content;
-        break;
-      }
-    }
-  }
-
-  return patientData;
 }

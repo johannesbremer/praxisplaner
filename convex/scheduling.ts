@@ -41,7 +41,7 @@ export const getAvailableSlots = query({
       ruleSetId = practice.currentActiveRuleSetId;
     }
 
-    // 1. Fetch all enabled rules for this rule set
+    // 1. Fetch all rules for this rule set
     let rules: {
       [key: string]: unknown;
       _id: string;
@@ -56,22 +56,19 @@ export const getAvailableSlots = query({
       limit_appointmentTypes?: string[];
       limit_count?: number;
       limit_perPractitioner?: boolean;
-      priority: number;
       ruleType: "BLOCK" | "LIMIT_CONCURRENT";
       specificPractitioners?: string[];
     }[] = [];
 
     if (ruleSetId) {
-      // Use the new rules system to get enabled rules for this rule set
-      const rulesWithInfo = await ctx.runQuery(api.rules.getRulesForRuleSet, {
-        enabledOnly: true,
+      // Use the new rules system to get all rules for this rule set
+      const allRules = await ctx.runQuery(api.rules.getAllRulesForRuleSet, {
         ruleSetId,
       });
-      rules = rulesWithInfo.map(
+      rules = allRules.map(
         (rule: {
           [key: string]: unknown;
           _id: { toString(): string };
-          priority: number;
           ruleType: "BLOCK" | "LIMIT_CONCURRENT";
         }) => ({
           ...rule,
@@ -226,10 +223,8 @@ export const getAvailableSlots = query({
 
     log.push(`Generated ${candidateSlots.length} candidate slots`);
 
-    // 4. Apply rules in passes, ordered by priority
-    const sortedRules = rules.toSorted((a, b) => a.priority - b.priority);
-
-    for (const rule of sortedRules) {
+    // 4. Apply rules
+    for (const rule of rules) {
       const beforeCount = candidateSlots.filter(
         (s) => s.status === "AVAILABLE",
       ).length;

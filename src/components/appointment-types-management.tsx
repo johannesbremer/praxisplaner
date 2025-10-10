@@ -28,6 +28,7 @@ interface AppointmentTypesManagementProps {
     | (() => Promise<Id<"ruleSets"> | null | undefined>)
     | undefined;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 type AppointmentTypesResult =
   (typeof api.appointmentTypes.getAppointmentTypes)["_returnType"];
@@ -49,15 +50,16 @@ interface PractitionerTagsProps {
 export function AppointmentTypesManagement({
   onNeedRuleSet,
   practiceId,
+  ruleSetId,
 }: AppointmentTypesManagementProps) {
   const appointmentTypesQuery = useQuery(
     api.appointmentTypes.getAppointmentTypes,
     {
-      practiceId,
+      ruleSetId,
     },
   );
   const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+    ruleSetId,
   });
 
   const appointmentTypes: AppointmentType[] = appointmentTypesQuery ?? [];
@@ -73,7 +75,10 @@ export function AppointmentTypesManagement({
               <CardTitle>Terminarten</CardTitle>
             </div>
           </div>
-          <CsvImport practiceId={practiceId} />
+          <CsvImport
+            practiceId={practiceId}
+            {...(onNeedRuleSet && { onNeedRuleSet })}
+          />
         </div>
       </CardHeader>
       <CardContent>
@@ -163,8 +168,14 @@ function PractitionerTags({
   const updateDurations = async (newSelectedIds: Id<"practitioners">[]) => {
     try {
       // Ensure we have an unsaved rule set before making changes
+      let ruleSetId: Id<"ruleSets"> | null | undefined;
       if (onNeedRuleSet) {
-        await onNeedRuleSet();
+        ruleSetId = await onNeedRuleSet();
+      }
+
+      if (!ruleSetId) {
+        toast.error("Keine Regelset-ID verfügbar");
+        return;
       }
 
       await updateAppointmentTypeMutation({
@@ -173,6 +184,7 @@ function PractitionerTags({
           duration,
           practitionerId: id,
         })),
+        ruleSetId,
       });
     } catch (error: unknown) {
       captureError(error, {
