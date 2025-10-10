@@ -139,6 +139,7 @@ export const createAppointment = mutation({
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
