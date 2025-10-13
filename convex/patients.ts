@@ -4,13 +4,14 @@ import { mutation, query } from "./_generated/server";
 import { patientUpsertResultValidator } from "./validators";
 
 /** Create or update a patient from GDT data */
-export const upsertPatient = mutation({
+export const createOrUpdatePatient = mutation({
   args: {
     city: v.optional(v.string()),
     dateOfBirth: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     patientId: v.number(),
+    practiceId: v.id("practices"),
     sourceGdtFileName: v.optional(v.string()),
     street: v.optional(v.string()),
   },

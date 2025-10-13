@@ -41,18 +41,16 @@ const DAYS_OF_WEEK = [
 interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onNeedRuleSet?:
-    | (() => Promise<Id<"ruleSets"> | null | undefined>)
-    | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
   schedule?: ExtendedSchedule | undefined;
 }
 
 interface BaseScheduleManagementProps {
-  onNeedRuleSet?:
-    | (() => Promise<Id<"ruleSets"> | null | undefined>)
-    | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
@@ -65,24 +63,23 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
 
 // Helper functions
 export default function BaseScheduleManagement({
-  onNeedRuleSet,
+  onRuleSetCreated,
   practiceId,
+  ruleSetId,
 }: BaseScheduleManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ExtendedSchedule>();
 
   const { captureError } = useErrorTracking();
 
-  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
   });
-  const schedulesQuery = useQuery(api.baseSchedules.getAllBaseSchedules, {
-    practiceId,
+  const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
+    ruleSetId,
   });
 
-  const deleteScheduleMutation = useMutation(
-    api.baseSchedules.deleteBaseSchedule,
-  );
+  const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
 
   const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
@@ -119,7 +116,9 @@ export default function BaseScheduleManagement({
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
       locationId: scheduleGroup.locationId || ("" as Id<"locations">),
+      practiceId,
       practitionerId: scheduleGroup.practitionerId,
+      ruleSetId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
       _groupDaysOfWeek: scheduleGroup.daysOfWeek,
@@ -141,17 +140,27 @@ export default function BaseScheduleManagement({
     }
 
     try {
-      // Ensure we have an unsaved rule set before making changes
-      if (onNeedRuleSet) {
-        await onNeedRuleSet();
-      }
+      // Track if rule set changed
+      let newRuleSetId: Id<"ruleSets"> | undefined;
 
       for (const scheduleId of scheduleIds) {
-        await deleteScheduleMutation({ scheduleId });
+        const result = await deleteScheduleMutation({
+          baseScheduleId: scheduleId,
+          practiceId,
+          sourceRuleSetId: ruleSetId,
+        });
+        // All deletes should return the same ruleSetId, but we'll use the last one
+        newRuleSetId = result.ruleSetId;
       }
+
       toast.success(
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
       );
+
+      // Notify parent if rule set changed (new unsaved rule set was created)
+      if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
+        onRuleSetCreated(newRuleSetId);
+      }
     } catch (error: unknown) {
       captureError(error, {
         context: "base_schedule_group_delete",
@@ -188,7 +197,12 @@ export default function BaseScheduleManagement({
 
   if (schedulesQuery) {
     for (const schedule of schedulesQuery) {
-      const practitionerName = schedule.practitionerName;
+      // Look up practitioner name from ID
+      const practitioner = practitionersQuery?.find(
+        (p) => p._id === schedule.practitionerId,
+      );
+      const practitionerName = practitioner?.name ?? "Unknown";
+
       schedulesByPractitioner[practitionerName] ??= [];
 
       // Look for existing group with same times, breaks, and location
@@ -216,9 +230,6 @@ export default function BaseScheduleManagement({
             daysOfWeek: [schedule.dayOfWeek],
             endTime: schedule.endTime,
             ...(schedule.locationId && { locationId: schedule.locationId }),
-            ...(schedule.locationName && {
-              locationName: schedule.locationName,
-            }),
             practitionerId: schedule.practitionerId,
             scheduleIds: [schedule._id],
             startTime: schedule.startTime,
@@ -343,9 +354,10 @@ export default function BaseScheduleManagement({
       <BaseScheduleDialog
         isOpen={isDialogOpen}
         onClose={handleCloseDialog}
-        onNeedRuleSet={onNeedRuleSet}
         practiceId={practiceId}
+        ruleSetId={ruleSetId}
         schedule={editingSchedule}
+        {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
   );
@@ -354,26 +366,23 @@ export default function BaseScheduleManagement({
 function BaseScheduleDialog({
   isOpen,
   onClose,
-  onNeedRuleSet,
+  onRuleSetCreated,
   practiceId,
+  ruleSetId,
   schedule,
 }: BaseScheduleDialogProps) {
   const { captureError } = useErrorTracking();
 
-  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
   });
 
-  const locationsQuery = useQuery(api.locations.getLocations, {
-    practiceId,
+  const locationsQuery = useQuery(api.entities.getLocations, {
+    ruleSetId,
   });
 
-  const createScheduleMutation = useMutation(
-    api.baseSchedules.createBaseSchedule,
-  );
-  const deleteScheduleMutation = useMutation(
-    api.baseSchedules.deleteBaseSchedule,
-  );
+  const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
+  const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
 
   const form = useForm({
     defaultValues: {
@@ -390,10 +399,8 @@ function BaseScheduleDialog({
     },
     onSubmit: async ({ value }) => {
       try {
-        // Ensure we have an unsaved rule set before making changes
-        if (onNeedRuleSet) {
-          await onNeedRuleSet();
-        }
+        // Track if a new rule set is created during this operation
+        let newRuleSetId: Id<"ruleSets"> | undefined;
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -422,7 +429,13 @@ function BaseScheduleDialog({
 
           // Delete all existing schedules in the group
           for (const scheduleId of scheduleIdsToDelete) {
-            await deleteScheduleMutation({ scheduleId });
+            const deleteResult = await deleteScheduleMutation({
+              baseScheduleId: scheduleId,
+              practiceId,
+              sourceRuleSetId: ruleSetId,
+            });
+            // Capture the rule set ID from the delete (all should be the same)
+            newRuleSetId ||= deleteResult.ruleSetId;
           }
 
           // Create new schedules for each selected day
@@ -432,13 +445,17 @@ function BaseScheduleDialog({
               dayOfWeek: number;
               endTime: string;
               locationId: Id<"locations">;
+              practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
+              sourceRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
               locationId: value.locationId as Id<"locations">,
+              practiceId,
               practitionerId: schedule.practitionerId,
+              sourceRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -446,7 +463,14 @@ function BaseScheduleDialog({
               createData.breakTimes = value.breakTimes;
             }
 
-            await createScheduleMutation(createData);
+            const result = await createScheduleMutation(createData);
+            // Capture the rule set ID from the first created schedule
+            newRuleSetId ||= result.ruleSetId;
+          }
+
+          // Notify parent if rule set changed (new unsaved rule set was created)
+          if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
+            onRuleSetCreated(newRuleSetId);
           }
 
           toast.success(
@@ -501,13 +525,17 @@ function BaseScheduleDialog({
               dayOfWeek: number;
               endTime: string;
               locationId: Id<"locations">;
+              practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
+              sourceRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
               locationId: value.locationId as Id<"locations">,
+              practiceId,
               practitionerId: value.practitionerId as Id<"practitioners">,
+              sourceRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -515,7 +543,14 @@ function BaseScheduleDialog({
               createData.breakTimes = value.breakTimes;
             }
 
-            await createScheduleMutation(createData);
+            const result = await createScheduleMutation(createData);
+            // Capture the rule set ID from the first created schedule
+            newRuleSetId ||= result.ruleSetId;
+          }
+
+          // Notify parent if rule set changed (new unsaved rule set was created)
+          if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
+            onRuleSetCreated(newRuleSetId);
           }
 
           toast.success(

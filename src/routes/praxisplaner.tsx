@@ -2,6 +2,7 @@
 
 import { useConvexMutation } from "@convex-dev/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,10 +32,7 @@ import type {
 } from "../types";
 
 import { api } from "../../convex/_generated/api";
-import {
-  extractPatientData,
-  parseGdtContent,
-} from "../../convex/gdt/processing";
+import { parseGdtContent } from "../../convex/gdt/processing";
 import { PatientTab } from "../components/patient-tab";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import {
@@ -129,6 +127,10 @@ function PraxisPlanerComponent() {
   const dateParam = search.date;
   const tabParam = search.tab;
 
+  // Query practices to get practiceId for patient mutations
+  const practicesQuery = useQuery(api.practices.getAllPractices, {});
+  const currentPractice = practicesQuery?.[0];
+
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
@@ -160,7 +162,9 @@ function PraxisPlanerComponent() {
   // will now be handled via IndexDB instead of Convex
 
   // Convex mutation for saving patient data
-  const upsertPatientMutation = useConvexMutation(api.patients.upsertPatient);
+  const upsertPatientMutation = useConvexMutation(
+    api.patients.createOrUpdatePatient,
+  );
 
   // Error tracking hook
   const { captureError } = useErrorTracking();
@@ -571,17 +575,67 @@ function PraxisPlanerComponent() {
         // Parse GDT content and extract patient data
         try {
           const gdtFields = parseGdtContent(fileContent);
-          const patientData = extractPatientData(gdtFields);
 
-          if (patientData.patientId > 0) {
+          if (!currentPractice) {
+            addGdtLog(
+              `⚠️ No practice configured - cannot process "${fileName}".`,
+            );
+            return;
+          }
+
+          // Extract patient data from GDT fields
+          const patientIdField = gdtFields.find((f) => f.fieldId === "3000");
+          const firstNameField = gdtFields.find((f) => f.fieldId === "3102");
+          const lastNameField = gdtFields.find((f) => f.fieldId === "3101");
+          const birthDateField = gdtFields.find((f) => f.fieldId === "3103");
+          const streetField = gdtFields.find((f) => f.fieldId === "3107");
+          const cityField = gdtFields.find((f) => f.fieldId === "3106");
+
+          const patientId = patientIdField
+            ? Number.parseInt(patientIdField.content, 10)
+            : 0;
+
+          if (patientId > 0) {
+            // Build patient data with only defined optional fields
+            const patientData: {
+              city?: string;
+              dateOfBirth?: string;
+              firstName?: string;
+              lastName?: string;
+              patientId: number;
+              practiceId: typeof currentPractice._id;
+              sourceGdtFileName?: string;
+              street?: string;
+            } = {
+              patientId,
+              practiceId: currentPractice._id,
+            };
+
+            // Add optional fields only if they have values
+            if (firstNameField?.content) {
+              patientData.firstName = firstNameField.content;
+            }
+            if (lastNameField?.content) {
+              patientData.lastName = lastNameField.content;
+            }
+            if (birthDateField?.content) {
+              patientData.dateOfBirth = birthDateField.content;
+            }
+            if (streetField?.content) {
+              patientData.street = streetField.content;
+            }
+            if (cityField?.content) {
+              patientData.city = cityField.content;
+            }
+            if (fileName) {
+              patientData.sourceGdtFileName = fileName;
+            }
+
             // Save patient data to Convex
-            const result = await upsertPatientMutation({
-              ...patientData,
-              sourceGdtFileName: fileName,
-            });
+            const result = await upsertPatientMutation(patientData);
 
             addGdtLog(
-              `✅ Parsed "${fileName}" - Patient ${patientData.patientId} ${result.isNewPatient ? "created" : "updated"}.`,
+              `✅ Parsed "${fileName}" - Patient ${patientId} ${result.isNewPatient ? "created" : "updated"}.`,
             );
 
             // Open patient tab with name if available
@@ -684,6 +738,7 @@ function PraxisPlanerComponent() {
       upsertPatientMutation,
       openPatientTab,
       captureError,
+      currentPractice,
     ],
   );
 

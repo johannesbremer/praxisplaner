@@ -39,8 +39,9 @@ import { useErrorTracking } from "../utils/error-tracking";
 
 interface RuleCreationFormNewProps {
   onRuleCreated?: (() => void) | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: Id<"ruleSets">; // Optional - if provided, rule will be auto-enabled in this rule set
+  ruleSetId: Id<"ruleSets">; // Required - needed to fetch practitioners and track rule set changes
   // For copy functionality - use Convex inferred types
   copyFromRule?: Partial<
     Omit<Doc<"rules">, "_creationTime" | "_id" | "practiceId">
@@ -53,6 +54,7 @@ export default function RuleCreationFormNew({
   copyFromRule,
   customTrigger,
   onRuleCreated,
+  onRuleSetCreated,
   practiceId,
   ruleSetId,
   triggerText = "Neue Regel",
@@ -60,13 +62,11 @@ export default function RuleCreationFormNew({
   const [isOpen, setIsOpen] = useState(false);
   const { captureError } = useErrorTracking();
 
-  const createRuleMutation = useMutation(api.rules.createRule);
-  const enableRuleInRuleSetMutation = useMutation(
-    api.rules.enableRuleInRuleSet,
+  const createRuleMutation = useMutation(api.entities.createRule);
+  const practitionersQuery = useQuery(
+    api.entities.getPractitioners,
+    ruleSetId ? { ruleSetId } : "skip",
   );
-  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
-  });
 
   const form = useForm({
     defaultValues: {
@@ -97,6 +97,7 @@ export default function RuleCreationFormNew({
           name: value.name,
           practiceId,
           ruleType: value.ruleType,
+          sourceRuleSetId: ruleSetId, // Pass the current rule set as source
         };
 
         // Add specific practitioners if applicable
@@ -137,25 +138,18 @@ export default function RuleCreationFormNew({
           ruleData["limit_perPractitioner"] = value.limit_perPractitioner;
         }
 
-        const newRuleId = await createRuleMutation(
+        const { ruleSetId: newRuleSetId } = await createRuleMutation(
           ruleData as Parameters<typeof createRuleMutation>[0],
         );
 
-        // If a ruleSetId is provided, auto-enable this rule in that rule set
-        if (ruleSetId) {
-          // For now, use a default priority of 100. We can improve this later
-          await enableRuleInRuleSetMutation({
-            priority: 100,
-            ruleId: newRuleId,
-            ruleSetId,
-          });
-        }
-
         toast.success("Regel erstellt", {
-          description: ruleSetId
-            ? "Die neue Regel wurde erfolgreich erstellt und aktiviert."
-            : "Die neue Regel wurde erfolgreich erstellt.",
+          description: "Die neue Regel wurde erfolgreich erstellt.",
         });
+
+        // Notify parent if rule set changed
+        if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+          onRuleSetCreated(newRuleSetId);
+        }
 
         // Reset form
         form.reset();
@@ -166,7 +160,6 @@ export default function RuleCreationFormNew({
           context: "rule_creation",
           formData: value,
           practiceId,
-          ruleSetId,
         });
 
         toast.error("Fehler beim Erstellen der Regel", {

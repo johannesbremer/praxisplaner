@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { createInitialRuleSet } from "./copyOnWrite";
 
 /**
  * Create a new practice with the given name.
+ * Also creates an initial saved rule set and sets it as active.
  */
 export const createPractice = mutation({
   args: {
@@ -13,6 +15,10 @@ export const createPractice = mutation({
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
     });
+
+    // Create initial saved rule set and set it as active
+    await createInitialRuleSet(ctx.db, practiceId);
+
     return practiceId;
   },
   returns: v.id("practices"),
@@ -61,6 +67,9 @@ export const initializeDefaultPractice = mutation({
     const practiceId = await ctx.db.insert("practices", {
       name: "Standardpraxis",
     });
+
+    // Create initial saved rule set and set it as active
+    await createInitialRuleSet(ctx.db, practiceId);
 
     return practiceId;
   },

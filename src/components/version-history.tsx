@@ -28,7 +28,7 @@ export default function VersionHistory({
   practiceId,
   selectedVersionId,
 }: VersionHistoryProps) {
-  const versionsQuery = useQuery(api.rules.getVersionHistory, {
+  const versionsQuery = useQuery(api.ruleSets.getVersionHistory, {
     practiceId,
   });
 

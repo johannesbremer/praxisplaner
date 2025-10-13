@@ -165,15 +165,15 @@ export function useCalendarLogic({
     appointmentsQueryArgs,
   );
   const practitionersData = useQuery(
-    api.practitioners.getPractitioners,
+    api.entities.getPractitionersFromActive,
     practiceId ? { practiceId } : "skip",
   );
   const baseSchedulesData = useQuery(
-    api.baseSchedules.getAllBaseSchedules,
+    api.entities.getBaseSchedulesFromActive,
     practiceId ? { practiceId } : "skip",
   );
   const locationsData = useQuery(
-    api.locations.getLocations,
+    api.entities.getLocationsFromActive,
     practiceId ? { practiceId } : "skip",
   );
 
@@ -212,6 +212,7 @@ export function useCalendarLogic({
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
             locationId: optimisticArgs.locationId,
+            practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
             title: optimisticArgs.title,
           };
@@ -334,8 +335,13 @@ export function useCalendarLogic({
       };
     }
 
+    // Create practitioner lookup map
+    const practitionerMap = new Map(
+      practitionersData.map((p) => [p._id, p.name]),
+    );
+
     let daySchedules = baseSchedulesData.filter(
-      (schedule: Doc<"baseSchedules"> & { practitionerName: string }) =>
+      (schedule: Doc<"baseSchedules">) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
 
@@ -367,8 +373,10 @@ export function useCalendarLogic({
       const endMinutes = timeToMinutes(schedule.endTime);
 
       if (startMinutes === null || endMinutes === null) {
+        const practitionerName =
+          practitionerMap.get(schedule.practitionerId) ?? "Unbekannt";
         toast.error(
-          `Ungültige Zeitangabe für ${schedule.practitionerName}: ${schedule.startTime}-${schedule.endTime}`,
+          `Ungültige Zeitangabe für ${practitionerName}: ${schedule.startTime}-${schedule.endTime}`,
         );
         return false;
       }
@@ -385,7 +393,7 @@ export function useCalendarLogic({
     const working = validSchedules.map((schedule) => ({
       endTime: schedule.endTime,
       id: schedule.practitionerId,
-      name: schedule.practitionerName,
+      name: practitionerMap.get(schedule.practitionerId) ?? "Unbekannt",
       startTime: schedule.startTime,
     }));
 
@@ -867,12 +875,18 @@ export function useCalendarLogic({
 
       const title = options.title ?? appointment.title;
 
+      if (!practiceId) {
+        toast.error("Praxis-ID fehlt");
+        return null;
+      }
+
       try {
         // Build appointment data with proper typing
         const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
           end: endISO,
           isSimulation: true,
           locationId,
+          practiceId,
           replacesAppointmentId: appointment.convexId,
           start: startISO,
           title,
@@ -945,7 +959,13 @@ export function useCalendarLogic({
         return null;
       }
     },
-    [simulatedContext, runCreateAppointment, selectedDate, selectedLocationId],
+    [
+      simulatedContext,
+      runCreateAppointment,
+      selectedDate,
+      selectedLocationId,
+      practiceId,
+    ],
   );
 
   // Drag and drop handlers
@@ -1232,7 +1252,7 @@ export function useCalendarLogic({
               practitionerId = practitioner?.id;
             }
 
-            if (practitionerId && simulatedContext.locationId) {
+            if (practitionerId && simulatedContext.locationId && practiceId) {
               try {
                 await createAppointmentMutation.withOptimisticUpdate(
                   (localStore, args) => {
@@ -1252,6 +1272,7 @@ export function useCalendarLogic({
                         isSimulation: true,
                         lastModified: BigInt(now),
                         locationId: args.locationId,
+                        practiceId: args.practiceId,
                         start: args.start,
                         title: args.title,
                         ...(args.practitionerId !== undefined && {
@@ -1276,6 +1297,7 @@ export function useCalendarLogic({
                   end: endDate.toISOString(),
                   isSimulation: true,
                   locationId: simulatedContext.locationId,
+                  practiceId,
                   practitionerId,
                   start: startDate.toISOString(),
                   title,
@@ -1319,10 +1341,15 @@ export function useCalendarLogic({
                 toast.error("Bitte wählen Sie zuerst einen Standort aus.");
                 return;
               }
+              if (!practiceId) {
+                toast.error("Praxis-ID fehlt");
+                return;
+              }
               await runCreateAppointment({
                 end: endDate.toISOString(),
                 isSimulation: false,
                 locationId: targetLocationId,
+                practiceId,
                 start: startDate.toISOString(),
                 title,
                 ...(practitionerId && { practitionerId }),

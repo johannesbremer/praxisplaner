@@ -24,15 +24,15 @@ import { api } from "@/convex/_generated/api";
 import { useErrorTracking } from "../utils/error-tracking";
 
 interface LocationsManagementProps {
-  onNeedRuleSet?:
-    | (() => Promise<Id<"ruleSets"> | null | undefined>)
-    | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export function LocationsManagement({
-  onNeedRuleSet,
+  onRuleSetCreated,
   practiceId,
+  ruleSetId,
 }: LocationsManagementProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
@@ -41,10 +41,10 @@ export function LocationsManagement({
   }>(null);
 
   const { captureError } = useErrorTracking();
-  const locationsQuery = useQuery(api.locations.getLocations, { practiceId });
-  const createLocationMutation = useMutation(api.locations.createLocation);
-  const updateLocationMutation = useMutation(api.locations.updateLocation);
-  const deleteLocationMutation = useMutation(api.locations.deleteLocation);
+  const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
+  const createLocationMutation = useMutation(api.entities.createLocation);
+  const updateLocationMutation = useMutation(api.entities.updateLocation);
+  const deleteLocationMutation = useMutation(api.entities.deleteLocation);
 
   const form = useForm({
     defaultValues: {
@@ -52,28 +52,32 @@ export function LocationsManagement({
     },
     onSubmit: async ({ value }) => {
       try {
-        if (onNeedRuleSet) {
-          await onNeedRuleSet();
-        }
-
         if (editingLocation) {
           await updateLocationMutation({
             locationId: editingLocation._id,
             name: value.name.trim(),
+            practiceId,
+            sourceRuleSetId: ruleSetId,
           });
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
           });
           setEditingLocation(null);
         } else {
-          await createLocationMutation({
+          const { ruleSetId: newRuleSetId } = await createLocationMutation({
             name: value.name.trim(),
             practiceId,
+            sourceRuleSetId: ruleSetId,
           });
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
           });
           setIsCreateDialogOpen(false);
+
+          // Notify parent if rule set changed (new unsaved rule set was created)
+          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+            onRuleSetCreated(newRuleSetId);
+          }
         }
 
         form.reset();
@@ -109,15 +113,19 @@ export function LocationsManagement({
     name: string,
   ) => {
     try {
-      // Ensure we have an unsaved rule set before making changes
-      if (onNeedRuleSet) {
-        await onNeedRuleSet();
-      }
-
-      await deleteLocationMutation({ locationId });
+      const { ruleSetId: newRuleSetId } = await deleteLocationMutation({
+        locationId,
+        practiceId,
+        sourceRuleSetId: ruleSetId,
+      });
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,
       });
+
+      // Notify parent if rule set changed (new unsaved rule set was created)
+      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+        onRuleSetCreated(newRuleSetId);
+      }
     } catch (error: unknown) {
       captureError(error, {
         context: "LocationsManagement - Delete location",

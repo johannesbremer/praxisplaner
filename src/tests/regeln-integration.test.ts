@@ -11,6 +11,7 @@ const baseAppointment: Doc<"appointments"> = {
   end: "2024-01-15T11:00:00Z",
   lastModified: 0n,
   locationId: "location1" as Id<"locations">,
+  practiceId: "practice1" as Id<"practices">,
   start: "2024-01-15T10:00:00Z",
   title: "Simulationstermin",
 };

@@ -25,23 +25,22 @@ import { useErrorTracking } from "../utils/error-tracking";
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onNeedRuleSet?:
-    | (() => Promise<Id<"ruleSets"> | null | undefined>)
-    | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   practitioner?: Doc<"practitioners"> | undefined;
+  ruleSetId: Id<"ruleSets">;
 }
 
 interface PractitionerManagementProps {
-  onNeedRuleSet?:
-    | (() => Promise<Id<"ruleSets"> | null | undefined>)
-    | undefined;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export default function PractitionerManagement({
-  onNeedRuleSet,
+  onRuleSetCreated,
   practiceId,
+  ruleSetId,
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
@@ -50,10 +49,10 @@ export default function PractitionerManagement({
 
   const { captureError } = useErrorTracking();
 
-  const practitionersQuery = useQuery(api.practitioners.getPractitioners, {
-    practiceId,
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
   });
-  const deleteMutation = useMutation(api.practitioners.deletePractitioner);
+  const deleteMutation = useMutation(api.entities.deletePractitioner);
 
   const handleEdit = (practitioner: Doc<"practitioners">) => {
     setEditingPractitioner(practitioner);
@@ -66,13 +65,17 @@ export default function PractitionerManagement({
     }
 
     try {
-      // Ensure we have an unsaved rule set before making changes
-      if (onNeedRuleSet) {
-        await onNeedRuleSet();
-      }
-
-      await deleteMutation({ practitionerId });
+      const { ruleSetId: newRuleSetId } = await deleteMutation({
+        practiceId,
+        practitionerId,
+        sourceRuleSetId: ruleSetId,
+      });
       toast.success("Arzt gelöscht");
+
+      // Notify parent if rule set changed (new unsaved rule set was created)
+      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+        onRuleSetCreated(newRuleSetId);
+      }
     } catch (error: unknown) {
       captureError(error, {
         context: "practitioner_delete",
@@ -178,9 +181,10 @@ export default function PractitionerManagement({
       <PractitionerDialog
         isOpen={isDialogOpen}
         onClose={handleDialogClose}
-        onNeedRuleSet={onNeedRuleSet}
         practiceId={practiceId}
         practitioner={editingPractitioner}
+        ruleSetId={ruleSetId}
+        {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
   );
@@ -189,14 +193,15 @@ export default function PractitionerManagement({
 function PractitionerDialog({
   isOpen,
   onClose,
-  onNeedRuleSet,
+  onRuleSetCreated,
   practiceId,
   practitioner,
+  ruleSetId,
 }: PractitionerDialogProps) {
   const { captureError } = useErrorTracking();
 
-  const createMutation = useMutation(api.practitioners.createPractitioner);
-  const updateMutation = useMutation(api.practitioners.updatePractitioner);
+  const createMutation = useMutation(api.entities.createPractitioner);
+  const updateMutation = useMutation(api.entities.updatePractitioner);
 
   const form = useForm({
     defaultValues: {
@@ -204,28 +209,33 @@ function PractitionerDialog({
     },
     onSubmit: async ({ value }) => {
       try {
-        // Ensure we have an unsaved rule set before making changes
-        if (onNeedRuleSet) {
-          await onNeedRuleSet();
-        }
-
         if (practitioner) {
-          // Update existing practitioner
-          await updateMutation({
-            practitionerId: practitioner._id,
-            updates: {
-              name: value.name,
-            },
-          });
-          toast.success("Arzt aktualisiert");
-        } else {
-          // Create new practitioner
-          const createData = {
+          // Update existing practitioner - extract ruleSetId
+          const { ruleSetId: newRuleSetId } = await updateMutation({
             name: value.name,
             practiceId,
-          };
-          await createMutation(createData);
+            practitionerId: practitioner._id,
+            sourceRuleSetId: ruleSetId,
+          });
+          toast.success("Arzt aktualisiert");
+
+          // Notify parent if rule set changed (new unsaved rule set was created)
+          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+            onRuleSetCreated(newRuleSetId);
+          }
+        } else {
+          // Create new practitioner - extract both entityId and ruleSetId
+          const { ruleSetId: newRuleSetId } = await createMutation({
+            name: value.name,
+            practiceId,
+            sourceRuleSetId: ruleSetId,
+          });
           toast.success("Arzt erstellt");
+
+          // Notify parent if rule set changed (new unsaved rule set was created)
+          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
+            onRuleSetCreated(newRuleSetId);
+          }
         }
 
         onClose();
