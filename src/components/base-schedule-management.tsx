@@ -4,12 +4,14 @@ import { useMutation, useQuery } from "convex/react";
 import { Calendar, Clock, Edit, Plus, Trash2 } from "lucide-react";
 import React, { useState } from "react";
 import { toast } from "sonner";
+import * as z from "zod";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,8 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -37,6 +47,23 @@ const DAYS_OF_WEEK = [
   { label: "Donnerstag", value: 4 },
   { label: "Freitag", value: 5 },
 ];
+
+// Form schema using Zod
+const formSchema = z.object({
+  breakTimes: z.array(
+    z.object({
+      end: z.string(),
+      start: z.string(),
+    }),
+  ),
+  daysOfWeek: z
+    .array(z.number())
+    .min(1, "Bitte wählen Sie mindestens einen Wochentag aus"),
+  endTime: z.string().min(1, "Arbeitsende ist erforderlich"),
+  locationId: z.string().min(1, "Bitte wählen Sie einen Standort aus"),
+  practitionerId: z.string().min(1, "Bitte wählen Sie einen Arzt aus"),
+  startTime: z.string().min(1, "Arbeitsbeginn ist erforderlich"),
+});
 
 interface BaseScheduleDialogProps {
   isOpen: boolean;
@@ -574,6 +601,9 @@ function BaseScheduleDialog({
         );
       }
     },
+    validators: {
+      onSubmit: formSchema,
+    },
   });
 
   return (
@@ -592,208 +622,230 @@ function BaseScheduleDialog({
 
         <form
           className="space-y-6"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             e.stopPropagation();
             void form.handleSubmit();
           }}
         >
-          <form.Field
-            name="practitionerId"
-            validators={{
-              onChange: ({ value }) =>
-                value ? undefined : "Bitte wählen Sie einen Arzt aus",
-            }}
-          >
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor="practitioner">Arzt</Label>
-                <Select
-                  disabled={!!schedule}
-                  onValueChange={field.handleChange}
-                  value={field.state.value}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Arzt auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {practitionersQuery?.map((practitioner) => (
-                      <SelectItem
-                        key={practitioner._id}
-                        value={practitioner._id}
-                      >
-                        {practitioner.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">
-                    {field.state.meta.errors[0]}
-                  </p>
-                )}
-                {schedule && (
-                  <p className="text-xs text-muted-foreground">
-                    Arzt kann bei der Bearbeitung nicht geändert werden
-                  </p>
-                )}
-              </div>
-            )}
-          </form.Field>
+          <FieldGroup>
+            <form.Field name="practitionerId">
+              {(field) => {
+                const isInvalid =
+                  field.state.meta.isTouched && !field.state.meta.isValid;
 
-          <form.Field
-            name="locationId"
-            validators={{
-              onChange: ({ value }) =>
-                value ? undefined : "Bitte wählen Sie einen Standort aus",
-            }}
-          >
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor="location">Standort</Label>
-                <Select
-                  onValueChange={field.handleChange}
-                  value={field.state.value}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Standort auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locationsQuery?.map((location) => (
-                      <SelectItem key={location._id} value={location._id}>
-                        {location.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">
-                    {field.state.meta.errors[0]}
-                  </p>
-                )}
-              </div>
-            )}
-          </form.Field>
-
-          <form.Field
-            name="daysOfWeek"
-            validators={{
-              onChange: ({ value }) => {
-                return value.length > 0
-                  ? undefined
-                  : "Bitte wählen Sie mindestens einen Wochentag aus";
-              },
-            }}
-          >
-            {(field) => (
-              <div className="space-y-2">
-                <Label>Wochentage</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {DAYS_OF_WEEK.map((day) => (
-                    <label
-                      className="flex items-center space-x-2"
-                      key={day.value}
+                return (
+                  <Field data-invalid={isInvalid}>
+                    <FieldLabel htmlFor="practitioner">Arzt</FieldLabel>
+                    <Select
+                      disabled={!!schedule}
+                      onValueChange={field.handleChange}
+                      value={field.state.value}
                     >
-                      <input
-                        checked={field.state.value.includes(day.value)}
+                      <SelectTrigger aria-invalid={isInvalid}>
+                        <SelectValue placeholder="Arzt auswählen" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {practitionersQuery?.map((practitioner) => (
+                          <SelectItem
+                            key={practitioner._id}
+                            value={practitioner._id}
+                          >
+                            {practitioner.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {schedule && (
+                      <FieldDescription>
+                        Arzt kann bei der Bearbeitung nicht geändert werden
+                      </FieldDescription>
+                    )}
+                    <FieldError>
+                      {field.state.meta.errors
+                        .map((error) =>
+                          typeof error === "string"
+                            ? error
+                            : (error?.message ?? ""),
+                        )
+                        .join(", ")}
+                    </FieldError>
+                  </Field>
+                );
+              }}
+            </form.Field>
+
+            <form.Field name="locationId">
+              {(field) => {
+                const isInvalid =
+                  field.state.meta.isTouched && !field.state.meta.isValid;
+
+                return (
+                  <Field data-invalid={isInvalid}>
+                    <FieldLabel htmlFor="location">Standort</FieldLabel>
+                    <Select
+                      onValueChange={field.handleChange}
+                      value={field.state.value}
+                    >
+                      <SelectTrigger aria-invalid={isInvalid}>
+                        <SelectValue placeholder="Standort auswählen" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locationsQuery?.map((location) => (
+                          <SelectItem key={location._id} value={location._id}>
+                            {location.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldError>
+                      {field.state.meta.errors
+                        .map((error) =>
+                          typeof error === "string"
+                            ? error
+                            : (error?.message ?? ""),
+                        )
+                        .join(", ")}
+                    </FieldError>
+                  </Field>
+                );
+              }}
+            </form.Field>
+
+            <form.Field mode="array" name="daysOfWeek">
+              {(field) => {
+                const isInvalid =
+                  field.state.meta.isTouched && !field.state.meta.isValid;
+
+                return (
+                  <FieldSet>
+                    <FieldLegend variant="label">Wochentage</FieldLegend>
+                    <FieldDescription>
+                      Wählen Sie die Wochentage, an denen die Arbeitszeit gilt.
+                    </FieldDescription>
+                    <FieldGroup className="gap-3" data-invalid={isInvalid}>
+                      {DAYS_OF_WEEK.map((day) => (
+                        <Field key={day.value} orientation="horizontal">
+                          <Checkbox
+                            aria-invalid={isInvalid}
+                            checked={field.state.value.includes(day.value)}
+                            id={`day-${day.value}`}
+                            onBlur={field.handleBlur}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                field.pushValue(day.value);
+                              } else {
+                                const index = field.state.value.indexOf(
+                                  day.value,
+                                );
+                                if (index !== -1) {
+                                  field.removeValue(index);
+                                }
+                              }
+                            }}
+                          />
+                          <FieldLabel
+                            className="font-normal"
+                            htmlFor={`day-${day.value}`}
+                          >
+                            {day.label}
+                          </FieldLabel>
+                        </Field>
+                      ))}
+                    </FieldGroup>
+                    <FieldError>
+                      {field.state.meta.errors
+                        .map((error) =>
+                          typeof error === "string"
+                            ? error
+                            : (error?.message ?? ""),
+                        )
+                        .join(", ")}
+                    </FieldError>
+                  </FieldSet>
+                );
+              }}
+            </form.Field>
+
+            <div className="grid grid-cols-2 gap-4">
+              <form.Field name="startTime">
+                {(field) => {
+                  const isInvalid =
+                    field.state.meta.isTouched && !field.state.meta.isValid;
+
+                  return (
+                    <Field data-invalid={isInvalid}>
+                      <FieldLabel htmlFor="startTime">Arbeitsbeginn</FieldLabel>
+                      <Input
+                        aria-invalid={isInvalid}
+                        id="startTime"
+                        onBlur={field.handleBlur}
                         onChange={(e) => {
-                          const currentDays = field.state.value;
-                          if (e.target.checked) {
-                            field.handleChange([...currentDays, day.value]);
-                          } else {
-                            field.handleChange(
-                              currentDays.filter(
-                                (d: number) => d !== day.value,
-                              ),
-                            );
-                          }
+                          field.handleChange(e.target.value);
                         }}
-                        type="checkbox"
+                        type="time"
+                        value={field.state.value}
                       />
-                      <span className="text-sm">{day.label}</span>
-                    </label>
-                  ))}
-                </div>
-                {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">
-                    {field.state.meta.errors[0]}
-                  </p>
-                )}
-              </div>
-            )}
-          </form.Field>
-
-          <div className="grid grid-cols-2 gap-4">
-            <form.Field
-              name="startTime"
-              validators={{
-                onChange: ({ value }) =>
-                  value ? undefined : "Arbeitsbeginn ist erforderlich",
-              }}
-            >
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="startTime">Arbeitsbeginn</Label>
-                  <Input
-                    id="startTime"
-                    onBlur={field.handleBlur}
-                    onChange={(e) => {
-                      field.handleChange(e.target.value);
-                    }}
-                    required
-                    type="time"
-                    value={field.state.value}
-                  />
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">
-                      {field.state.meta.errors[0]}
-                    </p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-
-            <form.Field
-              name="endTime"
-              validators={{
-                onChange: ({ value }) =>
-                  value ? undefined : "Arbeitsende ist erforderlich",
-              }}
-            >
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="endTime">Arbeitsende</Label>
-                  <Input
-                    id="endTime"
-                    onBlur={field.handleBlur}
-                    onChange={(e) => {
-                      field.handleChange(e.target.value);
-                    }}
-                    required
-                    type="time"
-                    value={field.state.value}
-                  />
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">
-                      {field.state.meta.errors[0]}
-                    </p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-          </div>
-
-          <form.Field name="breakTimes">
-            {(field) => (
-              <BreakTimesField
-                onBreakTimesChange={field.handleChange}
-                onValidationError={() => {
-                  // Could store validation error state if needed for warnings
+                      <FieldError>
+                        {field.state.meta.errors
+                          .map((error) =>
+                            typeof error === "string"
+                              ? error
+                              : (error?.message ?? ""),
+                          )
+                          .join(", ")}
+                      </FieldError>
+                    </Field>
+                  );
                 }}
-                value={field.state.value}
-              />
-            )}
-          </form.Field>
+              </form.Field>
+
+              <form.Field name="endTime">
+                {(field) => {
+                  const isInvalid =
+                    field.state.meta.isTouched && !field.state.meta.isValid;
+
+                  return (
+                    <Field data-invalid={isInvalid}>
+                      <FieldLabel htmlFor="endTime">Arbeitsende</FieldLabel>
+                      <Input
+                        aria-invalid={isInvalid}
+                        id="endTime"
+                        onBlur={field.handleBlur}
+                        onChange={(e) => {
+                          field.handleChange(e.target.value);
+                        }}
+                        type="time"
+                        value={field.state.value}
+                      />
+                      <FieldError>
+                        {field.state.meta.errors
+                          .map((error) =>
+                            typeof error === "string"
+                              ? error
+                              : (error?.message ?? ""),
+                          )
+                          .join(", ")}
+                      </FieldError>
+                    </Field>
+                  );
+                }}
+              </form.Field>
+            </div>
+
+            <form.Field name="breakTimes">
+              {(field) => (
+                <BreakTimesField
+                  onBreakTimesChange={field.handleChange}
+                  onValidationError={() => {
+                    // Could store validation error state if needed for warnings
+                  }}
+                  value={field.state.value}
+                />
+              )}
+            </form.Field>
+          </FieldGroup>
 
           <div className="flex justify-end gap-2">
             <Button onClick={onClose} type="button" variant="outline">
@@ -879,7 +931,7 @@ function BreakTimesField({
 
   return (
     <div className="space-y-4">
-      <Label>Pausenzeiten</Label>
+      <FieldLabel>Pausenzeiten</FieldLabel>
 
       {value.length > 0 && (
         <div className="space-y-2">
