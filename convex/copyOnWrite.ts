@@ -205,6 +205,7 @@ export async function copyAppointmentTypes(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
 ): Promise<Map<Id<"appointmentTypes">, Id<"appointmentTypes">>> {
   const sourceTypes = await db
     .query("appointmentTypes")
@@ -214,7 +215,20 @@ export async function copyAppointmentTypes(
   const idMap = new Map<Id<"appointmentTypes">, Id<"appointmentTypes">>();
 
   for (const sourceType of sourceTypes) {
+    // Map practitioner IDs to their new versions in the target rule set
+    const allowedPractitionerIds = sourceType.allowedPractitionerIds
+      .map((practitionerId) => practitionerIdMap.get(practitionerId))
+      .filter((id): id is Id<"practitioners"> => id !== undefined);
+
+    // Ensure we have at least one practitioner (should always be true if source was valid)
+    if (allowedPractitionerIds.length === 0) {
+      throw new Error(
+        `Appointment type "${sourceType.name}" has no valid practitioners after mapping`,
+      );
+    }
+
     const newId = await db.insert("appointmentTypes", {
+      allowedPractitionerIds,
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
       lastModified: BigInt(Date.now()),
@@ -382,12 +396,18 @@ export async function copyAllEntities(
   practiceId: Id<"practices">,
 ): Promise<void> {
   // Copy entities and get ID mappings
-  await copyAppointmentTypes(db, sourceRuleSetId, targetRuleSetId, practiceId);
   const practitionerIdMap = await copyPractitioners(
     db,
     sourceRuleSetId,
     targetRuleSetId,
     practiceId,
+  );
+  await copyAppointmentTypes(
+    db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    practiceId,
+    practitionerIdMap,
   );
   const locationIdMap = await copyLocations(
     db,

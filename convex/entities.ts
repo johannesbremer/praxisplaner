@@ -11,13 +11,21 @@
  * - Base Schedules
  */
 
+import type { GenericDatabaseReader } from "convex/server";
+
 import { v } from "convex/values";
+
+import type { DataModel } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import {
   getOrCreateUnsavedRuleSet,
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
+
+// Type alias for cleaner code
+type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 // ================================
 // SHARED TYPES
@@ -39,6 +47,89 @@ const createResultValidator = v.object({
 });
 
 // ================================
+// SHARED HELPER FUNCTIONS
+// ================================
+
+/**
+ * Resolve practitioner IDs to their unsaved rule set versions.
+ * Validates that practitioners exist, belong to the practice, and resolves them
+ * to their copies in the unsaved rule set.
+ * @throws Error if practitionerIds is undefined, empty, or contains invalid practitioners
+ * @returns Array of resolved practitioner IDs (never undefined when practitioners are required)
+ */
+async function resolvePractitionerIds(
+  db: DatabaseReader,
+  practitionerIds: Id<"practitioners">[] | undefined,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+  required: true,
+): Promise<Id<"practitioners">[]>;
+async function resolvePractitionerIds(
+  db: DatabaseReader,
+  practitionerIds: Id<"practitioners">[] | undefined,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+  required?: false,
+): Promise<Id<"practitioners">[] | undefined>;
+async function resolvePractitionerIds(
+  db: DatabaseReader,
+  practitionerIds: Id<"practitioners">[] | undefined,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+  required = false,
+): Promise<Id<"practitioners">[] | undefined> {
+  if (!practitionerIds) {
+    if (required) {
+      throw new Error("At least one practitioner must be selected");
+    }
+    return undefined;
+  }
+
+  // Validate at least one practitioner is provided when required
+  if (required && practitionerIds.length === 0) {
+    throw new Error("At least one practitioner must be selected");
+  }
+
+  const seen = new Set<Id<"practitioners">>();
+  const resolved: Id<"practitioners">[] = [];
+
+  for (const practitionerId of practitionerIds) {
+    const practitionerEntity = await db.get(practitionerId);
+    if (!practitionerEntity) {
+      throw new Error("Practitioner not found");
+    }
+    if (practitionerEntity.practiceId !== practiceId) {
+      throw new Error("Practitioner does not belong to this practice");
+    }
+
+    let unsavedPractitioner = practitionerEntity;
+    if (practitionerEntity.ruleSetId !== ruleSetId) {
+      const practitionerCopy = await db
+        .query("practitioners")
+        .withIndex("by_parentId_ruleSetId", (q) =>
+          q.eq("parentId", practitionerEntity._id).eq("ruleSetId", ruleSetId),
+        )
+        .first();
+
+      if (!practitionerCopy) {
+        throw new Error(
+          "Practitioner not found in unsaved rule set. This should not happen.",
+        );
+      }
+
+      unsavedPractitioner = practitionerCopy;
+    }
+
+    if (!seen.has(unsavedPractitioner._id)) {
+      seen.add(unsavedPractitioner._id);
+      resolved.push(unsavedPractitioner._id);
+    }
+  }
+
+  return resolved;
+}
+
+// ================================
 // APPOINTMENT TYPES
 // ================================
 
@@ -51,6 +142,7 @@ export const createAppointmentType = mutation({
     duration: v.number(), // duration in minutes
     name: v.string(),
     practiceId: v.id("practices"),
+    practitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -59,6 +151,14 @@ export const createAppointmentType = mutation({
       ctx.db,
       args.practiceId,
       args.sourceRuleSetId,
+    );
+
+    const allowedPractitionerIds = await resolvePractitionerIds(
+      ctx.db,
+      args.practitionerIds,
+      args.practiceId,
+      ruleSetId,
+      true, // Required: at least one practitioner
     );
 
     // Check for name uniqueness within the rule set
@@ -77,6 +177,7 @@ export const createAppointmentType = mutation({
 
     // Create the appointment type
     const entityId = await ctx.db.insert("appointmentTypes", {
+      allowedPractitionerIds,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
       lastModified: BigInt(Date.now()),
@@ -99,6 +200,7 @@ export const updateAppointmentType = mutation({
     duration: v.optional(v.number()),
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
+    practitionerIds: v.optional(v.array(v.id("practitioners"))),
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -152,8 +254,9 @@ export const updateAppointmentType = mutation({
       }
     }
 
-    // Update the appointment type (using the ID from the unsaved rule set)
+    // Build updates object
     const updates: Partial<{
+      allowedPractitionerIds: Id<"practitioners">[];
       duration: number;
       lastModified: bigint;
       name: string;
@@ -166,6 +269,17 @@ export const updateAppointmentType = mutation({
     }
     if (args.duration !== undefined) {
       updates.duration = args.duration;
+    }
+    if (args.practitionerIds !== undefined) {
+      // Use the shared helper with required=true to validate at least one practitioner
+      const resolved = await resolvePractitionerIds(
+        ctx.db,
+        args.practitionerIds,
+        args.practiceId,
+        ruleSetId,
+        true, // Required: at least one practitioner
+      );
+      updates.allowedPractitionerIds = resolved;
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching
@@ -1086,48 +1200,73 @@ export const createRule = mutation({
       );
     }
 
-    const entityId = await ctx.db.insert("rules", {
+    const ruleData: {
+      appliesTo: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
+      block_appointmentTypes?: string[];
+      block_dateRangeEnd?: string;
+      block_dateRangeStart?: string;
+      block_daysOfWeek?: number[];
+      block_exceptForPractitionerTags?: string[];
+      block_timeRangeEnd?: string;
+      block_timeRangeStart?: string;
+      description: string;
+      limit_appointmentTypes?: string[];
+      limit_atLocation?: Id<"locations">;
+      limit_count?: number;
+      limit_perPractitioner?: boolean;
+      name: string;
+      practiceId: Id<"practices">;
+      ruleSetId: Id<"ruleSets">;
+      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
+      specificPractitioners?: Id<"practitioners">[];
+    } = {
       appliesTo: args.appliesTo,
       description: args.description,
       name: args.name,
       practiceId: args.practiceId,
       ruleSetId,
       ruleType: args.ruleType,
-      ...(args.specificPractitioners !== undefined && {
-        specificPractitioners: args.specificPractitioners,
-      }),
-      ...(args.block_appointmentTypes !== undefined && {
-        block_appointmentTypes: args.block_appointmentTypes,
-      }),
-      ...(args.block_dateRangeStart !== undefined && {
-        block_dateRangeStart: args.block_dateRangeStart,
-      }),
-      ...(args.block_dateRangeEnd !== undefined && {
-        block_dateRangeEnd: args.block_dateRangeEnd,
-      }),
-      ...(args.block_daysOfWeek !== undefined && {
-        block_daysOfWeek: args.block_daysOfWeek,
-      }),
-      ...(args.block_timeRangeStart !== undefined && {
-        block_timeRangeStart: args.block_timeRangeStart,
-      }),
-      ...(args.block_timeRangeEnd !== undefined && {
-        block_timeRangeEnd: args.block_timeRangeEnd,
-      }),
-      ...(args.block_exceptForPractitionerTags !== undefined && {
-        block_exceptForPractitionerTags: args.block_exceptForPractitionerTags,
-      }),
-      ...(args.limit_appointmentTypes !== undefined && {
-        limit_appointmentTypes: args.limit_appointmentTypes,
-      }),
-      ...(args.limit_count !== undefined && { limit_count: args.limit_count }),
-      ...(args.limit_perPractitioner !== undefined && {
-        limit_perPractitioner: args.limit_perPractitioner,
-      }),
-      ...(args.limit_atLocation !== undefined && {
-        limit_atLocation: args.limit_atLocation,
-      }),
-    });
+    };
+
+    if (args.specificPractitioners !== undefined) {
+      ruleData.specificPractitioners = args.specificPractitioners;
+    }
+    if (args.block_appointmentTypes !== undefined) {
+      ruleData.block_appointmentTypes = args.block_appointmentTypes;
+    }
+    if (args.block_dateRangeStart !== undefined) {
+      ruleData.block_dateRangeStart = args.block_dateRangeStart;
+    }
+    if (args.block_dateRangeEnd !== undefined) {
+      ruleData.block_dateRangeEnd = args.block_dateRangeEnd;
+    }
+    if (args.block_daysOfWeek !== undefined) {
+      ruleData.block_daysOfWeek = args.block_daysOfWeek;
+    }
+    if (args.block_timeRangeStart !== undefined) {
+      ruleData.block_timeRangeStart = args.block_timeRangeStart;
+    }
+    if (args.block_timeRangeEnd !== undefined) {
+      ruleData.block_timeRangeEnd = args.block_timeRangeEnd;
+    }
+    if (args.block_exceptForPractitionerTags !== undefined) {
+      ruleData.block_exceptForPractitionerTags =
+        args.block_exceptForPractitionerTags;
+    }
+    if (args.limit_appointmentTypes !== undefined) {
+      ruleData.limit_appointmentTypes = args.limit_appointmentTypes;
+    }
+    if (args.limit_count !== undefined) {
+      ruleData.limit_count = args.limit_count;
+    }
+    if (args.limit_perPractitioner !== undefined) {
+      ruleData.limit_perPractitioner = args.limit_perPractitioner;
+    }
+    if (args.limit_atLocation !== undefined) {
+      ruleData.limit_atLocation = args.limit_atLocation;
+    }
+
+    const entityId = await ctx.db.insert("rules", ruleData);
 
     return { entityId, ruleSetId };
   },

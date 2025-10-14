@@ -978,6 +978,10 @@ function LogicView() {
             {currentWorkingRuleSet && (
               <div className="mt-6">
                 <AppointmentTypesManagement
+                  onRuleSetCreated={(newRuleSetId) => {
+                    setUnsavedRuleSetId(newRuleSetId);
+                  }}
+                  practiceId={currentPractice._id}
                   ruleSetId={currentWorkingRuleSet._id}
                 />
               </div>
