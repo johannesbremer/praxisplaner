@@ -346,8 +346,115 @@ export async function copyBaseSchedules(
 }
 
 /**
+ * Recursively remap practitioner and location IDs in a condition tree.
+ * This walks the lambda calculus condition tree and updates any references
+ * to practitioners or locations to their new copied IDs.
+ */
+function remapConditionTree(
+  condition: unknown,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
+  locationIdMap: Map<Id<"locations">, Id<"locations">>,
+): unknown {
+  if (!condition || typeof condition !== "object") {
+    return condition;
+  }
+
+  const node = condition as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...node };
+
+  // Handle different condition types
+  switch (node["type"]) {
+    case "Property":
+      // Check if the value is a practitioner or location ID that needs remapping
+      if (typeof node["value"] === "string") {
+        // Try to remap as practitioner ID
+        const practitionerId = practitionerIdMap.get(
+          node["value"] as Id<"practitioners">,
+        );
+        if (practitionerId) {
+          result["value"] = practitionerId;
+        }
+        // Try to remap as location ID
+        const locationId = locationIdMap.get(node["value"] as Id<"locations">);
+        if (locationId) {
+          result["value"] = locationId;
+        }
+      }
+      // Handle array values that might contain IDs
+      if (Array.isArray(node["value"])) {
+        result["value"] = (node["value"] as Array<unknown>).map((val) => {
+          if (typeof val === "string") {
+            return (
+              practitionerIdMap.get(val as Id<"practitioners">) ||
+              locationIdMap.get(val as Id<"locations">) ||
+              val
+            );
+          }
+          return val;
+        });
+      }
+      break;
+
+    case "Count":
+    case "TimeRangeFree":
+    case "Adjacent":
+      // Recursively remap filter objects
+      if (node["filter"] && typeof node["filter"] === "object") {
+        const filter = node["filter"] as Record<string, unknown>;
+        const remappedFilter: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(filter)) {
+          if (typeof value === "string") {
+            remappedFilter[key] =
+              practitionerIdMap.get(value as Id<"practitioners">) ||
+              locationIdMap.get(value as Id<"locations">) ||
+              value;
+          } else if (Array.isArray(value)) {
+            remappedFilter[key] = value.map((val) => {
+              if (typeof val === "string") {
+                return (
+                  practitionerIdMap.get(val as Id<"practitioners">) ||
+                  locationIdMap.get(val as Id<"locations">) ||
+                  val
+                );
+              }
+              return val;
+            });
+          } else {
+            remappedFilter[key] = value;
+          }
+        }
+        result["filter"] = remappedFilter;
+      }
+      break;
+
+    case "AND":
+    case "OR":
+      // Recursively process children
+      if (Array.isArray(node["children"])) {
+        result["children"] = (node["children"] as Array<unknown>).map((child) =>
+          remapConditionTree(child, practitionerIdMap, locationIdMap),
+        );
+      }
+      break;
+
+    case "NOT":
+      // Recursively process child
+      if (node["child"]) {
+        result["child"] = remapConditionTree(
+          node["child"],
+          practitionerIdMap,
+          locationIdMap,
+        );
+      }
+      break;
+  }
+
+  return result;
+}
+
+/**
  * Copy all rules from source to target rule set.
- * Remaps practitioner and location IDs to the new rule set's entities.
+ * Remaps practitioner and location IDs in the condition trees to the new rule set's entities.
  */
 export async function copyRules(
   db: DatabaseWriter,
@@ -365,22 +472,41 @@ export async function copyRules(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _creationTime, _id, ruleSetId, ...ruleData } = source;
 
-    // Remap practitioner IDs if present
-    const specificPractitioners = source.specificPractitioners
-      ?.map((id) => practitionerIdMap.get(id))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
+    // Remap IDs in the condition tree
+    const remappedCondition = remapConditionTree(
+      source.condition,
+      practitionerIdMap,
+      locationIdMap,
+    );
 
-    // Remap location ID if present
-    const limit_atLocation = source.limit_atLocation
-      ? locationIdMap.get(source.limit_atLocation)
-      : undefined;
+    // Remap IDs in side effects if present
+    let remappedSideEffects = source.sideEffects;
+    if (source.sideEffects && typeof source.sideEffects === "object") {
+      const sideEffects = source.sideEffects as Record<string, unknown>;
+      if (sideEffects["createZone"]) {
+        const createZone = sideEffects["createZone"] as Record<string, unknown>;
+        remappedSideEffects = {
+          ...sideEffects,
+          createZone: {
+            ...createZone,
+            condition: createZone["condition"]
+              ? remapConditionTree(
+                  createZone["condition"],
+                  practitionerIdMap,
+                  locationIdMap,
+                )
+              : createZone["condition"],
+          },
+        };
+      }
+    }
 
     await db.insert("rules", {
       ...ruleData,
       parentId: source._id, // Track which entity this was copied from
       ruleSetId: targetRuleSetId,
-      ...(specificPractitioners && { specificPractitioners }),
-      ...(limit_atLocation && { limit_atLocation }),
+      condition: remappedCondition,
+      ...(remappedSideEffects && { sideEffects: remappedSideEffects }),
     });
   }
 }

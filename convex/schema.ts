@@ -135,38 +135,30 @@ export default defineSchema({
     .index("by_practiceId_saved", ["practiceId", "saved"]), // For finding unsaved rule sets
 
   // Rules table - rules belong to a specific rule set (copy-on-write pattern)
+  // Uses lambda calculus condition trees for flexible rule definition
   rules: defineTable({
-    description: v.string(),
+    // Core rule metadata
     name: v.string(), // Rule name (unique within a rule set)
+    description: v.optional(v.string()),
     parentId: v.optional(v.id("rules")), // Reference to the entity this was copied from
     practiceId: v.id("practices"), // Rules belong to a practice
     ruleSetId: v.id("ruleSets"), // Rules belong to a specific rule set
-    ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
 
-    // --- General rule application ---
-    appliesTo: v.union(
-      v.literal("ALL_PRACTITIONERS"),
-      v.literal("SPECIFIC_PRACTITIONERS"),
-    ),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
+    // Lambda calculus rule definition
+    priority: v.number(), // Lower number = higher priority
+    condition: v.any(), // ConditionTree (recursive structure)
+    action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
+    sideEffects: v.optional(v.any()), // Optional side effects
+    message: v.string(), // Message to display when rule triggers
+    enabled: v.boolean(), // Whether the rule is active
 
-    // --- Parameters for 'BLOCK' rules ---
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()), // ISO date string
-    block_dateRangeStart: v.optional(v.string()), // ISO date string
-    block_daysOfWeek: v.optional(v.array(v.number())), // e.g., [1] for Monday
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()), // "10:00"
-    block_timeRangeStart: v.optional(v.string()), // "08:00"
-
-    // --- Parameters for 'LIMIT_CONCURRENT' rules ---
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
+    // Metadata
+    createdAt: v.int64(),
+    lastModified: v.int64(),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_priority", ["ruleSetId", "priority"]) // For ordered evaluation
     .index("by_ruleSetId_name", ["ruleSetId", "name"]) // For uniqueness validation within rule set
     .index("by_parentId", ["parentId"])
     .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
