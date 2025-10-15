@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+
 import type { Id } from "../_generated/dataModel";
 
 // ================================
@@ -9,89 +10,101 @@ import type { Id } from "../_generated/dataModel";
  * Base condition types for the rule engine
  */
 export type ConditionTree =
-  | PropertyCondition
-  | CountCondition
-  | TimeRangeFreeCondition
   | AdjacentCondition
   | AndCondition
+  | CountCondition
+  | NotCondition
   | OrCondition
-  | NotCondition;
+  | PropertyCondition
+  | TimeRangeFreeCondition;
 
 /**
  * Property: Check a slot or context attribute
  */
 export interface PropertyCondition {
-  type: "Property";
-  entity: "Slot" | "Context";
   attr: string;
-  op: "=" | "!=" | "<" | ">" | "<=" | ">=" | "IN" | "NOT_IN";
-  value: string | number | ReadonlyArray<string>;
+  entity: "Context" | "Slot";
+  op: "!=" | "<" | "<=" | "=" | ">" | ">=" | "IN" | "NOT_IN";
+  type: "Property";
+  value: number | readonly string[] | string;
+  // Optional time-of-day scoping (HH:MM format)
+  end?: string; // Exclusive upper bound
+  start?: string; // Inclusive lower bound
 }
 
 /**
  * Count: Count appointments matching criteria
  */
 export interface CountCondition {
-  type: "Count";
   entity: "Appointment";
   filter: {
+    doctor?: string;
+    location?: string;
     overlaps?: boolean;
     type?: string;
-    location?: string;
-    doctor?: string;
     // Extensible for any appointment attribute
     [key: string]: boolean | string | undefined;
   };
-  op: "=" | "!=" | "<" | ">" | "<=" | ">=";
+  op: "!=" | "<" | "<=" | "=" | ">" | ">=";
+  type: "Count";
   value: number;
+  // Optional time-of-day scoping (HH:MM format)
+  end?: string; // Exclusive upper bound
+  start?: string; // Inclusive lower bound
 }
 
 /**
  * TimeRangeFree: Check if a time range has no appointments
  */
 export interface TimeRangeFreeCondition {
-  type: "TimeRangeFree";
-  start: "Slot.start" | "Slot.end";
   duration: string; // e.g. "35min", "2h"
+  start: "Slot.end" | "Slot.start";
+  type: "TimeRangeFree";
+  // Optional time-of-day scoping (HH:MM format)
+  end?: string; // Exclusive upper bound
+  timeOfDayStart?: string; // Inclusive lower bound (renamed to avoid conflict with 'start')
 }
 
 /**
  * Adjacent: Check if an appointment exists immediately before/after
  */
 export interface AdjacentCondition {
-  type: "Adjacent";
+  direction: "after" | "before";
   entity: "Appointment";
   filter: {
-    type?: string;
     doctor?: string;
+    type?: string;
     // Extensible for any appointment attribute
     [key: string]: string | undefined;
   };
-  direction: "before" | "after";
+  type: "Adjacent";
+  // Optional time-of-day scoping (HH:MM format)
+  end?: string; // Exclusive upper bound
+  start?: string; // Inclusive lower bound
 }
 
 /**
  * AND: All children must be true
  */
 export interface AndCondition {
+  children: readonly ConditionTree[];
   type: "AND";
-  children: ReadonlyArray<ConditionTree>;
 }
 
 /**
  * OR: At least one child must be true
  */
 export interface OrCondition {
+  children: readonly ConditionTree[];
   type: "OR";
-  children: ReadonlyArray<ConditionTree>;
 }
 
 /**
  * NOT: Inverts the child
  */
 export interface NotCondition {
-  type: "NOT";
   child: ConditionTree;
+  type: "NOT";
 }
 
 /**
@@ -101,9 +114,9 @@ export interface RuleZones {
   createZone?: {
     condition: ConditionTree; // When to create zone
     zone: {
-      start: "Slot.end" | "Slot.start";
+      allowOnly: readonly string[]; // Appointment types
       duration: string;
-      allowOnly: ReadonlyArray<string>; // Appointment types
+      start: "Slot.end" | "Slot.start";
     };
   };
 }
@@ -113,60 +126,60 @@ export interface RuleZones {
  */
 export interface SchedulingRule {
   _id?: Id<"rules">;
-  ruleSetId: Id<"ruleSets">;
-  name: string;
-  description?: string;
-  priority: number; // Lower number = higher priority
+  action: "ALLOW" | "BLOCK";
   condition: ConditionTree;
-  action: "BLOCK" | "ALLOW";
-  zones?: RuleZones;
-  message: string;
+  description?: string;
   enabled: boolean;
+  message: string;
+  name: string;
+  priority: number; // Lower number = higher priority
+  ruleSetId: Id<"ruleSets">;
+  zones?: RuleZones;
 }
 
 /**
  * Slot context for rule evaluation
  */
 export interface SlotContext {
-  start: string; // ISO datetime
-  end: string; // ISO datetime
-  type: string; // Appointment type
+  [key: string]: number | string | undefined;
   doctor?: string; // Practitioner ID
-  location?: string; // Location ID
   duration: number; // Minutes
-  [key: string]: string | number | undefined;
+  end: string; // ISO datetime
+  location?: string; // Location ID
+  start: string; // ISO datetime
+  type: string; // Appointment type
 }
 
 /**
  * Appointment for rule evaluation
  */
 export interface AppointmentContext {
+  [key: string]: Id<"appointments"> | string | undefined;
   _id: Id<"appointments">;
-  start: string; // ISO datetime
-  end: string; // ISO datetime
-  type?: string;
   doctor?: string;
+  end: string; // ISO datetime
   location?: string;
-  [key: string]: string | Id<"appointments"> | undefined;
+  start: string; // ISO datetime
+  type?: string;
 }
 
 /**
  * Global context for rule evaluation
  */
 export interface EvaluationContext {
+  [key: string]: Id<"practices"> | Id<"ruleSets"> | string | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
-  [key: string]: string | Id<"practices"> | Id<"ruleSets"> | undefined;
 }
 
 /**
- * Rule evaluation result
+ * Result returned after evaluating rules for a slot, containing the action (ALLOW/BLOCK) and optional metadata.
  */
 export interface RuleEvaluationResult {
-  action: "BLOCK" | "ALLOW";
+  action: "ALLOW" | "BLOCK";
+  message?: string | undefined;
   ruleId?: Id<"rules"> | undefined;
   ruleName?: string | undefined;
-  message?: string | undefined;
   zones?: RuleZones | undefined;
 }
 
@@ -178,9 +191,9 @@ export interface RuleEvaluationResult {
  * Validator for property conditions
  */
 export const propertyConditionValidator = v.object({
-  type: v.literal("Property"),
-  entity: v.union(v.literal("Slot"), v.literal("Context")),
   attr: v.string(),
+  end: v.optional(v.string()),
+  entity: v.union(v.literal("Slot"), v.literal("Context")),
   op: v.union(
     v.literal("="),
     v.literal("!="),
@@ -191,6 +204,8 @@ export const propertyConditionValidator = v.object({
     v.literal("IN"),
     v.literal("NOT_IN"),
   ),
+  start: v.optional(v.string()),
+  type: v.literal("Property"),
   value: v.union(v.string(), v.number(), v.array(v.string())),
 });
 
@@ -198,7 +213,7 @@ export const propertyConditionValidator = v.object({
  * Validator for count conditions
  */
 export const countConditionValidator = v.object({
-  type: v.literal("Count"),
+  end: v.optional(v.string()),
   entity: v.literal("Appointment"),
   filter: v.any(), // Dynamic object with optional properties
   op: v.union(
@@ -209,6 +224,8 @@ export const countConditionValidator = v.object({
     v.literal("<="),
     v.literal(">="),
   ),
+  start: v.optional(v.string()),
+  type: v.literal("Count"),
   value: v.number(),
 });
 
@@ -216,19 +233,23 @@ export const countConditionValidator = v.object({
  * Validator for time range free conditions
  */
 export const timeRangeFreeConditionValidator = v.object({
-  type: v.literal("TimeRangeFree"),
-  start: v.union(v.literal("Slot.start"), v.literal("Slot.end")),
   duration: v.string(),
+  end: v.optional(v.string()),
+  start: v.union(v.literal("Slot.start"), v.literal("Slot.end")),
+  timeOfDayStart: v.optional(v.string()),
+  type: v.literal("TimeRangeFree"),
 });
 
 /**
  * Validator for adjacent conditions
  */
 export const adjacentConditionValidator = v.object({
-  type: v.literal("Adjacent"),
+  direction: v.union(v.literal("before"), v.literal("after")),
+  end: v.optional(v.string()),
   entity: v.literal("Appointment"),
   filter: v.any(), // Dynamic object with optional properties
-  direction: v.union(v.literal("before"), v.literal("after")),
+  start: v.optional(v.string()),
+  type: v.literal("Adjacent"),
 });
 
 /**
@@ -245,9 +266,9 @@ export const sideEffectsValidator = v.object({
     v.object({
       condition: conditionTreeValidator,
       zone: v.object({
-        start: v.union(v.literal("Slot.end"), v.literal("Slot.start")),
-        duration: v.string(),
         allowOnly: v.array(v.string()),
+        duration: v.string(),
+        start: v.union(v.literal("Slot.end"), v.literal("Slot.start")),
       }),
     }),
   ),
@@ -257,13 +278,13 @@ export const sideEffectsValidator = v.object({
  * Validator for complete scheduling rule
  */
 export const schedulingRuleValidator = v.object({
-  ruleSetId: v.id("ruleSets"),
-  name: v.string(),
-  description: v.optional(v.string()),
-  priority: v.number(),
-  condition: conditionTreeValidator,
   action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-  sideEffects: v.optional(sideEffectsValidator),
-  message: v.string(),
+  condition: conditionTreeValidator,
+  description: v.optional(v.string()),
   enabled: v.boolean(),
+  message: v.string(),
+  name: v.string(),
+  priority: v.number(),
+  ruleSetId: v.id("ruleSets"),
+  sideEffects: v.optional(sideEffectsValidator),
 });

@@ -1,64 +1,73 @@
 import { v } from "convex/values";
+
+import type { Id } from "../_generated/dataModel";
+import type { ConditionTree } from "./types";
+
 import { mutation, query } from "../_generated/server";
+import { getOrCreateUnsavedRuleSet } from "../copyOnWrite";
+import { DataIntegrityError, RuleNotFoundError } from "./errors";
 import { conditionTreeValidator } from "./types";
 
 // ================================
 // RULE MANAGEMENT
 // ================================
 
+// Type alias for create result (matches entities.ts pattern)
+const createResultValidator = v.object({
+  entityId: v.id("rules"),
+  ruleSetId: v.id("ruleSets"),
+});
+
 /**
- * Create a new scheduling rule
+ * Create a new scheduling rule in an unsaved rule set.
+ * Returns both the created entity ID and the rule set ID.
  */
 export const createRule = mutation({
   args: {
-    ruleSetId: v.id("ruleSets"),
-    name: v.string(),
-    description: v.optional(v.string()),
-    priority: v.number(),
-    condition: conditionTreeValidator,
     action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-    sideEffects: v.optional(v.any()),
-    message: v.string(),
+    condition: conditionTreeValidator,
+    description: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
+    message: v.string(),
+    name: v.string(),
+    practiceId: v.id("practices"),
+    priority: v.number(),
+    sideEffects: v.optional(v.any()),
+    sourceRuleSetId: v.id("ruleSets"),
   },
-  returns: v.id("rules"),
   handler: async (ctx, args) => {
-    // Verify rule set exists
-    const ruleSet = await ctx.db.get(args.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
 
-    // Verify rule set is not saved (can only modify unsaved rule sets)
-    if (ruleSet.saved) {
-      throw new Error("Cannot add rules to a saved rule set");
-    }
-
-    // Create the rule
+    // Build the insert data
     const insertData: {
-      ruleSetId: typeof args.ruleSetId;
-      practiceId: typeof ruleSet.practiceId;
-      name: string;
-      description?: string;
-      priority: number;
-      condition: typeof args.condition;
-      action: typeof args.action;
-      sideEffects?: typeof args.sideEffects;
-      message: string;
-      enabled: boolean;
+      action: "ALLOW" | "BLOCK";
+      condition: ConditionTree;
       createdAt: bigint;
+      description?: string;
+      enabled: boolean;
       lastModified: bigint;
+      message: string;
+      name: string;
+      practiceId: Id<"practices">;
+      priority: number;
+      ruleSetId: Id<"ruleSets">;
+      sideEffects?: unknown;
     } = {
-      ruleSetId: args.ruleSetId,
-      practiceId: ruleSet.practiceId,
-      name: args.name,
-      priority: args.priority,
-      condition: args.condition,
       action: args.action,
-      message: args.message,
-      enabled: args.enabled ?? true,
+      condition: args.condition as ConditionTree,
       createdAt: BigInt(Date.now()),
+      enabled: args.enabled ?? true,
       lastModified: BigInt(Date.now()),
+      message: args.message,
+      name: args.name,
+      practiceId: args.practiceId,
+      priority: args.priority,
+      ruleSetId,
     };
 
     if (args.description !== undefined) {
@@ -68,41 +77,62 @@ export const createRule = mutation({
       insertData.sideEffects = args.sideEffects;
     }
 
-    const ruleId = await ctx.db.insert("rules", insertData);
+    const entityId = await ctx.db.insert("rules", insertData);
 
-    return ruleId;
+    return { entityId, ruleSetId };
   },
+  returns: createResultValidator,
 });
 
 /**
- * Update an existing scheduling rule
+ * Update an existing scheduling rule in an unsaved rule set
  */
 export const updateRule = mutation({
   args: {
-    ruleId: v.id("rules"),
-    name: v.optional(v.string()),
-    description: v.optional(v.string()),
-    priority: v.optional(v.number()),
-    condition: v.optional(conditionTreeValidator),
     action: v.optional(v.union(v.literal("BLOCK"), v.literal("ALLOW"))),
-    sideEffects: v.optional(v.any()),
-    message: v.optional(v.string()),
+    condition: v.optional(conditionTreeValidator),
+    description: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
+    message: v.optional(v.string()),
+    name: v.optional(v.string()),
+    practiceId: v.id("practices"),
+    priority: v.optional(v.number()),
+    ruleId: v.id("rules"),
+    sideEffects: v.optional(v.any()),
+    sourceRuleSetId: v.id("ruleSets"),
   },
-  returns: v.null(),
   handler: async (ctx, args) => {
-    const rule = await ctx.db.get(args.ruleId);
-    if (!rule) {
-      throw new Error("Rule not found");
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    // Get the entity - it might be from the active or unsaved rule set
+    const entity = await ctx.db.get(args.ruleId);
+    if (!entity) {
+      throw new RuleNotFoundError(args.ruleId);
     }
 
-    // Verify rule set is not saved
-    const ruleSet = await ctx.db.get(rule.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-    if (ruleSet.saved) {
-      throw new Error("Cannot modify rules in a saved rule set");
+    // If it's already in the unsaved rule set, use it directly
+    // Otherwise, find the copy by parentId
+    let rule;
+    if (entity.ruleSetId === ruleSetId) {
+      rule = entity;
+    } else {
+      rule = await ctx.db
+        .query("rules")
+        .withIndex("by_parentId_ruleSetId", (q) =>
+          q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+        )
+        .first();
+
+      if (!rule) {
+        throw new DataIntegrityError(
+          "Rule not found in unsaved rule set. This should not happen.",
+        );
+      }
     }
 
     // Update the rule
@@ -120,7 +150,7 @@ export const updateRule = mutation({
       updates["priority"] = args.priority;
     }
     if (args.condition !== undefined) {
-      updates["condition"] = args.condition;
+      updates["condition"] = args.condition as ConditionTree;
     }
     if (args.action !== undefined) {
       updates["action"] = args.action;
@@ -135,37 +165,61 @@ export const updateRule = mutation({
       updates["enabled"] = args.enabled;
     }
 
-    await ctx.db.patch(args.ruleId, updates);
-    return null;
+    await ctx.db.patch(rule._id, updates);
+
+    return { entityId: rule._id, ruleSetId };
   },
+  returns: createResultValidator,
 });
 
 /**
- * Delete a scheduling rule
+ * Delete a scheduling rule from an unsaved rule set
  */
 export const deleteRule = mutation({
   args: {
+    practiceId: v.id("practices"),
     ruleId: v.id("rules"),
+    sourceRuleSetId: v.id("ruleSets"),
   },
-  returns: v.null(),
   handler: async (ctx, args) => {
-    const rule = await ctx.db.get(args.ruleId);
-    if (!rule) {
-      throw new Error("Rule not found");
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    // Get the entity - it might be from the active or unsaved rule set
+    const entity = await ctx.db.get(args.ruleId);
+    if (!entity) {
+      throw new RuleNotFoundError(args.ruleId);
     }
 
-    // Verify rule set is not saved
-    const ruleSet = await ctx.db.get(rule.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-    if (ruleSet.saved) {
-      throw new Error("Cannot delete rules from a saved rule set");
+    // If it's already in the unsaved rule set, use it directly
+    // Otherwise, find the copy by parentId
+    let rule;
+    if (entity.ruleSetId === ruleSetId) {
+      rule = entity;
+    } else {
+      rule = await ctx.db
+        .query("rules")
+        .withIndex("by_parentId_ruleSetId", (q) =>
+          q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+        )
+        .first();
+
+      if (!rule) {
+        throw new DataIntegrityError(
+          "Rule not found in unsaved rule set. This should not happen.",
+        );
+      }
     }
 
-    await ctx.db.delete(args.ruleId);
-    return null;
+    await ctx.db.delete(rule._id);
+
+    return { entityId: rule._id, ruleSetId };
   },
+  returns: createResultValidator,
 });
 
 /**
@@ -175,23 +229,6 @@ export const listRules = query({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
-  returns: v.array(
-    v.object({
-      _id: v.id("rules"),
-      _creationTime: v.number(),
-      ruleSetId: v.id("ruleSets"),
-      name: v.string(),
-      description: v.optional(v.string()),
-      priority: v.number(),
-      condition: v.any(),
-      action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-      sideEffects: v.optional(v.any()),
-      message: v.string(),
-      enabled: v.boolean(),
-      createdAt: v.int64(),
-      lastModified: v.int64(),
-    }),
-  ),
   handler: async (ctx, args) => {
     const rules = await ctx.db
       .query("rules")
@@ -200,6 +237,26 @@ export const listRules = query({
 
     return rules;
   },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("rules"),
+      action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
+      condition: conditionTreeValidator,
+      createdAt: v.int64(),
+      description: v.optional(v.string()),
+      enabled: v.boolean(),
+      lastModified: v.int64(),
+      message: v.string(),
+      name: v.string(),
+      parentId: v.optional(v.id("rules")),
+      practiceId: v.id("practices"),
+      priority: v.number(),
+      ruleSetId: v.id("ruleSets"),
+      sideEffects: v.optional(v.any()),
+      zones: v.optional(v.any()),
+    }),
+  ),
 });
 
 /**
@@ -209,28 +266,31 @@ export const getRule = query({
   args: {
     ruleId: v.id("rules"),
   },
-  returns: v.union(
-    v.object({
-      _id: v.id("rules"),
-      _creationTime: v.number(),
-      ruleSetId: v.id("ruleSets"),
-      name: v.string(),
-      description: v.optional(v.string()),
-      priority: v.number(),
-      condition: v.any(),
-      action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-      sideEffects: v.optional(v.any()),
-      message: v.string(),
-      enabled: v.boolean(),
-      createdAt: v.int64(),
-      lastModified: v.int64(),
-    }),
-    v.null(),
-  ),
   handler: async (ctx, args) => {
     const rule = await ctx.db.get(args.ruleId);
     return rule ?? null;
   },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("rules"),
+      action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
+      condition: conditionTreeValidator,
+      createdAt: v.int64(),
+      description: v.optional(v.string()),
+      enabled: v.boolean(),
+      lastModified: v.int64(),
+      message: v.string(),
+      name: v.string(),
+      parentId: v.optional(v.id("rules")),
+      practiceId: v.id("practices"),
+      priority: v.number(),
+      ruleSetId: v.id("ruleSets"),
+      sideEffects: v.optional(v.any()),
+      zones: v.optional(v.any()),
+    }),
+    v.null(),
+  ),
 });
 
 /**
@@ -238,78 +298,117 @@ export const getRule = query({
  */
 export const reorderRules = mutation({
   args: {
-    ruleSetId: v.id("ruleSets"),
+    practiceId: v.id("practices"),
     ruleOrder: v.array(
       v.object({
-        ruleId: v.id("rules"),
         priority: v.number(),
+        ruleId: v.id("rules"),
       }),
     ),
+    sourceRuleSetId: v.id("ruleSets"),
   },
-  returns: v.null(),
   handler: async (ctx, args) => {
-    // Verify rule set is not saved
-    const ruleSet = await ctx.db.get(args.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-    if (ruleSet.saved) {
-      throw new Error("Cannot reorder rules in a saved rule set");
-    }
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
 
-    // Update priorities
-    for (const { ruleId, priority } of args.ruleOrder) {
-      const rule = await ctx.db.get(ruleId);
-      if (!rule) {
-        throw new Error(`Rule ${ruleId} not found`);
-      }
-      if (rule.ruleSetId !== args.ruleSetId) {
-        throw new Error(
-          `Rule ${ruleId} does not belong to rule set ${args.ruleSetId}`,
-        );
+    // Update priorities for each rule
+    for (const { priority, ruleId } of args.ruleOrder) {
+      // Get the entity - it might be from the active or unsaved rule set
+      const entity = await ctx.db.get(ruleId);
+      if (!entity) {
+        throw new RuleNotFoundError(ruleId);
       }
 
-      await ctx.db.patch(ruleId, {
-        priority,
+      // If it's already in the unsaved rule set, use it directly
+      // Otherwise, find the copy by parentId
+      let rule;
+      if (entity.ruleSetId === ruleSetId) {
+        rule = entity;
+      } else {
+        rule = await ctx.db
+          .query("rules")
+          .withIndex("by_parentId_ruleSetId", (q) =>
+            q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+          )
+          .first();
+
+        if (!rule) {
+          throw new DataIntegrityError(
+            `Rule ${ruleId} not found in unsaved rule set. This should not happen.`,
+          );
+        }
+      }
+
+      await ctx.db.patch(rule._id, {
         lastModified: BigInt(Date.now()),
+        priority,
       });
     }
 
-    return null;
+    return { ruleSetId };
   },
+  returns: v.object({ ruleSetId: v.id("ruleSets") }),
 });
 
 /**
- * Toggle rule enabled/disabled
+ * Toggle rule enabled/disabled in an unsaved rule set
  */
 export const toggleRule = mutation({
   args: {
+    practiceId: v.id("practices"),
     ruleId: v.id("rules"),
+    sourceRuleSetId: v.id("ruleSets"),
   },
-  returns: v.boolean(),
   handler: async (ctx, args) => {
-    const rule = await ctx.db.get(args.ruleId);
-    if (!rule) {
-      throw new Error("Rule not found");
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    // Get the entity - it might be from the active or unsaved rule set
+    const entity = await ctx.db.get(args.ruleId);
+    if (!entity) {
+      throw new RuleNotFoundError(args.ruleId);
     }
 
-    // Verify rule set is not saved
-    const ruleSet = await ctx.db.get(rule.ruleSetId);
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-    if (ruleSet.saved) {
-      throw new Error("Cannot toggle rules in a saved rule set");
+    // If it's already in the unsaved rule set, use it directly
+    // Otherwise, find the copy by parentId
+    let rule;
+    if (entity.ruleSetId === ruleSetId) {
+      rule = entity;
+    } else {
+      rule = await ctx.db
+        .query("rules")
+        .withIndex("by_parentId_ruleSetId", (q) =>
+          q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+        )
+        .first();
+
+      if (!rule) {
+        throw new DataIntegrityError(
+          "Rule not found in unsaved rule set. This should not happen.",
+        );
+      }
     }
 
     const newEnabled = !rule.enabled;
-    await ctx.db.patch(args.ruleId, {
+    await ctx.db.patch(rule._id, {
       enabled: newEnabled,
       lastModified: BigInt(Date.now()),
     });
 
-    return newEnabled;
+    return { enabled: newEnabled, ruleSetId };
   },
+  returns: v.object({
+    enabled: v.boolean(),
+    ruleSetId: v.id("ruleSets"),
+  }),
 });
 
 // ================================
@@ -324,9 +423,8 @@ export const validateConditionTree = query({
   args: {
     condition: conditionTreeValidator,
   },
-  returns: v.array(v.string()),
-  handler: async (_ctx, args) => {
-    const errors: Array<string> = [];
+  handler: (_ctx, args) => {
+    const errors: string[] = [];
 
     function validateNode(node: unknown, path: string): void {
       if (!node || typeof node !== "object") {
@@ -342,7 +440,61 @@ export const validateConditionTree = query({
       }
 
       switch (n["type"]) {
-        case "Property":
+        case "Adjacent": {
+          if (n["entity"] !== "Appointment") {
+            errors.push(`${path}: Invalid 'entity' field for Adjacent`);
+          }
+          if (!n["filter"] || typeof n["filter"] !== "object") {
+            errors.push(
+              `${path}: Missing or invalid 'filter' field for Adjacent`,
+            );
+          }
+          if (n["direction"] !== "before" && n["direction"] !== "after") {
+            errors.push(`${path}: Invalid 'direction' field for Adjacent`);
+          }
+          break;
+        }
+
+        case "AND":
+        case "OR": {
+          // Both AND and OR have the same validation: they need a children array
+          if (Array.isArray(n["children"])) {
+            for (const [i, child] of (n["children"] as unknown[]).entries()) {
+              validateNode(child, `${path}.children[${i}]`);
+            }
+          } else {
+            errors.push(
+              `${path}: Missing or invalid 'children' field for ${n["type"]}`,
+            );
+          }
+          break;
+        }
+
+        case "Count": {
+          if (n["entity"] !== "Appointment") {
+            errors.push(`${path}: Invalid 'entity' field for Count`);
+          }
+          if (!n["filter"] || typeof n["filter"] !== "object") {
+            errors.push(`${path}: Missing or invalid 'filter' field for Count`);
+          }
+          if (!n["op"] || typeof n["op"] !== "string") {
+            errors.push(`${path}: Missing or invalid 'op' field for Count`);
+          }
+          if (typeof n["value"] !== "number") {
+            errors.push(`${path}: Missing or invalid 'value' field for Count`);
+          }
+          break;
+        }
+
+        case "NOT": {
+          if (n["child"]) {
+            validateNode(n["child"], `${path}.child`);
+          } else {
+            errors.push(`${path}: Missing 'child' field for NOT`);
+          }
+          break;
+        }
+        case "Property": {
           if (
             !n["entity"] ||
             (n["entity"] !== "Slot" && n["entity"] !== "Context")
@@ -361,23 +513,9 @@ export const validateConditionTree = query({
             errors.push(`${path}: Missing 'value' field for Property`);
           }
           break;
+        }
 
-        case "Count":
-          if (n["entity"] !== "Appointment") {
-            errors.push(`${path}: Invalid 'entity' field for Count`);
-          }
-          if (!n["filter"] || typeof n["filter"] !== "object") {
-            errors.push(`${path}: Missing or invalid 'filter' field for Count`);
-          }
-          if (!n["op"] || typeof n["op"] !== "string") {
-            errors.push(`${path}: Missing or invalid 'op' field for Count`);
-          }
-          if (typeof n["value"] !== "number") {
-            errors.push(`${path}: Missing or invalid 'value' field for Count`);
-          }
-          break;
-
-        case "TimeRangeFree":
+        case "TimeRangeFree": {
           if (n["start"] !== "Slot.start" && n["start"] !== "Slot.end") {
             errors.push(`${path}: Invalid 'start' field for TimeRangeFree`);
           }
@@ -387,48 +525,16 @@ export const validateConditionTree = query({
             );
           }
           break;
+        }
 
-        case "Adjacent":
-          if (n["entity"] !== "Appointment") {
-            errors.push(`${path}: Invalid 'entity' field for Adjacent`);
-          }
-          if (!n["filter"] || typeof n["filter"] !== "object") {
-            errors.push(
-              `${path}: Missing or invalid 'filter' field for Adjacent`,
-            );
-          }
-          if (n["direction"] !== "before" && n["direction"] !== "after") {
-            errors.push(`${path}: Invalid 'direction' field for Adjacent`);
-          }
-          break;
-
-        case "AND":
-        case "OR":
-          if (!Array.isArray(n["children"])) {
-            errors.push(
-              `${path}: Missing or invalid 'children' field for ${n["type"]}`,
-            );
-          } else {
-            (n["children"] as Array<unknown>).forEach((child, i) => {
-              validateNode(child, `${path}.children[${i}]`);
-            });
-          }
-          break;
-
-        case "NOT":
-          if (!n["child"]) {
-            errors.push(`${path}: Missing 'child' field for NOT`);
-          } else {
-            validateNode(n["child"], `${path}.child`);
-          }
-          break;
-
-        default:
+        default: {
           errors.push(`${path}: Unknown condition type '${n["type"]}'`);
+        }
       }
     }
 
     validateNode(args.condition, "root");
     return errors;
   },
+  returns: v.array(v.string()),
 });

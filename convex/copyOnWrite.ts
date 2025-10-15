@@ -18,6 +18,7 @@ import type {
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
+import type { ConditionTree } from "./ruleEngine/types";
 
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
@@ -364,7 +365,63 @@ function remapConditionTree(
 
   // Handle different condition types
   switch (node["type"]) {
-    case "Property":
+    case "Adjacent":
+    case "Count":
+    case "TimeRangeFree": {
+      // All three types have filter objects that may need remapping
+      // Recursively remap filter objects
+      if (node["filter"] && typeof node["filter"] === "object") {
+        const filter = node["filter"] as Record<string, unknown>;
+        const remappedFilter: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(filter)) {
+          if (typeof value === "string") {
+            remappedFilter[key] =
+              practitionerIdMap.get(value as Id<"practitioners">) ||
+              locationIdMap.get(value as Id<"locations">) ||
+              value;
+          } else if (Array.isArray(value)) {
+            remappedFilter[key] = (value as unknown[]).map((val: unknown) => {
+              if (typeof val === "string") {
+                return (
+                  practitionerIdMap.get(val as Id<"practitioners">) ||
+                  locationIdMap.get(val as Id<"locations">) ||
+                  val
+                );
+              }
+              return val;
+            });
+          } else {
+            remappedFilter[key] = value;
+          }
+        }
+        result["filter"] = remappedFilter;
+      }
+      break;
+    }
+    case "AND":
+    case "OR": {
+      // Both AND and OR recursively process children arrays
+      // Recursively process children
+      if (Array.isArray(node["children"])) {
+        result["children"] = (node["children"] as unknown[]).map((child) =>
+          remapConditionTree(child, practitionerIdMap, locationIdMap),
+        );
+      }
+      break;
+    }
+    case "NOT": {
+      // Recursively process child
+      if (node["child"]) {
+        result["child"] = remapConditionTree(
+          node["child"],
+          practitionerIdMap,
+          locationIdMap,
+        );
+      }
+      break;
+    }
+
+    case "Property": {
       // Check if the value is a practitioner or location ID that needs remapping
       if (typeof node["value"] === "string") {
         // Try to remap as practitioner ID
@@ -382,7 +439,7 @@ function remapConditionTree(
       }
       // Handle array values that might contain IDs
       if (Array.isArray(node["value"])) {
-        result["value"] = (node["value"] as Array<unknown>).map((val) => {
+        result["value"] = (node["value"] as unknown[]).map((val) => {
           if (typeof val === "string") {
             return (
               practitionerIdMap.get(val as Id<"practitioners">) ||
@@ -394,59 +451,7 @@ function remapConditionTree(
         });
       }
       break;
-
-    case "Count":
-    case "TimeRangeFree":
-    case "Adjacent":
-      // Recursively remap filter objects
-      if (node["filter"] && typeof node["filter"] === "object") {
-        const filter = node["filter"] as Record<string, unknown>;
-        const remappedFilter: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(filter)) {
-          if (typeof value === "string") {
-            remappedFilter[key] =
-              practitionerIdMap.get(value as Id<"practitioners">) ||
-              locationIdMap.get(value as Id<"locations">) ||
-              value;
-          } else if (Array.isArray(value)) {
-            remappedFilter[key] = value.map((val) => {
-              if (typeof val === "string") {
-                return (
-                  practitionerIdMap.get(val as Id<"practitioners">) ||
-                  locationIdMap.get(val as Id<"locations">) ||
-                  val
-                );
-              }
-              return val;
-            });
-          } else {
-            remappedFilter[key] = value;
-          }
-        }
-        result["filter"] = remappedFilter;
-      }
-      break;
-
-    case "AND":
-    case "OR":
-      // Recursively process children
-      if (Array.isArray(node["children"])) {
-        result["children"] = (node["children"] as Array<unknown>).map((child) =>
-          remapConditionTree(child, practitionerIdMap, locationIdMap),
-        );
-      }
-      break;
-
-    case "NOT":
-      // Recursively process child
-      if (node["child"]) {
-        result["child"] = remapConditionTree(
-          node["child"],
-          practitionerIdMap,
-          locationIdMap,
-        );
-      }
-      break;
+    }
   }
 
   return result;
@@ -480,7 +485,7 @@ export async function copyRules(
     );
 
     // Remap IDs in zones if present
-    let remappedZones = source.zones;
+    let remappedZones: unknown = source.zones;
     if (source.zones && typeof source.zones === "object") {
       const zones = source.zones as Record<string, unknown>;
       if (zones["createZone"]) {
@@ -501,13 +506,15 @@ export async function copyRules(
       }
     }
 
-    await db.insert("rules", {
+    const insertData = {
       ...ruleData,
-      parentId: source._id, // Track which entity this was copied from
+      condition: remappedCondition as ConditionTree,
+      parentId: source._id,
       ruleSetId: targetRuleSetId,
-      condition: remappedCondition,
-      ...(remappedZones && { zones: remappedZones }),
-    });
+      ...(remappedZones ? { zones: remappedZones } : {}),
+    };
+
+    await db.insert("rules", insertData as never);
   }
 }
 

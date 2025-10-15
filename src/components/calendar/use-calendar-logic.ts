@@ -177,6 +177,35 @@ export function useCalendarLogic({
     practiceId ? { practiceId } : "skip",
   );
 
+  // Query available slots (with rules evaluation) when in simulation mode
+  const availableSlotsData = useQuery(
+    api.scheduling.getAvailableSlots,
+    simulatedContext && practiceId && selectedLocationId
+      ? {
+          dateRange: {
+            end: new Date(
+              selectedDate.getFullYear(),
+              selectedDate.getMonth(),
+              selectedDate.getDate(),
+              23,
+              59,
+              59,
+            ).toISOString(),
+            start: new Date(
+              selectedDate.getFullYear(),
+              selectedDate.getMonth(),
+              selectedDate.getDate(),
+              0,
+              0,
+              0,
+            ).toISOString(),
+          },
+          practiceId,
+          simulatedContext,
+        }
+      : "skip",
+  );
+
   // Mutations
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
@@ -1234,9 +1263,41 @@ export function useCalendarLogic({
 
       const endDate = addMinutes(startDate, duration);
 
+      // Check if slot is blocked by rules when in simulation mode
+      if (simulatedContext && availableSlotsData) {
+        const startTimeStr = format(startDate, "HH:mm");
+
+        // Get practitioner ID for this column
+        let checkPractitionerId: Id<"practitioners"> | undefined;
+        if (column !== "ekg" && column !== "labor") {
+          checkPractitionerId = column as Id<"practitioners">;
+        } else {
+          const practitioner = workingPractitioners[0];
+          checkPractitionerId = practitioner?.id;
+        }
+
+        // Find if this specific slot is blocked by rules
+        const matchingSlot = availableSlotsData.slots.find((s) => {
+          return (
+            s.startTime === startTimeStr &&
+            s.practitionerId === checkPractitionerId &&
+            s.locationId === simulatedContext.locationId
+          );
+        });
+
+        if (matchingSlot?.status === "BLOCKED") {
+          toast.error("Dieser Zeitslot ist durch Regeln blockiert", {
+            description: matchingSlot.blockedByRuleId
+              ? `Regel-ID: ${matchingSlot.blockedByRuleId}`
+              : "Dieser Zeitslot kann nicht gebucht werden",
+          });
+          return;
+        }
+      }
+
       if (simulatedContext) {
         if (!simulatedContext.locationId) {
-          alert("Bitte wählen Sie zuerst einen Standort aus.");
+          toast.error("Bitte wählen Sie zuerst einen Standort aus.");
           return;
         }
 

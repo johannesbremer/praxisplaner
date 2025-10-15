@@ -51,7 +51,8 @@ import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
-import RuleCreationFormNew from "../components/rule-creation-form-new";
+import RuleEditorAdvanced from "../components/rule-editor-advanced";
+import RuleEditorNatural from "../components/rule-editor-natural";
 import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
@@ -456,7 +457,7 @@ function LogicView() {
 
   // Fetch rules for the current working rule set
   const rulesQuery = useQuery(
-    api.entities.getRules,
+    api.ruleEngine.api.listRules,
     currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
   );
 
@@ -856,28 +857,30 @@ function LogicView() {
                         </div>
                         {/* Rule Management Controls - New line for space reasons */}
                         <div className="flex gap-2 mt-4">
-                          {/* Create New Rule Button - Always show */}
+                          {/* Create New Rule Buttons - Always show */}
                           {currentWorkingRuleSet && (
-                            <RuleCreationFormNew
-                              customTrigger={
-                                unsavedRuleSet ? undefined : (
-                                  <Button
-                                    onClick={() => {
-                                      void ensureUnsavedRuleSet();
-                                    }}
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Neue Regel
-                                  </Button>
-                                )
-                              }
-                              onRuleCreated={handleRuleChange}
-                              onRuleSetCreated={handleRuleSetCreated}
-                              practiceId={currentPractice._id}
-                              ruleSetId={currentWorkingRuleSet._id}
-                            />
+                            <>
+                              <RuleEditorAdvanced
+                                customTrigger={
+                                  unsavedRuleSet ? undefined : (
+                                    <Button
+                                      onClick={() => {
+                                        void ensureUnsavedRuleSet();
+                                      }}
+                                      size="sm"
+                                      variant="outline"
+                                    >
+                                      <Plus className="h-4 w-4 mr-2" />
+                                      Neue Regel (Erweitert)
+                                    </Button>
+                                  )
+                                }
+                                onRuleCreated={handleRuleChange}
+                                practiceId={currentPractice._id}
+                                ruleSetId={currentWorkingRuleSet._id}
+                              />
+                              <RuleEditorNatural />
+                            </>
                           )}
                         </div>
                       </CardHeader>

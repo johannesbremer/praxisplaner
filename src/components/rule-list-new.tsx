@@ -1,7 +1,8 @@
+// src/components/rule-list-new.tsx
 "use client";
 
 import { useMutation } from "convex/react";
-import { Copy, Trash2 } from "lucide-react";
+import { Edit, Power, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -12,13 +13,13 @@ import { Card } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 import { useErrorTracking } from "../utils/error-tracking";
-import RuleCreationFormNew from "./rule-creation-form-new";
+import RuleEditorAdvanced from "./rule-editor-advanced";
 
 interface RuleListNewProps {
   onRuleChanged?: () => void;
   practiceId: Id<"practices">;
   rules: Doc<"rules">[];
-  ruleSetId?: Id<"ruleSets">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export function RuleListNew({
@@ -28,18 +29,11 @@ export function RuleListNew({
   ruleSetId,
 }: RuleListNewProps) {
   const { captureError } = useErrorTracking();
-  const deleteRuleMutation = useMutation(api.entities.deleteRule);
+  const deleteRuleMutation = useMutation(api.ruleEngine.api.deleteRule);
+  const toggleRuleMutation = useMutation(api.ruleEngine.api.toggleRule);
 
   const handleDeleteRule = async (rule: Doc<"rules">) => {
     try {
-      // Ensure we have a ruleSetId
-      if (!ruleSetId) {
-        toast.error("Kein Regelset ausgewählt");
-        return;
-      }
-
-      // Call the mutation - it will automatically create unsaved rule set if needed
-      // The mutation handles Copy-on-Write internally via getOrCreateUnsavedRuleSet
       await deleteRuleMutation({
         practiceId,
         ruleId: rule._id,
@@ -64,44 +58,112 @@ export function RuleListNew({
     }
   };
 
+  const handleToggleRule = async (rule: Doc<"rules">) => {
+    try {
+      const result = await toggleRuleMutation({
+        practiceId,
+        ruleId: rule._id,
+        sourceRuleSetId: ruleSetId,
+      });
+
+      toast.success(result.enabled ? "Regel aktiviert" : "Regel deaktiviert", {
+        description: `Die Regel wurde ${result.enabled ? "aktiviert" : "deaktiviert"}.`,
+      });
+
+      // Notify parent about the change
+      onRuleChanged?.();
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "RuleListNew - Toggle rule",
+        ruleId: rule._id,
+        ruleName: rule.name,
+      });
+      toast.error("Fehler beim Aktivieren/Deaktivieren der Regel", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
+  };
+
   if (rules.length === 0) {
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">
           Keine aktiven Regeln in diesem Regelset. Erstellen Sie eine neue Regel
-          oder fügen Sie eine vorhandene hinzu.
+          mit dem erweiterten Editor.
         </p>
       </div>
     );
   }
 
+  // Sort rules by priority (lower number = higher priority)
+  const sortedRules = [...rules].toSorted((a, b) => a.priority - b.priority);
+
   return (
     <div className="space-y-4">
-      {rules.map((rule) => (
-        <Card className="p-4" key={rule._id}>
+      {sortedRules.map((rule) => (
+        <Card
+          className={`p-4 ${rule.enabled ? "" : "opacity-50"}`}
+          key={rule._id}
+        >
           <div className="flex items-start justify-between">
             <div className="space-y-1 flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold">{rule.name}</h3>
                 <Badge
-                  variant={
-                    rule.ruleType === "BLOCK" ? "destructive" : "secondary"
-                  }
+                  variant={rule.action === "BLOCK" ? "destructive" : "default"}
                 >
-                  {rule.ruleType}
+                  {rule.action}
                 </Badge>
+                <Badge variant="outline">Priorität: {rule.priority}</Badge>
+                {!rule.enabled && (
+                  <Badge variant="secondary">Deaktiviert</Badge>
+                )}
               </div>
 
-              <p className="text-sm text-muted-foreground">
-                {rule.description}
+              {rule.description && (
+                <p className="text-sm text-muted-foreground">
+                  {rule.description}
+                </p>
+              )}
+
+              <p className="text-sm text-muted-foreground italic">
+                {rule.message}
               </p>
 
-              <div className="text-xs text-muted-foreground">
-                {formatRuleDetails(rule)}
+              <div className="text-xs text-muted-foreground font-mono">
+                {formatConditionSummary(rule.condition)}
               </div>
             </div>
 
             <div className="flex items-center gap-2 ml-4">
+              {/* Toggle Enable/Disable */}
+              <Button
+                onClick={() => {
+                  void handleToggleRule(rule);
+                }}
+                size="sm"
+                title={rule.enabled ? "Regel deaktivieren" : "Regel aktivieren"}
+                variant="ghost"
+              >
+                <Power
+                  className={`h-4 w-4 ${rule.enabled ? "text-green-600" : ""}`}
+                />
+              </Button>
+
+              {/* Edit Rule */}
+              <RuleEditorAdvanced
+                customTrigger={
+                  <Button size="sm" title="Regel bearbeiten" variant="ghost">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                }
+                onRuleCreated={onRuleChanged}
+                practiceId={practiceId}
+                ruleId={rule._id}
+                ruleSetId={ruleSetId}
+              />
+
               {/* Delete Rule */}
               <Button
                 onClick={() => {
@@ -113,35 +175,6 @@ export function RuleListNew({
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
-
-              {/* Copy Rule */}
-              {ruleSetId && (
-                <RuleCreationFormNew
-                  copyFromRule={{
-                    appliesTo: rule.appliesTo,
-                    block_appointmentTypes: rule.block_appointmentTypes ?? [],
-                    block_dateRangeEnd: rule.block_dateRangeEnd ?? "",
-                    block_dateRangeStart: rule.block_dateRangeStart ?? "",
-                    block_daysOfWeek: rule.block_daysOfWeek ?? [],
-                    block_timeRangeEnd: rule.block_timeRangeEnd ?? "",
-                    block_timeRangeStart: rule.block_timeRangeStart ?? "",
-                    description: rule.description,
-                    limit_appointmentTypes: rule.limit_appointmentTypes ?? [],
-                    limit_count: rule.limit_count ?? 1,
-                    limit_perPractitioner: rule.limit_perPractitioner ?? false,
-                    ruleType: rule.ruleType,
-                    specificPractitioners: rule.specificPractitioners ?? [],
-                  }}
-                  customTrigger={
-                    <Button size="sm" title="Regel kopieren" variant="ghost">
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  }
-                  onRuleCreated={onRuleChanged}
-                  practiceId={practiceId}
-                  ruleSetId={ruleSetId}
-                />
-              )}
             </div>
           </div>
         </Card>
@@ -150,41 +183,42 @@ export function RuleListNew({
   );
 }
 
-function formatRuleDetails(rule: Doc<"rules">): string {
-  if (rule.ruleType === "BLOCK") {
-    const parts: string[] = [];
-    if (rule.block_appointmentTypes?.length) {
-      parts.push(`Terminarten: ${rule.block_appointmentTypes.join(", ")}`);
+function formatConditionSummary(condition: unknown): string {
+  if (!condition || typeof condition !== "object") {
+    return "Ungültige Bedingung";
+  }
+
+  const c = condition as Record<string, unknown>;
+  const type = c["type"];
+
+  if (typeof type !== "string") {
+    return "Ungültiger Typ";
+  }
+
+  switch (type) {
+    case "Adjacent": {
+      return `Adjacent(${String(c["entity"])}, ${String(c["direction"])})`;
     }
-    if (rule.block_daysOfWeek?.length) {
-      const dayNames = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
-      const days = rule.block_daysOfWeek
-        .map((d: number) => dayNames[d])
-        .join(", ");
-      parts.push(`Wochentage: ${days}`);
+    case "AND": {
+      return `AND(${Array.isArray(c["children"]) ? c["children"].length : 0} conditions)`;
     }
-    if (rule.block_timeRangeStart && rule.block_timeRangeEnd) {
-      parts.push(
-        `Zeit: ${rule.block_timeRangeStart} - ${rule.block_timeRangeEnd}`,
-      );
+    case "Count": {
+      return `Count(${String(c["entity"])}) ${String(c["op"])} ${String(c["value"])}`;
     }
-    if (rule.block_dateRangeStart && rule.block_dateRangeEnd) {
-      parts.push(
-        `Datum: ${rule.block_dateRangeStart} - ${rule.block_dateRangeEnd}`,
-      );
+    case "NOT": {
+      return `NOT(...)`;
     }
-    return parts.length > 0 ? `Blockiert: ${parts.join("; ")}` : "Blockiert";
-  } else {
-    const parts: string[] = [];
-    if (rule.limit_count) {
-      parts.push(`Max. ${rule.limit_count} parallel`);
+    case "OR": {
+      return `OR(${Array.isArray(c["children"]) ? c["children"].length : 0} conditions)`;
     }
-    if (rule.limit_appointmentTypes?.length) {
-      parts.push(`für: ${rule.limit_appointmentTypes.join(", ")}`);
+    case "Property": {
+      return `${String(c["entity"])}.${String(c["attr"])} ${String(c["op"])} ${JSON.stringify(c["value"])}`;
     }
-    if (rule.limit_perPractitioner) {
-      parts.push("pro Arzt");
+    case "TimeRangeFree": {
+      return `TimeRangeFree(${String(c["start"])}, ${String(c["duration"])})`;
     }
-    return parts.join(" ");
+    default: {
+      return type;
+    }
   }
 }

@@ -1,15 +1,15 @@
 import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
+import type { SlotContext } from "./ruleEngine/types";
 
 import { query } from "./_generated/server";
+import { evaluateCondition, evaluateRules } from "./ruleEngine/evaluator";
 import {
   availableSlotsResultValidator,
   dateRangeValidator,
   simulatedContextValidator,
 } from "./validators";
-import { evaluateCondition, evaluateRules } from "./ruleEngine/evaluator";
-import type { SlotContext } from "./ruleEngine/types";
 
 interface SchedulingResultSlot {
   blockedByRuleId?: Id<"rules">;
@@ -205,13 +205,13 @@ export const getAvailableSlots = query({
 
       // Map slot to SlotContext for evaluation
       const slotContext: SlotContext = {
-        start: slot.startTime,
+        doctor: slot.practitionerId,
+        duration: slot.duration,
         end: new Date(
           new Date(slot.startTime).getTime() + slot.duration * 60 * 1000,
         ).toISOString(),
+        start: slot.startTime,
         type: args.simulatedContext.appointmentType,
-        duration: slot.duration,
-        doctor: slot.practitionerId,
         ...(slot.locationId && { location: slot.locationId }),
       };
 
@@ -235,15 +235,15 @@ export const getAvailableSlots = query({
       const appointments = relevantAppointments.map((apt) => {
         const appointmentCtx: {
           _id: Id<"appointments">;
-          start: string;
-          end: string;
-          type?: string;
           doctor?: string;
+          end: string;
           location?: string;
+          start: string;
+          type?: string;
         } = {
           _id: apt._id,
-          start: apt.start,
           end: apt.end,
+          start: apt.start,
         };
         if (apt.appointmentType) {
           appointmentCtx.type = apt.appointmentType;
@@ -265,7 +265,7 @@ export const getAvailableSlots = query({
         appointments,
         {
           practiceId: args.practiceId,
-          ruleSetId: ruleSetId!,
+          ruleSetId,
         },
       );
 
@@ -280,7 +280,7 @@ export const getAvailableSlots = query({
             `Slot ${slot.startTime} blocked by rule "${result.ruleName}"${result.message ? `: ${result.message}` : ""}`,
           );
         }
-      } else if (result.action === "ALLOW" && result.zones?.createZone) {
+      } else if (result.zones?.createZone) {
         // Handle zone creation when ALLOW rule has createZone
         const { createZone } = result.zones;
 
@@ -292,7 +292,7 @@ export const getAvailableSlots = query({
           appointments,
           {
             practiceId: args.practiceId,
-            ruleSetId: ruleSetId!,
+            ruleSetId,
           },
         );
 
@@ -306,7 +306,7 @@ export const getAvailableSlots = query({
             createZone.zone.start === "Slot.end" ? slotEndTime : slotStartTime;
 
           // Parse duration (e.g., "30m", "1h")
-          const durationMatch = createZone.zone.duration.match(/^(\d+)([mh])$/);
+          const durationMatch = /^(\d+)([mh])$/.exec(createZone.zone.duration);
           if (!durationMatch?.[1]) {
             log.push(
               `Warning: Invalid zone duration format: ${createZone.zone.duration}`,

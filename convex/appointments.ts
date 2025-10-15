@@ -69,6 +69,7 @@ export const getAppointments = query({
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -123,6 +124,7 @@ export const getAppointmentsInRange = query({
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -238,29 +240,29 @@ export const deleteAllSimulatedAppointments = mutation({
  */
 export const createZone = mutation({
   args: {
-    practiceId: v.id("practices"),
-    practitionerId: v.id("practitioners"),
-    locationId: v.id("locations"),
-    start: v.string(), // ISO timestamp
-    end: v.string(), // ISO timestamp
     allowOnly: v.array(v.string()), // Appointment types allowed in this zone
     createdByRuleId: v.optional(v.id("rules")),
     createdByRuleName: v.optional(v.string()),
+    end: v.string(), // ISO timestamp
+    locationId: v.id("locations"),
+    practiceId: v.id("practices"),
+    practitionerId: v.id("practitioners"),
+    start: v.string(), // ISO timestamp
   },
   handler: async (ctx, args) => {
     // Create zone as a special appointment
     // The appointmentType starting with "_zone_" identifies it as a zone
     // The allowOnly list can be stored in the title as JSON for now
     const zoneId = await ctx.db.insert("appointments", {
-      practiceId: args.practiceId,
-      start: args.start,
-      end: args.end,
-      title: `Zone: ${args.createdByRuleName || "Unnamed"} (allows: ${args.allowOnly.join(", ")})`,
       appointmentType: `_zone_${args.createdByRuleName || "unnamed"}`,
-      practitionerId: args.practitionerId,
-      locationId: args.locationId,
       createdAt: BigInt(Date.now()),
+      end: args.end,
       lastModified: BigInt(Date.now()),
+      locationId: args.locationId,
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      start: args.start,
+      title: `Zone: ${args.createdByRuleName || "Unnamed"} (allows: ${args.allowOnly.join(", ")})`,
       // Note: zones don't have patientId - omit it entirely
     });
 

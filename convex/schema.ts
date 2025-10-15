@@ -138,19 +138,19 @@ export default defineSchema({
   // Uses lambda calculus condition trees for flexible rule definition
   rules: defineTable({
     // Core rule metadata
-    name: v.string(), // Rule name (unique within a rule set)
     description: v.optional(v.string()),
+    name: v.string(), // Rule name (unique within a rule set)
     parentId: v.optional(v.id("rules")), // Reference to the entity this was copied from
     practiceId: v.id("practices"), // Rules belong to a practice
     ruleSetId: v.id("ruleSets"), // Rules belong to a specific rule set
 
     // Lambda calculus rule definition
-    priority: v.number(), // Lower number = higher priority
-    condition: v.any(), // ConditionTree (recursive structure)
     action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-    zones: v.optional(v.any()), // Optional zone creation when rule allows
-    message: v.string(), // Message to display when rule triggers
+    condition: v.any(), // ConditionTree (recursive structure)
     enabled: v.boolean(), // Whether the rule is active
+    message: v.string(), // Message to display when rule triggers
+    priority: v.number(), // Lower number = higher priority
+    zones: v.optional(v.any()), // Optional zone creation when rule allows
 
     // Metadata
     createdAt: v.int64(),
