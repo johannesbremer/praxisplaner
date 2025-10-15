@@ -148,7 +148,7 @@ export default defineSchema({
     priority: v.number(), // Lower number = higher priority
     condition: v.any(), // ConditionTree (recursive structure)
     action: v.union(v.literal("BLOCK"), v.literal("ALLOW")),
-    sideEffects: v.optional(v.any()), // Optional side effects
+    zones: v.optional(v.any()), // Optional zone creation when rule allows
     message: v.string(), // Message to display when rule triggers
     enabled: v.boolean(), // Whether the rule is active
 

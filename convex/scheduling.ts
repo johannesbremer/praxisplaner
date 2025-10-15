@@ -8,7 +8,7 @@ import {
   dateRangeValidator,
   simulatedContextValidator,
 } from "./validators";
-import { evaluateRules } from "./ruleEngine/evaluator";
+import { evaluateCondition, evaluateRules } from "./ruleEngine/evaluator";
 import type { SlotContext } from "./ruleEngine/types";
 
 interface SchedulingResultSlot {
@@ -279,6 +279,56 @@ export const getAvailableSlots = query({
           log.push(
             `Slot ${slot.startTime} blocked by rule "${result.ruleName}"${result.message ? `: ${result.message}` : ""}`,
           );
+        }
+      } else if (result.action === "ALLOW" && result.zones?.createZone) {
+        // Handle zone creation when ALLOW rule has createZone
+        const { createZone } = result.zones;
+
+        // Evaluate the zone creation condition
+        const shouldCreateZone = await evaluateCondition(
+          ctx.db,
+          createZone.condition,
+          slotContext,
+          appointments,
+          {
+            practiceId: args.practiceId,
+            ruleSetId: ruleSetId!,
+          },
+        );
+
+        if (shouldCreateZone) {
+          // Calculate zone start time
+          const slotStartTime = new Date(slot.startTime);
+          const slotEndTime = new Date(
+            slotStartTime.getTime() + slot.duration * 60 * 1000,
+          );
+          const zoneStartTime =
+            createZone.zone.start === "Slot.end" ? slotEndTime : slotStartTime;
+
+          // Parse duration (e.g., "30m", "1h")
+          const durationMatch = createZone.zone.duration.match(/^(\d+)([mh])$/);
+          if (!durationMatch?.[1]) {
+            log.push(
+              `Warning: Invalid zone duration format: ${createZone.zone.duration}`,
+            );
+            continue;
+          }
+
+          const durationValue = Number.parseInt(durationMatch[1], 10);
+          const durationUnit = durationMatch[2];
+          const durationMinutes =
+            durationUnit === "h" ? durationValue * 60 : durationValue;
+
+          const zoneEndTime = new Date(
+            zoneStartTime.getTime() + durationMinutes * 60 * 1000,
+          );
+
+          log.push(
+            `Zone should be created from ${zoneStartTime.toISOString()} to ${zoneEndTime.toISOString()} for rule "${result.ruleName}" (allows only: ${createZone.zone.allowOnly.join(", ")})`,
+          );
+
+          // Note: Actual zone creation needs to happen in a mutation when a booking is confirmed
+          // This query only identifies when zones should be created
         }
       }
     }

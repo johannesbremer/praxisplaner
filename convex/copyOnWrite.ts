@@ -479,14 +479,14 @@ export async function copyRules(
       locationIdMap,
     );
 
-    // Remap IDs in side effects if present
-    let remappedSideEffects = source.sideEffects;
-    if (source.sideEffects && typeof source.sideEffects === "object") {
-      const sideEffects = source.sideEffects as Record<string, unknown>;
-      if (sideEffects["createZone"]) {
-        const createZone = sideEffects["createZone"] as Record<string, unknown>;
-        remappedSideEffects = {
-          ...sideEffects,
+    // Remap IDs in zones if present
+    let remappedZones = source.zones;
+    if (source.zones && typeof source.zones === "object") {
+      const zones = source.zones as Record<string, unknown>;
+      if (zones["createZone"]) {
+        const createZone = zones["createZone"] as Record<string, unknown>;
+        remappedZones = {
+          ...zones,
           createZone: {
             ...createZone,
             condition: createZone["condition"]
@@ -506,7 +506,7 @@ export async function copyRules(
       parentId: source._id, // Track which entity this was copied from
       ruleSetId: targetRuleSetId,
       condition: remappedCondition,
-      ...(remappedSideEffects && { sideEffects: remappedSideEffects }),
+      ...(remappedZones && { zones: remappedZones }),
     });
   }
 }

@@ -231,3 +231,40 @@ export const deleteAllSimulatedAppointments = mutation({
   },
   returns: v.number(),
 });
+
+/**
+ * Create a zone (blocking appointment) for rule-based scheduling
+ * Zones block out time periods and optionally restrict which appointment types can be booked
+ */
+export const createZone = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    practitionerId: v.id("practitioners"),
+    locationId: v.id("locations"),
+    start: v.string(), // ISO timestamp
+    end: v.string(), // ISO timestamp
+    allowOnly: v.array(v.string()), // Appointment types allowed in this zone
+    createdByRuleId: v.optional(v.id("rules")),
+    createdByRuleName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Create zone as a special appointment
+    // The appointmentType starting with "_zone_" identifies it as a zone
+    // The allowOnly list can be stored in the title as JSON for now
+    const zoneId = await ctx.db.insert("appointments", {
+      practiceId: args.practiceId,
+      start: args.start,
+      end: args.end,
+      title: `Zone: ${args.createdByRuleName || "Unnamed"} (allows: ${args.allowOnly.join(", ")})`,
+      appointmentType: `_zone_${args.createdByRuleName || "unnamed"}`,
+      practitionerId: args.practitionerId,
+      locationId: args.locationId,
+      createdAt: BigInt(Date.now()),
+      lastModified: BigInt(Date.now()),
+      // Note: zones don't have patientId - omit it entirely
+    });
+
+    return zoneId;
+  },
+  returns: v.id("appointments"),
+});

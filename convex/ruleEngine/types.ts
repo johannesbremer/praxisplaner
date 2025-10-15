@@ -95,9 +95,9 @@ export interface NotCondition {
 }
 
 /**
- * Side effects that can be triggered when a rule allows booking
+ * Zones that can be created when a rule allows booking
  */
-export interface RuleSideEffects {
+export interface RuleZones {
   createZone?: {
     condition: ConditionTree; // When to create zone
     zone: {
@@ -119,7 +119,7 @@ export interface SchedulingRule {
   priority: number; // Lower number = higher priority
   condition: ConditionTree;
   action: "BLOCK" | "ALLOW";
-  sideEffects?: RuleSideEffects;
+  zones?: RuleZones;
   message: string;
   enabled: boolean;
 }
@@ -167,7 +167,7 @@ export interface RuleEvaluationResult {
   ruleId?: Id<"rules"> | undefined;
   ruleName?: string | undefined;
   message?: string | undefined;
-  sideEffects?: RuleSideEffects | undefined;
+  zones?: RuleZones | undefined;
 }
 
 // ================================

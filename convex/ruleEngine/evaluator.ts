@@ -370,7 +370,7 @@ export async function evaluateRules(
           ruleId: rule._id,
           ruleName: rule.name,
           message: rule.message,
-          sideEffects: rule.sideEffects,
+          zones: rule.zones,
         };
       }
     }
