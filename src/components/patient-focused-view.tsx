@@ -71,6 +71,12 @@ export function PatientFocusedView({
     ruleSetId ? { ruleSetId } : "skip",
   );
 
+  // Fetch available appointment types
+  const appointmentTypesQuery = useQuery(
+    api.entities.getAppointmentTypes,
+    ruleSetId ? { ruleSetId } : "skip",
+  );
+
   // Create expanded date range for calendar (half a year from calendar start)
   const calendarEndDate = useMemo(() => {
     const d = new Date(calendarStartDate);
@@ -100,15 +106,15 @@ export function PatientFocusedView({
 
   const slotsResult = useQuery(
     api.scheduling.getAvailableSlots,
-    // Only fetch slots if a location is selected
-    selectedLocationId && ruleSetId
+    // Only fetch slots if a location and appointment type are selected
+    selectedLocationId && simulatedContext.appointmentType && ruleSetId
       ? {
           dateRange: calendarDateRange,
           practiceId,
           ruleSetId,
           simulatedContext: effectiveSimulatedContext,
         }
-      : selectedLocationId
+      : selectedLocationId && simulatedContext.appointmentType
         ? {
             dateRange: calendarDateRange,
             practiceId,
@@ -281,168 +287,189 @@ export function PatientFocusedView({
 
         {/* Terminart Selection - Always visible */}
         <AppointmentTypeSelector
-          onTypeSelect={(type: string) => {
+          onTypeSelect={(appointmentTypeId: Id<"appointmentTypes">) => {
             onUpdateSimulatedContext?.({
               ...simulatedContext,
-              appointmentType: type,
+              appointmentType: appointmentTypeId,
             });
           }}
-          selectedType={simulatedContext.appointmentType}
+          ruleSetId={ruleSetId}
+          selectedTypeId={simulatedContext.appointmentType}
         />
 
-        {/* Show integrated calendar only when location is selected and slots are loaded */}
-        {selectedLocationId && slotsResult && (
-          <>
-            {/* Integrated Calendar + Time list (calendar-20 style) */}
-            <Card className="gap-0 p-0">
-              <CardHeader className="px-4 pt-4 md:px-6 md:pt-6">
-                <CardTitle className="text-base">Verfügbare Termine</CardTitle>
-              </CardHeader>
-              <ContainerAwareContent>
-                {({
-                  containerRef,
-                  isWide,
-                }: {
-                  containerRef: RefObject<HTMLDivElement | null>;
-                  isWide: boolean;
-                }) => (
-                  <div ref={containerRef}>
-                    <CardContent
-                      className={cn("relative p-0", isWide && "pr-56")}
-                    >
-                      <div className="px-4 pb-4 md:px-6 md:pb-6">
-                        <Calendar
-                          className="bg-transparent p-0 [--cell-size:--spacing(10)] md:[--cell-size:--spacing(12)]"
-                          defaultMonth={selectedDate ?? calendarStartDate}
-                          disabled={disabledDates}
-                          formatters={{
-                            formatWeekdayName: (date) =>
-                              date.toLocaleString("de-DE", {
-                                weekday: "short",
-                              }),
-                          }}
-                          locale={de}
-                          mode="single"
-                          modifiers={{
-                            publicHoliday: (date) =>
-                              isPublicHolidaySync(date, publicHolidaysSet),
-                          }}
-                          modifiersClassNames={{
-                            publicHoliday:
-                              "bg-muted/40 text-muted-foreground opacity-60",
-                          }}
-                          onSelect={(d) => {
-                            setSelectedDate(d ?? undefined);
-                          }}
-                          selected={selectedDate}
-                          showOutsideDays={false}
-                          weekStartsOn={1}
-                        />
-                      </div>
-                      <div
-                        className={cn(
-                          "no-scrollbar flex flex-col gap-2 overflow-y-auto border-t p-4 md:p-6",
-                          isWide
-                            ? "absolute inset-y-0 right-0 w-56 max-h-none border-l border-t-0"
-                            : "w-full max-h-72",
-                        )}
-                      >
-                        <div className="grid gap-2">
-                          {selectedDateHolidayName ? (
-                            <div className="rounded-md border border-muted bg-muted/40 p-3">
-                              <div className="font-medium text-sm mb-1">
-                                {selectedDateHolidayName}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                An Feiertagen ist die Praxis geschlossen.
-                              </div>
-                            </div>
-                          ) : slotsForSelectedDate.length === 0 ? (
-                            <div className="text-sm text-muted-foreground">
-                              Keine Termine an diesem Tag.
-                            </div>
-                          ) : (
-                            slotsForSelectedDate.map((slot) => {
-                              const d = new Date(slot.startTime);
-                              const hh = d
-                                .getUTCHours()
-                                .toString()
-                                .padStart(2, "0");
-                              const mm = d
-                                .getUTCMinutes()
-                                .toString()
-                                .padStart(2, "0");
-                              const time = `${hh}:${mm}`;
-                              const key = `${slot.practitionerId}-${slot.startTime}`;
-                              const isSelected = selectedSlotKey === key;
-                              return (
-                                <Button
-                                  className={cn(
-                                    "w-full justify-between shadow-none",
-                                    isSelected && "ring-2 ring-primary",
-                                  )}
-                                  key={key}
-                                  onClick={() => {
-                                    setSelectedSlotKey(key);
-                                    onSlotClick?.(slot);
-                                  }}
-                                  variant={isSelected ? "default" : "outline"}
-                                >
-                                  <span>{time}</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {slot.practitionerName}
-                                  </span>
-                                </Button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </div>
-                )}
-              </ContainerAwareContent>
-              {!selectedDateHolidayName && (
-                <CardFooter className="flex flex-col gap-3 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
-                  <div className="text-sm">
-                    {selectedDate && selectedSlotKey ? (
-                      <>
-                        Termin am
-                        <span className="font-medium">
-                          {" "}
-                          {format(selectedDate, "EEEE, d. MMMM", {
-                            locale: de,
-                          })}{" "}
-                        </span>
-                        ausgewählt.
-                      </>
-                    ) : (
-                      <>Datum und Uhrzeit auswählen.</>
-                    )}
-                  </div>
-                  <Button
-                    className="w-full md:ml-auto md:w-auto"
-                    disabled={!selectedDate || !selectedSlotKey}
-                    size="sm"
-                  >
-                    Termin buchen
-                  </Button>
-                </CardFooter>
-              )}
+        {/* Show warning if no appointment type is selected */}
+        {!simulatedContext.appointmentType &&
+          appointmentTypesQuery &&
+          appointmentTypesQuery.length > 0 && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="py-4">
+                <div className="text-sm text-orange-800">
+                  Bitte wählen Sie eine Terminart aus, um verfügbare Termine zu
+                  sehen.
+                </div>
+              </CardContent>
             </Card>
-          </>
-        )}
+          )}
 
-        {/* Show loading state when location is selected but slots are still loading */}
-        {selectedLocationId && !slotsResult && (
-          <Card>
-            <CardContent className="py-6">
-              <div className="text-center text-muted-foreground">
-                Termine werden geladen...
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Show integrated calendar only when location and appointment type are selected */}
+        {selectedLocationId &&
+          simulatedContext.appointmentType &&
+          slotsResult && (
+            <>
+              {/* Integrated Calendar + Time list (calendar-20 style) */}
+              <Card className="gap-0 p-0">
+                <CardHeader className="px-4 pt-4 md:px-6 md:pt-6">
+                  <CardTitle className="text-base">
+                    Verfügbare Termine
+                  </CardTitle>
+                </CardHeader>
+                <ContainerAwareContent>
+                  {({
+                    containerRef,
+                    isWide,
+                  }: {
+                    containerRef: RefObject<HTMLDivElement | null>;
+                    isWide: boolean;
+                  }) => (
+                    <div ref={containerRef}>
+                      <CardContent
+                        className={cn("relative p-0", isWide && "pr-56")}
+                      >
+                        <div className="px-4 pb-4 md:px-6 md:pb-6">
+                          <Calendar
+                            className="bg-transparent p-0 [--cell-size:--spacing(10)] md:[--cell-size:--spacing(12)]"
+                            defaultMonth={selectedDate ?? calendarStartDate}
+                            disabled={disabledDates}
+                            formatters={{
+                              formatWeekdayName: (date) =>
+                                date.toLocaleString("de-DE", {
+                                  weekday: "short",
+                                }),
+                            }}
+                            locale={de}
+                            mode="single"
+                            modifiers={{
+                              publicHoliday: (date) =>
+                                isPublicHolidaySync(date, publicHolidaysSet),
+                            }}
+                            modifiersClassNames={{
+                              publicHoliday:
+                                "bg-muted/40 text-muted-foreground opacity-60",
+                            }}
+                            onSelect={(d) => {
+                              setSelectedDate(d ?? undefined);
+                            }}
+                            selected={selectedDate}
+                            showOutsideDays={false}
+                            weekStartsOn={1}
+                          />
+                        </div>
+                        <div
+                          className={cn(
+                            "no-scrollbar flex flex-col gap-2 overflow-y-auto border-t p-4 md:p-6",
+                            isWide
+                              ? "absolute inset-y-0 right-0 w-56 max-h-none border-l border-t-0"
+                              : "w-full max-h-72",
+                          )}
+                        >
+                          <div className="grid gap-2">
+                            {selectedDateHolidayName ? (
+                              <div className="rounded-md border border-muted bg-muted/40 p-3">
+                                <div className="font-medium text-sm mb-1">
+                                  {selectedDateHolidayName}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  An Feiertagen ist die Praxis geschlossen.
+                                </div>
+                              </div>
+                            ) : slotsForSelectedDate.length === 0 ? (
+                              <div className="text-sm text-muted-foreground">
+                                Keine Termine an diesem Tag.
+                              </div>
+                            ) : (
+                              slotsForSelectedDate.map((slot) => {
+                                const d = new Date(slot.startTime);
+                                const hh = d
+                                  .getUTCHours()
+                                  .toString()
+                                  .padStart(2, "0");
+                                const mm = d
+                                  .getUTCMinutes()
+                                  .toString()
+                                  .padStart(2, "0");
+                                const time = `${hh}:${mm}`;
+                                const key = `${slot.practitionerId}-${slot.startTime}`;
+                                const isSelected = selectedSlotKey === key;
+                                return (
+                                  <Button
+                                    className={cn(
+                                      "w-full justify-between shadow-none",
+                                      isSelected && "ring-2 ring-primary",
+                                    )}
+                                    key={key}
+                                    onClick={() => {
+                                      setSelectedSlotKey(key);
+                                      onSlotClick?.(slot);
+                                    }}
+                                    variant={isSelected ? "default" : "outline"}
+                                  >
+                                    <span>{time}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {slot.practitionerName}
+                                    </span>
+                                  </Button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </div>
+                  )}
+                </ContainerAwareContent>
+                {!selectedDateHolidayName && (
+                  <CardFooter className="flex flex-col gap-3 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
+                    <div className="text-sm">
+                      {selectedDate && selectedSlotKey ? (
+                        <>
+                          Termin am
+                          <span className="font-medium">
+                            {" "}
+                            {format(selectedDate, "EEEE, d. MMMM", {
+                              locale: de,
+                            })}{" "}
+                          </span>
+                          ausgewählt.
+                        </>
+                      ) : (
+                        <>Datum und Uhrzeit auswählen.</>
+                      )}
+                    </div>
+                    <Button
+                      className="w-full md:ml-auto md:w-auto"
+                      disabled={!selectedDate || !selectedSlotKey}
+                      size="sm"
+                    >
+                      Termin buchen
+                    </Button>
+                  </CardFooter>
+                )}
+              </Card>
+            </>
+          )}
+
+        {/* Show loading state when location and appointment type are selected but slots are still loading */}
+        {selectedLocationId &&
+          simulatedContext.appointmentType &&
+          !slotsResult && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  Termine werden geladen...
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Initial locations loading state */}
         {isLocationsLoading && (

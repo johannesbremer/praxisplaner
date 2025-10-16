@@ -72,7 +72,7 @@ export const getAvailableSlots = query({
     log.push(`Found ${locations.length} locations`);
 
     // Determine which location to use for new appointments
-    let defaultLocationId: string | undefined;
+    let defaultLocationId: Id<"locations"> | undefined;
     if (args.simulatedContext.locationId) {
       // Use the specified location if provided
       defaultLocationId = args.simulatedContext.locationId;
@@ -92,8 +92,8 @@ export const getAvailableSlots = query({
     const candidateSlots: {
       blockedByRuleId?: string;
       duration: number;
-      locationId?: string;
-      practitionerId: string;
+      locationId?: Id<"locations">;
+      practitionerId: Id<"practitioners">;
       practitionerName: string;
       startTime: string;
       status: "AVAILABLE" | "BLOCKED";
@@ -235,11 +235,11 @@ export const getAvailableSlots = query({
       const appointments = relevantAppointments.map((apt) => {
         const appointmentCtx: {
           _id: Id<"appointments">;
-          doctor?: string;
+          doctor?: Id<"practitioners">;
           end: string;
-          location?: string;
+          location?: Id<"locations">;
           start: string;
-          type?: string;
+          type?: Id<"appointmentTypes">;
         } = {
           _id: apt._id,
           end: apt.end,
@@ -337,7 +337,7 @@ export const getAvailableSlots = query({
     const finalSlots: SchedulingResultSlot[] = candidateSlots.map((slot) => {
       const slotResult: SchedulingResultSlot = {
         duration: slot.duration,
-        practitionerId: slot.practitionerId as Id<"practitioners">,
+        practitionerId: slot.practitionerId,
         practitionerName: slot.practitionerName,
         startTime: slot.startTime,
         status: slot.status,
@@ -348,7 +348,7 @@ export const getAvailableSlots = query({
       }
 
       if (slot.locationId) {
-        slotResult.locationId = slot.locationId as Id<"locations">;
+        slotResult.locationId = slot.locationId;
       }
 
       return slotResult;

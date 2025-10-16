@@ -38,12 +38,17 @@ export interface PropertyCondition {
 export interface CountCondition {
   entity: "Appointment";
   filter: {
-    doctor?: string;
-    location?: string;
+    doctor?: Id<"practitioners">; // Practitioner ID (not name)
+    location?: Id<"locations">; // Location ID (not name)
     overlaps?: boolean;
-    type?: string;
+    type?: Id<"appointmentTypes">; // Appointment type ID (not name)
     // Extensible for any appointment attribute
-    [key: string]: boolean | string | undefined;
+    [key: string]:
+      | boolean
+      | Id<"appointmentTypes">
+      | Id<"locations">
+      | Id<"practitioners">
+      | undefined;
   };
   op: "!=" | "<" | "<=" | "=" | ">" | ">=";
   type: "Count";
@@ -72,10 +77,15 @@ export interface AdjacentCondition {
   direction: "after" | "before";
   entity: "Appointment";
   filter: {
-    doctor?: string;
-    type?: string;
+    doctor?: Id<"practitioners">; // Practitioner ID (not name)
+    location?: Id<"locations">; // Location ID (not name)
+    type?: Id<"appointmentTypes">; // Appointment type ID (not name)
     // Extensible for any appointment attribute
-    [key: string]: string | undefined;
+    [key: string]:
+      | Id<"appointmentTypes">
+      | Id<"locations">
+      | Id<"practitioners">
+      | undefined;
   };
   type: "Adjacent";
   // Optional time-of-day scoping (HH:MM format)
@@ -114,7 +124,7 @@ export interface RuleZones {
   createZone?: {
     condition: ConditionTree; // When to create zone
     zone: {
-      allowOnly: readonly string[]; // Appointment types
+      allowOnly: readonly Id<"appointmentTypes">[]; // Appointment type IDs (not names)
       duration: string;
       start: "Slot.end" | "Slot.start";
     };
@@ -141,26 +151,38 @@ export interface SchedulingRule {
  * Slot context for rule evaluation
  */
 export interface SlotContext {
-  [key: string]: number | string | undefined;
-  doctor?: string; // Practitioner ID
+  [key: string]:
+    | Id<"appointmentTypes">
+    | Id<"locations">
+    | Id<"practitioners">
+    | number
+    | string
+    | undefined;
+  doctor?: Id<"practitioners">; // Practitioner ID
   duration: number; // Minutes
   end: string; // ISO datetime
-  location?: string; // Location ID
+  location?: Id<"locations">; // Location ID
   start: string; // ISO datetime
-  type: string; // Appointment type
+  type: Id<"appointmentTypes">; // Appointment type ID
 }
 
 /**
  * Appointment for rule evaluation
  */
 export interface AppointmentContext {
-  [key: string]: Id<"appointments"> | string | undefined;
+  [key: string]:
+    | Id<"appointments">
+    | Id<"appointmentTypes">
+    | Id<"locations">
+    | Id<"practitioners">
+    | string
+    | undefined;
   _id: Id<"appointments">;
-  doctor?: string;
+  doctor?: Id<"practitioners">; // Practitioner ID
   end: string; // ISO datetime
-  location?: string;
+  location?: Id<"locations">; // Location ID
   start: string; // ISO datetime
-  type?: string;
+  type?: Id<"appointmentTypes">; // Appointment type ID
 }
 
 /**
@@ -206,7 +228,17 @@ export const propertyConditionValidator = v.object({
   ),
   start: v.optional(v.string()),
   type: v.literal("Property"),
-  value: v.union(v.string(), v.number(), v.array(v.string())),
+  value: v.union(
+    v.string(),
+    v.number(),
+    v.array(v.string()),
+    v.id("practitioners"),
+    v.id("appointmentTypes"),
+    v.id("locations"),
+    v.array(v.id("practitioners")),
+    v.array(v.id("appointmentTypes")),
+    v.array(v.id("locations")),
+  ),
 });
 
 /**
@@ -261,12 +293,12 @@ export const conditionTreeValidator = v.any();
 /**
  * Validator for side effects
  */
-export const sideEffectsValidator = v.object({
+export const zonesValidator = v.object({
   createZone: v.optional(
     v.object({
       condition: conditionTreeValidator,
       zone: v.object({
-        allowOnly: v.array(v.string()),
+        allowOnly: v.array(v.id("appointmentTypes")), // Appointment type IDs
         duration: v.string(),
         start: v.union(v.literal("Slot.end"), v.literal("Slot.start")),
       }),
@@ -286,5 +318,5 @@ export const schedulingRuleValidator = v.object({
   name: v.string(),
   priority: v.number(),
   ruleSetId: v.id("ruleSets"),
-  sideEffects: v.optional(sideEffectsValidator),
+  zones: v.optional(zonesValidator),
 });

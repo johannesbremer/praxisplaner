@@ -41,7 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
-import type { SchedulingSimulatedContext, SchedulingSlot } from "../types";
+import type { SchedulingSlot } from "../types";
 
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
@@ -114,7 +114,6 @@ interface SaveDialogFormProps {
   setActivationName: (name: string) => void;
 }
 
-type SimulatedContext = SchedulingSimulatedContext;
 type SlotDetails = SchedulingSlot;
 
 // Helper: slugify German names to URL-safe strings
@@ -146,11 +145,15 @@ function LogicView() {
     api.appointments.deleteAllSimulatedAppointments,
   );
 
-  // Local appointments for simulation
-  const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
-    appointmentType: "Erstberatung",
+  // Local appointments for simulation - initialize without appointment type
+  const [simulatedContext, setSimulatedContext] = useState<{
+    appointmentType?: Id<"appointmentTypes">;
+    locationId?: Id<"locations">;
+    patient: { isNew: boolean };
+  }>({
     patient: { isNew: true },
   });
+
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
   // URL will be parsed after queries and unsaved draft are known
 
@@ -330,6 +333,37 @@ function LogicView() {
     [ruleSetsWithActive, ruleSetIdFromUrl],
   );
 
+  // Fetch appointment types for the selected rule set
+  const appointmentTypesQuery = useQuery(
+    api.entities.getAppointmentTypes,
+    selectedRuleSet?._id ? { ruleSetId: selectedRuleSet._id } : "skip",
+  );
+
+  // Get the first available appointment type ID or undefined
+  const firstAppointmentTypeId = useMemo(
+    () => appointmentTypesQuery?.[0]?._id,
+    [appointmentTypesQuery],
+  );
+
+  // Create an effective context that uses the selected appointment type or falls back to the first one
+  const effectiveSimulatedContext:
+    | undefined
+    | {
+        appointmentType: Id<"appointmentTypes">;
+        locationId?: Id<"locations">;
+        patient: { isNew: boolean };
+      } = useMemo(() => {
+    const appointmentType =
+      simulatedContext.appointmentType ?? firstAppointmentTypeId;
+    if (!appointmentType) {
+      return;
+    }
+    return {
+      ...simulatedContext,
+      appointmentType,
+    };
+  }, [simulatedContext, firstAppointmentTypeId]);
+
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed
   const createInitialUnsaved = React.useCallback(() => {
@@ -390,7 +424,6 @@ function LogicView() {
     setIsResettingSimulation(true);
     try {
       setSimulatedContext({
-        appointmentType: "Erstberatung",
         patient: { isNew: true },
       });
       setSelectedSlot(null);
@@ -933,14 +966,25 @@ function LogicView() {
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
                 <div className="flex justify-center">
-                  <PatientBookingFlow
-                    dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
-                    onUpdateSimulatedContext={setSimulatedContext}
-                    practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
-                    simulatedContext={simulatedContext}
-                  />
+                  {effectiveSimulatedContext ? (
+                    <PatientBookingFlow
+                      dateRange={dateRange}
+                      onSlotClick={handleSlotClick}
+                      onUpdateSimulatedContext={setSimulatedContext}
+                      practiceId={currentPractice._id}
+                      ruleSetId={ruleSetIdFromUrl}
+                      simulatedContext={effectiveSimulatedContext}
+                    />
+                  ) : (
+                    <Card className="w-full max-w-2xl">
+                      <CardContent className="py-8">
+                        <div className="text-center text-muted-foreground">
+                          Bitte wählen Sie ein Regelset aus, um die Simulation
+                          zu starten.
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
 
                 <SimulationControls
@@ -995,14 +1039,25 @@ function LogicView() {
           <TabsContent value="staff-view">
             <div className="space-y-6">
               <div className="space-y-6">
-                <MedicalStaffDisplay
-                  dateRange={dateRange}
-                  onSlotClick={handleSlotClick}
-                  onUpdateSimulatedContext={setSimulatedContext}
-                  practiceId={currentPractice._id}
-                  ruleSetId={ruleSetIdFromUrl}
-                  simulatedContext={simulatedContext}
-                />
+                {effectiveSimulatedContext ? (
+                  <MedicalStaffDisplay
+                    dateRange={dateRange}
+                    onSlotClick={handleSlotClick}
+                    onUpdateSimulatedContext={setSimulatedContext}
+                    practiceId={currentPractice._id}
+                    ruleSetId={ruleSetIdFromUrl}
+                    simulatedContext={effectiveSimulatedContext}
+                  />
+                ) : (
+                  <Card>
+                    <CardContent className="py-8">
+                      <div className="text-center text-muted-foreground">
+                        Bitte wählen Sie ein Regelset aus, um die Simulation zu
+                        starten.
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <SimulationControls
                   isClearingSimulatedAppointments={
@@ -1043,14 +1098,25 @@ function LogicView() {
             <div className="space-y-6">
               <div className="space-y-6">
                 <div className="space-y-6">
-                  <DebugView
-                    dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
-                    onUpdateSimulatedContext={setSimulatedContext}
-                    practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
-                    simulatedContext={simulatedContext}
-                  />
+                  {effectiveSimulatedContext ? (
+                    <DebugView
+                      dateRange={dateRange}
+                      onSlotClick={handleSlotClick}
+                      onUpdateSimulatedContext={setSimulatedContext}
+                      practiceId={currentPractice._id}
+                      ruleSetId={ruleSetIdFromUrl}
+                      simulatedContext={effectiveSimulatedContext}
+                    />
+                  ) : (
+                    <Card>
+                      <CardContent className="py-8">
+                        <div className="text-center text-muted-foreground">
+                          Bitte wählen Sie ein Regelset aus, um die Simulation
+                          zu starten.
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   <SlotInspector selectedSlot={selectedSlot} />
                 </div>
@@ -1256,7 +1322,11 @@ function SimulationControls({
   onClearSimulatedAppointments: () => Promise<void>;
   onDateChange: (date: Date) => void;
   onResetSimulation: () => Promise<void>;
-  onSimulatedContextChange: (context: SimulatedContext) => void;
+  onSimulatedContextChange: (context: {
+    appointmentType?: Id<"appointmentTypes">;
+    locationId?: Id<"locations">;
+    patient: { isNew: boolean };
+  }) => void;
   onSimulationRuleSetChange: (ruleSetId: Id<"ruleSets"> | undefined) => void;
   ruleSetsQuery:
     | undefined
@@ -1267,7 +1337,11 @@ function SimulationControls({
         version: number;
       }[];
   selectedDate: Date;
-  simulatedContext: SimulatedContext;
+  simulatedContext: {
+    appointmentType?: Id<"appointmentTypes">;
+    locationId?: Id<"locations">;
+    patient: { isNew: boolean };
+  };
   simulationRuleSetId: Id<"ruleSets"> | undefined;
 }) {
   // Compute once to avoid duplicate finds
@@ -1315,13 +1389,14 @@ function SimulationControls({
         </div>
 
         <AppointmentTypeSelector
-          onTypeSelect={(type: string) => {
+          onTypeSelect={(typeId: Id<"appointmentTypes">) => {
             onSimulatedContextChange({
               ...simulatedContext,
-              appointmentType: type,
+              appointmentType: typeId,
             });
           }}
-          selectedType={simulatedContext.appointmentType}
+          ruleSetId={simulationRuleSetId}
+          selectedTypeId={simulatedContext.appointmentType}
         />
 
         <div className="space-y-2">

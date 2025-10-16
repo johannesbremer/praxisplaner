@@ -4,7 +4,10 @@ import type { Id } from "../_generated/dataModel";
 import type { ConditionTree } from "./types";
 
 import { mutation, query } from "../_generated/server";
-import { getOrCreateUnsavedRuleSet } from "../copyOnWrite";
+import {
+  getOrCreateUnsavedRuleSet,
+  verifyEntityInUnsavedRuleSet,
+} from "../copyOnWrite";
 import { DataIntegrityError, RuleNotFoundError } from "./errors";
 import { conditionTreeValidator } from "./types";
 
@@ -32,8 +35,8 @@ export const createRule = mutation({
     name: v.string(),
     practiceId: v.id("practices"),
     priority: v.number(),
-    sideEffects: v.optional(v.any()),
     sourceRuleSetId: v.id("ruleSets"),
+    zones: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     // Get or create unsaved rule set automatically
@@ -56,7 +59,7 @@ export const createRule = mutation({
       practiceId: Id<"practices">;
       priority: number;
       ruleSetId: Id<"ruleSets">;
-      sideEffects?: unknown;
+      zones?: unknown;
     } = {
       action: args.action,
       condition: args.condition as ConditionTree,
@@ -73,8 +76,8 @@ export const createRule = mutation({
     if (args.description !== undefined) {
       insertData.description = args.description;
     }
-    if (args.sideEffects !== undefined) {
-      insertData.sideEffects = args.sideEffects;
+    if (args.zones !== undefined) {
+      insertData.zones = args.zones;
     }
 
     const entityId = await ctx.db.insert("rules", insertData);
@@ -98,8 +101,8 @@ export const updateRule = mutation({
     practiceId: v.id("practices"),
     priority: v.optional(v.number()),
     ruleId: v.id("rules"),
-    sideEffects: v.optional(v.any()),
     sourceRuleSetId: v.id("ruleSets"),
+    zones: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     // Get or create unsaved rule set automatically
@@ -155,8 +158,8 @@ export const updateRule = mutation({
     if (args.action !== undefined) {
       updates["action"] = args.action;
     }
-    if (args.sideEffects !== undefined) {
-      updates["sideEffects"] = args.sideEffects;
+    if (args.zones !== undefined) {
+      updates["zones"] = args.zones;
     }
     if (args.message !== undefined) {
       updates["message"] = args.message;
@@ -164,6 +167,9 @@ export const updateRule = mutation({
     if (args.enabled !== undefined) {
       updates["enabled"] = args.enabled;
     }
+
+    // SAFETY: Verify entity belongs to unsaved rule set before patching
+    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
 
     await ctx.db.patch(rule._id, updates);
 
@@ -215,6 +221,9 @@ export const deleteRule = mutation({
       }
     }
 
+    // SAFETY: Verify entity belongs to unsaved rule set before deleting
+    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
+
     await ctx.db.delete(rule._id);
 
     return { entityId: rule._id, ruleSetId };
@@ -253,7 +262,6 @@ export const listRules = query({
       practiceId: v.id("practices"),
       priority: v.number(),
       ruleSetId: v.id("ruleSets"),
-      sideEffects: v.optional(v.any()),
       zones: v.optional(v.any()),
     }),
   ),
@@ -286,7 +294,6 @@ export const getRule = query({
       practiceId: v.id("practices"),
       priority: v.number(),
       ruleSetId: v.id("ruleSets"),
-      sideEffects: v.optional(v.any()),
       zones: v.optional(v.any()),
     }),
     v.null(),
@@ -343,6 +350,9 @@ export const reorderRules = mutation({
         }
       }
 
+      // SAFETY: Verify entity belongs to unsaved rule set before patching
+      await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
+
       await ctx.db.patch(rule._id, {
         lastModified: BigInt(Date.now()),
         priority,
@@ -398,6 +408,10 @@ export const toggleRule = mutation({
     }
 
     const newEnabled = !rule.enabled;
+
+    // SAFETY: Verify entity belongs to unsaved rule set before patching
+    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
+
     await ctx.db.patch(rule._id, {
       enabled: newEnabled,
       lastModified: BigInt(Date.now()),

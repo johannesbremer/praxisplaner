@@ -136,7 +136,7 @@ export const getAppointmentsInRange = query({
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
-    appointmentType: v.optional(v.string()),
+    appointmentType: v.optional(v.id("appointmentTypes")), // Reference to appointment type
     end: v.string(),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -240,7 +240,7 @@ export const deleteAllSimulatedAppointments = mutation({
  */
 export const createZone = mutation({
   args: {
-    allowOnly: v.array(v.string()), // Appointment types allowed in this zone
+    allowOnly: v.array(v.id("appointmentTypes")), // Appointment type IDs allowed in this zone
     createdByRuleId: v.optional(v.id("rules")),
     createdByRuleName: v.optional(v.string()),
     end: v.string(), // ISO timestamp
@@ -251,10 +251,10 @@ export const createZone = mutation({
   },
   handler: async (ctx, args) => {
     // Create zone as a special appointment
-    // The appointmentType starting with "_zone_" identifies it as a zone
+    // Zones are identified by having no appointmentType (unlike regular appointments)
     // The allowOnly list can be stored in the title as JSON for now
     const zoneId = await ctx.db.insert("appointments", {
-      appointmentType: `_zone_${args.createdByRuleName || "unnamed"}`,
+      // No appointmentType for zones - they are system appointments
       createdAt: BigInt(Date.now()),
       end: args.end,
       lastModified: BigInt(Date.now()),
@@ -263,7 +263,7 @@ export const createZone = mutation({
       practitionerId: args.practitionerId,
       start: args.start,
       title: `Zone: ${args.createdByRuleName || "Unnamed"} (allows: ${args.allowOnly.join(", ")})`,
-      // Note: zones don't have patientId - omit it entirely
+      // Note: zones don't have patientId or appointmentType - omit them entirely
     });
 
     return zoneId;

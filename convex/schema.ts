@@ -9,7 +9,7 @@ export default defineSchema({
     title: v.string(),
 
     // Additional fields
-    appointmentType: v.optional(v.string()),
+    appointmentType: v.optional(v.id("appointmentTypes")), // Reference to appointment type definition
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),

@@ -347,14 +347,15 @@ export async function copyBaseSchedules(
 }
 
 /**
- * Recursively remap practitioner and location IDs in a condition tree.
+ * Recursively remap practitioner, location, and appointment type IDs in a condition tree.
  * This walks the lambda calculus condition tree and updates any references
- * to practitioners or locations to their new copied IDs.
+ * to practitioners, locations, or appointment types to their new copied IDs.
  */
 function remapConditionTree(
   condition: unknown,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): unknown {
   if (!condition || typeof condition !== "object") {
     return condition;
@@ -378,6 +379,7 @@ function remapConditionTree(
             remappedFilter[key] =
               practitionerIdMap.get(value as Id<"practitioners">) ||
               locationIdMap.get(value as Id<"locations">) ||
+              appointmentTypeIdMap.get(value as Id<"appointmentTypes">) ||
               value;
           } else if (Array.isArray(value)) {
             remappedFilter[key] = (value as unknown[]).map((val: unknown) => {
@@ -385,6 +387,7 @@ function remapConditionTree(
                 return (
                   practitionerIdMap.get(val as Id<"practitioners">) ||
                   locationIdMap.get(val as Id<"locations">) ||
+                  appointmentTypeIdMap.get(val as Id<"appointmentTypes">) ||
                   val
                 );
               }
@@ -404,7 +407,12 @@ function remapConditionTree(
       // Recursively process children
       if (Array.isArray(node["children"])) {
         result["children"] = (node["children"] as unknown[]).map((child) =>
-          remapConditionTree(child, practitionerIdMap, locationIdMap),
+          remapConditionTree(
+            child,
+            practitionerIdMap,
+            locationIdMap,
+            appointmentTypeIdMap,
+          ),
         );
       }
       break;
@@ -416,13 +424,14 @@ function remapConditionTree(
           node["child"],
           practitionerIdMap,
           locationIdMap,
+          appointmentTypeIdMap,
         );
       }
       break;
     }
 
     case "Property": {
-      // Check if the value is a practitioner or location ID that needs remapping
+      // Check if the value is a practitioner, location, or appointment type ID that needs remapping
       if (typeof node["value"] === "string") {
         // Try to remap as practitioner ID
         const practitionerId = practitionerIdMap.get(
@@ -436,6 +445,13 @@ function remapConditionTree(
         if (locationId) {
           result["value"] = locationId;
         }
+        // Try to remap as appointment type ID
+        const appointmentTypeId = appointmentTypeIdMap.get(
+          node["value"] as Id<"appointmentTypes">,
+        );
+        if (appointmentTypeId) {
+          result["value"] = appointmentTypeId;
+        }
       }
       // Handle array values that might contain IDs
       if (Array.isArray(node["value"])) {
@@ -444,6 +460,7 @@ function remapConditionTree(
             return (
               practitionerIdMap.get(val as Id<"practitioners">) ||
               locationIdMap.get(val as Id<"locations">) ||
+              appointmentTypeIdMap.get(val as Id<"appointmentTypes">) ||
               val
             );
           }
@@ -459,7 +476,7 @@ function remapConditionTree(
 
 /**
  * Copy all rules from source to target rule set.
- * Remaps practitioner and location IDs in the condition trees to the new rule set's entities.
+ * Remaps practitioner, location, and appointment type IDs in the condition trees to the new rule set's entities.
  */
 export async function copyRules(
   db: DatabaseWriter,
@@ -467,6 +484,7 @@ export async function copyRules(
   targetRuleSetId: Id<"ruleSets">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
   const sourceRules = await db
     .query("rules")
@@ -482,6 +500,7 @@ export async function copyRules(
       source.condition,
       practitionerIdMap,
       locationIdMap,
+      appointmentTypeIdMap,
     );
 
     // Remap IDs in zones if present
@@ -490,6 +509,24 @@ export async function copyRules(
       const zones = source.zones as Record<string, unknown>;
       if (zones["createZone"]) {
         const createZone = zones["createZone"] as Record<string, unknown>;
+        const zoneObj = createZone["zone"] as Record<string, unknown>;
+
+        // Remap allowOnly array (appointment type IDs)
+        let remappedAllowOnly = zoneObj["allowOnly"];
+        if (Array.isArray(zoneObj["allowOnly"])) {
+          remappedAllowOnly = (zoneObj["allowOnly"] as unknown[]).map(
+            (typeId: unknown) => {
+              if (typeof typeId === "string") {
+                return (
+                  appointmentTypeIdMap.get(typeId as Id<"appointmentTypes">) ||
+                  typeId
+                );
+              }
+              return typeId;
+            },
+          );
+        }
+
         remappedZones = {
           ...zones,
           createZone: {
@@ -499,8 +536,13 @@ export async function copyRules(
                   createZone["condition"],
                   practitionerIdMap,
                   locationIdMap,
+                  appointmentTypeIdMap,
                 )
               : createZone["condition"],
+            zone: {
+              ...zoneObj,
+              allowOnly: remappedAllowOnly,
+            },
           },
         };
       }
@@ -535,7 +577,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  await copyAppointmentTypes(
+  const appointmentTypeIdMap = await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -566,5 +608,6 @@ export async function copyAllEntities(
     targetRuleSetId,
     practitionerIdMap,
     locationIdMap,
+    appointmentTypeIdMap,
   );
 }

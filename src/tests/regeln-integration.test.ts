@@ -28,13 +28,13 @@ describe("Regeln Integration - Simulation Metadata", () => {
     const practitionerId = "practitioner1" as Id<"practitioners">;
     const event = createAppointment({
       _id: "sim-appointment-123" as Id<"appointments">,
-      appointmentType: "Erstberatung",
+      appointmentType: "appointmentType-1" as Id<"appointmentTypes">,
       isSimulation: true,
       practitionerId,
     });
 
     expect(event.isSimulation).toBe(true);
-    expect(event.appointmentType).toBe("Erstberatung");
+    expect(event.appointmentType).toBe("appointmentType-1");
     expect(event.locationId).toBe("location1");
     expect(event.practitionerId).toBe(practitionerId);
   });
