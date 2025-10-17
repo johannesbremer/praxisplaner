@@ -1,3 +1,4 @@
+import { useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/convex/_generated/api";
 
 import type {
   SchedulingDateRange,
@@ -45,16 +47,44 @@ export function SimulationPanel({
   practiceId,
   ruleSetsQuery,
 }: SimulationPanelProps) {
-  // Simulation state
-  const [simulatedContext, setSimulatedContext] =
-    useState<SchedulingSimulatedContext>({
-      appointmentType: "Erstberatung",
-      patient: { isNew: true },
-    });
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedSlot, setSelectedSlot] = useState<null | SchedulingSlot>(null);
+  // Selected rule set for simulation
   const [simulationRuleSetId, setSimulationRuleSetId] =
     useState<SchedulingRuleSetId>();
+
+  // Fetch appointment types for the selected rule set
+  const appointmentTypesQuery = useQuery(
+    api.entities.getAppointmentTypes,
+    simulationRuleSetId ? { ruleSetId: simulationRuleSetId } : "skip",
+  );
+
+  // Get the first appointment type ID or undefined
+  const firstAppointmentTypeId = appointmentTypesQuery?.[0]?._id;
+
+  // Simulation state - initialize without appointment type
+  const [simulatedContext, setSimulatedContext] = useState<{
+    appointmentType?: Id<"appointmentTypes">;
+    locationId?: Id<"locations">;
+    patient: { isNew: boolean };
+  }>({
+    patient: { isNew: true },
+  });
+
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedSlot, setSelectedSlot] = useState<null | SchedulingSlot>(null);
+
+  // Use the first available appointment type if none is selected
+  const effectiveSimulatedContext: SchedulingSimulatedContext | undefined =
+    (() => {
+      const appointmentType =
+        simulatedContext.appointmentType || firstAppointmentTypeId;
+      if (!appointmentType) {
+        return;
+      }
+      return {
+        ...simulatedContext,
+        appointmentType,
+      } as SchedulingSimulatedContext;
+    })();
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -71,7 +101,6 @@ export function SimulationPanel({
 
   const resetSimulation = () => {
     setSimulatedContext({
-      appointmentType: "Erstberatung",
       patient: { isNew: true },
     });
     setSelectedDate(new Date());
@@ -179,41 +208,91 @@ export function SimulationPanel({
         </TabsList>
 
         <TabsContent className="space-y-6" value="patient">
-          <div className="flex justify-center">
-            <PatientBookingFlow
-              dateRange={dateRange}
-              onSlotClick={handleSlotClick}
-              onUpdateSimulatedContext={setSimulatedContext}
-              practiceId={practiceId}
-              ruleSetId={simulationRuleSetId}
-              simulatedContext={simulatedContext}
-            />
-          </div>
+          {effectiveSimulatedContext ? (
+            <div className="flex justify-center">
+              <PatientBookingFlow
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={(ctx) => {
+                  setSimulatedContext({
+                    ...simulatedContext,
+                    ...ctx,
+                  });
+                }}
+                practiceId={practiceId}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={effectiveSimulatedContext}
+              />
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center text-muted-foreground">
+                  Bitte wählen Sie ein Regelset aus, um die Simulation zu
+                  starten.
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent className="space-y-6" value="staff">
-          <div className="flex justify-center">
-            <MedicalStaffDisplay
-              dateRange={dateRange}
-              onSlotClick={handleSlotClick}
-              onUpdateSimulatedContext={setSimulatedContext}
-              practiceId={practiceId}
-              ruleSetId={simulationRuleSetId}
-              simulatedContext={simulatedContext}
-            />
-          </div>
+          {effectiveSimulatedContext ? (
+            <div className="flex justify-center">
+              <MedicalStaffDisplay
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={(ctx) => {
+                  setSimulatedContext({
+                    ...simulatedContext,
+                    ...ctx,
+                  });
+                }}
+                practiceId={practiceId}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={effectiveSimulatedContext}
+              />
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center text-muted-foreground">
+                  Bitte wählen Sie ein Regelset aus, um die Simulation zu
+                  starten.
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent className="space-y-6" value="debug">
-          {/* Debug View */}
-          <DebugView
-            dateRange={dateRange}
-            onSlotClick={handleSlotClick}
-            onUpdateSimulatedContext={setSimulatedContext}
-            practiceId={practiceId}
-            ruleSetId={simulationRuleSetId}
-            simulatedContext={simulatedContext}
-          />
+          {effectiveSimulatedContext ? (
+            <>
+              {/* Debug View */}
+              <DebugView
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={(ctx) => {
+                  setSimulatedContext({
+                    ...simulatedContext,
+                    ...ctx,
+                  });
+                }}
+                practiceId={practiceId}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={effectiveSimulatedContext}
+              />
+            </>
+          ) : (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center text-muted-foreground">
+                  Bitte wählen Sie ein Regelset aus, um die Simulation zu
+                  starten.
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Slot Inspector */}
           <Card>

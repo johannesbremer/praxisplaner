@@ -1,23 +1,58 @@
+import { useQuery } from "convex/react";
+
+import type { Id } from "@/convex/_generated/dataModel";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const appointmentTypes = [
-  "Erstberatung",
-  "Kontrolltermin",
-  "Behandlung",
-  "Nachsorge",
-  "Notfall",
-];
+import { api } from "@/convex/_generated/api";
 
 interface AppointmentTypeSelectorProps {
-  onTypeSelect: (type: string) => void;
-  selectedType: string;
+  onTypeSelect: (typeId: Id<"appointmentTypes">) => void;
+  ruleSetId: Id<"ruleSets"> | undefined;
+  selectedTypeId: Id<"appointmentTypes"> | undefined;
 }
 
 export function AppointmentTypeSelector({
   onTypeSelect,
-  selectedType,
+  ruleSetId,
+  selectedTypeId,
 }: AppointmentTypeSelectorProps) {
+  const appointmentTypes = useQuery(
+    api.entities.getAppointmentTypes,
+    ruleSetId ? { ruleSetId } : "skip",
+  );
+
+  if (!appointmentTypes) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Terminart wählen</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground">
+            Terminarten werden geladen...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (appointmentTypes.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Terminart wählen</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground">
+            Keine Terminarten verfügbar. Bitte konfigurieren Sie zuerst
+            Terminarten im Regelwerk.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -26,14 +61,14 @@ export function AppointmentTypeSelector({
       <CardContent>
         <div className="grid grid-cols-1 gap-2">
           {appointmentTypes.map((type) => {
-            const isSelected = selectedType === type;
+            const isSelected = selectedTypeId === type._id;
             return (
               <Button
                 className="justify-start text-left h-auto p-3"
                 disabled={isSelected}
-                key={type}
+                key={type._id}
                 onClick={() => {
-                  onTypeSelect(type);
+                  onTypeSelect(type._id);
                 }}
                 size="sm"
                 style={
@@ -45,7 +80,7 @@ export function AppointmentTypeSelector({
                 }
                 variant={isSelected ? "default" : "outline"}
               >
-                {type}
+                {type.name}
               </Button>
             );
           })}

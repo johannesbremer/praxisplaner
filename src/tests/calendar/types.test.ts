@@ -88,7 +88,7 @@ describe("Calendar Types and Constants", () => {
         id: "test-1",
         isSimulation: false,
         resource: {
-          appointmentType: "consultation",
+          appointmentType: "appointmentType-1" as never,
           isSimulation: false,
           locationId: "location-1" as never,
           patientId: "patient-1" as never,

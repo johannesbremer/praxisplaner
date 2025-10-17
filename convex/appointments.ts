@@ -69,6 +69,7 @@ export const getAppointments = query({
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -123,6 +124,7 @@ export const getAppointmentsInRange = query({
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -134,7 +136,7 @@ export const getAppointmentsInRange = query({
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
-    appointmentType: v.optional(v.string()),
+    appointmentType: v.optional(v.id("appointmentTypes")), // Reference to appointment type
     end: v.string(),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -230,4 +232,41 @@ export const deleteAllSimulatedAppointments = mutation({
     return simulatedAppointments.length;
   },
   returns: v.number(),
+});
+
+/**
+ * Create a zone (blocking appointment) for rule-based scheduling
+ * Zones block out time periods and optionally restrict which appointment types can be booked
+ */
+export const createZone = mutation({
+  args: {
+    allowOnly: v.array(v.id("appointmentTypes")), // Appointment type IDs allowed in this zone
+    createdByRuleId: v.optional(v.id("rules")),
+    createdByRuleName: v.optional(v.string()),
+    end: v.string(), // ISO timestamp
+    locationId: v.id("locations"),
+    practiceId: v.id("practices"),
+    practitionerId: v.id("practitioners"),
+    start: v.string(), // ISO timestamp
+  },
+  handler: async (ctx, args) => {
+    // Create zone as a special appointment
+    // Zones are identified by having no appointmentType (unlike regular appointments)
+    // The allowOnly list can be stored in the title as JSON for now
+    const zoneId = await ctx.db.insert("appointments", {
+      // No appointmentType for zones - they are system appointments
+      createdAt: BigInt(Date.now()),
+      end: args.end,
+      lastModified: BigInt(Date.now()),
+      locationId: args.locationId,
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      start: args.start,
+      title: `Zone: ${args.createdByRuleName || "Unnamed"} (allows: ${args.allowOnly.join(", ")})`,
+      // Note: zones don't have patientId or appointmentType - omit them entirely
+    });
+
+    return zoneId;
+  },
+  returns: v.id("appointments"),
 });

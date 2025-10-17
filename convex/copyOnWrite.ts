@@ -18,6 +18,7 @@ import type {
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
+import type { ConditionTree } from "./ruleEngine/types";
 
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
@@ -346,8 +347,136 @@ export async function copyBaseSchedules(
 }
 
 /**
+ * Recursively remap practitioner, location, and appointment type IDs in a condition tree.
+ * This walks the lambda calculus condition tree and updates any references
+ * to practitioners, locations, or appointment types to their new copied IDs.
+ */
+function remapConditionTree(
+  condition: unknown,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
+  locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
+): unknown {
+  if (!condition || typeof condition !== "object") {
+    return condition;
+  }
+
+  const node = condition as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...node };
+
+  // Handle different condition types
+  switch (node["type"]) {
+    case "Adjacent":
+    case "Count":
+    case "TimeRangeFree": {
+      // All three types have filter objects that may need remapping
+      // Recursively remap filter objects
+      if (node["filter"] && typeof node["filter"] === "object") {
+        const filter = node["filter"] as Record<string, unknown>;
+        const remappedFilter: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(filter)) {
+          if (typeof value === "string") {
+            remappedFilter[key] =
+              practitionerIdMap.get(value as Id<"practitioners">) ||
+              locationIdMap.get(value as Id<"locations">) ||
+              appointmentTypeIdMap.get(value as Id<"appointmentTypes">) ||
+              value;
+          } else if (Array.isArray(value)) {
+            remappedFilter[key] = (value as unknown[]).map((val: unknown) => {
+              if (typeof val === "string") {
+                return (
+                  practitionerIdMap.get(val as Id<"practitioners">) ||
+                  locationIdMap.get(val as Id<"locations">) ||
+                  appointmentTypeIdMap.get(val as Id<"appointmentTypes">) ||
+                  val
+                );
+              }
+              return val;
+            });
+          } else {
+            remappedFilter[key] = value;
+          }
+        }
+        result["filter"] = remappedFilter;
+      }
+      break;
+    }
+    case "AND":
+    case "OR": {
+      // Both AND and OR recursively process children arrays
+      // Recursively process children
+      if (Array.isArray(node["children"])) {
+        result["children"] = (node["children"] as unknown[]).map((child) =>
+          remapConditionTree(
+            child,
+            practitionerIdMap,
+            locationIdMap,
+            appointmentTypeIdMap,
+          ),
+        );
+      }
+      break;
+    }
+    case "NOT": {
+      // Recursively process child
+      if (node["child"]) {
+        result["child"] = remapConditionTree(
+          node["child"],
+          practitionerIdMap,
+          locationIdMap,
+          appointmentTypeIdMap,
+        );
+      }
+      break;
+    }
+
+    case "Property": {
+      // Check if the value is a practitioner, location, or appointment type ID that needs remapping
+      if (typeof node["value"] === "string") {
+        // Try to remap as practitioner ID
+        const practitionerId = practitionerIdMap.get(
+          node["value"] as Id<"practitioners">,
+        );
+        if (practitionerId) {
+          result["value"] = practitionerId;
+        }
+        // Try to remap as location ID
+        const locationId = locationIdMap.get(node["value"] as Id<"locations">);
+        if (locationId) {
+          result["value"] = locationId;
+        }
+        // Try to remap as appointment type ID
+        const appointmentTypeId = appointmentTypeIdMap.get(
+          node["value"] as Id<"appointmentTypes">,
+        );
+        if (appointmentTypeId) {
+          result["value"] = appointmentTypeId;
+        }
+      }
+      // Handle array values that might contain IDs
+      if (Array.isArray(node["value"])) {
+        result["value"] = (node["value"] as unknown[]).map((val) => {
+          if (typeof val === "string") {
+            return (
+              practitionerIdMap.get(val as Id<"practitioners">) ||
+              locationIdMap.get(val as Id<"locations">) ||
+              appointmentTypeIdMap.get(val as Id<"appointmentTypes">) ||
+              val
+            );
+          }
+          return val;
+        });
+      }
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Copy all rules from source to target rule set.
- * Remaps practitioner and location IDs to the new rule set's entities.
+ * Remaps practitioner, location, and appointment type IDs in the condition trees to the new rule set's entities.
  */
 export async function copyRules(
   db: DatabaseWriter,
@@ -355,6 +484,7 @@ export async function copyRules(
   targetRuleSetId: Id<"ruleSets">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
   const sourceRules = await db
     .query("rules")
@@ -365,23 +495,68 @@ export async function copyRules(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _creationTime, _id, ruleSetId, ...ruleData } = source;
 
-    // Remap practitioner IDs if present
-    const specificPractitioners = source.specificPractitioners
-      ?.map((id) => practitionerIdMap.get(id))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
+    // Remap IDs in the condition tree
+    const remappedCondition = remapConditionTree(
+      source.condition,
+      practitionerIdMap,
+      locationIdMap,
+      appointmentTypeIdMap,
+    );
 
-    // Remap location ID if present
-    const limit_atLocation = source.limit_atLocation
-      ? locationIdMap.get(source.limit_atLocation)
-      : undefined;
+    // Remap IDs in zones if present
+    let remappedZones: unknown = source.zones;
+    if (source.zones && typeof source.zones === "object") {
+      const zones = source.zones as Record<string, unknown>;
+      if (zones["createZone"]) {
+        const createZone = zones["createZone"] as Record<string, unknown>;
+        const zoneObj = createZone["zone"] as Record<string, unknown>;
 
-    await db.insert("rules", {
+        // Remap allowOnly array (appointment type IDs)
+        let remappedAllowOnly = zoneObj["allowOnly"];
+        if (Array.isArray(zoneObj["allowOnly"])) {
+          remappedAllowOnly = (zoneObj["allowOnly"] as unknown[]).map(
+            (typeId: unknown) => {
+              if (typeof typeId === "string") {
+                return (
+                  appointmentTypeIdMap.get(typeId as Id<"appointmentTypes">) ||
+                  typeId
+                );
+              }
+              return typeId;
+            },
+          );
+        }
+
+        remappedZones = {
+          ...zones,
+          createZone: {
+            ...createZone,
+            condition: createZone["condition"]
+              ? remapConditionTree(
+                  createZone["condition"],
+                  practitionerIdMap,
+                  locationIdMap,
+                  appointmentTypeIdMap,
+                )
+              : createZone["condition"],
+            zone: {
+              ...zoneObj,
+              allowOnly: remappedAllowOnly,
+            },
+          },
+        };
+      }
+    }
+
+    const insertData = {
       ...ruleData,
-      parentId: source._id, // Track which entity this was copied from
+      condition: remappedCondition as ConditionTree,
+      parentId: source._id,
       ruleSetId: targetRuleSetId,
-      ...(specificPractitioners && { specificPractitioners }),
-      ...(limit_atLocation && { limit_atLocation }),
-    });
+      ...(remappedZones ? { zones: remappedZones } : {}),
+    };
+
+    await db.insert("rules", insertData as never);
   }
 }
 
@@ -402,7 +577,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  await copyAppointmentTypes(
+  const appointmentTypeIdMap = await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -433,5 +608,6 @@ export async function copyAllEntities(
     targetRuleSetId,
     practitionerIdMap,
     locationIdMap,
+    appointmentTypeIdMap,
   );
 }
