@@ -29,7 +29,8 @@ export type EntityType =
   | "base schedule"
   | "location"
   | "practitioner"
-  | "rule";
+  | "rule"
+  | "rule condition";
 
 // ================================
 // VALIDATION HELPERS
@@ -346,30 +347,166 @@ export async function copyBaseSchedules(
 }
 
 /**
- * Copy rule conditions (rules) from source rule set to target rule set.
- * TODO: Implement recursive copying of rule condition trees
- * For now, this is a placeholder that does nothing.
+ * Recursively copy a condition node and all its children.
+ * Returns the ID of the newly created node.
  */
-export function copyRuleConditions(
+async function copyConditionNode(
+  db: DatabaseWriter,
+  sourceNode: Doc<"ruleConditions">,
+  targetRuleSetId: Id<"ruleSets">,
+  targetParentId: Id<"ruleConditions"> | null,
+  practiceId: Id<"practices">,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
+  locationIdMap: Map<Id<"locations">, Id<"locations">>,
+): Promise<Id<"ruleConditions">> {
+  // Remap any practitioner/location IDs in the condition values
+  let remappedValueIds = sourceNode.valueIds;
+  if (sourceNode.valueIds && sourceNode.conditionType) {
+    if (sourceNode.conditionType === "PRACTITIONER") {
+      remappedValueIds = sourceNode.valueIds
+        .map((id) => {
+          const practitionerId = id as Id<"practitioners">;
+          const newId = practitionerIdMap.get(practitionerId);
+          return newId ? (newId as string) : undefined;
+        })
+        .filter((id): id is string => id !== undefined);
+    } else if (sourceNode.conditionType === "LOCATION") {
+      remappedValueIds = sourceNode.valueIds
+        .map((id) => {
+          const locationId = id as Id<"locations">;
+          const newId = locationIdMap.get(locationId);
+          return newId ? (newId as string) : undefined;
+        })
+        .filter((id): id is string => id !== undefined);
+    }
+  }
+
+  // Build the insert object with explicit isRoot field
+  const insertData: {
+    childOrder: number;
+    conditionType?:
+      | "APPOINTMENT_TYPE"
+      | "CLIENT_TYPE"
+      | "CONCURRENT_COUNT"
+      | "DAILY_CAPACITY"
+      | "DATE_RANGE"
+      | "DAY_OF_WEEK"
+      | "DAYS_AHEAD"
+      | "LOCATION"
+      | "PRACTITIONER"
+      | "PRACTITIONER_TAG"
+      | "TIME_RANGE";
+    copyFromId: Id<"ruleConditions">;
+    createdAt: bigint;
+    enabled?: boolean;
+    isRoot: boolean;
+    lastModified: bigint;
+    nodeType?: "AND" | "CONDITION" | "NOT";
+    operator?:
+      | "EQUALS"
+      | "GREATER_THAN_OR_EQUAL"
+      | "IS"
+      | "IS_NOT"
+      | "LESS_THAN_OR_EQUAL";
+    parentConditionId?: Id<"ruleConditions">;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+    valueIds?: string[];
+    valueNumber?: number;
+  } = {
+    childOrder: sourceNode.childOrder,
+    copyFromId: sourceNode._id,
+    createdAt: BigInt(Date.now()),
+    isRoot: sourceNode.isRoot,
+    lastModified: BigInt(Date.now()),
+    practiceId,
+    ruleSetId: targetRuleSetId,
+  };
+
+  if (targetParentId !== null) {
+    insertData.parentConditionId = targetParentId;
+  }
+
+  if (sourceNode.isRoot && sourceNode.enabled !== undefined) {
+    insertData.enabled = sourceNode.enabled;
+  }
+
+  if (!sourceNode.isRoot && sourceNode.nodeType) {
+    insertData.nodeType = sourceNode.nodeType;
+  }
+
+  if (sourceNode.nodeType === "CONDITION") {
+    if (sourceNode.conditionType) {
+      insertData.conditionType = sourceNode.conditionType;
+    }
+    if (sourceNode.operator) {
+      insertData.operator = sourceNode.operator;
+    }
+    if (remappedValueIds) {
+      insertData.valueIds = remappedValueIds;
+    }
+    if (sourceNode.valueNumber !== undefined) {
+      insertData.valueNumber = sourceNode.valueNumber;
+    }
+  }
+
+  const newNodeId = await db.insert("ruleConditions", insertData);
+
+  // Recursively copy all children
+  const children = await db
+    .query("ruleConditions")
+    .withIndex("by_parentConditionId_childOrder", (q) =>
+      q.eq("parentConditionId", sourceNode._id),
+    )
+    .collect();
+
+  for (const child of children) {
+    await copyConditionNode(
+      db,
+      child,
+      targetRuleSetId,
+      newNodeId,
+      practiceId,
+      practitionerIdMap,
+      locationIdMap,
+    );
+  }
+
+  return newNodeId;
+}
+
+/**
+ * Copy all rule conditions (rules and their condition trees) from source rule set to target rule set.
+ * This recursively copies entire condition trees while remapping practitioner/location IDs.
+ */
+export async function copyRuleConditions(
   db: DatabaseWriter,
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
+  practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
-): void {
-  // TODO: Implement recursive tree copying
-  // This will need to:
-  // 1. Find all root conditions (isRoot=true) in source rule set
-  // 2. For each root, recursively copy the entire condition tree
-  // 3. Remap any practitioner/location IDs in condition values
-  // 4. Maintain parent-child relationships in the new rule set
+): Promise<void> {
+  // Find all root conditions (rules) in the source rule set
+  const rootConditions = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId_isRoot", (q) =>
+      q.eq("ruleSetId", sourceRuleSetId).eq("isRoot", true),
+    )
+    .collect();
 
-  // Placeholder - no-op for now
-  void db;
-  void sourceRuleSetId;
-  void targetRuleSetId;
-  void practitionerIdMap;
-  void locationIdMap;
+  // Copy each rule tree
+  for (const root of rootConditions) {
+    await copyConditionNode(
+      db,
+      root,
+      targetRuleSetId,
+      null, // Root nodes have no parent
+      practiceId,
+      practitionerIdMap,
+      locationIdMap,
+    );
+  }
 }
 
 /**
@@ -419,10 +556,11 @@ export async function copyAllEntities(
   );
 
   // Copy rule conditions with mapped IDs
-  copyRuleConditions(
+  await copyRuleConditions(
     db,
     sourceRuleSetId,
     targetRuleSetId,
+    practiceId,
     practitionerIdMap,
     locationIdMap,
   );
