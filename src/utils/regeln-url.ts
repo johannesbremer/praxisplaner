@@ -180,7 +180,7 @@ export function useRegelnUrl(options: {
     if (!id) {
       return undefined;
     }
-    if (options.unsavedRuleSet && options.unsavedRuleSet._id === id) {
+    if (options.unsavedRuleSet?._id === id) {
       return "ungespeichert";
     }
     const found = options.ruleSetsQuery?.find((rs) => rs._id === id);

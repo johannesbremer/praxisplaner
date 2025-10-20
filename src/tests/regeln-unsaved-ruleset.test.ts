@@ -36,7 +36,7 @@ describe("Regeln Unsaved RuleSet Integration", () => {
         return undefined;
       }
 
-      if (unsavedRuleSet && unsavedRuleSet._id === ruleSetId) {
+      if (unsavedRuleSet?._id === ruleSetId) {
         return "ungespeichert";
       }
 

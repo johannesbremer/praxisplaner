@@ -957,7 +957,7 @@ export const updateBaseSchedule = mutation({
     // Verify new practitioner if provided
     if (args.practitionerId) {
       const practitioner = await ctx.db.get(args.practitionerId);
-      if (!practitioner || practitioner.ruleSetId !== ruleSetId) {
+      if (practitioner?.ruleSetId !== ruleSetId) {
         throw new Error("Practitioner does not belong to the unsaved rule set");
       }
     }
@@ -965,7 +965,7 @@ export const updateBaseSchedule = mutation({
     // Verify new location if provided
     if (args.locationId) {
       const location = await ctx.db.get(args.locationId);
-      if (!location || location.ruleSetId !== ruleSetId) {
+      if (location?.ruleSetId !== ruleSetId) {
         throw new Error("Location does not belong to the unsaved rule set");
       }
     }

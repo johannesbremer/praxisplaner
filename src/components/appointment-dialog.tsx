@@ -82,7 +82,7 @@ export function AppointmentDialog({
               name="title"
               validators={{
                 onChange: ({ value }) =>
-                  !value || value.trim().length === 0
+                  value.trim().length === 0
                     ? "Titel ist erforderlich"
                     : undefined,
               }}

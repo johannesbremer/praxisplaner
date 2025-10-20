@@ -185,8 +185,7 @@ function LogicView() {
   }, [initializePracticeMutation, captureError]);
 
   // If no practice exists and we haven't tried to initialize, do it automatically
-  const shouldInitialize =
-    practicesQuery !== undefined && practicesQuery.length === 0;
+  const shouldInitialize = practicesQuery?.length === 0;
 
   React.useEffect(() => {
     if (shouldInitialize && !isInitializingPractice) {
@@ -414,12 +413,7 @@ function LogicView() {
 
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
-    if (
-      currentPractice &&
-      ruleSetsQuery &&
-      ruleSetsQuery.length === 0 &&
-      !unsavedRuleSetId
-    ) {
+    if (currentPractice && ruleSetsQuery?.length === 0 && !unsavedRuleSetId) {
       void createInitialUnsaved();
     }
   }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
@@ -741,7 +735,7 @@ function LogicView() {
                   <Card>
                     <CardHeader>
                       <CardTitle>Regelset Auswahl</CardTitle>
-                      {ruleSetsQuery && ruleSetsQuery.length === 0 && (
+                      {ruleSetsQuery?.length === 0 && (
                         <CardDescription>
                           Erstellen Sie Ihr erstes Regelset durch das Hinzufügen
                           von Regeln, Ärzten oder Arbeitszeiten.
@@ -778,8 +772,7 @@ function LogicView() {
                       <div className="flex gap-2">
                         {/* Show save button when we have an unsaved rule set or when creating the first one */}
                         {(unsavedRuleSet ??
-                          (ruleSetsQuery &&
-                            ruleSetsQuery.length === 0 &&
+                          (ruleSetsQuery?.length === 0 &&
                             currentWorkingRuleSet)) && (
                           <Button
                             onClick={handleOpenSaveDialog}
@@ -809,8 +802,7 @@ function LogicView() {
                   </Card>
 
                   {/* Rules List */}
-                  {(currentWorkingRuleSet ??
-                    (ruleSetsQuery && ruleSetsQuery.length === 0)) && (
+                  {(currentWorkingRuleSet ?? ruleSetsQuery?.length === 0) && (
                     <Card>
                       <CardHeader>
                         <div className="flex justify-between items-start">
