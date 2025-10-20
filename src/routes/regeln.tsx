@@ -51,6 +51,7 @@ import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
+import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -845,22 +846,19 @@ function LogicView() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        {/* TODO: Re-enable once new rule system is implemented */}
-                        {/* {rulesQuery && currentWorkingRuleSet ? (
-                          <RuleListNew
-                            onRuleChanged={handleRuleChange}
+                        {currentWorkingRuleSet && (
+                          <RuleBuilder
+                            onRuleCreated={() => {
+                              // Rules are created in the unsaved rule set
+                              // The unsaved rule set will be created automatically by CoW
+                              if (unsavedRuleSet) {
+                                handleRuleSetCreated(unsavedRuleSet._id);
+                              }
+                            }}
                             practiceId={currentPractice._id}
-                            rules={rulesQuery}
                             ruleSetId={currentWorkingRuleSet._id}
                           />
-                        ) : (
-                          <div className="text-center py-8 text-muted-foreground">
-                            Lade Regeln...
-                          </div>
-                        )} */}
-                        <div className="text-center py-8 text-muted-foreground">
-                          Regelbearbeitung wird aktuell überarbeitet...
-                        </div>
+                        )}
                       </CardContent>
                     </Card>
                   )}
