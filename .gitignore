@@ -10,7 +10,6 @@ package-lock.json
 .tanstack
 
 src/routeTree.gen.ts
-convex/_generated/
 bundle-analysis.json
 stats.html
 *.tsbuildinfo

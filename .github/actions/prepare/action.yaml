@@ -17,10 +17,6 @@ runs:
       run: pnpm install --frozen-lockfile
       shell: bash
 
-    - name: Generate Convex code
-      run: pnpm run gen:convex
-      shell: bash
-
     - name: Generate TanStack routes
       run: pnpm run gen:routes
       shell: bash
