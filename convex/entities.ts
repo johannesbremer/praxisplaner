@@ -1122,61 +1122,49 @@ export const getRules = query({
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("rules"),
-      appliesTo: v.union(
-        v.literal("ALL_PRACTITIONERS"),
-        v.literal("SPECIFIC_PRACTITIONERS"),
-      ),
-      block_appointmentTypes: v.optional(v.array(v.string())),
-      block_dateRangeEnd: v.optional(v.string()),
-      block_dateRangeStart: v.optional(v.string()),
-      block_daysOfWeek: v.optional(v.array(v.number())),
-      block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-      block_timeRangeEnd: v.optional(v.string()),
-      block_timeRangeStart: v.optional(v.string()),
-      description: v.string(),
-      limit_appointmentTypes: v.optional(v.array(v.string())),
-      limit_atLocation: v.optional(v.id("locations")),
-      limit_count: v.optional(v.number()),
-      limit_perPractitioner: v.optional(v.boolean()),
-      name: v.string(),
-      practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
-      ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
-      specificPractitioners: v.optional(v.array(v.id("practitioners"))),
-    }),
-  ),
 });
 
 /**
- * Create a new rule in a rule set
+ * Create a new rule in an unsaved rule set
  */
 export const createRule = mutation({
   args: {
-    appliesTo: v.union(
-      v.literal("ALL_PRACTITIONERS"),
-      v.literal("SPECIFIC_PRACTITIONERS"),
+    condition: v.optional(
+      v.object({
+        count: v.number(),
+        crossTypeAppointmentTypes: v.optional(v.array(v.string())),
+        crossTypeComparison: v.optional(
+          v.union(v.literal(">"), v.literal("="), v.literal("<")),
+        ),
+        crossTypeCount: v.optional(v.number()),
+        scope: v.union(v.literal("location"), v.literal("practice")),
+        type: v.literal("concurrent"),
+      }),
     ),
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()),
-    block_dateRangeStart: v.optional(v.string()),
-    block_daysOfWeek: v.optional(v.array(v.number())),
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()),
-    block_timeRangeStart: v.optional(v.string()),
-    description: v.string(),
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
-    name: v.string(),
+    enabled: v.optional(v.boolean()),
+    filters: v.array(
+      v.object({
+        count: v.optional(v.number()),
+        days: v.optional(v.number()),
+        mode: v.union(v.literal("include"), v.literal("exclude")),
+        per: v.optional(
+          v.union(v.literal("practitioner"), v.literal("location")),
+        ),
+        type: v.union(
+          v.literal("appointmentType"),
+          v.literal("dayOfWeek"),
+          v.literal("location"),
+          v.literal("practitioner"),
+          v.literal("clientType"),
+          v.literal("daysAhead"),
+          v.literal("dailyCapacity"),
+        ),
+        values: v.array(v.string()),
+      }),
+    ),
     practiceId: v.id("practices"),
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
     sourceRuleSetId: v.id("ruleSets"),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
   },
   handler: async (ctx, args) => {
     // Get or create unsaved rule set automatically
@@ -1186,87 +1174,14 @@ export const createRule = mutation({
       args.sourceRuleSetId,
     );
 
-    // Check if rule name already exists in this rule set
-    const existing = await ctx.db
-      .query("rules")
-      .withIndex("by_ruleSetId_name", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("name", args.name),
-      )
-      .first();
-
-    if (existing) {
-      throw new Error(
-        `Rule with name "${args.name}" already exists in this rule set`,
-      );
-    }
-
-    const ruleData: {
-      appliesTo: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-      block_appointmentTypes?: string[];
-      block_dateRangeEnd?: string;
-      block_dateRangeStart?: string;
-      block_daysOfWeek?: number[];
-      block_exceptForPractitionerTags?: string[];
-      block_timeRangeEnd?: string;
-      block_timeRangeStart?: string;
-      description: string;
-      limit_appointmentTypes?: string[];
-      limit_atLocation?: Id<"locations">;
-      limit_count?: number;
-      limit_perPractitioner?: boolean;
-      name: string;
-      practiceId: Id<"practices">;
-      ruleSetId: Id<"ruleSets">;
-      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-      specificPractitioners?: Id<"practitioners">[];
-    } = {
-      appliesTo: args.appliesTo,
-      description: args.description,
-      name: args.name,
+    const entityId = await ctx.db.insert("rules", {
+      ...(args.condition !== undefined && { condition: args.condition }),
+      enabled: args.enabled ?? true,
+      filters: args.filters,
       practiceId: args.practiceId,
       ruleSetId,
       ruleType: args.ruleType,
-    };
-
-    if (args.specificPractitioners !== undefined) {
-      ruleData.specificPractitioners = args.specificPractitioners;
-    }
-    if (args.block_appointmentTypes !== undefined) {
-      ruleData.block_appointmentTypes = args.block_appointmentTypes;
-    }
-    if (args.block_dateRangeStart !== undefined) {
-      ruleData.block_dateRangeStart = args.block_dateRangeStart;
-    }
-    if (args.block_dateRangeEnd !== undefined) {
-      ruleData.block_dateRangeEnd = args.block_dateRangeEnd;
-    }
-    if (args.block_daysOfWeek !== undefined) {
-      ruleData.block_daysOfWeek = args.block_daysOfWeek;
-    }
-    if (args.block_timeRangeStart !== undefined) {
-      ruleData.block_timeRangeStart = args.block_timeRangeStart;
-    }
-    if (args.block_timeRangeEnd !== undefined) {
-      ruleData.block_timeRangeEnd = args.block_timeRangeEnd;
-    }
-    if (args.block_exceptForPractitionerTags !== undefined) {
-      ruleData.block_exceptForPractitionerTags =
-        args.block_exceptForPractitionerTags;
-    }
-    if (args.limit_appointmentTypes !== undefined) {
-      ruleData.limit_appointmentTypes = args.limit_appointmentTypes;
-    }
-    if (args.limit_count !== undefined) {
-      ruleData.limit_count = args.limit_count;
-    }
-    if (args.limit_perPractitioner !== undefined) {
-      ruleData.limit_perPractitioner = args.limit_perPractitioner;
-    }
-    if (args.limit_atLocation !== undefined) {
-      ruleData.limit_atLocation = args.limit_atLocation;
-    }
-
-    const entityId = await ctx.db.insert("rules", ruleData);
+    });
 
     return { entityId, ruleSetId };
   },
@@ -1278,32 +1193,47 @@ export const createRule = mutation({
  */
 export const updateRule = mutation({
   args: {
-    appliesTo: v.optional(
-      v.union(
-        v.literal("ALL_PRACTITIONERS"),
-        v.literal("SPECIFIC_PRACTITIONERS"),
+    condition: v.optional(
+      v.object({
+        count: v.number(),
+        crossTypeAppointmentTypes: v.optional(v.array(v.string())),
+        crossTypeComparison: v.optional(
+          v.union(v.literal(">"), v.literal("="), v.literal("<")),
+        ),
+        crossTypeCount: v.optional(v.number()),
+        scope: v.union(v.literal("location"), v.literal("practice")),
+        type: v.literal("concurrent"),
+      }),
+    ),
+    enabled: v.optional(v.boolean()),
+    filters: v.optional(
+      v.array(
+        v.object({
+          count: v.optional(v.number()),
+          days: v.optional(v.number()),
+          mode: v.union(v.literal("include"), v.literal("exclude")),
+          per: v.optional(
+            v.union(v.literal("practitioner"), v.literal("location")),
+          ),
+          type: v.union(
+            v.literal("appointmentType"),
+            v.literal("dayOfWeek"),
+            v.literal("location"),
+            v.literal("practitioner"),
+            v.literal("clientType"),
+            v.literal("daysAhead"),
+            v.literal("dailyCapacity"),
+          ),
+          values: v.array(v.string()),
+        }),
       ),
     ),
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()),
-    block_dateRangeStart: v.optional(v.string()),
-    block_daysOfWeek: v.optional(v.array(v.number())),
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()),
-    block_timeRangeStart: v.optional(v.string()),
-    description: v.optional(v.string()),
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
-    name: v.optional(v.string()),
     practiceId: v.id("practices"),
     ruleId: v.id("rules"),
     ruleType: v.optional(
       v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
     ),
     sourceRuleSetId: v.id("ruleSets"),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
   },
   handler: async (ctx, args) => {
     // Get the original rule (might be from active rule set)
@@ -1344,74 +1274,20 @@ export const updateRule = mutation({
       }
     }
 
-    // If name is changing, check for conflicts
-    if (args.name && args.name !== rule.name) {
-      // Safe to use non-null assertion: args.name is checked above
-      const existing = await ctx.db
-        .query("rules")
-        .withIndex("by_ruleSetId_name", (q) =>
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          q.eq("ruleSetId", ruleSetId).eq("name", args.name!),
-        )
-        .first();
-
-      if (existing && existing._id !== rule._id) {
-        throw new Error(
-          `Rule with name "${args.name}" already exists in this rule set`,
-        );
-      }
-    }
-
     // Update the rule (use the entity in the unsaved rule set)
     const updates: Partial<typeof rule> = {};
-    if (args.name !== undefined) {
-      updates.name = args.name;
-    }
-    if (args.description !== undefined) {
-      updates.description = args.description;
-    }
+
     if (args.ruleType !== undefined) {
       updates.ruleType = args.ruleType;
     }
-    if (args.appliesTo !== undefined) {
-      updates.appliesTo = args.appliesTo;
+    if (args.filters !== undefined) {
+      updates.filters = args.filters;
     }
-    if (args.specificPractitioners !== undefined) {
-      updates.specificPractitioners = args.specificPractitioners;
+    if (args.condition !== undefined) {
+      updates.condition = args.condition;
     }
-    if (args.block_appointmentTypes !== undefined) {
-      updates.block_appointmentTypes = args.block_appointmentTypes;
-    }
-    if (args.block_dateRangeStart !== undefined) {
-      updates.block_dateRangeStart = args.block_dateRangeStart;
-    }
-    if (args.block_dateRangeEnd !== undefined) {
-      updates.block_dateRangeEnd = args.block_dateRangeEnd;
-    }
-    if (args.block_daysOfWeek !== undefined) {
-      updates.block_daysOfWeek = args.block_daysOfWeek;
-    }
-    if (args.block_timeRangeStart !== undefined) {
-      updates.block_timeRangeStart = args.block_timeRangeStart;
-    }
-    if (args.block_timeRangeEnd !== undefined) {
-      updates.block_timeRangeEnd = args.block_timeRangeEnd;
-    }
-    if (args.block_exceptForPractitionerTags !== undefined) {
-      updates.block_exceptForPractitionerTags =
-        args.block_exceptForPractitionerTags;
-    }
-    if (args.limit_appointmentTypes !== undefined) {
-      updates.limit_appointmentTypes = args.limit_appointmentTypes;
-    }
-    if (args.limit_count !== undefined) {
-      updates.limit_count = args.limit_count;
-    }
-    if (args.limit_perPractitioner !== undefined) {
-      updates.limit_perPractitioner = args.limit_perPractitioner;
-    }
-    if (args.limit_atLocation !== undefined) {
-      updates.limit_atLocation = args.limit_atLocation;
+    if (args.enabled !== undefined) {
+      updates.enabled = args.enabled;
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching

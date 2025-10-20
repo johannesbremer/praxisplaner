@@ -51,8 +51,6 @@ import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
-import RuleCreationFormNew from "../components/rule-creation-form-new";
-import { RuleListNew } from "../components/rule-list-new";
 import { VersionGraph } from "../components/version-graph/index";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -159,11 +157,6 @@ function LogicView() {
 
   // Use the first available practice or initialize one
   const currentPractice = practicesQuery?.[0];
-
-  const handleRuleChange = useCallback(() => {
-    // This will trigger a re-fetch of the rules query
-    // which will update the UI automatically via Convex reactivity
-  }, []);
 
   // Initialize practice if none exists
   const handleInitializePractice = useCallback(async () => {
@@ -469,28 +462,6 @@ function LogicView() {
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
-  // This function is kept for backwards compatibility but simplified
-  // Note: async keyword required for interface compatibility even though no await
-  // eslint-disable-next-line @typescript-eslint/require-await
-  const ensureUnsavedRuleSet = React.useCallback(async () => {
-    // 1) Already tracking an unsaved draft
-    if (unsavedRuleSetId) {
-      pushUrl({ ruleSetId: unsavedRuleSetId });
-      return unsavedRuleSetId;
-    }
-
-    // 2) A draft exists in DB but not yet tracked in state
-    if (existingUnsavedRuleSet) {
-      setUnsavedRuleSetId(existingUnsavedRuleSet._id);
-      pushUrl({ ruleSetId: existingUnsavedRuleSet._id });
-      return existingUnsavedRuleSet._id;
-    }
-
-    // 3-5) No unsaved rule set exists yet
-    // With CoW, the first mutation will automatically create it
-    // So we just return null and let the mutations handle it
-    return null;
-  }, [unsavedRuleSetId, existingUnsavedRuleSet, pushUrl, setUnsavedRuleSetId]);
 
   const handleVersionClick = React.useCallback(
     (version: VersionNode) => {
@@ -848,39 +819,20 @@ function LogicView() {
                         </div>
                         {/* Rule Management Controls - New line for space reasons */}
                         <div className="flex gap-2 mt-4">
-                          {/* Create New Rule Button - Always show */}
+                          {/* TODO: Implement new rule creation UI with button-group and combobox */}
                           {currentWorkingRuleSet && (
-                            <RuleCreationFormNew
-                              customTrigger={
-                                unsavedRuleSet ? undefined : (
-                                  <Button
-                                    onClick={() => {
-                                      void ensureUnsavedRuleSet();
-                                    }}
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Neue Regel
-                                  </Button>
-                                )
-                              }
-                              onRuleCreated={handleRuleChange}
-                              onRuleSetCreated={handleRuleSetCreated}
-                              practiceId={currentPractice._id}
-                              ruleSetId={currentWorkingRuleSet._id}
-                            />
+                            <Button disabled size="sm" variant="outline">
+                              <Plus className="h-4 w-4 mr-2" />
+                              Neue Regel (Coming Soon)
+                            </Button>
                           )}
                         </div>
                       </CardHeader>
                       <CardContent>
                         {rulesQuery && currentWorkingRuleSet ? (
-                          <RuleListNew
-                            onRuleChanged={handleRuleChange}
-                            practiceId={currentPractice._id}
-                            rules={rulesQuery}
-                            ruleSetId={currentWorkingRuleSet._id}
-                          />
+                          <div className="text-center py-8 text-muted-foreground">
+                            TODO: Implement new rule list UI
+                          </div>
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
                             Lade Regeln...

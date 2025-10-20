@@ -347,7 +347,7 @@ export async function copyBaseSchedules(
 
 /**
  * Copy all rules from source to target rule set.
- * Remaps practitioner and location IDs to the new rule set's entities.
+ * Remaps practitioner, location, and appointment type IDs in filters to the new rule set's entities.
  */
 export async function copyRules(
   db: DatabaseWriter,
@@ -355,6 +355,7 @@ export async function copyRules(
   targetRuleSetId: Id<"ruleSets">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
   const sourceRules = await db
     .query("rules")
@@ -365,22 +366,57 @@ export async function copyRules(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _creationTime, _id, ruleSetId, ...ruleData } = source;
 
-    // Remap practitioner IDs if present
-    const specificPractitioners = source.specificPractitioners
-      ?.map((id) => practitionerIdMap.get(id))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
+    // Remap IDs in filters
+    const remappedFilters = source.filters.map((filter) => {
+      // For filters that reference entity IDs, remap them to the new rule set
+      if (filter.type === "practitioner") {
+        const remappedValues = filter.values
+          .map((id) => practitionerIdMap.get(id as Id<"practitioners">))
+          .filter((id): id is Id<"practitioners"> => id !== undefined)
+          .map(String);
+        return { ...filter, values: remappedValues };
+      }
 
-    // Remap location ID if present
-    const limit_atLocation = source.limit_atLocation
-      ? locationIdMap.get(source.limit_atLocation)
-      : undefined;
+      if (filter.type === "location") {
+        const remappedValues = filter.values
+          .map((id) => locationIdMap.get(id as Id<"locations">))
+          .filter((id): id is Id<"locations"> => id !== undefined)
+          .map(String);
+        return { ...filter, values: remappedValues };
+      }
+
+      if (filter.type === "appointmentType") {
+        const remappedValues = filter.values
+          .map((id) => appointmentTypeIdMap.get(id as Id<"appointmentTypes">))
+          .filter((id): id is Id<"appointmentTypes"> => id !== undefined)
+          .map(String);
+        return { ...filter, values: remappedValues };
+      }
+
+      // Other filter types don't contain entity IDs
+      return filter;
+    });
+
+    // Remap appointment type IDs in condition if present
+    let remappedCondition = source.condition;
+    if (source.condition?.crossTypeAppointmentTypes) {
+      const remappedCrossTypes = source.condition.crossTypeAppointmentTypes
+        .map((id) => appointmentTypeIdMap.get(id as Id<"appointmentTypes">))
+        .filter((id): id is Id<"appointmentTypes"> => id !== undefined)
+        .map(String);
+
+      remappedCondition = {
+        ...source.condition,
+        crossTypeAppointmentTypes: remappedCrossTypes,
+      };
+    }
 
     await db.insert("rules", {
       ...ruleData,
+      filters: remappedFilters,
+      ...(remappedCondition !== undefined && { condition: remappedCondition }),
       parentId: source._id, // Track which entity this was copied from
       ruleSetId: targetRuleSetId,
-      ...(specificPractitioners && { specificPractitioners }),
-      ...(limit_atLocation && { limit_atLocation }),
     });
   }
 }
@@ -402,7 +438,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  await copyAppointmentTypes(
+  const appointmentTypeIdMap = await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -433,5 +469,6 @@ export async function copyAllEntities(
     targetRuleSetId,
     practitionerIdMap,
     locationIdMap,
+    appointmentTypeIdMap,
   );
 }

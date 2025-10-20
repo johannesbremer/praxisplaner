@@ -136,42 +136,57 @@ export default defineSchema({
 
   // Rules table - rules belong to a specific rule set (copy-on-write pattern)
   rules: defineTable({
-    description: v.string(),
-    name: v.string(), // Rule name (unique within a rule set)
     parentId: v.optional(v.id("rules")), // Reference to the entity this was copied from
     practiceId: v.id("practices"), // Rules belong to a practice
     ruleSetId: v.id("ruleSets"), // Rules belong to a specific rule set
     ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
 
-    // --- General rule application ---
-    appliesTo: v.union(
-      v.literal("ALL_PRACTITIONERS"),
-      v.literal("SPECIFIC_PRACTITIONERS"),
+    // Filters - array of conditions combined with AND logic
+    filters: v.array(
+      v.object({
+        mode: v.union(v.literal("include"), v.literal("exclude")), // ist / nicht
+        type: v.union(
+          v.literal("appointmentType"),
+          v.literal("dayOfWeek"),
+          v.literal("location"),
+          v.literal("practitioner"),
+          v.literal("clientType"),
+          v.literal("daysAhead"),
+          v.literal("dailyCapacity"),
+        ),
+        values: v.array(v.string()), // IDs or values (empty for special types like daysAhead)
+
+        // Special fields for specific filter types
+        count: v.optional(v.number()), // for dailyCapacity
+        days: v.optional(v.number()), // for daysAhead
+        per: v.optional(
+          v.union(v.literal("practitioner"), v.literal("location")),
+        ), // for dailyCapacity
+      }),
     ),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
 
-    // --- Parameters for 'BLOCK' rules ---
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()), // ISO date string
-    block_dateRangeStart: v.optional(v.string()), // ISO date string
-    block_daysOfWeek: v.optional(v.array(v.number())), // e.g., [1] for Monday
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()), // "10:00"
-    block_timeRangeStart: v.optional(v.string()), // "08:00"
+    // Optional condition (e.g., concurrent bookings)
+    condition: v.optional(
+      v.object({
+        count: v.number(),
+        scope: v.union(v.literal("location"), v.literal("practice")),
+        type: v.literal("concurrent"),
 
-    // --- Parameters for 'LIMIT_CONCURRENT' rules ---
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
+        // Cross-type condition
+        crossTypeAppointmentTypes: v.optional(v.array(v.string())),
+        crossTypeComparison: v.optional(
+          v.union(v.literal(">"), v.literal("="), v.literal("<")),
+        ),
+        crossTypeCount: v.optional(v.number()),
+      }),
+    ),
+
+    // Metadata
+    enabled: v.boolean(),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
-    .index("by_ruleSetId_name", ["ruleSetId", "name"]) // For uniqueness validation within rule set
+    .index("by_ruleSetId_enabled", ["ruleSetId", "enabled"]) // For querying active rules
     .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
-    .searchIndex("search_rules", {
-      filterFields: ["ruleSetId", "description"],
-      searchField: "name",
-    }), // For full-text search on name with description and rule set filtering
+    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
 });
