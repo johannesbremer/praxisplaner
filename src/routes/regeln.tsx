@@ -772,95 +772,15 @@ function LogicView() {
                     </CardContent>
                   </Card>
 
-                  {/* Rules List */}
-                  {(currentWorkingRuleSet ?? ruleSetsQuery?.length === 0) && (
-                    <Card>
-                      <CardHeader>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <CardTitle>
-                              {currentWorkingRuleSet ? (
-                                <>
-                                  {unsavedRuleSet ? (
-                                    <>
-                                      Regeln in{" "}
-                                      <Badge
-                                        className="ml-2"
-                                        variant="secondary"
-                                      >
-                                        Ungespeicherte Änderungen
-                                      </Badge>
-                                    </>
-                                  ) : (
-                                    <>
-                                      Regeln in{" "}
-                                      {currentWorkingRuleSet.description}
-                                      {currentWorkingRuleSet.isActive && (
-                                        <Badge
-                                          className="ml-2"
-                                          variant="default"
-                                        >
-                                          AKTIV
-                                        </Badge>
-                                      )}
-                                    </>
-                                  )}
-                                </>
-                              ) : (
-                                "Regeln"
-                              )}
-                            </CardTitle>
-                            <CardDescription>
-                              {currentWorkingRuleSet
-                                ? currentWorkingRuleSet.description
-                                : "Fügen Sie Ihre erste Regel hinzu"}
-                            </CardDescription>
-                          </div>
-                        </div>
-                        {/* Rule Management Controls - New line for space reasons */}
-                        <div className="flex gap-2 mt-4">
-                          {/* TODO: Re-enable once new rule system is implemented */}
-                          {/* Create New Rule Button - Always show */}
-                          {/* {currentWorkingRuleSet && (
-                            <RuleCreationFormNew
-                              customTrigger={
-                                unsavedRuleSet ? undefined : (
-                                  <Button
-                                    onClick={() => {
-                                      void ensureUnsavedRuleSet();
-                                    }}
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Neue Regel
-                                  </Button>
-                                )
-                              }
-                              onRuleCreated={handleRuleChange}
-                              onRuleSetCreated={handleRuleSetCreated}
-                              practiceId={currentPractice._id}
-                              ruleSetId={currentWorkingRuleSet._id}
-                            />
-                          )} */}
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {currentWorkingRuleSet && (
-                          <RuleBuilder
-                            onRuleCreated={() => {
-                              // Rules are created in the unsaved rule set
-                              // The unsaved rule set will be created automatically by CoW
-                              if (unsavedRuleSet) {
-                                handleRuleSetCreated(unsavedRuleSet._id);
-                              }
-                            }}
-                            practiceId={currentPractice._id}
-                            ruleSetId={currentWorkingRuleSet._id}
-                          />
-                        )}
-                      </CardContent>
-                    </Card>
+                  {/* Appointment Types Management */}
+                  {currentWorkingRuleSet && (
+                    <AppointmentTypesManagement
+                      onRuleSetCreated={(newRuleSetId) => {
+                        setUnsavedRuleSetId(newRuleSetId);
+                      }}
+                      practiceId={currentPractice._id}
+                      ruleSetId={currentWorkingRuleSet._id}
+                    />
                   )}
 
                   {/* Practitioner Management */}
@@ -939,16 +859,62 @@ function LogicView() {
               </div>
             </div>
 
-            {/* Full width Appointment Types Management */}
-            {currentWorkingRuleSet && (
+            {/* Full width Rules List */}
+            {(currentWorkingRuleSet ?? ruleSetsQuery?.length === 0) && (
               <div className="mt-6">
-                <AppointmentTypesManagement
-                  onRuleSetCreated={(newRuleSetId) => {
-                    setUnsavedRuleSetId(newRuleSetId);
-                  }}
-                  practiceId={currentPractice._id}
-                  ruleSetId={currentWorkingRuleSet._id}
-                />
+                <Card>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle>
+                          {currentWorkingRuleSet ? (
+                            <>
+                              {unsavedRuleSet ? (
+                                <>
+                                  Regeln in{" "}
+                                  <Badge className="ml-2" variant="secondary">
+                                    Ungespeicherte Änderungen
+                                  </Badge>
+                                </>
+                              ) : (
+                                <>
+                                  Regeln in {currentWorkingRuleSet.description}
+                                  {currentWorkingRuleSet.isActive && (
+                                    <Badge className="ml-2" variant="default">
+                                      AKTIV
+                                    </Badge>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            "Regeln"
+                          )}
+                        </CardTitle>
+                        <CardDescription>
+                          {currentWorkingRuleSet
+                            ? currentWorkingRuleSet.description
+                            : "Fügen Sie Ihre erste Regel hinzu"}
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {currentWorkingRuleSet && (
+                      <RuleBuilder
+                        onRuleCreated={() => {
+                          // Rules are created in the unsaved rule set
+                          // The unsaved rule set will be created automatically by CoW
+                          if (unsavedRuleSet) {
+                            handleRuleSetCreated(unsavedRuleSet._id);
+                          }
+                        }}
+                        practiceId={currentPractice._id}
+                        ruleSetId={currentWorkingRuleSet._id}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </TabsContent>

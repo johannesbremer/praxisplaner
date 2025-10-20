@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { Check, Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -93,10 +93,8 @@ export function RuleBuilder({
   practiceId,
   ruleSetId,
 }: RuleBuilderProps) {
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [isBuilding, setIsBuilding] = useState(false);
-
   const createRuleMutation = useMutation(api.entities.createRule);
+  const deleteRuleMutation = useMutation(api.entities.deleteRule);
 
   // Query data from Convex
   const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
@@ -104,40 +102,103 @@ export function RuleBuilder({
   });
   const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
+  const existingRules = useQuery(api.entities.getRules, { ruleSetId });
+
+  // Map of rule ID to segments (for existing AND new rules)
+  // Initialize with existing rules when they first load
+  const [ruleSegments, setRuleSegments] = useState(() => {
+    const map = new Map<"new" | Id<"ruleConditions">, Segment[]>();
+    if (existingRules) {
+      for (const rule of existingRules) {
+        map.set(rule._id, conditionTreeToSegments(rule.conditionTree));
+      }
+    }
+    return map;
+  });
+
+  // When existing rules change (e.g., first load from undefined to data),
+  // update our map to include them
+  if (existingRules) {
+    const currentRuleIds = new Set(ruleSegments.keys());
+
+    // Check if we have rules to add
+    const hasNewRules = existingRules.some((r) => !currentRuleIds.has(r._id));
+
+    if (hasNewRules) {
+      // This is safe because it only runs once when rules first load
+      const newMap = new Map(ruleSegments);
+      for (const rule of existingRules) {
+        if (!newMap.has(rule._id)) {
+          newMap.set(rule._id, conditionTreeToSegments(rule.conditionTree));
+        }
+      }
+      setRuleSegments(newMap);
+    }
+  }
 
   const startBuilding = () => {
-    setSegments([{ selected: null, type: "filter-type" }]);
-    setIsBuilding(true);
-  };
-
-  const updateSegment = (index: number, updates: Partial<Segment>) => {
-    setSegments((prev) => {
-      const newSegments = [...prev];
-      newSegments[index] = { ...newSegments[index], ...updates } as Segment;
-      return newSegments.slice(0, index + 1);
+    setRuleSegments((prev) => {
+      const newMap = new Map(prev);
+      newMap.set("new", [{ selected: null, type: "filter-type" }]);
+      return newMap;
     });
   };
 
-  const addSegment = (segment: Segment) => {
-    setSegments((prev) => [...prev, segment]);
+  const removeNewRule = () => {
+    setRuleSegments((prev) => {
+      const newMap = new Map(prev);
+      newMap.delete("new");
+      return newMap;
+    });
   };
 
-  const handleFilterTypeSelect = (index: number, filterType: FilterType) => {
-    updateSegment(index, { selected: filterType });
+  const updateSegment = (
+    ruleId: "new" | Id<"ruleConditions">,
+    index: number,
+    updates: Partial<Segment>,
+  ) => {
+    setRuleSegments((prev) => {
+      const newMap = new Map(prev);
+      const segments = newMap.get(ruleId) ?? [];
+      const newSegments = [...segments];
+      newSegments[index] = { ...newSegments[index], ...updates } as Segment;
+      newMap.set(ruleId, newSegments.slice(0, index + 1));
+      return newMap;
+    });
+  };
+
+  const addSegment = (
+    ruleId: "new" | Id<"ruleConditions">,
+    segment: Segment,
+  ) => {
+    setRuleSegments((prev) => {
+      const newMap = new Map(prev);
+      const segments = newMap.get(ruleId) ?? [];
+      newMap.set(ruleId, [...segments, segment]);
+      return newMap;
+    });
+  };
+
+  const handleFilterTypeSelect = (
+    ruleId: "new" | Id<"ruleConditions">,
+    index: number,
+    filterType: FilterType,
+  ) => {
+    updateSegment(ruleId, index, { selected: filterType });
 
     if (filterType === "DAYS_AHEAD") {
-      addSegment({
+      addSegment(ruleId, {
         days: null,
         type: "days-ahead",
       });
     } else if (filterType === "DAILY_CAPACITY") {
-      addSegment({
+      addSegment(ruleId, {
         count: null,
         per: null,
         type: "daily-capacity-params",
       });
     } else {
-      addSegment({
+      addSegment(ruleId, {
         selected: null,
         type: "operator",
       });
@@ -145,13 +206,14 @@ export function RuleBuilder({
   };
 
   const handleOperatorSelect = (
+    ruleId: "new" | Id<"ruleConditions">,
     index: number,
     operator: OperatorType,
     filterType: FilterType,
   ) => {
-    updateSegment(index, { selected: operator });
+    updateSegment(ruleId, index, { selected: operator });
 
-    addSegment({
+    addSegment(ruleId, {
       filterType,
       isExclude: operator === "nicht",
       selected: [],
@@ -160,23 +222,28 @@ export function RuleBuilder({
   };
 
   const handleFilterValueSelect = (
+    ruleId: "new" | Id<"ruleConditions">,
     index: number,
     values: string | string[],
   ) => {
     const valueArray = Array.isArray(values) ? values : [values];
-    updateSegment(index, { selected: valueArray });
+    updateSegment(ruleId, index, { selected: valueArray });
 
-    addSegment({
+    addSegment(ruleId, {
       selected: null,
       type: "conjunction",
     });
   };
 
-  const handleDaysAheadUpdate = (index: number, days: number) => {
-    updateSegment(index, { days });
+  const handleDaysAheadUpdate = (
+    ruleId: "new" | Id<"ruleConditions">,
+    index: number,
+    days: number,
+  ) => {
+    updateSegment(ruleId, index, { days });
 
     if (days > 0) {
-      addSegment({
+      addSegment(ruleId, {
         selected: null,
         type: "conjunction",
       });
@@ -184,15 +251,18 @@ export function RuleBuilder({
   };
 
   const handleConjunctionSelect = (
+    ruleId: "new" | Id<"ruleConditions">,
     index: number,
     conjunction: ConjunctionType,
   ) => {
-    updateSegment(index, { selected: conjunction });
+    updateSegment(ruleId, index, { selected: conjunction });
 
     if (conjunction === "dann") {
+      // Rule is complete, auto-save
+      void handleSave(ruleId);
       return;
     } else if (conjunction === "concurrent") {
-      addSegment({
+      addSegment(ruleId, {
         count: null,
         crossTypeAppointmentTypes: null,
         crossTypeComparison: null,
@@ -201,7 +271,7 @@ export function RuleBuilder({
         type: "concurrent-params",
       });
     } else {
-      addSegment({
+      addSegment(ruleId, {
         selected: null,
         type: "filter-type",
       });
@@ -209,12 +279,14 @@ export function RuleBuilder({
   };
 
   const handleDailyCapacityParamsUpdate = (
+    ruleId: "new" | Id<"ruleConditions">,
     index: number,
     field: "count" | "per",
     value: null | number | string,
   ) => {
-    updateSegment(index, { [field]: value });
+    updateSegment(ruleId, index, { [field]: value });
 
+    const segments = ruleSegments.get(ruleId) ?? [];
     const seg = segments[index];
     if (
       seg?.type === "daily-capacity-params" &&
@@ -227,7 +299,7 @@ export function RuleBuilder({
         nextIndex >= segments.length ||
         segments[nextIndex]?.type !== "conjunction"
       ) {
-        addSegment({
+        addSegment(ruleId, {
           selected: null,
           type: "conjunction",
         });
@@ -236,27 +308,16 @@ export function RuleBuilder({
   };
 
   const handleConcurrentParamsUpdate = (
+    ruleId: "new" | Id<"ruleConditions">,
     index: number,
     field: string,
     value: null | number | string | string[],
   ) => {
-    updateSegment(index, { [field]: value });
+    updateSegment(ruleId, index, { [field]: value });
   };
 
-  const isComplete = () => {
-    const lastSeg = segments[segments.length - 1];
-    if (!lastSeg) {
-      return false;
-    }
-
-    if (lastSeg.type === "conjunction") {
-      return lastSeg.selected === "dann";
-    }
-
-    return false;
-  };
-
-  const hasIncludeOrExcludeFilter = () => {
+  const hasIncludeOrExcludeFilter = (ruleId: "new" | Id<"ruleConditions">) => {
+    const segments = ruleSegments.get(ruleId) ?? [];
     return segments.some(
       (seg) =>
         seg.type === "filter-value" ||
@@ -265,7 +326,8 @@ export function RuleBuilder({
     );
   };
 
-  const handleSave = async () => {
+  const handleSave = async (ruleId: "new" | Id<"ruleConditions">) => {
+    const segments = ruleSegments.get(ruleId) ?? [];
     // Build condition tree from segments
     const conditionTree = buildConditionTree(segments);
 
@@ -273,6 +335,15 @@ export function RuleBuilder({
     const ruleName = generateRuleName(segments);
 
     try {
+      if (ruleId !== "new") {
+        // Update existing rule (delete and recreate)
+        await deleteRuleMutation({
+          practiceId,
+          ruleId,
+          sourceRuleSetId: ruleSetId,
+        });
+      }
+
       await createRuleMutation({
         conditionTree: conditionTree as Parameters<
           typeof createRuleMutation
@@ -283,64 +354,133 @@ export function RuleBuilder({
         sourceRuleSetId: ruleSetId,
       });
 
-      setSegments([]);
-      setIsBuilding(false);
+      // Remove this rule from the map
+      setRuleSegments((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(ruleId);
+        return newMap;
+      });
+
       onRuleCreated?.();
     } catch (error) {
-      console.error("Failed to create rule:", error);
+      console.error("Failed to save rule:", error);
     }
   };
 
-  const reset = () => {
-    setSegments([]);
-    setIsBuilding(false);
+  const handleDeleteRule = async (ruleId: Id<"ruleConditions">) => {
+    try {
+      await deleteRuleMutation({
+        practiceId,
+        ruleId,
+        sourceRuleSetId: ruleSetId,
+      });
+      // Remove from map
+      setRuleSegments((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(ruleId);
+        return newMap;
+      });
+      onRuleCreated?.();
+    } catch (error) {
+      console.error("Failed to delete rule:", error);
+    }
+  };
+
+  // Helper to create segment renderers for a specific rule
+  const renderRuleSegments = (ruleId: "new" | Id<"ruleConditions">) => {
+    const segments = ruleSegments.get(ruleId) ?? [];
+    return segments.map((segment, index) => (
+      <SegmentRenderer
+        appointmentTypes={appointmentTypes ?? []}
+        hasAnyFilter={hasIncludeOrExcludeFilter(ruleId)}
+        index={index}
+        key={index}
+        locations={locations ?? []}
+        onConcurrentParamsUpdate={(idx, field, value) => {
+          handleConcurrentParamsUpdate(ruleId, idx, field, value);
+        }}
+        onConjunctionSelect={(idx, conjunction) => {
+          handleConjunctionSelect(ruleId, idx, conjunction);
+        }}
+        onDailyCapacityParamsUpdate={(idx, field, value) => {
+          handleDailyCapacityParamsUpdate(ruleId, idx, field, value);
+        }}
+        onDaysAheadUpdate={(idx, days) => {
+          handleDaysAheadUpdate(ruleId, idx, days);
+        }}
+        onFilterTypeSelect={(idx, filterType) => {
+          handleFilterTypeSelect(ruleId, idx, filterType);
+        }}
+        onFilterValueSelect={(idx, values) => {
+          handleFilterValueSelect(ruleId, idx, values);
+        }}
+        onOperatorSelect={(idx, operator, filterType) => {
+          handleOperatorSelect(ruleId, idx, operator, filterType);
+        }}
+        practitioners={practitioners ?? []}
+        segment={segment}
+        segments={segments}
+      />
+    ));
   };
 
   return (
     <div className="space-y-4">
-      {isBuilding ? (
-        <Card className="p-6">
-          <div className="space-y-6">
-            <ButtonGroup className="flex-wrap gap-y-2">
-              {segments.map((segment, index) => (
-                <SegmentRenderer
-                  appointmentTypes={appointmentTypes ?? []}
-                  hasAnyFilter={hasIncludeOrExcludeFilter()}
-                  index={index}
-                  key={index}
-                  locations={locations ?? []}
-                  onConcurrentParamsUpdate={handleConcurrentParamsUpdate}
-                  onConjunctionSelect={handleConjunctionSelect}
-                  onDailyCapacityParamsUpdate={handleDailyCapacityParamsUpdate}
-                  onDaysAheadUpdate={handleDaysAheadUpdate}
-                  onFilterTypeSelect={handleFilterTypeSelect}
-                  onFilterValueSelect={handleFilterValueSelect}
-                  onOperatorSelect={handleOperatorSelect}
-                  practitioners={practitioners ?? []}
-                  segment={segment}
-                  segments={segments}
-                />
-              ))}
-            </ButtonGroup>
+      {/* Render all existing rules as editable segments */}
+      {existingRules?.map((rule) => {
+        const segments = ruleSegments.get(rule._id);
+        if (!segments) {
+          return null;
+        }
 
-            <div className="flex gap-2 pt-4 border-t">
+        return (
+          <Card className="p-6" key={rule._id}>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="font-medium text-sm text-muted-foreground">
+                {generateRuleName(segments)}
+              </div>
               <Button
-                className="gap-2"
-                disabled={!isComplete()}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
                 onClick={() => {
-                  void handleSave();
+                  void handleDeleteRule(rule._id);
                 }}
+                size="icon"
+                variant="ghost"
               >
-                <Check className="h-4 w-4" />
-                Regel speichern
-              </Button>
-              <Button onClick={reset} variant="outline">
-                Abbrechen
+                <Trash2 className="h-4 w-4" />
               </Button>
             </div>
+            <ButtonGroup className="flex-wrap gap-y-2">
+              {renderRuleSegments(rule._id)}
+            </ButtonGroup>
+          </Card>
+        );
+      })}
+
+      {/* Render new rule being created */}
+      {ruleSegments.has("new") && (
+        <Card className="p-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="font-medium text-sm text-muted-foreground">
+              Neue Regel
+            </div>
+            <Button
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={removeNewRule}
+              size="icon"
+              variant="ghost"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
+          <ButtonGroup className="flex-wrap gap-y-2">
+            {renderRuleSegments("new")}
+          </ButtonGroup>
         </Card>
-      ) : (
+      )}
+
+      {/* Add new rule button */}
+      {!ruleSegments.has("new") && (
         <Button className="gap-2" onClick={startBuilding}>
           <Plus className="h-4 w-4" />
           Neue Regel
@@ -745,6 +885,119 @@ function SegmentRenderer({
       {showSeparatorAfter && <ButtonGroupSeparator />}
     </>
   );
+}
+
+// Helper function to convert a condition tree back to segments for editing
+function conditionTreeToSegments(tree: unknown): Segment[] {
+  // Basic validation - if tree is invalid, start fresh
+  if (!tree || typeof tree !== "object") {
+    return [{ selected: null, type: "filter-type" }];
+  }
+
+  const segments: Segment[] = [];
+  const node = tree as Record<string, unknown>;
+
+  // Handle AND node with multiple conditions
+  if (node["nodeType"] === "AND" && Array.isArray(node["children"])) {
+    const children = node["children"] as Record<string, unknown>[];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (!child) {
+        continue;
+      }
+      const childSegments = parseConditionNode(child);
+      segments.push(...childSegments);
+
+      // Add conjunction between conditions (except after the last one)
+      if (i < children.length - 1) {
+        segments.push({ selected: "und", type: "conjunction" });
+      }
+    }
+  } else if (node["nodeType"] === "CONDITION") {
+    // Single condition without AND wrapper
+    const childSegments = parseConditionNode(node);
+    segments.push(...childSegments);
+  }
+
+  // Always end with the "dann" conjunction and action
+  segments.push({ selected: "dann", type: "conjunction" });
+
+  return segments;
+}
+
+// Helper to parse a single condition node into segments
+function parseConditionNode(node: Record<string, unknown>): Segment[] {
+  const segments: Segment[] = [];
+  const conditionType = node["conditionType"] as string;
+
+  // Add filter type segment
+  segments.push({
+    selected: conditionType as FilterType,
+    type: "filter-type",
+  });
+
+  // Handle different condition types
+  switch (conditionType) {
+    case "CONCURRENT_COUNT": {
+      const valueIds = node["valueIds"] as string[];
+      segments.push({
+        count: (node["valueNumber"] as null | number) ?? null,
+        crossTypeAppointmentTypes: null,
+        crossTypeComparison: null,
+        crossTypeCount: null,
+        scope: (valueIds[0] ?? null) as
+          | "location"
+          | "practice"
+          | "practitioner"
+          | null,
+        type: "concurrent-params",
+      });
+
+      break;
+    }
+    case "DAILY_CAPACITY": {
+      const valueIds = node["valueIds"] as string[];
+      segments.push({
+        count: (node["valueNumber"] as null | number) ?? null,
+        per: (valueIds[0] ?? null) as
+          | "location"
+          | "practice"
+          | "practitioner"
+          | null,
+        type: "daily-capacity-params",
+      });
+
+      break;
+    }
+    case "DAYS_AHEAD": {
+      segments.push({
+        days: (node["valueNumber"] as null | number) ?? null,
+        type: "days-ahead",
+      });
+
+      break;
+    }
+    default: {
+      // Handle filter types with operator and values (APPOINTMENT_TYPE, PRACTITIONER, LOCATION, DAY_OF_WEEK)
+      const operator = node["operator"] as string;
+      const isExclude = operator === "IS_NOT";
+
+      segments.push({
+        selected: isExclude ? "nicht" : "ist",
+        type: "operator",
+      });
+
+      const valueIds = node["valueIds"] as string[] | undefined;
+      segments.push({
+        filterType: conditionType as FilterType,
+        isExclude,
+        selected: valueIds ?? [],
+        type: "filter-value",
+      });
+    }
+  }
+
+  return segments;
 }
 
 // Helper function to build the Convex condition tree from segments
