@@ -2,7 +2,6 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
-import { api } from "./_generated/api";
 import { query } from "./_generated/server";
 import {
   availableSlotsResultValidator,
@@ -11,7 +10,7 @@ import {
 } from "./validators";
 
 interface SchedulingResultSlot {
-  blockedByRuleId?: Id<"rules">;
+  blockedByRuleId?: Id<"ruleConditions">; // Changed from "rules" to "ruleConditions"
   duration: number;
   locationId?: Id<"locations">;
   practitionerId: Id<"practitioners">;
@@ -42,7 +41,7 @@ export const getAvailableSlots = query({
     }
 
     // 1. Fetch all rules for this rule set
-    let rules: {
+    const rules: {
       [key: string]: unknown;
       _id: string;
       appliesTo?: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
@@ -60,6 +59,10 @@ export const getAvailableSlots = query({
       specificPractitioners?: string[];
     }[] = [];
 
+    // TODO: Implement rule evaluation with new ruleConditions system
+    // The old flat rules table has been replaced with a recursive condition tree
+    // Need to implement tree evaluation logic here
+    /*
     if (ruleSetId) {
       // Use the new rules system to get all rules for this rule set
       const allRules = await ctx.runQuery(api.entities.getRules, {
@@ -78,6 +81,12 @@ export const getAvailableSlots = query({
     } else {
       log.push("No rule set provided - no rules will be applied");
     }
+    */
+    log.push(
+      "Rule evaluation temporarily disabled - migration to new system in progress",
+    );
+    void rules; // Suppress unused variable warning
+    void ruleSetId;
 
     log.push(`Found ${rules.length} rules to evaluate`);
 
@@ -362,7 +371,8 @@ export const getAvailableSlots = query({
       };
 
       if (slot.blockedByRuleId) {
-        slotResult.blockedByRuleId = slot.blockedByRuleId as Id<"rules">;
+        slotResult.blockedByRuleId =
+          slot.blockedByRuleId as Id<"ruleConditions">; // Changed from "rules" to "ruleConditions"
       }
 
       if (slot.locationId) {

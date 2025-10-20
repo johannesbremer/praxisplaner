@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { de } from "date-fns/locale";
-import { Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -441,11 +441,11 @@ function LogicView() {
   }, [locationIdFromUrl, simulatedContext.locationId]);
   // No automatic URL mutation when unsaved exists; only mutate on user actions
 
-  // Fetch rules for the current working rule set
-  const rulesQuery = useQuery(
-    api.entities.getRules,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
-  );
+  // TODO: Fetch rules for the current working rule set (re-enable once new rule system is implemented)
+  // const rulesQuery = useQuery(
+  //   api.entities.getRules,
+  //   currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+  // );
 
   // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
   const year = selectedDate.getFullYear();
@@ -462,7 +462,6 @@ function LogicView() {
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
-
   const handleVersionClick = React.useCallback(
     (version: VersionNode) => {
       if (!currentPractice) {
@@ -819,25 +818,49 @@ function LogicView() {
                         </div>
                         {/* Rule Management Controls - New line for space reasons */}
                         <div className="flex gap-2 mt-4">
-                          {/* TODO: Implement new rule creation UI with button-group and combobox */}
-                          {currentWorkingRuleSet && (
-                            <Button disabled size="sm" variant="outline">
-                              <Plus className="h-4 w-4 mr-2" />
-                              Neue Regel (Coming Soon)
-                            </Button>
-                          )}
+                          {/* TODO: Re-enable once new rule system is implemented */}
+                          {/* Create New Rule Button - Always show */}
+                          {/* {currentWorkingRuleSet && (
+                            <RuleCreationFormNew
+                              customTrigger={
+                                unsavedRuleSet ? undefined : (
+                                  <Button
+                                    onClick={() => {
+                                      void ensureUnsavedRuleSet();
+                                    }}
+                                    size="sm"
+                                    variant="outline"
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Neue Regel
+                                  </Button>
+                                )
+                              }
+                              onRuleCreated={handleRuleChange}
+                              onRuleSetCreated={handleRuleSetCreated}
+                              practiceId={currentPractice._id}
+                              ruleSetId={currentWorkingRuleSet._id}
+                            />
+                          )} */}
                         </div>
                       </CardHeader>
                       <CardContent>
-                        {rulesQuery && currentWorkingRuleSet ? (
-                          <div className="text-center py-8 text-muted-foreground">
-                            TODO: Implement new rule list UI
-                          </div>
+                        {/* TODO: Re-enable once new rule system is implemented */}
+                        {/* {rulesQuery && currentWorkingRuleSet ? (
+                          <RuleListNew
+                            onRuleChanged={handleRuleChange}
+                            practiceId={currentPractice._id}
+                            rules={rulesQuery}
+                            ruleSetId={currentWorkingRuleSet._id}
+                          />
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
                             Lade Regeln...
                           </div>
-                        )}
+                        )} */}
+                        <div className="text-center py-8 text-muted-foreground">
+                          Regelbearbeitung wird aktuell überarbeitet...
+                        </div>
                       </CardContent>
                     </Card>
                   )}

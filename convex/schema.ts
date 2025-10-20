@@ -134,59 +134,113 @@ export default defineSchema({
     .index("by_practiceId_description", ["practiceId", "description"])
     .index("by_practiceId_saved", ["practiceId", "saved"]), // For finding unsaved rule sets
 
-  // Rules table - rules belong to a specific rule set (copy-on-write pattern)
-  rules: defineTable({
-    parentId: v.optional(v.id("rules")), // Reference to the entity this was copied from
-    practiceId: v.id("practices"), // Rules belong to a practice
-    ruleSetId: v.id("ruleSets"), // Rules belong to a specific rule set
-    ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
+  /**
+   * Rule Conditions Table - Recursive Tree Structure for Boolean Logic
+   *
+   * This table stores BOTH the rule metadata AND the condition tree nodes.
+   * Each rule is represented by a root condition node (where parentConditionId is null and isRoot is true).
+   * Child conditions reference their parent via parentConditionId, creating a recursive tree.
+   *
+   * Root nodes (rules) have:
+   * - isRoot: true
+   * - parentConditionId: null
+   * - enabled: can disable without deleting
+   *
+   * Child nodes (conditions) have:
+   * - isRoot: false
+   * - parentConditionId: reference to parent condition
+   * - nodeType: AND/NOT/CONDITION
+   *
+   * All nodes (root and children) have:
+   * - practiceId, ruleSetId: for security and querying
+   * - copyFromId: for copy-on-write tracking
+   * - createdAt, lastModified: for auditing
+   *
+   * Example tree for: "(appointmentType IS 'Checkup' AND dayOfWeek IS Monday) AND NOT (location IS 'Dissen')"
+   *
+   * Root (Rule: "Block certain appointments")
+   *  └─ Child (AND)
+   *      ├─ Child (AND)
+   *      │   ├─ Leaf: appointmentType IS 'Checkup'
+   *      │   └─ Leaf: dayOfWeek IS Monday
+   *      └─ Child (NOT)
+   *          └─ Leaf: location IS 'Dissen'
+   */
+  ruleConditions: defineTable({
+    // Metadata - required for ALL nodes (root and children) for security and querying
+    copyFromId: v.optional(v.id("ruleConditions")), // Copy-on-write reference
+    practiceId: v.id("practices"), // Multi-tenancy security
+    ruleSetId: v.id("ruleSets"), // Easy querying of all conditions in a rule set
 
-    // Filters - array of conditions combined with AND logic
-    filters: v.array(
-      v.object({
-        mode: v.union(v.literal("include"), v.literal("exclude")), // ist / nicht
-        type: v.union(
-          v.literal("appointmentType"),
-          v.literal("dayOfWeek"),
-          v.literal("location"),
-          v.literal("practitioner"),
-          v.literal("clientType"),
-          v.literal("daysAhead"),
-          v.literal("dailyCapacity"),
-        ),
-        values: v.array(v.string()), // IDs or values (empty for special types like daysAhead)
+    // Tree structure - recursive parent reference
+    childOrder: v.number(), // Order among siblings (for UI consistency and evaluation order)
+    parentConditionId: v.optional(v.id("ruleConditions")), // null for root nodes (rules)
 
-        // Special fields for specific filter types
-        count: v.optional(v.number()), // for dailyCapacity
-        days: v.optional(v.number()), // for daysAhead
-        per: v.optional(
-          v.union(v.literal("practitioner"), v.literal("location")),
-        ), // for dailyCapacity
-      }),
+    // Root node (rule) metadata
+    enabled: v.optional(v.boolean()), // Only for root nodes - can disable without deleting
+    isRoot: v.boolean(), // true = this is a rule (root of tree), false = this is a condition node
+
+    // Node type: logical operator or leaf condition (for non-root nodes)
+    nodeType: v.optional(
+      v.union(
+        v.literal("AND"), // All children must be true
+        v.literal("NOT"), // Negates single child
+        v.literal("CONDITION"), // Leaf node with actual test
+      ),
     ),
 
-    // Optional condition (e.g., concurrent bookings)
-    condition: v.optional(
-      v.object({
-        count: v.number(),
-        scope: v.union(v.literal("location"), v.literal("practice")),
-        type: v.literal("concurrent"),
+    // For leaf nodes (nodeType === "CONDITION") - what to test
+    conditionType: v.optional(
+      v.union(
+        // Basic filters
+        v.literal("APPOINTMENT_TYPE"), // Test appointment type name
+        v.literal("DAY_OF_WEEK"), // Test day of week (0-6)
+        v.literal("LOCATION"), // Test location ID
+        v.literal("PRACTITIONER"), // Test practitioner ID
+        v.literal("PRACTITIONER_TAG"), // Test if practitioner has tag
 
-        // Cross-type condition
-        crossTypeAppointmentTypes: v.optional(v.array(v.string())),
-        crossTypeComparison: v.optional(
-          v.union(v.literal(">"), v.literal("="), v.literal("<")),
-        ),
-        crossTypeCount: v.optional(v.number()),
-      }),
+        // Time-based
+        v.literal("DATE_RANGE"), // Test if date is in range
+        v.literal("TIME_RANGE"), // Test if time is in range
+        v.literal("DAYS_AHEAD"), // Test booking advance time
+
+        // Capacity-based
+        v.literal("DAILY_CAPACITY"), // Test appointments per day
+        v.literal("CONCURRENT_COUNT"), // Test concurrent appointments
+
+        // Client source
+        v.literal("CLIENT_TYPE"), // Online, MFA, Phone-AI, etc.
+      ),
     ),
+
+    // Comparison operator for leaf conditions
+    operator: v.optional(
+      v.union(
+        v.literal("IS"), // Equals (single value)
+        v.literal("IS_NOT"), // Not equals (single value)
+        v.literal("GREATER_THAN_OR_EQUAL"), // >= (numeric)
+        v.literal("LESS_THAN_OR_EQUAL"), // <= (numeric)
+        v.literal("EQUALS"), // == (numeric)
+      ),
+    ),
+
+    // Polymorphic value storage - only populate what's needed
+    valueIds: v.optional(v.array(v.string())), // For ID arrays (stored as strings)
+    valueNumber: v.optional(v.number()), // For single numeric values
 
     // Metadata
-    enabled: v.boolean(),
+    createdAt: v.int64(),
+    lastModified: v.int64(),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
-    .index("by_ruleSetId_enabled", ["ruleSetId", "enabled"]) // For querying active rules
-    .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+    .index("by_ruleSetId_isRoot", ["ruleSetId", "isRoot"]) // Get all rules (roots) for a rule set
+    .index("by_ruleSetId_isRoot_enabled", ["ruleSetId", "isRoot", "enabled"]) // Get enabled rules
+    .index("by_parentConditionId", ["parentConditionId"]) // Get children of a node
+    .index("by_parentConditionId_childOrder", [
+      "parentConditionId",
+      "childOrder",
+    ]) // Ordered children
+    .index("by_copyFromId", ["copyFromId"])
+    .index("by_copyFromId_ruleSetId", ["copyFromId", "ruleSetId"]),
 });

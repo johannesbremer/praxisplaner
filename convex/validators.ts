@@ -55,7 +55,7 @@ export const availableSlotsResultValidator = v.object({
   log: v.array(v.string()),
   slots: v.array(
     v.object({
-      blockedByRuleId: v.optional(v.id("rules")),
+      blockedByRuleId: v.optional(v.id("ruleConditions")), // Changed from "rules" to "ruleConditions"
       duration: v.number(),
       locationId: v.optional(v.id("locations")),
       practitionerId: v.id("practitioners"),

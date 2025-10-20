@@ -346,82 +346,38 @@ export async function copyBaseSchedules(
 }
 
 /**
- * Copy all rules from source to target rule set.
- * Remaps practitioner, location, and appointment type IDs in filters to the new rule set's entities.
+ * Copy rule conditions (rules) from source rule set to target rule set.
+ * TODO: Implement recursive copying of rule condition trees
+ * For now, this is a placeholder that does nothing.
  */
-export async function copyRules(
+export function copyRuleConditions(
   db: DatabaseWriter,
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
-  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
-): Promise<void> {
-  const sourceRules = await db
-    .query("rules")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
-    .collect();
+): void {
+  // TODO: Implement recursive tree copying
+  // This will need to:
+  // 1. Find all root conditions (isRoot=true) in source rule set
+  // 2. For each root, recursively copy the entire condition tree
+  // 3. Remap any practitioner/location IDs in condition values
+  // 4. Maintain parent-child relationships in the new rule set
 
-  for (const source of sourceRules) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { _creationTime, _id, ruleSetId, ...ruleData } = source;
-
-    // Remap IDs in filters
-    const remappedFilters = source.filters.map((filter) => {
-      // For filters that reference entity IDs, remap them to the new rule set
-      if (filter.type === "practitioner") {
-        const remappedValues = filter.values
-          .map((id) => practitionerIdMap.get(id as Id<"practitioners">))
-          .filter((id): id is Id<"practitioners"> => id !== undefined)
-          .map(String);
-        return { ...filter, values: remappedValues };
-      }
-
-      if (filter.type === "location") {
-        const remappedValues = filter.values
-          .map((id) => locationIdMap.get(id as Id<"locations">))
-          .filter((id): id is Id<"locations"> => id !== undefined)
-          .map(String);
-        return { ...filter, values: remappedValues };
-      }
-
-      if (filter.type === "appointmentType") {
-        const remappedValues = filter.values
-          .map((id) => appointmentTypeIdMap.get(id as Id<"appointmentTypes">))
-          .filter((id): id is Id<"appointmentTypes"> => id !== undefined)
-          .map(String);
-        return { ...filter, values: remappedValues };
-      }
-
-      // Other filter types don't contain entity IDs
-      return filter;
-    });
-
-    // Remap appointment type IDs in condition if present
-    let remappedCondition = source.condition;
-    if (source.condition?.crossTypeAppointmentTypes) {
-      const remappedCrossTypes = source.condition.crossTypeAppointmentTypes
-        .map((id) => appointmentTypeIdMap.get(id as Id<"appointmentTypes">))
-        .filter((id): id is Id<"appointmentTypes"> => id !== undefined)
-        .map(String);
-
-      remappedCondition = {
-        ...source.condition,
-        crossTypeAppointmentTypes: remappedCrossTypes,
-      };
-    }
-
-    await db.insert("rules", {
-      ...ruleData,
-      filters: remappedFilters,
-      ...(remappedCondition !== undefined && { condition: remappedCondition }),
-      parentId: source._id, // Track which entity this was copied from
-      ruleSetId: targetRuleSetId,
-    });
-  }
+  // Placeholder - no-op for now
+  void db;
+  void sourceRuleSetId;
+  void targetRuleSetId;
+  void practitionerIdMap;
+  void locationIdMap;
 }
 
 /**
+ * Copy all entities from source rule set to target rule set.
+ * This is the main atomic operation that ensures all entities are copied together.
+ * ```
+ *
+ * /**
  * Copy all entities from source rule set to target rule set.
  * This is the main atomic operation that ensures all entities are copied together.
  */
@@ -438,7 +394,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  const appointmentTypeIdMap = await copyAppointmentTypes(
+  await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -462,13 +418,12 @@ export async function copyAllEntities(
     locationIdMap,
   );
 
-  // Copy rules with mapped IDs
-  await copyRules(
+  // Copy rule conditions with mapped IDs
+  copyRuleConditions(
     db,
     sourceRuleSetId,
     targetRuleSetId,
     practitionerIdMap,
     locationIdMap,
-    appointmentTypeIdMap,
   );
 }
