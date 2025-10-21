@@ -106,7 +106,7 @@ export function Combobox({
         <Button
           aria-expanded={open}
           className={cn(
-            "justify-between min-w-[150px]",
+            "justify-between w-auto",
             selectedValues.length === 0 && "text-muted-foreground",
             className,
           )}

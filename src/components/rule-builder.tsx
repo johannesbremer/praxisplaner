@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   ButtonGroup,
   ButtonGroupSeparator,
+  ButtonGroupText,
 } from "@/components/ui/button-group";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -104,36 +105,30 @@ export function RuleBuilder({
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
   const existingRules = useQuery(api.entities.getRules, { ruleSetId });
 
+  // Check if all data is loaded
+  const dataReady = Boolean(appointmentTypes && practitioners && locations);
+
   // Map of rule ID to segments (for existing AND new rules)
-  // Initialize with existing rules when they first load
-  const [ruleSegments, setRuleSegments] = useState(() => {
+  // Only initialize when data is ready
+  const [ruleSegments, setRuleSegments] = useState(
+    () => new Map<"new" | Id<"ruleConditions">, Segment[]>(),
+  );
+
+  // Initialize segments from existing rules - memoized to only compute when needed
+  const initializedSegments = useMemo(() => {
+    if (!dataReady || !existingRules) {
+      return new Map<"new" | Id<"ruleConditions">, Segment[]>();
+    }
     const map = new Map<"new" | Id<"ruleConditions">, Segment[]>();
-    if (existingRules) {
-      for (const rule of existingRules) {
-        map.set(rule._id, conditionTreeToSegments(rule.conditionTree));
-      }
+    for (const rule of existingRules) {
+      map.set(rule._id, conditionTreeToSegments(rule.conditionTree));
     }
     return map;
-  });
+  }, [dataReady, existingRules]);
 
-  // When existing rules change (e.g., first load from undefined to data),
-  // update our map to include them
-  if (existingRules) {
-    const currentRuleIds = new Set(ruleSegments.keys());
-
-    // Check if we have rules to add
-    const hasNewRules = existingRules.some((r) => !currentRuleIds.has(r._id));
-
-    if (hasNewRules) {
-      // This is safe because it only runs once when rules first load
-      const newMap = new Map(ruleSegments);
-      for (const rule of existingRules) {
-        if (!newMap.has(rule._id)) {
-          newMap.set(rule._id, conditionTreeToSegments(rule.conditionTree));
-        }
-      }
-      setRuleSegments(newMap);
-    }
+  // Sync state with initialized segments
+  if (initializedSegments.size > 0 && ruleSegments.size === 0) {
+    setRuleSegments(initializedSegments);
   }
 
   const startBuilding = () => {
@@ -354,12 +349,10 @@ export function RuleBuilder({
         sourceRuleSetId: ruleSetId,
       });
 
-      // Remove this rule from the map
-      setRuleSegments((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(ruleId);
-        return newMap;
-      });
+      // Don't delete from local state - let Convex reactively update existingRules
+      // When existingRules updates, useMemo will create a new initializedSegments map
+      // We need to force a re-sync by clearing the map, which will trigger the sync logic
+      setRuleSegments(new Map());
 
       onRuleCreated?.();
     } catch (error) {
@@ -389,13 +382,19 @@ export function RuleBuilder({
   // Helper to create segment renderers for a specific rule
   const renderRuleSegments = (ruleId: "new" | Id<"ruleConditions">) => {
     const segments = ruleSegments.get(ruleId) ?? [];
+
+    // Early return if data not ready (should never happen due to guards below, but satisfies linter)
+    if (!appointmentTypes || !locations || !practitioners) {
+      return null;
+    }
+
     return segments.map((segment, index) => (
       <SegmentRenderer
-        appointmentTypes={appointmentTypes ?? []}
+        appointmentTypes={appointmentTypes}
         hasAnyFilter={hasIncludeOrExcludeFilter(ruleId)}
         index={index}
         key={index}
-        locations={locations ?? []}
+        locations={locations}
         onConcurrentParamsUpdate={(idx, field, value) => {
           handleConcurrentParamsUpdate(ruleId, idx, field, value);
         }}
@@ -417,7 +416,7 @@ export function RuleBuilder({
         onOperatorSelect={(idx, operator, filterType) => {
           handleOperatorSelect(ruleId, idx, operator, filterType);
         }}
-        practitioners={practitioners ?? []}
+        practitioners={practitioners}
         segment={segment}
         segments={segments}
       />
@@ -426,24 +425,58 @@ export function RuleBuilder({
 
   return (
     <div className="space-y-4">
-      {/* Render all existing rules as editable segments */}
-      {existingRules?.map((rule) => {
-        const segments = ruleSegments.get(rule._id);
-        if (!segments) {
-          return null;
-        }
+      {/* Show loading state if data is still loading */}
+      {(!appointmentTypes || !practitioners || !locations) && (
+        <div className="text-sm text-muted-foreground">Lade Daten...</div>
+      )}
 
-        return (
-          <Card className="p-6" key={rule._id}>
+      {/* Render all existing rules as editable segments */}
+      {appointmentTypes &&
+        practitioners &&
+        locations &&
+        existingRules?.map((rule) => {
+          const segments = ruleSegments.get(rule._id);
+          if (!segments) {
+            return null;
+          }
+
+          return (
+            <Card className="p-6" key={rule._id}>
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div className="font-medium text-sm text-muted-foreground">
+                  {generateRuleName(segments)}
+                </div>
+                <Button
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    void handleDeleteRule(rule._id);
+                  }}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <ButtonGroup className="flex-wrap gap-y-2">
+                {renderRuleSegments(rule._id)}
+              </ButtonGroup>
+            </Card>
+          );
+        })}
+
+      {/* Render new rule being created */}
+      {appointmentTypes &&
+        practitioners &&
+        locations &&
+        ruleSegments.has("new") && (
+          <Card className="p-6">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div className="font-medium text-sm text-muted-foreground">
-                {generateRuleName(segments)}
+                Neue Regel
               </div>
               <Button
                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                onClick={() => {
-                  void handleDeleteRule(rule._id);
-                }}
+                onClick={removeNewRule}
                 size="icon"
                 variant="ghost"
               >
@@ -451,41 +484,21 @@ export function RuleBuilder({
               </Button>
             </div>
             <ButtonGroup className="flex-wrap gap-y-2">
-              {renderRuleSegments(rule._id)}
+              {renderRuleSegments("new")}
             </ButtonGroup>
           </Card>
-        );
-      })}
-
-      {/* Render new rule being created */}
-      {ruleSegments.has("new") && (
-        <Card className="p-6">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div className="font-medium text-sm text-muted-foreground">
-              Neue Regel
-            </div>
-            <Button
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-              onClick={removeNewRule}
-              size="icon"
-              variant="ghost"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-          <ButtonGroup className="flex-wrap gap-y-2">
-            {renderRuleSegments("new")}
-          </ButtonGroup>
-        </Card>
-      )}
+        )}
 
       {/* Add new rule button */}
-      {!ruleSegments.has("new") && (
-        <Button className="gap-2" onClick={startBuilding}>
-          <Plus className="h-4 w-4" />
-          Neue Regel
-        </Button>
-      )}
+      {appointmentTypes &&
+        practitioners &&
+        locations &&
+        !ruleSegments.has("new") && (
+          <Button className="gap-2" onClick={startBuilding}>
+            <Plus className="h-4 w-4" />
+            Neue Regel
+          </Button>
+        )}
     </div>
   );
 }
@@ -592,9 +605,7 @@ function ConcurrentParamsRenderer({
             placeholder="Termintypen..."
             value={segment.crossTypeAppointmentTypes ?? []}
           />
-          <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-muted-foreground bg-muted/50 border border-border rounded-md pointer-events-none">
-            {appointmentLabel}
-          </span>
+          <ButtonGroupText>{appointmentLabel}</ButtonGroupText>
         </>
       )}
     </>
@@ -630,9 +641,7 @@ function DailyCapacityParamsRenderer({
         type="number"
         value={segment.count || ""}
       />
-      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-muted-foreground bg-muted/50 border border-border rounded-md pointer-events-none">
-        oder mehr {appointmentLabel}
-      </span>
+      <ButtonGroupText>oder mehr {appointmentLabel}</ButtonGroupText>
       <Combobox
         onValueChange={(value: string | string[]) => {
           onUpdate(index, "per", value as string);
@@ -641,9 +650,7 @@ function DailyCapacityParamsRenderer({
         placeholder="pro..."
         value={segment.per || ""}
       />
-      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-muted-foreground bg-muted/50 border border-border rounded-md pointer-events-none">
-        gebucht wurden,
-      </span>
+      <ButtonGroupText>gebucht wurden,</ButtonGroupText>
     </>
   );
 }
@@ -672,9 +679,7 @@ function DaysAheadRenderer({
         type="number"
         value={segment.days || ""}
       />
-      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-muted-foreground bg-muted/50 border border-border rounded-md pointer-events-none">
-        {dayLabel}
-      </span>
+      <ButtonGroupText>{dayLabel}</ButtonGroupText>
     </>
   );
 }
