@@ -987,17 +987,59 @@ function parseConditionNode(node: Record<string, unknown>): Segment[] {
         type: "operator",
       });
 
-      const valueIds = node["valueIds"] as string[] | undefined;
-      segments.push({
-        filterType: conditionType as FilterType,
-        isExclude,
-        selected: valueIds ?? [],
-        type: "filter-value",
-      });
+      // Special handling for DAY_OF_WEEK: convert valueNumber to day name
+      if (conditionType === "DAY_OF_WEEK") {
+        const dayNumber = (node["valueNumber"] as null | number) ?? 0;
+        const dayName = dayNumberToName(dayNumber);
+
+        segments.push({
+          filterType: conditionType as FilterType,
+          isExclude,
+          selected: [dayName],
+          type: "filter-value",
+        });
+      } else {
+        const valueIds = node["valueIds"] as string[] | undefined;
+        segments.push({
+          filterType: conditionType as FilterType,
+          isExclude,
+          selected: valueIds ?? [],
+          type: "filter-value",
+        });
+      }
     }
   }
 
   return segments;
+}
+
+// Helper function to convert day name to numeric day of week
+// JavaScript Date.getDay() returns 0=Sunday, 1=Monday, ..., 6=Saturday
+function dayNameToNumber(dayName: string): number {
+  const dayMap: Record<string, number> = {
+    FRIDAY: 5,
+    MONDAY: 1,
+    SATURDAY: 6,
+    SUNDAY: 0,
+    THURSDAY: 4,
+    TUESDAY: 2,
+    WEDNESDAY: 3,
+  };
+  return dayMap[dayName] ?? 0;
+}
+
+// Helper function to convert numeric day of week to day name
+function dayNumberToName(dayNumber: number): string {
+  const dayNames = [
+    "SUNDAY",
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+  ];
+  return dayNames[dayNumber] ?? "SUNDAY";
 }
 
 // Helper function to build the Convex condition tree from segments
@@ -1010,12 +1052,28 @@ function buildConditionTree(segments: Segment[]): unknown {
       const conditionType = seg.filterType;
       const operator = seg.isExclude ? "IS_NOT" : "IS";
 
-      conditions.push({
-        conditionType,
-        nodeType: "CONDITION",
-        operator,
-        valueIds: seg.selected,
-      });
+      // Special handling for DAY_OF_WEEK: convert day names to numbers
+      if (conditionType === "DAY_OF_WEEK" && seg.selected.length > 0) {
+        // For DAY_OF_WEEK, we convert the first selected day name to a number
+        // Note: Current UI only allows single day selection, but we handle array
+        const dayName = seg.selected[0];
+        const dayNumber = dayName ? dayNameToNumber(dayName) : 0;
+
+        // DAY_OF_WEEK uses numeric comparison, so use EQUALS operator
+        conditions.push({
+          conditionType,
+          nodeType: "CONDITION",
+          operator: "EQUALS",
+          valueNumber: dayNumber,
+        });
+      } else {
+        conditions.push({
+          conditionType,
+          nodeType: "CONDITION",
+          operator,
+          valueIds: seg.selected,
+        });
+      }
     } else if (seg.type === "days-ahead" && seg.days !== null) {
       conditions.push({
         conditionType: "DAYS_AHEAD",

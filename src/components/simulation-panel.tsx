@@ -179,16 +179,23 @@ export function SimulationPanel({
         </TabsList>
 
         <TabsContent className="space-y-6" value="patient">
-          <div className="flex justify-center">
-            <PatientBookingFlow
-              dateRange={dateRange}
-              onSlotClick={handleSlotClick}
-              onUpdateSimulatedContext={setSimulatedContext}
-              practiceId={practiceId}
-              ruleSetId={simulationRuleSetId}
-              simulatedContext={simulatedContext}
-            />
-          </div>
+          {simulationRuleSetId ? (
+            <div className="flex justify-center">
+              <PatientBookingFlow
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={setSimulatedContext}
+                practiceId={practiceId}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={simulatedContext}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center p-8 text-muted-foreground">
+              Bitte wählen Sie einen Regelsatz aus, um die Patientensicht
+              anzuzeigen.
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent className="space-y-6" value="staff">

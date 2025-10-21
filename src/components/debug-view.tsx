@@ -60,58 +60,69 @@ export function DebugView({
     return contextWithoutLocation as SchedulingSimulatedContext;
   })();
 
+  // First query: Get available dates (lightweight)
+  const availableDatesResult = useQuery(api.scheduling.getAvailableDates, {
+    dateRange,
+    practiceId,
+    simulatedContext: sanitizedSimulatedContext,
+  });
+
+  // Track which date user wants to debug
+  const [selectedDebugDate, setSelectedDebugDate] = useState<null | string>(
+    null,
+  );
+
+  // Auto-select first available date and reset when context changes
+  const firstAvailableDate = availableDatesResult?.dates[0];
+  const contextKey = JSON.stringify(sanitizedSimulatedContext);
+
+  // Reset selected date when context changes
+  const [lastContextKey, setLastContextKey] = useState(contextKey);
+  if (lastContextKey !== contextKey) {
+    setLastContextKey(contextKey);
+    setSelectedDebugDate(null);
+  }
+
+  if (!selectedDebugDate && firstAvailableDate) {
+    setSelectedDebugDate(firstAvailableDate);
+  }
+
+  // Second query: Get slots for the selected date only
   const slotsResult = useQuery(
-    api.scheduling.getAvailableSlots,
-    ruleSetId
+    api.scheduling.getSlotsForDay,
+    selectedDebugDate && ruleSetId
       ? {
-          dateRange,
+          date: selectedDebugDate,
           practiceId,
           ruleSetId,
           simulatedContext: sanitizedSimulatedContext,
         }
-      : {
-          dateRange,
-          practiceId,
-          simulatedContext: sanitizedSimulatedContext,
-        },
+      : "skip",
   );
 
-  if (!slotsResult) {
+  if (!availableDatesResult) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Debug: Slot Analysis</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-muted-foreground">Loading slots...</div>
+          <div className="text-muted-foreground">
+            Loading available dates...
+          </div>
         </CardContent>
       </Card>
     );
   }
 
-  const availableSlots = slotsResult.slots.filter(
-    (slot): slot is SchedulingSlot => slot.status === "AVAILABLE",
-  );
-  const blockedSlots = slotsResult.slots.filter(
-    (slot): slot is SchedulingSlot => slot.status === "BLOCKED",
-  );
-
-  // Group slots by date
-  const slotsByDate = new Map<string, SchedulingSlot[]>();
-  for (const slot of slotsResult.slots) {
-    const date = new Date(slot.startTime).toDateString();
-    if (!slotsByDate.has(date)) {
-      slotsByDate.set(date, []);
-    }
-    const dateSlots = slotsByDate.get(date);
-    if (dateSlots) {
-      dateSlots.push(slot);
-    }
-  }
-
-  const sortedDates = [...slotsByDate.keys()].toSorted(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
+  const availableSlots =
+    slotsResult?.slots.filter(
+      (slot): slot is SchedulingSlot => slot.status === "AVAILABLE",
+    ) ?? [];
+  const blockedSlots =
+    slotsResult?.slots.filter(
+      (slot): slot is SchedulingSlot => slot.status === "BLOCKED",
+    ) ?? [];
 
   return (
     <>
@@ -120,38 +131,57 @@ export function DebugView({
           <CardTitle>Debug: Slot Analysis</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span>Available ({availableSlots.length})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <span>Blocked ({blockedSlots.length})</span>
-            </div>
+          {/* Date Selector */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Select Date to Debug:</label>
+            <select
+              className="w-full p-2 border rounded"
+              onChange={(e) => {
+                setSelectedDebugDate(e.target.value);
+              }}
+              value={selectedDebugDate ?? ""}
+            >
+              {availableDatesResult.dates.map((dateStr) => {
+                const date = new Date(dateStr + "T00:00:00");
+                return (
+                  <option key={dateStr} value={dateStr}>
+                    {format(date, "EEEE, d. MMMM yyyy", { locale: de })}
+                  </option>
+                );
+              })}
+            </select>
           </div>
 
-          {sortedDates.length === 0 ? (
-            <div className="text-center py-4 text-muted-foreground">
-              No slots found in the selected time range.
-            </div>
-          ) : (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {sortedDates.map((dateString) => {
-                const date = new Date(dateString);
-                const daySlots = slotsByDate.get(dateString);
+          {slotsResult ? (
+            <>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span>Available ({availableSlots.length})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <span>Blocked ({blockedSlots.length})</span>
+                </div>
+              </div>
 
-                if (!daySlots) {
-                  return null;
-                }
-
-                return (
-                  <div key={dateString}>
+              {slotsResult.slots.length === 0 ? (
+                <div className="text-center py-4 text-muted-foreground">
+                  No slots found for this date.
+                </div>
+              ) : (
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  <div>
                     <h4 className="font-medium mb-2 text-sm">
-                      {format(date, "EEEE, d. MMMM", { locale: de })}
+                      {selectedDebugDate &&
+                        format(
+                          new Date(selectedDebugDate + "T00:00:00"),
+                          "EEEE, d. MMMM",
+                          { locale: de },
+                        )}
                     </h4>
                     <div className="grid gap-1 grid-cols-3">
-                      {daySlots
+                      {slotsResult.slots
                         .toSorted(
                           (a, b) =>
                             new Date(a.startTime).getTime() -
@@ -205,12 +235,16 @@ export function DebugView({
                         })}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-muted-foreground">
+              Loading slots for selected date...
             </div>
           )}
 
-          {slotsResult.log.length > 0 && (
+          {slotsResult && slotsResult.log.length > 0 && (
             <div className="mt-4">
               <h4 className="font-semibold mb-2 text-sm">
                 Rule Processing Log

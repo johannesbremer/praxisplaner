@@ -42,20 +42,27 @@ export function PatientView({
   showDebugInfo = false,
   simulatedContext,
 }: PatientViewProps) {
+  // First query: Get available dates for the calendar (lightweight, no rule evaluation)
+  const availableDatesResult = useQuery(api.scheduling.getAvailableDates, {
+    dateRange,
+    practiceId,
+    simulatedContext,
+  });
+
+  // Selected day state - initialized later based on available dates
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+
+  // Second query: Get slots for the selected date only (with full rule evaluation)
   const slotsResult = useQuery(
-    api.scheduling.getAvailableSlots,
-    ruleSetId
+    api.scheduling.getSlotsForDay,
+    selectedDate && ruleSetId
       ? {
-          dateRange,
+          date: format(selectedDate, "yyyy-MM-dd"),
           practiceId,
           ruleSetId,
           simulatedContext,
         }
-      : {
-          dateRange,
-          practiceId,
-          simulatedContext,
-        },
+      : "skip",
   );
 
   const allSlots = useMemo<SchedulingSlot[]>(
@@ -87,11 +94,16 @@ export function PatientView({
   }, [dateRange.start, dateRange.end]);
 
   const datesWithAvailabilities = useMemo(() => {
-    const set = new Set(
-      availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
-    );
+    const set = new Set<string>();
+    if (availableDatesResult?.dates) {
+      for (const dateStr of availableDatesResult.dates) {
+        // Convert YYYY-MM-DD to Date and get toDateString() format
+        const date = new Date(dateStr + "T00:00:00");
+        set.add(date.toDateString());
+      }
+    }
     return set;
-  }, [availableSlots]);
+  }, [availableDatesResult]);
 
   // Load public holidays
   const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
@@ -125,8 +137,7 @@ export function PatientView({
     return first;
   }, [datesWithAvailabilities]);
 
-  // Initialize selectedDate with firstAvailableDate when available
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  // Track last first available date to detect changes and auto-initialize selection
   const [lastFirstAvailableDate, setLastFirstAvailableDate] = useState<
     Date | undefined
   >(firstAvailableDate);

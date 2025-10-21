@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 
 import type {
   SchedulingDateRange,
-  SchedulingRuleSetId,
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
@@ -41,7 +40,7 @@ interface PatientFocusedViewProps {
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  ruleSetId: Id<"ruleSets">;
   simulatedContext: SchedulingSimulatedContext;
 }
 
@@ -66,10 +65,7 @@ export function PatientFocusedView({
   );
 
   // Fetch available locations
-  const locationsQuery = useQuery(
-    api.entities.getLocations,
-    ruleSetId ? { ruleSetId } : "skip",
-  );
+  const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
 
   // Create expanded date range for calendar (half a year from calendar start)
   const calendarEndDate = useMemo(() => {
@@ -78,11 +74,6 @@ export function PatientFocusedView({
     d.setHours(23, 59, 59, 999);
     return d;
   }, [calendarStartDate]);
-
-  const calendarDateRange = {
-    end: calendarEndDate.toISOString(),
-    start: calendarStartDate.toISOString(),
-  } satisfies SchedulingDateRange;
 
   // Create the simulated context with selected location
   const effectiveSimulatedContext: SchedulingSimulatedContext = (() => {
@@ -98,37 +89,31 @@ export function PatientFocusedView({
     return contextWithoutLocation as SchedulingSimulatedContext;
   })();
 
-  const slotsResult = useQuery(
-    api.scheduling.getAvailableSlots,
-    // Only fetch slots if a location is selected
-    selectedLocationId && ruleSetId
+  const calendarDateRange = {
+    end: calendarEndDate.toISOString(),
+    start: calendarStartDate.toISOString(),
+  } satisfies SchedulingDateRange;
+
+  // Get available dates for the calendar (lightweight query, no rule evaluation)
+  const availableDatesResult = useQuery(
+    api.scheduling.getAvailableDates,
+    selectedLocationId
       ? {
           dateRange: calendarDateRange,
           practiceId,
-          ruleSetId,
           simulatedContext: effectiveSimulatedContext,
         }
-      : selectedLocationId
-        ? {
-            dateRange: calendarDateRange,
-            practiceId,
-            simulatedContext: effectiveSimulatedContext,
-          }
-        : "skip",
+      : "skip",
   );
+
+  // Track which date the user has selected for slot viewing
+  const [userSelectedDate, setUserSelectedDate] = useState<Date | undefined>();
 
   const isLocationsLoading = !locationsQuery;
   const safeLocations = locationsQuery ?? [];
 
-  // Process slots data only when we have it
-  const allSlots = useMemo<SchedulingSlot[]>(
-    () => slotsResult?.slots ?? [],
-    [slotsResult],
-  );
-  const availableSlots = useMemo<SchedulingSlot[]>(
-    () => allSlots.filter((slot) => slot.status === "AVAILABLE"),
-    [allSlots],
-  );
+  // Note: We now get slots for the selected date directly from getSlotsForDay query
+  // No need to process or filter them here since the query returns single-day results
 
   // Compute date helpers for integrated calendar
   const windowStart = useMemo(
@@ -154,9 +139,18 @@ export function PatientFocusedView({
     [calendarEndDate],
   );
 
-  const datesWithAvailabilities = new Set(
-    availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
-  );
+  // Use availableDatesResult from the lightweight query to populate calendar
+  const datesWithAvailabilities = useMemo(() => {
+    const set = new Set<string>();
+    if (availableDatesResult?.dates) {
+      for (const dateStr of availableDatesResult.dates) {
+        // Convert YYYY-MM-DD to Date and get toDateString() format for matching
+        const date = new Date(dateStr + "T00:00:00");
+        set.add(date.toDateString());
+      }
+    }
+    return set;
+  }, [availableDatesResult]);
 
   // Load public holidays
   const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
@@ -216,6 +210,28 @@ export function PatientFocusedView({
     setInternalSelectedDate(date);
   };
 
+  // Derive userSelectedDate: when not explicitly set by user, use selectedDate if all conditions are met
+  // This ensures slots load automatically when the component first renders with a valid date
+  const effectiveUserSelectedDate =
+    userSelectedDate ??
+    (selectedDate && selectedLocationId && ruleSetId
+      ? selectedDate
+      : undefined);
+
+  // Use getSlotsForDay when user has selected a specific date
+  // This avoids the 32k document limit by only processing one day at a time
+  const slotsResult = useQuery(
+    api.scheduling.getSlotsForDay,
+    selectedLocationId && ruleSetId && effectiveUserSelectedDate
+      ? {
+          date: format(effectiveUserSelectedDate, "yyyy-MM-dd"),
+          practiceId,
+          ruleSetId,
+          simulatedContext: effectiveSimulatedContext,
+        }
+      : "skip",
+  );
+
   // Check if selected date is a public holiday
   const selectedDateHolidayName =
     publicHolidaysLoaded && selectedDate
@@ -236,14 +252,11 @@ export function PatientFocusedView({
     }
   }
 
+  // Use slots from the single-day query, filtering out blocked slots
   const slotsForSelectedDate =
-    selectedDate && !selectedDateHolidayName
-      ? availableSlots
-          .filter(
-            (slot) =>
-              new Date(slot.startTime).toDateString() ===
-              selectedDate.toDateString(),
-          )
+    selectedDate && !selectedDateHolidayName && slotsResult?.slots
+      ? slotsResult.slots
+          .filter((slot) => slot.status === "AVAILABLE")
           .toSorted(
             (slotA, slotB) =>
               new Date(slotA.startTime).getTime() -
@@ -287,6 +300,7 @@ export function PatientFocusedView({
               appointmentType: type,
             });
           }}
+          ruleSetId={ruleSetId}
           selectedType={simulatedContext.appointmentType}
         />
 
@@ -333,6 +347,7 @@ export function PatientFocusedView({
                           }}
                           onSelect={(d) => {
                             setSelectedDate(d ?? undefined);
+                            setUserSelectedDate(d ?? undefined);
                           }}
                           selected={selectedDate}
                           showOutsideDays={false}

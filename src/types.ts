@@ -2,15 +2,20 @@
 
 import type { Doc } from "../convex/_generated/dataModel";
 
-export type SchedulingDateRange = SchedulingQuery["_args"]["dateRange"];
+// Use getSlotsForDay as the base query type since getAvailableSlots was removed
+export interface SchedulingDateRange {
+  end: string;
+  start: string;
+}
 export type SchedulingResult = SchedulingQuery["_returnType"];
 
 export type SchedulingRuleSetId = SchedulingQuery["_args"]["ruleSetId"];
 export type SchedulingSimulatedContext =
   SchedulingQuery["_args"]["simulatedContext"];
+
 export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
 type ConvexApi = typeof import("../convex/_generated/api").api;
-type SchedulingQuery = ConvexApi["scheduling"]["getAvailableSlots"];
+type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
 
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";

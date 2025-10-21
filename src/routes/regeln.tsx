@@ -814,16 +814,23 @@ function LogicView() {
 
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
-                <div className="flex justify-center">
-                  <PatientBookingFlow
-                    dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
-                    onUpdateSimulatedContext={setSimulatedContext}
-                    practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
-                    simulatedContext={simulatedContext}
-                  />
-                </div>
+                {ruleSetIdFromUrl ? (
+                  <div className="flex justify-center">
+                    <PatientBookingFlow
+                      dateRange={dateRange}
+                      onSlotClick={handleSlotClick}
+                      onUpdateSimulatedContext={setSimulatedContext}
+                      practiceId={currentPractice._id}
+                      ruleSetId={ruleSetIdFromUrl}
+                      simulatedContext={simulatedContext}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center p-8 text-muted-foreground">
+                    Bitte wählen Sie einen Regelsatz aus, um die Patientensicht
+                    anzuzeigen.
+                  </div>
+                )}
 
                 <SimulationControls
                   isClearingSimulatedAppointments={
@@ -1242,15 +1249,18 @@ function SimulationControls({
           </Select>
         </div>
 
-        <AppointmentTypeSelector
-          onTypeSelect={(type: string) => {
-            onSimulatedContextChange({
-              ...simulatedContext,
-              appointmentType: type,
-            });
-          }}
-          selectedType={simulatedContext.appointmentType}
-        />
+        {simulationRuleSetId && (
+          <AppointmentTypeSelector
+            onTypeSelect={(type: string) => {
+              onSimulatedContextChange({
+                ...simulatedContext,
+                appointmentType: type,
+              });
+            }}
+            ruleSetId={simulationRuleSetId}
+            selectedType={simulatedContext.appointmentType}
+          />
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="patient-type">Patiententyp</Label>
