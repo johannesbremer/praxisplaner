@@ -17,17 +17,16 @@ import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/src/components/combobox";
 
 // UI segment types
-type ConjunctionType = "concurrent" | "dann" | "und";
+type ConjunctionType = "dann" | "und";
 
 type FilterType =
   | "APPOINTMENT_TYPE"
   | "CONCURRENT_COUNT"
-  | "DAILY_CAPACITY"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
-  | "PRACTITIONER";
-type OperatorType = "ist" | "nicht";
+  | "PRACTITIONER"
+  | "SAME_DAY_COUNT";
 
 interface RuleBuilderProps {
   onRuleCreated?: () => void;
@@ -37,17 +36,16 @@ interface RuleBuilderProps {
 
 type Segment =
   | {
+      appointmentTypes: null | string[];
       count: null | number;
-      crossTypeAppointmentTypes: null | string[];
-      crossTypeComparison: "EQUALS" | "GREATER_THAN_OR_EQUAL" | null;
-      crossTypeCount: null | number;
       scope: "location" | "practice" | "practitioner" | null;
       type: "concurrent-params";
     }
   | {
+      appointmentTypes: null | string[];
       count: null | number;
-      per: "location" | "practice" | "practitioner" | null;
-      type: "daily-capacity-params";
+      scope: "location" | "practice" | "practitioner" | null;
+      type: "same-day-params";
     }
   | { days: null | number; type: "days-ahead" }
   | {
@@ -57,8 +55,7 @@ type Segment =
       type: "filter-value";
     }
   | { selected: ConjunctionType | null; type: "conjunction" }
-  | { selected: FilterType | null; type: "filter-type" }
-  | { selected: null | OperatorType; type: "operator" };
+  | { selected: FilterType | null; type: "filter-type" };
 
 interface SegmentRendererProps {
   appointmentTypes: Doc<"appointmentTypes">[];
@@ -71,18 +68,17 @@ interface SegmentRendererProps {
     value: null | number | string | string[],
   ) => void;
   onConjunctionSelect: (index: number, conjunction: ConjunctionType) => void;
-  onDailyCapacityParamsUpdate: (
-    index: number,
-    field: "count" | "per",
-    value: null | number | string,
-  ) => void;
   onDaysAheadUpdate: (index: number, days: number) => void;
   onFilterTypeSelect: (index: number, filterType: FilterType) => void;
-  onFilterValueSelect: (index: number, values: string | string[]) => void;
-  onOperatorSelect: (
+  onFilterValueSelect: (
     index: number,
-    operator: OperatorType,
-    filterType: FilterType,
+    values: string | string[],
+    isExclude: boolean,
+  ) => void;
+  onSameDayParamsUpdate: (
+    index: number,
+    field: string,
+    value: null | number | string | string[],
   ) => void;
   practitioners: Doc<"practitioners">[];
   segment: Segment;
@@ -181,48 +177,54 @@ export function RuleBuilder({
   ) => {
     updateSegment(ruleId, index, { selected: filterType });
 
-    if (filterType === "DAYS_AHEAD") {
-      addSegment(ruleId, {
-        days: null,
-        type: "days-ahead",
-      });
-    } else if (filterType === "DAILY_CAPACITY") {
-      addSegment(ruleId, {
-        count: null,
-        per: null,
-        type: "daily-capacity-params",
-      });
-    } else {
-      addSegment(ruleId, {
-        selected: null,
-        type: "operator",
-      });
+    switch (filterType) {
+      case "CONCURRENT_COUNT": {
+        addSegment(ruleId, {
+          appointmentTypes: null,
+          count: null,
+          scope: null,
+          type: "concurrent-params",
+        });
+
+        break;
+      }
+      case "DAYS_AHEAD": {
+        addSegment(ruleId, {
+          days: null,
+          type: "days-ahead",
+        });
+
+        break;
+      }
+      case "SAME_DAY_COUNT": {
+        addSegment(ruleId, {
+          appointmentTypes: null,
+          count: null,
+          scope: null,
+          type: "same-day-params",
+        });
+
+        break;
+      }
+      default: {
+        addSegment(ruleId, {
+          filterType,
+          isExclude: false,
+          selected: [],
+          type: "filter-value",
+        });
+      }
     }
-  };
-
-  const handleOperatorSelect = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    operator: OperatorType,
-    filterType: FilterType,
-  ) => {
-    updateSegment(ruleId, index, { selected: operator });
-
-    addSegment(ruleId, {
-      filterType,
-      isExclude: operator === "nicht",
-      selected: [],
-      type: "filter-value",
-    });
   };
 
   const handleFilterValueSelect = (
     ruleId: "new" | Id<"ruleConditions">,
     index: number,
     values: string | string[],
+    isExclude: boolean,
   ) => {
     const valueArray = Array.isArray(values) ? values : [values];
-    updateSegment(ruleId, index, { selected: valueArray });
+    updateSegment(ruleId, index, { isExclude, selected: valueArray });
 
     addSegment(ruleId, {
       selected: null,
@@ -256,49 +258,11 @@ export function RuleBuilder({
       // Rule is complete, auto-save
       void handleSave(ruleId);
       return;
-    } else if (conjunction === "concurrent") {
-      addSegment(ruleId, {
-        count: null,
-        crossTypeAppointmentTypes: null,
-        crossTypeComparison: null,
-        crossTypeCount: null,
-        scope: null,
-        type: "concurrent-params",
-      });
     } else {
       addSegment(ruleId, {
         selected: null,
         type: "filter-type",
       });
-    }
-  };
-
-  const handleDailyCapacityParamsUpdate = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    field: "count" | "per",
-    value: null | number | string,
-  ) => {
-    updateSegment(ruleId, index, { [field]: value });
-
-    const segments = ruleSegments.get(ruleId) ?? [];
-    const seg = segments[index];
-    if (
-      seg?.type === "daily-capacity-params" &&
-      seg.count !== null &&
-      seg.count > 0 &&
-      seg.per !== null
-    ) {
-      const nextIndex = index + 1;
-      if (
-        nextIndex >= segments.length ||
-        segments[nextIndex]?.type !== "conjunction"
-      ) {
-        addSegment(ruleId, {
-          selected: null,
-          type: "conjunction",
-        });
-      }
     }
   };
 
@@ -308,7 +272,66 @@ export function RuleBuilder({
     field: string,
     value: null | number | string | string[],
   ) => {
+    // Check if all required fields will be filled after this update
+    const segments = ruleSegments.get(ruleId) ?? [];
+    const currentSeg = segments[index];
+    if (currentSeg?.type !== "concurrent-params") {
+      return;
+    }
+
+    // Create a copy of the segment with the new value
+    const updatedSeg = { ...currentSeg, [field]: value };
+
+    // Update the segment (this truncates segments after index)
     updateSegment(ruleId, index, { [field]: value });
+
+    // If all required fields are now filled, add a conjunction segment
+    if (
+      updatedSeg.count !== null &&
+      updatedSeg.count > 0 &&
+      updatedSeg.appointmentTypes !== null &&
+      updatedSeg.appointmentTypes.length > 0 &&
+      updatedSeg.scope !== null
+    ) {
+      addSegment(ruleId, {
+        selected: null,
+        type: "conjunction",
+      });
+    }
+  };
+
+  const handleSameDayParamsUpdate = (
+    ruleId: "new" | Id<"ruleConditions">,
+    index: number,
+    field: string,
+    value: null | number | string | string[],
+  ) => {
+    // Check if all required fields will be filled after this update
+    const segments = ruleSegments.get(ruleId) ?? [];
+    const currentSeg = segments[index];
+    if (currentSeg?.type !== "same-day-params") {
+      return;
+    }
+
+    // Create a copy of the segment with the new value
+    const updatedSeg = { ...currentSeg, [field]: value };
+
+    // Update the segment (this truncates segments after index)
+    updateSegment(ruleId, index, { [field]: value });
+
+    // If all required fields are now filled, add a conjunction segment
+    if (
+      updatedSeg.count !== null &&
+      updatedSeg.count > 0 &&
+      updatedSeg.appointmentTypes !== null &&
+      updatedSeg.appointmentTypes.length > 0 &&
+      updatedSeg.scope !== null
+    ) {
+      addSegment(ruleId, {
+        selected: null,
+        type: "conjunction",
+      });
+    }
   };
 
   const hasIncludeOrExcludeFilter = (ruleId: "new" | Id<"ruleConditions">) => {
@@ -317,7 +340,8 @@ export function RuleBuilder({
       (seg) =>
         seg.type === "filter-value" ||
         seg.type === "days-ahead" ||
-        seg.type === "daily-capacity-params",
+        seg.type === "concurrent-params" ||
+        seg.type === "same-day-params",
     );
   };
 
@@ -401,20 +425,17 @@ export function RuleBuilder({
         onConjunctionSelect={(idx, conjunction) => {
           handleConjunctionSelect(ruleId, idx, conjunction);
         }}
-        onDailyCapacityParamsUpdate={(idx, field, value) => {
-          handleDailyCapacityParamsUpdate(ruleId, idx, field, value);
-        }}
         onDaysAheadUpdate={(idx, days) => {
           handleDaysAheadUpdate(ruleId, idx, days);
         }}
         onFilterTypeSelect={(idx, filterType) => {
           handleFilterTypeSelect(ruleId, idx, filterType);
         }}
-        onFilterValueSelect={(idx, values) => {
-          handleFilterValueSelect(ruleId, idx, values);
+        onFilterValueSelect={(idx, values, isExclude) => {
+          handleFilterValueSelect(ruleId, idx, values, isExclude);
         }}
-        onOperatorSelect={(idx, operator, filterType) => {
-          handleOperatorSelect(ruleId, idx, operator, filterType);
+        onSameDayParamsUpdate={(idx, field, value) => {
+          handleSameDayParamsUpdate(ruleId, idx, field, value);
         }}
         practitioners={practitioners}
         segment={segment}
@@ -505,14 +526,12 @@ export function RuleBuilder({
 
 function ConcurrentParamsRenderer({
   appointmentTypes,
-  comparisonOperatorOptions,
   concurrentScopeOptions,
   index,
   onUpdate,
   segment,
 }: {
   appointmentTypes: Doc<"appointmentTypes">[];
-  comparisonOperatorOptions: ComboboxOption[];
   concurrentScopeOptions: ComboboxOption[];
   index: number;
   onUpdate: (
@@ -522,13 +541,6 @@ function ConcurrentParamsRenderer({
   ) => void;
   segment: Extract<Segment, { type: "concurrent-params" }>;
 }) {
-  const hasCrossType =
-    (segment.crossTypeAppointmentTypes &&
-      segment.crossTypeAppointmentTypes.length > 0) ||
-    segment.crossTypeCount !== null;
-  const appointmentLabel =
-    segment.crossTypeCount === 1 ? "gebucht ist," : "gebucht sind,";
-
   const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
     (at) => ({
       label: at.name,
@@ -549,6 +561,16 @@ function ConcurrentParamsRenderer({
         type="number"
         value={segment.count ?? ""}
       />
+      <ButtonGroupText>oder mehr</ButtonGroupText>
+      <Combobox
+        multiple
+        onValueChange={(value: string | string[]) => {
+          onUpdate(index, "appointmentTypes", value);
+        }}
+        options={appointmentTypeOptions}
+        placeholder="Termintypen..."
+        value={segment.appointmentTypes ?? []}
+      />
       <Combobox
         onValueChange={(value: string | string[]) => {
           onUpdate(index, "scope", value);
@@ -556,99 +578,6 @@ function ConcurrentParamsRenderer({
         options={concurrentScopeOptions}
         placeholder="Bereich..."
         value={segment.scope || ""}
-      />
-      <Combobox
-        onValueChange={(value: string | string[]) => {
-          if (value === "none") {
-            onUpdate(index, "crossTypeAppointmentTypes", null);
-            onUpdate(index, "crossTypeCount", null);
-            onUpdate(index, "crossTypeComparison", null);
-          }
-        }}
-        options={[
-          { label: "und", value: "none" },
-          { label: "nur wenn bereits", value: "cross-type" },
-        ]}
-        placeholder="Optional..."
-        value={hasCrossType ? "cross-type" : "none"}
-      />
-      {hasCrossType && (
-        <>
-          <Combobox
-            onValueChange={(value: string | string[]) => {
-              onUpdate(index, "crossTypeComparison", value);
-            }}
-            options={comparisonOperatorOptions}
-            placeholder="Vergleich..."
-            value={segment.crossTypeComparison || ""}
-          />
-          <Input
-            className="w-20"
-            min="1"
-            onChange={(e) => {
-              onUpdate(
-                index,
-                "crossTypeCount",
-                Number.parseInt(e.target.value) || null,
-              );
-            }}
-            placeholder="Anzahl"
-            type="number"
-            value={segment.crossTypeCount ?? ""}
-          />
-          <Combobox
-            multiple
-            onValueChange={(value: string | string[]) => {
-              onUpdate(index, "crossTypeAppointmentTypes", value);
-            }}
-            options={appointmentTypeOptions}
-            placeholder="Termintypen..."
-            value={segment.crossTypeAppointmentTypes ?? []}
-          />
-          <ButtonGroupText>{appointmentLabel}</ButtonGroupText>
-        </>
-      )}
-    </>
-  );
-}
-
-function DailyCapacityParamsRenderer({
-  dailyCapacityPerOptions,
-  index,
-  onUpdate,
-  segment,
-}: {
-  dailyCapacityPerOptions: ComboboxOption[];
-  index: number;
-  onUpdate: (
-    index: number,
-    field: "count" | "per",
-    value: null | number | string,
-  ) => void;
-  segment: Extract<Segment, { type: "daily-capacity-params" }>;
-}) {
-  const appointmentLabel = segment.count === 1 ? "Termin" : "Termine";
-
-  return (
-    <>
-      <Input
-        className="w-20"
-        min="1"
-        onChange={(e) => {
-          onUpdate(index, "count", Number.parseInt(e.target.value) || null);
-        }}
-        placeholder="Anzahl"
-        type="number"
-        value={segment.count || ""}
-      />
-      <ButtonGroupText>oder mehr {appointmentLabel}</ButtonGroupText>
-      <Combobox
-        onValueChange={(value: string | string[]) => {
-          onUpdate(index, "per", value as string);
-        }}
-        options={dailyCapacityPerOptions}
-        placeholder="pro..."
-        value={segment.per || ""}
       />
       <ButtonGroupText>gebucht wurden,</ButtonGroupText>
     </>
@@ -665,7 +594,7 @@ function DaysAheadRenderer({
   segment: Extract<Segment, { type: "days-ahead" }>;
 }) {
   const dayLabel =
-    segment.days === 1 ? "Tag entfernt ist," : "Tage entfernt ist,";
+    segment.days === 1 ? "Tag entfernt ist" : "Tage entfernt ist";
 
   return (
     <>
@@ -679,7 +608,67 @@ function DaysAheadRenderer({
         type="number"
         value={segment.days || ""}
       />
-      <ButtonGroupText>{dayLabel}</ButtonGroupText>
+      <ButtonGroupText>{dayLabel},</ButtonGroupText>
+    </>
+  );
+}
+
+function SameDayParamsRenderer({
+  appointmentTypes,
+  index,
+  onUpdate,
+  sameDayScopeOptions,
+  segment,
+}: {
+  appointmentTypes: Doc<"appointmentTypes">[];
+  index: number;
+  onUpdate: (
+    index: number,
+    field: string,
+    value: null | number | string | string[],
+  ) => void;
+  sameDayScopeOptions: ComboboxOption[];
+  segment: Extract<Segment, { type: "same-day-params" }>;
+}) {
+  const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
+    (at) => ({
+      label: at.name,
+      value: at._id,
+    }),
+  );
+
+  return (
+    <>
+      <Input
+        className="w-20"
+        min="0"
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value);
+          onUpdate(index, "count", Number.isNaN(parsed) ? null : parsed);
+        }}
+        placeholder="Anzahl"
+        type="number"
+        value={segment.count ?? ""}
+      />
+      <ButtonGroupText>oder mehr</ButtonGroupText>
+      <Combobox
+        multiple
+        onValueChange={(value: string | string[]) => {
+          onUpdate(index, "appointmentTypes", value);
+        }}
+        options={appointmentTypeOptions}
+        placeholder="Termintypen..."
+        value={segment.appointmentTypes ?? []}
+      />
+      <Combobox
+        onValueChange={(value: string | string[]) => {
+          onUpdate(index, "scope", value);
+        }}
+        options={sameDayScopeOptions}
+        placeholder="Bereich..."
+        value={segment.scope || ""}
+      />
+      <ButtonGroupText>gebucht wurden,</ButtonGroupText>
     </>
   );
 }
@@ -691,26 +680,34 @@ function SegmentRenderer({
   locations,
   onConcurrentParamsUpdate,
   onConjunctionSelect,
-  onDailyCapacityParamsUpdate,
   onDaysAheadUpdate,
   onFilterTypeSelect,
   onFilterValueSelect,
-  onOperatorSelect,
+  onSameDayParamsUpdate,
   practitioners,
   segment,
   segments,
 }: SegmentRendererProps) {
   const showSeparatorAfter =
-    segment.type === "daily-capacity-params" ||
-    segment.type === "concurrent-params";
+    segment.type === "concurrent-params" || segment.type === "same-day-params";
+
+  const isFirstCondition = segments
+    .slice(0, index)
+    .every(
+      (s) =>
+        s.type !== "filter-type" &&
+        s.type !== "concurrent-params" &&
+        s.type !== "same-day-params",
+    );
 
   const filterTypeOptions: ComboboxOption[] = [
-    { label: "Termintyp", value: "APPOINTMENT_TYPE" },
-    { label: "Behandler", value: "PRACTITIONER" },
-    { label: "Standort", value: "LOCATION" },
-    { label: "Wochentag", value: "DAY_OF_WEEK" },
-    { label: "Der Termin", value: "DAYS_AHEAD" },
-    { label: "Tageskapazität", value: "DAILY_CAPACITY" },
+    { label: "der Termintyp", value: "APPOINTMENT_TYPE" },
+    { label: "der Behandler", value: "PRACTITIONER" },
+    { label: "der Standort", value: "LOCATION" },
+    { label: "der Wochentag", value: "DAY_OF_WEEK" },
+    { label: "der Termin", value: "DAYS_AHEAD" },
+    { label: "gleichzeitig", value: "CONCURRENT_COUNT" },
+    { label: "am gleichen Tag", value: "SAME_DAY_COUNT" },
   ];
 
   const getFilterValueOptions = (filterType: FilterType): ComboboxOption[] => {
@@ -751,18 +748,7 @@ function SegmentRenderer({
   };
 
   const getConjunctionOptions = (): ComboboxOption[] => {
-    const hasCondition = segments.some(
-      (seg) => seg.type === "concurrent-params",
-    );
-
     const baseOptions: ComboboxOption[] = [{ label: "und", value: "und" }];
-
-    if (!hasCondition) {
-      baseOptions.push({
-        label: "gleichzeitig max.",
-        value: "concurrent",
-      });
-    }
 
     if (hasAnyFilter) {
       baseOptions.push({
@@ -774,78 +760,69 @@ function SegmentRenderer({
     return baseOptions;
   };
 
-  const getFilterTypeForOperator = (): FilterType | null => {
-    const filterTypeSegment = segments
-      .slice(0, index)
-      .toReversed()
-      .find((s) => s.type === "filter-type");
-    return filterTypeSegment?.type === "filter-type"
-      ? filterTypeSegment.selected
-      : null;
-  };
-
-  const dailyCapacityPerOptions: ComboboxOption[] = [
-    { label: "pro Behandler", value: "practitioner" },
-    { label: "pro Standort", value: "location" },
-    { label: "pro Praxis", value: "practice" },
+  const concurrentScopeOptions: ComboboxOption[] = [
+    { label: "am gleichen Standort", value: "location" },
+    { label: "in der gesamten Praxis", value: "practice" },
   ];
 
-  const concurrentScopeOptions: ComboboxOption[] = [
+  const sameDayScopeOptions: ComboboxOption[] = [
     { label: "beim gleichen Behandler", value: "practitioner" },
     { label: "am gleichen Standort", value: "location" },
     { label: "in der gesamten Praxis", value: "practice" },
   ];
 
-  const comparisonOperatorOptions: ComboboxOption[] = [
-    { label: "mindestens", value: "GREATER_THAN_OR_EQUAL" },
-    { label: "genau", value: "EQUALS" },
-  ];
-
   return (
     <>
-      {segment.type === "filter-type" && (
-        <Combobox
-          onValueChange={(value: string | string[]) => {
-            onFilterTypeSelect(index, value as FilterType);
-          }}
-          options={filterTypeOptions}
-          placeholder="Filter wählen..."
-          value={segment.selected || ""}
-        />
+      {/* Add "Wenn" at the very beginning of the first condition */}
+      {isFirstCondition && index === 0 && (
+        <ButtonGroupText>Wenn</ButtonGroupText>
       )}
 
-      {segment.type === "operator" && (
-        <Combobox
-          onValueChange={(value: string | string[]) => {
-            const filterType = getFilterTypeForOperator();
-            if (filterType) {
-              onOperatorSelect(index, value as OperatorType, filterType);
-            }
-          }}
-          options={[
-            { label: "ist", value: "ist" },
-            { label: "nicht", value: "nicht" },
-          ]}
-          placeholder="Operator..."
-          value={segment.selected || ""}
-        />
+      {segment.type === "filter-type" && (
+        <>
+          {/* Add "wenn" before subsequent filter types */}
+          {!isFirstCondition && <ButtonGroupText>wenn</ButtonGroupText>}
+          <Combobox
+            onValueChange={(value: string | string[]) => {
+              onFilterTypeSelect(index, value as FilterType);
+            }}
+            options={filterTypeOptions}
+            placeholder="Filter wählen..."
+            value={segment.selected || ""}
+          />
+        </>
       )}
 
       {segment.type === "filter-value" && (
-        <Combobox
-          className={cn(
-            segment.isExclude &&
-              "bg-[var(--exclude-tint)] border-[var(--exclude-border)]",
-          )}
-          inverted={segment.isExclude}
-          multiple
-          onValueChange={(value: string | string[]) => {
-            onFilterValueSelect(index, value);
-          }}
-          options={getFilterValueOptions(segment.filterType)}
-          placeholder="Wert wählen..."
-          value={segment.selected}
-        />
+        <>
+          <Combobox
+            onValueChange={(value: string | string[]) => {
+              const isExclude = value === "nicht";
+              onFilterValueSelect(index, segment.selected, isExclude);
+            }}
+            options={[
+              { label: "-", value: "" },
+              { label: "nicht", value: "nicht" },
+            ]}
+            placeholder=""
+            value={segment.isExclude ? "nicht" : ""}
+          />
+          <Combobox
+            className={cn(
+              segment.isExclude &&
+                "bg-[var(--exclude-tint)] border-[var(--exclude-border)]",
+            )}
+            inverted={segment.isExclude}
+            multiple
+            onValueChange={(value: string | string[]) => {
+              onFilterValueSelect(index, value, segment.isExclude);
+            }}
+            options={getFilterValueOptions(segment.filterType)}
+            placeholder="Wert wählen..."
+            value={segment.selected}
+          />
+          <ButtonGroupText>ist,</ButtonGroupText>
+        </>
       )}
 
       {segment.type === "days-ahead" && (
@@ -867,22 +844,22 @@ function SegmentRenderer({
         />
       )}
 
-      {segment.type === "daily-capacity-params" && (
-        <DailyCapacityParamsRenderer
-          dailyCapacityPerOptions={dailyCapacityPerOptions}
+      {segment.type === "concurrent-params" && (
+        <ConcurrentParamsRenderer
+          appointmentTypes={appointmentTypes}
+          concurrentScopeOptions={concurrentScopeOptions}
           index={index}
-          onUpdate={onDailyCapacityParamsUpdate}
+          onUpdate={onConcurrentParamsUpdate}
           segment={segment}
         />
       )}
 
-      {segment.type === "concurrent-params" && (
-        <ConcurrentParamsRenderer
+      {segment.type === "same-day-params" && (
+        <SameDayParamsRenderer
           appointmentTypes={appointmentTypes}
-          comparisonOperatorOptions={comparisonOperatorOptions}
-          concurrentScopeOptions={concurrentScopeOptions}
           index={index}
-          onUpdate={onConcurrentParamsUpdate}
+          onUpdate={onSameDayParamsUpdate}
+          sameDayScopeOptions={sameDayScopeOptions}
           segment={segment}
         />
       )}
@@ -944,32 +921,20 @@ function parseConditionNode(node: Record<string, unknown>): Segment[] {
   // Handle different condition types
   switch (conditionType) {
     case "CONCURRENT_COUNT": {
-      const valueIds = node["valueIds"] as string[];
+      const valueIds = node["valueIds"] as string[] | undefined;
+      // First element is the scope, rest are appointment type IDs
+      const [scope, ...appointmentTypeIds] = valueIds ?? [];
+
       segments.push({
+        appointmentTypes:
+          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
         count: (node["valueNumber"] as null | number) ?? null,
-        crossTypeAppointmentTypes: null,
-        crossTypeComparison: null,
-        crossTypeCount: null,
-        scope: (valueIds[0] ?? null) as
+        scope: (scope ?? null) as
           | "location"
           | "practice"
           | "practitioner"
           | null,
         type: "concurrent-params",
-      });
-
-      break;
-    }
-    case "DAILY_CAPACITY": {
-      const valueIds = node["valueIds"] as string[];
-      segments.push({
-        count: (node["valueNumber"] as null | number) ?? null,
-        per: (valueIds[0] ?? null) as
-          | "location"
-          | "practice"
-          | "practitioner"
-          | null,
-        type: "daily-capacity-params",
       });
 
       break;
@@ -982,15 +947,29 @@ function parseConditionNode(node: Record<string, unknown>): Segment[] {
 
       break;
     }
-    default: {
-      // Handle filter types with operator and values (APPOINTMENT_TYPE, PRACTITIONER, LOCATION, DAY_OF_WEEK)
-      const operator = node["operator"] as string;
-      const isExclude = operator === "IS_NOT";
+    case "SAME_DAY_COUNT": {
+      const valueIds = node["valueIds"] as string[] | undefined;
+      // First element is the scope, rest are appointment type IDs
+      const [scope, ...appointmentTypeIds] = valueIds ?? [];
 
       segments.push({
-        selected: isExclude ? "nicht" : "ist",
-        type: "operator",
+        appointmentTypes:
+          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
+        count: (node["valueNumber"] as null | number) ?? null,
+        scope: (scope ?? null) as
+          | "location"
+          | "practice"
+          | "practitioner"
+          | null,
+        type: "same-day-params",
       });
+
+      break;
+    }
+    default: {
+      // Handle filter types with values (APPOINTMENT_TYPE, PRACTITIONER, LOCATION, DAY_OF_WEEK)
+      const operator = node["operator"] as string;
+      const isExclude = operator === "IS_NOT";
 
       // Special handling for DAY_OF_WEEK: convert valueNumber to day name
       if (conditionType === "DAY_OF_WEEK") {
@@ -1087,18 +1066,6 @@ function buildConditionTree(segments: Segment[]): unknown {
         valueNumber: seg.days,
       });
     } else if (
-      seg.type === "daily-capacity-params" &&
-      seg.count !== null &&
-      seg.per !== null
-    ) {
-      conditions.push({
-        conditionType: "DAILY_CAPACITY",
-        nodeType: "CONDITION",
-        operator: "GREATER_THAN_OR_EQUAL",
-        valueIds: [seg.per],
-        valueNumber: seg.count,
-      });
-    } else if (
       seg.type === "concurrent-params" &&
       seg.count !== null &&
       seg.scope !== null
@@ -1107,7 +1074,7 @@ function buildConditionTree(segments: Segment[]): unknown {
         conditionType: "CONCURRENT_COUNT",
         nodeType: "CONDITION",
         operator: "GREATER_THAN_OR_EQUAL",
-        valueIds: [seg.scope],
+        valueIds: [seg.scope, ...(seg.appointmentTypes ?? [])],
         valueNumber: seg.count,
       };
 
@@ -1115,6 +1082,23 @@ function buildConditionTree(segments: Segment[]): unknown {
       // This would require wrapping in AND node with additional conditions
 
       concurrentCondition = concurrentNode;
+    } else if (
+      seg.type === "same-day-params" &&
+      seg.count !== null &&
+      seg.scope !== null
+    ) {
+      const sameDayNode: Record<string, unknown> = {
+        conditionType: "SAME_DAY_COUNT",
+        nodeType: "CONDITION",
+        operator: "GREATER_THAN_OR_EQUAL",
+        valueIds: [seg.scope, ...(seg.appointmentTypes ?? [])],
+        valueNumber: seg.count,
+      };
+
+      // TODO: Handle cross-type conditions when specified
+      // This would require wrapping in AND node with additional conditions
+
+      concurrentCondition = sameDayNode;
     }
   }
 
@@ -1143,15 +1127,13 @@ function generateRuleName(segments: Segment[]): string {
       const filterTypeLabels: Record<FilterType, string> = {
         APPOINTMENT_TYPE: "Termintyp",
         CONCURRENT_COUNT: "Gleichzeitig",
-        DAILY_CAPACITY: "Tageskapazität",
         DAY_OF_WEEK: "Wochentag",
         DAYS_AHEAD: "Termin",
         LOCATION: "Standort",
         PRACTITIONER: "Behandler",
+        SAME_DAY_COUNT: "Am gleichen Tag",
       };
       parts.push(filterTypeLabels[seg.selected] || seg.selected);
-    } else if (seg.type === "operator" && seg.selected) {
-      parts.push(seg.selected);
     } else if (seg.type === "conjunction" && seg.selected === "und") {
       parts.push("und");
     }
