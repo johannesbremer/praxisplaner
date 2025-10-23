@@ -24,6 +24,7 @@ export interface ComboboxOption {
 }
 
 interface ComboboxProps {
+  "aria-invalid"?: boolean | undefined;
   className?: string;
   inverted?: boolean;
   multiple?: boolean;
@@ -34,6 +35,7 @@ interface ComboboxProps {
 }
 
 export function Combobox({
+  "aria-invalid": ariaInvalid,
   className,
   inverted = false,
   multiple = false,
@@ -105,9 +107,16 @@ export function Combobox({
       <PopoverTrigger asChild>
         <Button
           aria-expanded={open}
+          aria-invalid={ariaInvalid}
           className={cn(
             "justify-between w-auto",
             selectedValues.length === 0 && "text-muted-foreground",
+            ariaInvalid && [
+              "border-destructive",
+              "dark:border-destructive",
+              "ring-destructive/20",
+              "dark:ring-destructive/40",
+            ],
             className,
           )}
           role="combobox"

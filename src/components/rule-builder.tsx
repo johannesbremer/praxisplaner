@@ -1,25 +1,52 @@
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
-import { Plus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
-
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { Edit, Plus, Trash2, X } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  ButtonGroup,
-  ButtonGroupSeparator,
-  ButtonGroupText,
-} from "@/components/ui/button-group";
-import { Card } from "@/components/ui/card";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { api } from "@/convex/_generated/api";
-import { cn } from "@/lib/utils";
-import { Combobox, type ComboboxOption } from "@/src/components/combobox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-// UI segment types
-type ConjunctionType = "dann" | "und";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 
-type FilterType =
+import { api } from "../../convex/_generated/api";
+import { Combobox, type ComboboxOption } from "./combobox";
+
+// Condition types for the new list-based UI
+interface Condition {
+  id: string;
+  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT";
+  type: ConditionType;
+  valueIds?: string[];
+  valueNumber?: null | number;
+  // For concurrent/same-day count conditions
+  appointmentTypes?: null | string[];
+  count?: null | number;
+  scope?: "location" | "practice" | "practitioner" | null;
+}
+
+type ConditionType =
   | "APPOINTMENT_TYPE"
   | "CONCURRENT_COUNT"
   | "DAY_OF_WEEK"
@@ -28,61 +55,22 @@ type FilterType =
   | "PRACTITIONER"
   | "SAME_DAY_COUNT";
 
+// Validation helper
 interface RuleBuilderProps {
   onRuleCreated?: () => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
 
-type Segment =
-  | {
-      appointmentTypes: null | string[];
-      count: null | number;
-      scope: "location" | "practice" | "practitioner" | null;
-      type: "concurrent-params";
-    }
-  | {
-      appointmentTypes: null | string[];
-      count: null | number;
-      scope: "location" | "practice" | "practitioner" | null;
-      type: "same-day-params";
-    }
-  | { days: null | number; type: "days-ahead" }
-  | {
-      filterType: FilterType;
-      isExclude: boolean;
-      selected: string[];
-      type: "filter-value";
-    }
-  | { selected: ConjunctionType | null; type: "conjunction" }
-  | { selected: FilterType | null; type: "filter-type" };
-
-interface SegmentRendererProps {
-  appointmentTypes: Doc<"appointmentTypes">[];
-  hasAnyFilter: boolean;
-  index: number;
-  locations: Doc<"locations">[];
-  onConcurrentParamsUpdate: (
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => void;
-  onConjunctionSelect: (index: number, conjunction: ConjunctionType) => void;
-  onDaysAheadUpdate: (index: number, days: number) => void;
-  onFilterTypeSelect: (index: number, filterType: FilterType) => void;
-  onFilterValueSelect: (
-    index: number,
-    values: string | string[],
-    isExclude: boolean,
-  ) => void;
-  onSameDayParamsUpdate: (
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => void;
-  practitioners: Doc<"practitioners">[];
-  segment: Segment;
-  segments: Segment[];
+interface RuleFromDB {
+  _id: Id<"ruleConditions">;
+  conditionTree: unknown;
+  copyFromId: Id<"ruleConditions"> | undefined;
+  createdAt: bigint;
+  enabled: boolean;
+  lastModified: bigint;
+  practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
 }
 
 export function RuleBuilder({
@@ -104,294 +92,25 @@ export function RuleBuilder({
   // Check if all data is loaded
   const dataReady = Boolean(appointmentTypes && practitioners && locations);
 
-  // Map of rule ID to segments (for existing AND new rules)
-  // Only initialize when data is ready
-  const [ruleSegments, setRuleSegments] = useState(
-    () => new Map<"new" | Id<"ruleConditions">, Segment[]>(),
-  );
+  // Dialog state
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<
+    "new" | Id<"ruleConditions"> | null
+  >(null);
 
-  // Initialize segments from existing rules - memoized to only compute when needed
-  const initializedSegments = useMemo(() => {
-    if (!dataReady || !existingRules) {
-      return new Map<"new" | Id<"ruleConditions">, Segment[]>();
-    }
-    const map = new Map<"new" | Id<"ruleConditions">, Segment[]>();
-    for (const rule of existingRules) {
-      map.set(rule._id, conditionTreeToSegments(rule.conditionTree));
-    }
-    return map;
-  }, [dataReady, existingRules]);
-
-  // Sync state with initialized segments
-  if (initializedSegments.size > 0 && ruleSegments.size === 0) {
-    setRuleSegments(initializedSegments);
-  }
-
-  const startBuilding = () => {
-    setRuleSegments((prev) => {
-      const newMap = new Map(prev);
-      newMap.set("new", [{ selected: null, type: "filter-type" }]);
-      return newMap;
-    });
+  const openNewRuleDialog = () => {
+    setEditingRuleId("new");
+    setIsDialogOpen(true);
   };
 
-  const removeNewRule = () => {
-    setRuleSegments((prev) => {
-      const newMap = new Map(prev);
-      newMap.delete("new");
-      return newMap;
-    });
+  const openEditRuleDialog = (ruleId: Id<"ruleConditions">) => {
+    setEditingRuleId(ruleId);
+    setIsDialogOpen(true);
   };
 
-  const updateSegment = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    updates: Partial<Segment>,
-  ) => {
-    setRuleSegments((prev) => {
-      const newMap = new Map(prev);
-      const segments = newMap.get(ruleId) ?? [];
-      const newSegments = [...segments];
-      newSegments[index] = { ...newSegments[index], ...updates } as Segment;
-      newMap.set(ruleId, newSegments.slice(0, index + 1));
-      return newMap;
-    });
-  };
-
-  const addSegment = (
-    ruleId: "new" | Id<"ruleConditions">,
-    segment: Segment,
-  ) => {
-    setRuleSegments((prev) => {
-      const newMap = new Map(prev);
-      const segments = newMap.get(ruleId) ?? [];
-      newMap.set(ruleId, [...segments, segment]);
-      return newMap;
-    });
-  };
-
-  const handleFilterTypeSelect = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    filterType: FilterType,
-  ) => {
-    updateSegment(ruleId, index, { selected: filterType });
-
-    switch (filterType) {
-      case "CONCURRENT_COUNT": {
-        addSegment(ruleId, {
-          appointmentTypes: null,
-          count: null,
-          scope: null,
-          type: "concurrent-params",
-        });
-
-        break;
-      }
-      case "DAYS_AHEAD": {
-        addSegment(ruleId, {
-          days: null,
-          type: "days-ahead",
-        });
-
-        break;
-      }
-      case "SAME_DAY_COUNT": {
-        addSegment(ruleId, {
-          appointmentTypes: null,
-          count: null,
-          scope: null,
-          type: "same-day-params",
-        });
-
-        break;
-      }
-      default: {
-        addSegment(ruleId, {
-          filterType,
-          isExclude: false,
-          selected: [],
-          type: "filter-value",
-        });
-      }
-    }
-  };
-
-  const handleFilterValueSelect = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    values: string | string[],
-    isExclude: boolean,
-  ) => {
-    const valueArray = Array.isArray(values) ? values : [values];
-    updateSegment(ruleId, index, { isExclude, selected: valueArray });
-
-    addSegment(ruleId, {
-      selected: null,
-      type: "conjunction",
-    });
-  };
-
-  const handleDaysAheadUpdate = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    days: number,
-  ) => {
-    updateSegment(ruleId, index, { days });
-
-    if (days > 0) {
-      addSegment(ruleId, {
-        selected: null,
-        type: "conjunction",
-      });
-    }
-  };
-
-  const handleConjunctionSelect = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    conjunction: ConjunctionType,
-  ) => {
-    updateSegment(ruleId, index, { selected: conjunction });
-
-    if (conjunction === "dann") {
-      // Rule is complete, auto-save
-      void handleSave(ruleId);
-      return;
-    } else {
-      addSegment(ruleId, {
-        selected: null,
-        type: "filter-type",
-      });
-    }
-  };
-
-  const handleConcurrentParamsUpdate = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => {
-    // Check if all required fields will be filled after this update
-    const segments = ruleSegments.get(ruleId) ?? [];
-    const currentSeg = segments[index];
-    if (currentSeg?.type !== "concurrent-params") {
-      return;
-    }
-
-    // Create a copy of the segment with the new value
-    const updatedSeg = { ...currentSeg, [field]: value };
-
-    // Update the segment (this truncates segments after index)
-    updateSegment(ruleId, index, { [field]: value });
-
-    // If all required fields are now filled, add a conjunction segment
-    if (
-      updatedSeg.count !== null &&
-      updatedSeg.count > 0 &&
-      updatedSeg.appointmentTypes !== null &&
-      updatedSeg.appointmentTypes.length > 0 &&
-      updatedSeg.scope !== null
-    ) {
-      addSegment(ruleId, {
-        selected: null,
-        type: "conjunction",
-      });
-    }
-  };
-
-  const handleSameDayParamsUpdate = (
-    ruleId: "new" | Id<"ruleConditions">,
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => {
-    // Check if all required fields will be filled after this update
-    const segments = ruleSegments.get(ruleId) ?? [];
-    const currentSeg = segments[index];
-    if (currentSeg?.type !== "same-day-params") {
-      return;
-    }
-
-    // Create a copy of the segment with the new value
-    const updatedSeg = { ...currentSeg, [field]: value };
-
-    // Update the segment (this truncates segments after index)
-    updateSegment(ruleId, index, { [field]: value });
-
-    // If all required fields are now filled, add a conjunction segment
-    if (
-      updatedSeg.count !== null &&
-      updatedSeg.count > 0 &&
-      updatedSeg.appointmentTypes !== null &&
-      updatedSeg.appointmentTypes.length > 0 &&
-      updatedSeg.scope !== null
-    ) {
-      addSegment(ruleId, {
-        selected: null,
-        type: "conjunction",
-      });
-    }
-  };
-
-  const hasIncludeOrExcludeFilter = (ruleId: "new" | Id<"ruleConditions">) => {
-    const segments = ruleSegments.get(ruleId) ?? [];
-    return segments.some(
-      (seg) =>
-        seg.type === "filter-value" ||
-        seg.type === "days-ahead" ||
-        seg.type === "concurrent-params" ||
-        seg.type === "same-day-params",
-    );
-  };
-
-  const handleSave = async (ruleId: "new" | Id<"ruleConditions">) => {
-    const segments = ruleSegments.get(ruleId) ?? [];
-    // Build condition tree from segments
-    const conditionTree = buildConditionTree(segments);
-
-    // Generate rule name from segments
-    // Early return if data not ready (should never happen due to guards, but satisfies type checker)
-    if (!appointmentTypes || !practitioners || !locations) {
-      console.error("Cannot save rule: data not ready");
-      return;
-    }
-    const ruleName = generateRuleName(
-      segments,
-      appointmentTypes,
-      practitioners,
-      locations,
-    );
-
-    try {
-      if (ruleId !== "new") {
-        // Update existing rule (delete and recreate)
-        await deleteRuleMutation({
-          practiceId,
-          ruleId,
-          sourceRuleSetId: ruleSetId,
-        });
-      }
-
-      await createRuleMutation({
-        conditionTree: conditionTree as Parameters<
-          typeof createRuleMutation
-        >[0]["conditionTree"],
-        enabled: true,
-        name: ruleName,
-        practiceId,
-        sourceRuleSetId: ruleSetId,
-      });
-
-      // Don't delete from local state - let Convex reactively update existingRules
-      // When existingRules updates, useMemo will create a new initializedSegments map
-      // We need to force a re-sync by clearing the map, which will trigger the sync logic
-      setRuleSegments(new Map());
-
-      onRuleCreated?.();
-    } catch (error) {
-      console.error("Failed to save rule:", error);
-    }
+  const closeDialog = () => {
+    setIsDialogOpen(false);
+    setEditingRuleId(null);
   };
 
   const handleDeleteRule = async (ruleId: Id<"ruleConditions">) => {
@@ -401,356 +120,565 @@ export function RuleBuilder({
         ruleId,
         sourceRuleSetId: ruleSetId,
       });
-      // Remove from map
-      setRuleSegments((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(ruleId);
-        return newMap;
-      });
       onRuleCreated?.();
     } catch (error) {
       console.error("Failed to delete rule:", error);
     }
   };
 
-  // Helper to create segment renderers for a specific rule
-  const renderRuleSegments = (ruleId: "new" | Id<"ruleConditions">) => {
-    const segments = ruleSegments.get(ruleId) ?? [];
-
-    // Early return if data not ready (should never happen due to guards below, but satisfies linter)
-    if (!appointmentTypes || !locations || !practitioners) {
-      return null;
-    }
-
-    return segments.map((segment, index) => (
-      <SegmentRenderer
-        appointmentTypes={appointmentTypes}
-        hasAnyFilter={hasIncludeOrExcludeFilter(ruleId)}
-        index={index}
-        key={index}
-        locations={locations}
-        onConcurrentParamsUpdate={(idx, field, value) => {
-          handleConcurrentParamsUpdate(ruleId, idx, field, value);
-        }}
-        onConjunctionSelect={(idx, conjunction) => {
-          handleConjunctionSelect(ruleId, idx, conjunction);
-        }}
-        onDaysAheadUpdate={(idx, days) => {
-          handleDaysAheadUpdate(ruleId, idx, days);
-        }}
-        onFilterTypeSelect={(idx, filterType) => {
-          handleFilterTypeSelect(ruleId, idx, filterType);
-        }}
-        onFilterValueSelect={(idx, values, isExclude) => {
-          handleFilterValueSelect(ruleId, idx, values, isExclude);
-        }}
-        onSameDayParamsUpdate={(idx, field, value) => {
-          handleSameDayParamsUpdate(ruleId, idx, field, value);
-        }}
-        practitioners={practitioners}
-        segment={segment}
-        segments={segments}
-      />
-    ));
-  };
+  // Get existing rule for editing
+  const editingRule = existingRules?.find((r) => r._id === editingRuleId);
 
   return (
     <div className="space-y-4">
       {/* Show loading state if data is still loading */}
-      {(!appointmentTypes || !practitioners || !locations) && (
+      {!dataReady && (
         <div className="text-sm text-muted-foreground">Lade Daten...</div>
       )}
 
-      {/* Render all existing rules as editable segments */}
-      {appointmentTypes &&
-        practitioners &&
-        locations &&
+      {/* Render all existing rules as cards */}
+      {dataReady &&
         existingRules?.map((rule) => {
-          const segments = ruleSegments.get(rule._id);
-          if (!segments) {
-            return null;
-          }
+          const ruleName = generateRuleName(
+            conditionTreeToConditions(rule.conditionTree),
+            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+            appointmentTypes!,
+            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+            practitioners!,
+            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+            locations!,
+          );
 
           return (
-            <Card className="p-6" key={rule._id}>
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div className="font-medium text-sm text-muted-foreground">
-                  {generateRuleName(
-                    segments,
-                    appointmentTypes,
-                    practitioners,
-                    locations,
-                  )}
-                </div>
-                <Button
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => {
-                    void handleDeleteRule(rule._id);
-                  }}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <ButtonGroup className="flex-wrap gap-y-2">
-                {renderRuleSegments(rule._id)}
-              </ButtonGroup>
+            <Card key={rule._id}>
+              <CardHeader>
+                <CardTitle className="font-normal">{ruleName}</CardTitle>
+                <CardAction className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      openEditRuleDialog(rule._id);
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      void handleDeleteRule(rule._id);
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </CardAction>
+              </CardHeader>
             </Card>
           );
         })}
 
-      {/* Render new rule being created */}
-      {appointmentTypes &&
-        practitioners &&
-        locations &&
-        ruleSegments.has("new") && (
-          <Card className="p-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div className="font-medium text-sm text-muted-foreground">
-                Neue Regel
-              </div>
-              <Button
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                onClick={removeNewRule}
-                size="icon"
-                variant="ghost"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-            <ButtonGroup className="flex-wrap gap-y-2">
-              {renderRuleSegments("new")}
-            </ButtonGroup>
-          </Card>
-        )}
-
       {/* Add new rule button */}
-      {appointmentTypes &&
-        practitioners &&
-        locations &&
-        !ruleSegments.has("new") && (
-          <Button className="gap-2" onClick={startBuilding}>
-            <Plus className="h-4 w-4" />
-            Neue Regel
-          </Button>
-        )}
+      {dataReady && (
+        <Button className="gap-2" onClick={openNewRuleDialog}>
+          <Plus className="h-4 w-4" />
+          Neue Regel
+        </Button>
+      )}
+
+      {/* Edit/Create Rule Dialog */}
+      {dataReady && editingRuleId && (
+        <RuleEditDialog
+          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+          appointmentTypes={appointmentTypes!}
+          existingRule={editingRule}
+          isOpen={isDialogOpen}
+          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+          locations={locations!}
+          onClose={closeDialog}
+          onCreate={async (conditionTree) => {
+            if (editingRuleId !== "new") {
+              // Delete old rule first
+              await deleteRuleMutation({
+                practiceId,
+                ruleId: editingRuleId,
+                sourceRuleSetId: ruleSetId,
+              });
+            }
+
+            const conditions = conditionTreeToConditions(conditionTree);
+            const ruleName = generateRuleName(
+              conditions,
+              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+              appointmentTypes!,
+              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+              practitioners!,
+              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+              locations!,
+            );
+
+            await createRuleMutation({
+              conditionTree: conditionTree as Parameters<
+                typeof createRuleMutation
+              >[0]["conditionTree"],
+              enabled: true,
+              name: ruleName,
+              practiceId,
+              sourceRuleSetId: ruleSetId,
+            });
+
+            closeDialog();
+            onRuleCreated?.();
+          }}
+          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
+          practitioners={practitioners!}
+        />
+      )}
     </div>
   );
 }
 
-function ConcurrentParamsRenderer({
-  appointmentTypes,
-  concurrentScopeOptions,
-  index,
-  onUpdate,
-  segment,
-}: {
+function validateCondition(condition: Condition): string[] {
+  const invalidFields: string[] = [];
+
+  switch (condition.type) {
+    case "APPOINTMENT_TYPE":
+    case "DAY_OF_WEEK":
+    case "LOCATION":
+    case "PRACTITIONER": {
+      if (!condition.operator) {
+        invalidFields.push("operator");
+      }
+      if (!condition.valueIds || condition.valueIds.length === 0) {
+        invalidFields.push("valueIds");
+      }
+      break;
+    }
+    case "CONCURRENT_COUNT":
+    case "SAME_DAY_COUNT": {
+      if (!condition.count || condition.count < 1) {
+        invalidFields.push("count");
+      }
+      if (
+        !condition.appointmentTypes ||
+        condition.appointmentTypes.length === 0
+      ) {
+        invalidFields.push("appointmentTypes");
+      }
+      if (!condition.scope) {
+        invalidFields.push("scope");
+      }
+      break;
+    }
+    case "DAYS_AHEAD": {
+      if (!condition.valueNumber || condition.valueNumber < 1) {
+        invalidFields.push("valueNumber");
+      }
+      break;
+    }
+  }
+
+  return invalidFields;
+}
+
+// Helper to get user-friendly error message from field name
+function getErrorMessage(condition: Condition, invalidField: string): string {
+  switch (condition.type) {
+    case "APPOINTMENT_TYPE":
+    case "LOCATION":
+    case "PRACTITIONER": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie einen Operator aus.";
+      }
+      if (invalidField === "valueIds") {
+        return "Bitte wählen Sie mindestens einen Wert aus.";
+      }
+      return "";
+    }
+    case "CONCURRENT_COUNT":
+    case "SAME_DAY_COUNT": {
+      if (invalidField === "count") {
+        return "Bitte geben Sie eine Anzahl von mindestens 1 ein.";
+      }
+      if (invalidField === "appointmentTypes") {
+        return "Bitte wählen Sie mindestens einen Termintyp aus.";
+      }
+      if (invalidField === "scope") {
+        return "Bitte wählen Sie einen Bereich aus.";
+      }
+      return "";
+    }
+    case "DAY_OF_WEEK": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie einen Operator aus.";
+      }
+      if (invalidField === "valueIds") {
+        return "Bitte wählen Sie mindestens einen Wochentag aus.";
+      }
+      return "";
+    }
+    case "DAYS_AHEAD": {
+      if (invalidField === "valueNumber") {
+        return "Bitte geben Sie eine Anzahl von mindestens 1 Tag ein.";
+      }
+      return "";
+    }
+    default: {
+      return "";
+    }
+  }
+}
+
+// Edit Dialog Component
+interface RuleEditDialogProps {
   appointmentTypes: Doc<"appointmentTypes">[];
-  concurrentScopeOptions: ComboboxOption[];
-  index: number;
-  onUpdate: (
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => void;
-  segment: Extract<Segment, { type: "concurrent-params" }>;
-}) {
-  const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
-    (at) => ({
-      label: at.name,
-      value: at._id,
-    }),
-  );
-
-  return (
-    <>
-      <Input
-        className="w-20"
-        min="0"
-        onChange={(e) => {
-          const parsed = Number.parseInt(e.target.value);
-          onUpdate(index, "count", Number.isNaN(parsed) ? null : parsed);
-        }}
-        placeholder="Anzahl"
-        type="number"
-        value={segment.count ?? ""}
-      />
-      <ButtonGroupText>oder mehr</ButtonGroupText>
-      <Combobox
-        multiple
-        onValueChange={(value: string | string[]) => {
-          onUpdate(index, "appointmentTypes", value);
-        }}
-        options={appointmentTypeOptions}
-        placeholder="Termintypen..."
-        value={segment.appointmentTypes ?? []}
-      />
-      <Combobox
-        onValueChange={(value: string | string[]) => {
-          onUpdate(index, "scope", value);
-        }}
-        options={concurrentScopeOptions}
-        placeholder="Bereich..."
-        value={segment.scope || ""}
-      />
-      <ButtonGroupText>gebucht wurden,</ButtonGroupText>
-    </>
-  );
+  existingRule?: RuleFromDB | undefined;
+  isOpen: boolean;
+  locations: Doc<"locations">[];
+  onClose: () => void;
+  onCreate: (conditionTree: unknown) => Promise<void>;
+  practitioners: Doc<"practitioners">[];
 }
 
-function DaysAheadRenderer({
-  index,
-  onUpdate,
-  segment,
-}: {
-  index: number;
-  onUpdate: (index: number, days: number) => void;
-  segment: Extract<Segment, { type: "days-ahead" }>;
-}) {
-  const dayLabel =
-    segment.days === 1
-      ? "Tag oder mehr entfernt ist"
-      : "Tage oder mehr entfernt ist";
-
-  return (
-    <>
-      <Input
-        className="w-20"
-        min="1"
-        onChange={(e) => {
-          onUpdate(index, Number.parseInt(e.target.value) || 0);
-        }}
-        placeholder="Anzahl"
-        type="number"
-        value={segment.days || ""}
-      />
-      <ButtonGroupText>{dayLabel},</ButtonGroupText>
-    </>
-  );
-}
-
-function SameDayParamsRenderer({
+function RuleEditDialog({
   appointmentTypes,
-  index,
-  onUpdate,
-  sameDayScopeOptions,
-  segment,
-}: {
-  appointmentTypes: Doc<"appointmentTypes">[];
-  index: number;
-  onUpdate: (
-    index: number,
-    field: string,
-    value: null | number | string | string[],
-  ) => void;
-  sameDayScopeOptions: ComboboxOption[];
-  segment: Extract<Segment, { type: "same-day-params" }>;
-}) {
-  const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
-    (at) => ({
-      label: at.name,
-      value: at._id,
-    }),
-  );
-
-  return (
-    <>
-      <Input
-        className="w-20"
-        min="0"
-        onChange={(e) => {
-          const parsed = Number.parseInt(e.target.value);
-          onUpdate(index, "count", Number.isNaN(parsed) ? null : parsed);
-        }}
-        placeholder="Anzahl"
-        type="number"
-        value={segment.count ?? ""}
-      />
-      <ButtonGroupText>oder mehr</ButtonGroupText>
-      <Combobox
-        multiple
-        onValueChange={(value: string | string[]) => {
-          onUpdate(index, "appointmentTypes", value);
-        }}
-        options={appointmentTypeOptions}
-        placeholder="Termintypen..."
-        value={segment.appointmentTypes ?? []}
-      />
-      <Combobox
-        onValueChange={(value: string | string[]) => {
-          onUpdate(index, "scope", value);
-        }}
-        options={sameDayScopeOptions}
-        placeholder="Bereich..."
-        value={segment.scope || ""}
-      />
-      <ButtonGroupText>gebucht wurden,</ButtonGroupText>
-    </>
-  );
-}
-
-function SegmentRenderer({
-  appointmentTypes,
-  hasAnyFilter,
-  index,
+  existingRule,
+  isOpen,
   locations,
-  onConcurrentParamsUpdate,
-  onConjunctionSelect,
-  onDaysAheadUpdate,
-  onFilterTypeSelect,
-  onFilterValueSelect,
-  onSameDayParamsUpdate,
+  onClose,
+  onCreate,
   practitioners,
-  segment,
-  segments,
-}: SegmentRendererProps) {
-  const showSeparatorAfter =
-    segment.type === "concurrent-params" || segment.type === "same-day-params";
+}: RuleEditDialogProps) {
+  // Initialize conditions from existing rule or create new
+  const initialConditions: Condition[] = existingRule
+    ? conditionTreeToConditions(existingRule.conditionTree)
+    : [
+        {
+          id: "1",
+          operator: "IS",
+          type: "APPOINTMENT_TYPE",
+          valueIds: [],
+        },
+      ];
 
-  const isFirstCondition = segments
-    .slice(0, index)
-    .every(
-      (s) =>
-        s.type !== "filter-type" &&
-        s.type !== "concurrent-params" &&
-        s.type !== "same-day-params",
-    );
+  const form = useForm({
+    defaultValues: {
+      conditions: initialConditions,
+    },
+    onSubmit: async ({ value }) => {
+      const conditionTree = conditionsToConditionTree(value.conditions);
+      await onCreate(conditionTree);
+    },
+  });
 
-  const filterTypeOptions: ComboboxOption[] = [
-    { label: "der Termintyp", value: "APPOINTMENT_TYPE" },
-    { label: "der Behandler", value: "PRACTITIONER" },
-    { label: "der Standort", value: "LOCATION" },
-    { label: "der Wochentag", value: "DAY_OF_WEEK" },
-    { label: "der Termin", value: "DAYS_AHEAD" },
-    { label: "gleichzeitig", value: "CONCURRENT_COUNT" },
-    { label: "am gleichen Tag", value: "SAME_DAY_COUNT" },
+  return (
+    <Dialog onOpenChange={onClose} open={isOpen}>
+      <DialogContent className="max-w-5xl sm:max-w-5xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {existingRule ? "Regel bearbeiten" : "Neue Regel erstellen"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void form.handleSubmit();
+          }}
+        >
+          <FieldGroup>
+            <form.Field
+              mode="array"
+              name="conditions"
+              validators={{
+                onSubmit: ({ value }) => {
+                  // Validate each condition and collect errors with their index
+                  const errorMap = new Map<number, string[]>();
+                  for (const [index, condition] of value.entries()) {
+                    const errors = validateCondition(condition);
+                    if (errors.length > 0) {
+                      errorMap.set(index, errors);
+                    }
+                  }
+                  if (errorMap.size > 0) {
+                    return "Bitte füllen Sie alle erforderlichen Felder aus.";
+                  }
+                  return;
+                },
+              }}
+            >
+              {(field) => {
+                const isInvalid =
+                  field.state.meta.isTouched && !field.state.meta.isValid;
+
+                // Live preview of rule name
+                const previewRuleName = generateRuleName(
+                  field.state.value,
+                  appointmentTypes,
+                  practitioners,
+                  locations,
+                );
+
+                // Build error map for each condition with invalid field names
+                const conditionErrors = new Map<number, Map<string, string>>();
+                if (isInvalid) {
+                  for (const [
+                    index,
+                    condition,
+                  ] of field.state.value.entries()) {
+                    const invalidFields = validateCondition(condition);
+                    if (invalidFields.length > 0) {
+                      const fieldErrors = new Map<string, string>();
+                      for (const invalidField of invalidFields) {
+                        const message = getErrorMessage(
+                          condition,
+                          invalidField,
+                        );
+                        fieldErrors.set(invalidField, message);
+                      }
+                      conditionErrors.set(index, fieldErrors);
+                    }
+                  }
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {field.state.value.map((condition, index) => {
+                      const fieldErrors = conditionErrors.get(index);
+
+                      return (
+                        <div key={condition.id}>
+                          <ConditionEditor
+                            appointmentTypes={appointmentTypes}
+                            condition={condition}
+                            invalidFields={fieldErrors}
+                            locations={locations}
+                            onRemove={() => {
+                              field.removeValue(index);
+                            }}
+                            onUpdate={(updates) => {
+                              field.replaceValue(index, {
+                                ...condition,
+                                ...updates,
+                              });
+                            }}
+                            practitioners={practitioners}
+                            showRemove={field.state.value.length > 1}
+                          />
+                          {fieldErrors && fieldErrors.size > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {[...fieldErrors.values()].map((message, i) => (
+                                <FieldError errors={[{ message }]} key={i} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <Button
+                      className="gap-2"
+                      onClick={() => {
+                        field.pushValue({
+                          id: String(
+                            Math.max(
+                              0,
+                              ...field.state.value.map((c) => Number(c.id)),
+                            ) + 1,
+                          ),
+                          operator: "IS",
+                          type: "APPOINTMENT_TYPE",
+                          valueIds: [],
+                        } as Condition);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Bedingung hinzufügen
+                    </Button>
+                    {/* Live Preview */}
+                    <div className="border-t pt-4 mt-4">
+                      <FieldDescription className="mt-2 p-3 bg-muted rounded-md">
+                        {previewRuleName}
+                      </FieldDescription>
+                    </div>
+                  </div>
+                );
+              }}
+            </form.Field>
+          </FieldGroup>
+
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Abbrechen
+              </Button>
+            </DialogClose>
+            <Button type="submit">
+              {existingRule ? "Aktualisieren" : "Erstellen"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Condition Editor Component
+interface ConditionEditorProps {
+  appointmentTypes: Doc<"appointmentTypes">[];
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  locations: Doc<"locations">[];
+  onRemove: () => void;
+  onUpdate: (updates: Partial<Condition>) => void;
+  practitioners: Doc<"practitioners">[];
+  showRemove: boolean;
+}
+
+function ConditionEditor({
+  appointmentTypes,
+  condition,
+  invalidFields,
+  locations,
+  onRemove,
+  onUpdate,
+  practitioners,
+  showRemove,
+}: ConditionEditorProps) {
+  const conditionTypeOptions: ComboboxOption[] = [
+    { label: "Termintyp", value: "APPOINTMENT_TYPE" },
+    { label: "Behandler", value: "PRACTITIONER" },
+    { label: "Standort", value: "LOCATION" },
+    { label: "Wochentag", value: "DAY_OF_WEEK" },
+    { label: "Tage im Voraus", value: "DAYS_AHEAD" },
+    { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
+    { label: "Termine am gleichen Tag", value: "SAME_DAY_COUNT" },
   ];
 
-  const getFilterValueOptions = (filterType: FilterType): ComboboxOption[] => {
-    switch (filterType) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start gap-4">
+        <div className="flex-1 flex items-center gap-2 flex-wrap">
+          {/* Condition Type Selector */}
+          <Select
+            onValueChange={(value) => {
+              onUpdate({
+                type: value as ConditionType,
+                // Reset other values when type changes
+                operator:
+                  value === "DAYS_AHEAD" ||
+                  value === "CONCURRENT_COUNT" ||
+                  value === "SAME_DAY_COUNT"
+                    ? "GREATER_THAN_OR_EQUAL"
+                    : "IS",
+                valueIds: [],
+                valueNumber: null,
+              });
+            }}
+            value={condition.type}
+          >
+            <SelectTrigger className="w-auto min-w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {conditionTypeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Render specific inputs based on condition type */}
+          {(condition.type === "APPOINTMENT_TYPE" ||
+            condition.type === "PRACTITIONER" ||
+            condition.type === "LOCATION") && (
+            <SimpleValueCondition
+              appointmentTypes={appointmentTypes}
+              condition={condition}
+              invalidFields={invalidFields}
+              locations={locations}
+              onUpdate={onUpdate}
+              practitioners={practitioners}
+            />
+          )}
+
+          {condition.type === "DAY_OF_WEEK" && (
+            <DayOfWeekCondition
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+
+          {condition.type === "DAYS_AHEAD" && (
+            <DaysAheadCondition
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+
+          {condition.type === "CONCURRENT_COUNT" && (
+            <ConcurrentCountCondition
+              appointmentTypes={appointmentTypes}
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+
+          {condition.type === "SAME_DAY_COUNT" && (
+            <SameDayCountCondition
+              appointmentTypes={appointmentTypes}
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+        </div>
+
+        {showRemove && (
+          <Button onClick={onRemove} size="sm" type="button" variant="ghost">
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// Simple value condition (appointment type, practitioner, location)
+interface SimpleValueConditionProps {
+  appointmentTypes: Doc<"appointmentTypes">[];
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  locations: Doc<"locations">[];
+  onUpdate: (updates: Partial<Condition>) => void;
+  practitioners: Doc<"practitioners">[];
+}
+
+function SimpleValueCondition({
+  appointmentTypes,
+  condition,
+  invalidFields,
+  locations,
+  onUpdate,
+  practitioners,
+}: SimpleValueConditionProps) {
+  const getOptions = (): ComboboxOption[] => {
+    switch (condition.type) {
       case "APPOINTMENT_TYPE": {
         return appointmentTypes.map((at) => ({
           label: at.name,
           value: at._id,
         }));
       }
-      case "DAY_OF_WEEK": {
-        return [
-          { label: "Montag", value: "MONDAY" },
-          { label: "Dienstag", value: "TUESDAY" },
-          { label: "Mittwoch", value: "WEDNESDAY" },
-          { label: "Donnerstag", value: "THURSDAY" },
-          { label: "Freitag", value: "FRIDAY" },
-          { label: "Samstag", value: "SATURDAY" },
-          { label: "Sonntag", value: "SUNDAY" },
-        ];
-      }
       case "LOCATION": {
-        return locations.map((l) => ({
-          label: l.name,
-          value: l._id,
-        }));
+        return locations.map((l) => ({ label: l.name, value: l._id }));
       }
       case "PRACTITIONER": {
         return practitioners.map((p) => ({
@@ -764,256 +692,489 @@ function SegmentRenderer({
     }
   };
 
-  const getConjunctionOptions = (): ComboboxOption[] => {
-    const baseOptions: ComboboxOption[] = [{ label: "und", value: "und" }];
-
-    if (hasAnyFilter) {
-      baseOptions.push({
-        label: "darf der Termin nicht vergeben werden.",
-        value: "dann",
-      });
-    }
-
-    return baseOptions;
-  };
-
-  const concurrentScopeOptions: ComboboxOption[] = [
-    { label: "am gleichen Standort", value: "location" },
-    { label: "in der gesamten Praxis", value: "practice" },
-  ];
-
-  const sameDayScopeOptions: ComboboxOption[] = [
-    { label: "beim gleichen Behandler", value: "practitioner" },
-    { label: "am gleichen Standort", value: "location" },
-    { label: "in der gesamten Praxis", value: "practice" },
-  ];
-
   return (
     <>
-      {/* Add "Wenn" at the very beginning of the first condition */}
-      {isFirstCondition && index === 0 && (
-        <ButtonGroupText>Wenn</ButtonGroupText>
-      )}
+      <Select
+        onValueChange={(value) => {
+          onUpdate({ operator: value as "IS" | "IS_NOT" });
+        }}
+        value={condition.operator || "IS"}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[100px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="IS">ist</SelectItem>
+          <SelectItem value="IS_NOT">ist nicht</SelectItem>
+        </SelectContent>
+      </Select>
 
-      {segment.type === "filter-type" && (
-        <>
-          <Combobox
-            onValueChange={(value: string | string[]) => {
-              onFilterTypeSelect(index, value as FilterType);
-            }}
-            options={filterTypeOptions}
-            placeholder="Filter wählen..."
-            value={segment.selected || ""}
-          />
-        </>
-      )}
-
-      {segment.type === "filter-value" && (
-        <>
-          <Combobox
-            onValueChange={(value: string | string[]) => {
-              const isExclude = value === "nicht";
-              onFilterValueSelect(index, segment.selected, isExclude);
-            }}
-            options={[
-              { label: "-", value: "" },
-              { label: "nicht", value: "nicht" },
-            ]}
-            placeholder=""
-            value={segment.isExclude ? "nicht" : ""}
-          />
-          <Combobox
-            className={cn(
-              segment.isExclude &&
-                "bg-[var(--exclude-tint)] border-[var(--exclude-border)]",
-            )}
-            inverted={segment.isExclude}
-            multiple
-            onValueChange={(value: string | string[]) => {
-              onFilterValueSelect(index, value, segment.isExclude);
-            }}
-            options={getFilterValueOptions(segment.filterType)}
-            placeholder="Wert wählen..."
-            value={segment.selected}
-          />
-          <ButtonGroupText>ist,</ButtonGroupText>
-        </>
-      )}
-
-      {segment.type === "days-ahead" && (
-        <DaysAheadRenderer
-          index={index}
-          onUpdate={onDaysAheadUpdate}
-          segment={segment}
-        />
-      )}
-
-      {segment.type === "conjunction" && (
-        <Combobox
-          onValueChange={(value: string | string[]) => {
-            onConjunctionSelect(index, value as ConjunctionType);
-          }}
-          options={getConjunctionOptions()}
-          placeholder="Verbindung..."
-          value={segment.selected || ""}
-        />
-      )}
-
-      {segment.type === "concurrent-params" && (
-        <ConcurrentParamsRenderer
-          appointmentTypes={appointmentTypes}
-          concurrentScopeOptions={concurrentScopeOptions}
-          index={index}
-          onUpdate={onConcurrentParamsUpdate}
-          segment={segment}
-        />
-      )}
-
-      {segment.type === "same-day-params" && (
-        <SameDayParamsRenderer
-          appointmentTypes={appointmentTypes}
-          index={index}
-          onUpdate={onSameDayParamsUpdate}
-          sameDayScopeOptions={sameDayScopeOptions}
-          segment={segment}
-        />
-      )}
-
-      {showSeparatorAfter && <ButtonGroupSeparator />}
+      <Combobox
+        aria-invalid={invalidFields?.has("valueIds")}
+        className="w-auto min-w-[200px]"
+        multiple
+        onValueChange={(value) => {
+          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+        }}
+        options={getOptions()}
+        placeholder="Wählen..."
+        value={condition.valueIds ?? []}
+      />
     </>
   );
 }
 
-// Helper function to convert a condition tree back to segments for editing
-function conditionTreeToSegments(tree: unknown): Segment[] {
-  // Basic validation - if tree is invalid, start fresh
+// Day of week condition
+interface DayOfWeekConditionProps {
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
+function DayOfWeekCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: DayOfWeekConditionProps) {
+  const dayOptions: ComboboxOption[] = [
+    { label: "Montag", value: "MONDAY" },
+    { label: "Dienstag", value: "TUESDAY" },
+    { label: "Mittwoch", value: "WEDNESDAY" },
+    { label: "Donnerstag", value: "THURSDAY" },
+    { label: "Freitag", value: "FRIDAY" },
+    { label: "Samstag", value: "SATURDAY" },
+    { label: "Sonntag", value: "SUNDAY" },
+  ];
+
+  return (
+    <>
+      <Select
+        onValueChange={(value) => {
+          onUpdate({ operator: value as "IS" | "IS_NOT" });
+        }}
+        value={condition.operator || "IS"}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[100px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="IS">ist</SelectItem>
+          <SelectItem value="IS_NOT">ist nicht</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Combobox
+        aria-invalid={invalidFields?.has("valueIds")}
+        className="w-auto min-w-[200px]"
+        multiple
+        onValueChange={(value) => {
+          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+        }}
+        options={dayOptions}
+        placeholder="Wählen..."
+        value={condition.valueIds ?? []}
+      />
+    </>
+  );
+}
+
+// Days ahead condition
+interface DaysAheadConditionProps {
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
+function DaysAheadCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: DaysAheadConditionProps) {
+  return (
+    <Input
+      aria-invalid={invalidFields?.has("valueNumber")}
+      className="w-auto min-w-[120px]"
+      min="1"
+      onChange={(e) => {
+        const parsed = Number.parseInt(e.target.value);
+        onUpdate({
+          valueNumber: Number.isNaN(parsed) ? null : parsed,
+        });
+      }}
+      placeholder="z.B. 7"
+      type="number"
+      value={condition.valueNumber || ""}
+    />
+  );
+}
+
+// Concurrent count condition
+interface ConcurrentCountConditionProps {
+  appointmentTypes: Doc<"appointmentTypes">[];
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
+function ConcurrentCountCondition({
+  appointmentTypes,
+  condition,
+  invalidFields,
+  onUpdate,
+}: ConcurrentCountConditionProps) {
+  const scopeOptions: ComboboxOption[] = [
+    { label: "Am gleichen Standort", value: "location" },
+    { label: "In der gesamten Praxis", value: "practice" },
+  ];
+
+  const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
+    (at) => ({
+      label: at.name,
+      value: at._id,
+    }),
+  );
+
+  return (
+    <>
+      <Input
+        aria-invalid={invalidFields?.has("count")}
+        className="w-auto min-w-[120px]"
+        min="1"
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value);
+          onUpdate({ count: Number.isNaN(parsed) ? null : parsed });
+        }}
+        placeholder="z.B. 2"
+        type="number"
+        value={condition.count || ""}
+      />
+
+      <Combobox
+        aria-invalid={invalidFields?.has("appointmentTypes")}
+        className="w-auto min-w-[200px]"
+        multiple
+        onValueChange={(value) => {
+          onUpdate({
+            appointmentTypes: Array.isArray(value) ? value : [value],
+          });
+        }}
+        options={appointmentTypeOptions}
+        placeholder="Wählen..."
+        value={condition.appointmentTypes ?? []}
+      />
+
+      <Select
+        onValueChange={(value) => {
+          onUpdate({
+            scope: value as "location" | "practice" | "practitioner",
+          });
+        }}
+        value={condition.scope ?? ""}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("scope")}
+          className="w-auto min-w-[200px]"
+        >
+          <SelectValue placeholder="Wählen..." />
+        </SelectTrigger>
+        <SelectContent>
+          {scopeOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+}
+
+// Same day count condition
+interface SameDayCountConditionProps {
+  appointmentTypes: Doc<"appointmentTypes">[];
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
+function conditionTreeToConditions(tree: unknown): Condition[] {
   if (!tree || typeof tree !== "object") {
-    return [{ selected: null, type: "filter-type" }];
+    return [];
   }
 
-  const segments: Segment[] = [];
   const node = tree as Record<string, unknown>;
+  const conditions: Condition[] = [];
 
   // Handle AND node with multiple conditions
   if (node["nodeType"] === "AND" && Array.isArray(node["children"])) {
     const children = node["children"] as Record<string, unknown>[];
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      if (!child) {
-        continue;
-      }
-      const childSegments = parseConditionNode(child);
-      segments.push(...childSegments);
-
-      // Add conjunction between conditions (except after the last one)
-      if (i < children.length - 1) {
-        segments.push({ selected: "und", type: "conjunction" });
+    for (const [index, child] of children.entries()) {
+      const condition = parseConditionNode(child, String(index));
+      if (condition) {
+        conditions.push(condition);
       }
     }
   } else if (node["nodeType"] === "CONDITION") {
     // Single condition without AND wrapper
-    const childSegments = parseConditionNode(node);
-    segments.push(...childSegments);
+    const condition = parseConditionNode(node, "0");
+    if (condition) {
+      conditions.push(condition);
+    }
   }
 
-  // Always end with the "dann" conjunction and action
-  segments.push({ selected: "dann", type: "conjunction" });
-
-  return segments;
+  return conditions.length > 0
+    ? conditions
+    : [
+        {
+          id: "1",
+          operator: "IS",
+          type: "APPOINTMENT_TYPE",
+          valueIds: [],
+        },
+      ];
 }
+function SameDayCountCondition({
+  appointmentTypes,
+  condition,
+  invalidFields,
+  onUpdate,
+}: SameDayCountConditionProps) {
+  const scopeOptions: ComboboxOption[] = [
+    { label: "Beim gleichen Behandler", value: "practitioner" },
+    { label: "Am gleichen Standort", value: "location" },
+    { label: "In der gesamten Praxis", value: "practice" },
+  ];
 
-// Helper to parse a single condition node into segments
-function parseConditionNode(node: Record<string, unknown>): Segment[] {
-  const segments: Segment[] = [];
-  const conditionType = node["conditionType"] as string;
+  const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
+    (at) => ({
+      label: at.name,
+      value: at._id,
+    }),
+  );
 
-  // Add filter type segment
-  segments.push({
-    selected: conditionType as FilterType,
-    type: "filter-type",
-  });
+  return (
+    <>
+      <Input
+        aria-invalid={invalidFields?.has("count")}
+        className="w-auto min-w-[120px]"
+        min="1"
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value);
+          onUpdate({ count: Number.isNaN(parsed) ? null : parsed });
+        }}
+        placeholder="z.B. 2"
+        type="number"
+        value={condition.count || ""}
+      />
 
-  // Handle different condition types
+      <Combobox
+        aria-invalid={invalidFields?.has("appointmentTypes")}
+        className="w-auto min-w-[200px]"
+        multiple
+        onValueChange={(value) => {
+          onUpdate({
+            appointmentTypes: Array.isArray(value) ? value : [value],
+          });
+        }}
+        options={appointmentTypeOptions}
+        placeholder="Wählen..."
+        value={condition.appointmentTypes ?? []}
+      />
+
+      <Select
+        onValueChange={(value) => {
+          onUpdate({
+            scope: value as "location" | "practice" | "practitioner",
+          });
+        }}
+        value={condition.scope ?? ""}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("scope")}
+          className="w-auto min-w-[200px]"
+        >
+          <SelectValue placeholder="Wählen..." />
+        </SelectTrigger>
+        <SelectContent>
+          {scopeOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+} // Helper function to convert condition tree to conditions array
+
+// Helper to parse a single condition node
+function parseConditionNode(
+  node: Record<string, unknown>,
+  id: string,
+): Condition | null {
+  const conditionType = node["conditionType"] as ConditionType;
+  const operator = node["operator"] as string;
+
   switch (conditionType) {
     case "CONCURRENT_COUNT": {
       const valueIds = node["valueIds"] as string[] | undefined;
-      // First element is the scope, rest are appointment type IDs
       const [scope, ...appointmentTypeIds] = valueIds ?? [];
 
-      segments.push({
+      return {
         appointmentTypes:
           appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
         count: (node["valueNumber"] as null | number) ?? null,
+        id,
+        operator: "GREATER_THAN_OR_EQUAL",
         scope: (scope ?? null) as
           | "location"
           | "practice"
           | "practitioner"
           | null,
-        type: "concurrent-params",
-      });
+        type: conditionType,
+      };
+    }
+    case "DAY_OF_WEEK": {
+      // Convert valueNumber to day name
+      const dayNumber = (node["valueNumber"] as null | number) ?? 0;
+      const dayName = dayNumberToName(dayNumber);
 
-      break;
+      return {
+        id,
+        operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
+        type: conditionType,
+        valueIds: [dayName],
+      };
     }
     case "DAYS_AHEAD": {
-      segments.push({
-        days: (node["valueNumber"] as null | number) ?? null,
-        type: "days-ahead",
-      });
-
-      break;
+      return {
+        id,
+        operator: "GREATER_THAN_OR_EQUAL",
+        type: conditionType,
+        valueNumber: (node["valueNumber"] as null | number) ?? null,
+      };
     }
     case "SAME_DAY_COUNT": {
       const valueIds = node["valueIds"] as string[] | undefined;
-      // First element is the scope, rest are appointment type IDs
       const [scope, ...appointmentTypeIds] = valueIds ?? [];
 
-      segments.push({
+      return {
         appointmentTypes:
           appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
         count: (node["valueNumber"] as null | number) ?? null,
+        id,
+        operator: "GREATER_THAN_OR_EQUAL",
         scope: (scope ?? null) as
           | "location"
           | "practice"
           | "practitioner"
           | null,
-        type: "same-day-params",
-      });
-
-      break;
+        type: conditionType,
+      };
     }
     default: {
-      // Handle filter types with values (APPOINTMENT_TYPE, PRACTITIONER, LOCATION, DAY_OF_WEEK)
-      const operator = node["operator"] as string;
-      const isExclude = operator === "IS_NOT";
+      // Handle filter types with valueIds
+      const valueIds = node["valueIds"] as string[] | undefined;
+      return {
+        id,
+        operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
+        type: conditionType,
+        valueIds: valueIds ?? [],
+      };
+    }
+  }
+}
 
-      // Special handling for DAY_OF_WEEK: convert valueNumber to day name
-      if (conditionType === "DAY_OF_WEEK") {
-        const dayNumber = (node["valueNumber"] as null | number) ?? 0;
-        const dayName = dayNumberToName(dayNumber);
+// Helper function to convert conditions array to condition tree
+function conditionsToConditionTree(conditions: Condition[]): unknown {
+  const nodes: unknown[] = [];
 
-        segments.push({
-          filterType: conditionType as FilterType,
-          isExclude,
-          selected: [dayName],
-          type: "filter-value",
-        });
-      } else {
-        const valueIds = node["valueIds"] as string[] | undefined;
-        segments.push({
-          filterType: conditionType as FilterType,
-          isExclude,
-          selected: valueIds ?? [],
-          type: "filter-value",
-        });
+  for (const condition of conditions) {
+    switch (condition.type) {
+      case "CONCURRENT_COUNT": {
+        if (condition.count && condition.scope) {
+          nodes.push({
+            conditionType: "CONCURRENT_COUNT",
+            nodeType: "CONDITION",
+            operator: "GREATER_THAN_OR_EQUAL",
+            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
+            valueNumber: condition.count,
+          });
+        }
+        break;
+      }
+      case "DAY_OF_WEEK": {
+        // Convert day names to numbers
+        if (condition.valueIds && condition.valueIds.length > 0) {
+          for (const dayName of condition.valueIds) {
+            nodes.push({
+              conditionType: "DAY_OF_WEEK",
+              nodeType: "CONDITION",
+              operator: condition.operator || "IS",
+              valueNumber: dayNameToNumber(dayName),
+            });
+          }
+        }
+        break;
+      }
+      case "DAYS_AHEAD": {
+        if (condition.valueNumber) {
+          nodes.push({
+            conditionType: "DAYS_AHEAD",
+            nodeType: "CONDITION",
+            operator: "GREATER_THAN_OR_EQUAL",
+            valueNumber: condition.valueNumber,
+          });
+        }
+        break;
+      }
+      case "SAME_DAY_COUNT": {
+        if (condition.count && condition.scope) {
+          nodes.push({
+            conditionType: "SAME_DAY_COUNT",
+            nodeType: "CONDITION",
+            operator: "GREATER_THAN_OR_EQUAL",
+            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
+            valueNumber: condition.count,
+          });
+        }
+        break;
+      }
+      default: {
+        // Handle simple value conditions
+        if (condition.valueIds && condition.valueIds.length > 0) {
+          nodes.push({
+            conditionType: condition.type,
+            nodeType: "CONDITION",
+            operator: condition.operator || "IS",
+            valueIds: condition.valueIds,
+          });
+        }
       }
     }
   }
 
-  return segments;
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  if (nodes.length === 1) {
+    return nodes[0];
+  }
+
+  return {
+    children: nodes,
+    nodeType: "AND",
+  };
 }
 
 // Helper function to convert day name to numeric day of week
-// JavaScript Date.getDay() returns 0=Sunday, 1=Monday, ..., 6=Saturday
 function dayNameToNumber(dayName: string): number {
   const dayMap: Record<string, number> = {
     FRIDAY: 5,
@@ -1041,105 +1202,13 @@ function dayNumberToName(dayNumber: number): string {
   return dayNames[dayNumber] ?? "SUNDAY";
 }
 
-// Helper function to build the Convex condition tree from segments
-function buildConditionTree(segments: Segment[]): unknown {
-  const conditions: unknown[] = [];
-  let concurrentCondition: unknown = null;
-
-  for (const seg of segments) {
-    if (seg.type === "filter-value" && seg.selected.length > 0) {
-      const conditionType = seg.filterType;
-      const operator = seg.isExclude ? "IS_NOT" : "IS";
-
-      // Special handling for DAY_OF_WEEK: convert day names to numbers
-      if (conditionType === "DAY_OF_WEEK" && seg.selected.length > 0) {
-        // For DAY_OF_WEEK, we convert the first selected day name to a number
-        // Note: Current UI only allows single day selection, but we handle array
-        const dayName = seg.selected[0];
-        const dayNumber = dayName ? dayNameToNumber(dayName) : 0;
-
-        // DAY_OF_WEEK uses numeric comparison, so use EQUALS operator
-        conditions.push({
-          conditionType,
-          nodeType: "CONDITION",
-          operator: "EQUALS",
-          valueNumber: dayNumber,
-        });
-      } else {
-        conditions.push({
-          conditionType,
-          nodeType: "CONDITION",
-          operator,
-          valueIds: seg.selected,
-        });
-      }
-    } else if (seg.type === "days-ahead" && seg.days !== null) {
-      conditions.push({
-        conditionType: "DAYS_AHEAD",
-        nodeType: "CONDITION",
-        operator: "GREATER_THAN_OR_EQUAL",
-        valueNumber: seg.days,
-      });
-    } else if (
-      seg.type === "concurrent-params" &&
-      seg.count !== null &&
-      seg.scope !== null
-    ) {
-      const concurrentNode: Record<string, unknown> = {
-        conditionType: "CONCURRENT_COUNT",
-        nodeType: "CONDITION",
-        operator: "GREATER_THAN_OR_EQUAL",
-        valueIds: [seg.scope, ...(seg.appointmentTypes ?? [])],
-        valueNumber: seg.count,
-      };
-
-      // TODO: Handle cross-type conditions when specified
-      // This would require wrapping in AND node with additional conditions
-
-      concurrentCondition = concurrentNode;
-    } else if (
-      seg.type === "same-day-params" &&
-      seg.count !== null &&
-      seg.scope !== null
-    ) {
-      const sameDayNode: Record<string, unknown> = {
-        conditionType: "SAME_DAY_COUNT",
-        nodeType: "CONDITION",
-        operator: "GREATER_THAN_OR_EQUAL",
-        valueIds: [seg.scope, ...(seg.appointmentTypes ?? [])],
-        valueNumber: seg.count,
-      };
-
-      // TODO: Handle cross-type conditions when specified
-      // This would require wrapping in AND node with additional conditions
-
-      concurrentCondition = sameDayNode;
-    }
-  }
-
-  // Build the final tree
-  const allConditions = [...conditions];
-  if (concurrentCondition) {
-    allConditions.push(concurrentCondition);
-  }
-
-  if (allConditions.length === 1) {
-    return allConditions[0];
-  }
-
-  return {
-    children: allConditions,
-    nodeType: "AND",
-  };
-}
-
 // Helper to format a list of names with proper German conjunction
 function formatNames(names: string[], isAppointmentType = false): string {
   if (names.length === 0) {
     return "";
   }
 
-  // For appointment types in same-day context, add quotation marks if name contains space, add hyphens, and append "Termine" to last
+  // For appointment types in same-day context
   if (isAppointmentType) {
     const formattedNames = names.map((name, index) => {
       const hasSpace = name.includes(" ");
@@ -1154,48 +1223,68 @@ function formatNames(names: string[], isAppointmentType = false): string {
     if (formattedNames.length === 2) {
       return `${formattedNames[0]} oder ${formattedNames[1]}`;
     }
-    // 3 or more: "X, Y oder Z"
     const lastItem = formattedNames[formattedNames.length - 1];
     const otherItems = formattedNames.slice(0, -1).join(", ");
     return `${otherItems} oder ${lastItem}`;
   }
 
-  // For other types, use default formatting
+  // For other types
   if (names.length === 1) {
     return names[0] || "";
   }
   if (names.length === 2) {
     return `${names[0]} oder ${names[1]}`;
   }
-  // 3 or more: "X, Y oder Z"
   const lastItem = names[names.length - 1];
   const otherItems = names.slice(0, -1).join(", ");
   return `${otherItems} oder ${lastItem}`;
 }
 
-// Helper function to generate a human-readable rule name from segments
+// Helper function to generate a human-readable rule name from conditions
 function generateRuleName(
-  segments: Segment[],
+  conditions: Condition[],
   appointmentTypes: Doc<"appointmentTypes">[],
   practitioners: Doc<"practitioners">[],
   locations: Doc<"locations">[],
 ): string {
-  const parts: string[] = [];
-  let isFirstCondition = true;
+  if (conditions.length === 0) {
+    return "Keine Bedingungen";
+  }
 
-  // Helper to get names for filter values
-  const getFilterValueNames = (
-    filterType: FilterType,
-    valueIds: string[],
-  ): string => {
-    let names: string[] = [];
+  const parts: string[] = ["Wenn"];
 
-    switch (filterType) {
+  for (const [index, condition] of conditions.entries()) {
+    if (index > 0) {
+      parts.push("und");
+    }
+
+    switch (condition.type) {
       case "APPOINTMENT_TYPE": {
-        names = valueIds
-          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter((name): name is string => name !== undefined)
-          .map((name) => (name.includes(" ") ? `„${name}"` : name));
+        const names = (condition.valueIds
+          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Termintyp]";
+        parts.push(
+          `der Termintyp ${isExclude ? "nicht" : ""} ${formattedValue} ist,`,
+        );
+        break;
+      }
+      case "CONCURRENT_COUNT": {
+        const count = condition.count ?? 0;
+        const atNames = (condition.appointmentTypes
+          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const scopeLabel =
+          condition.scope === "practice"
+            ? "in der gesamten Praxis"
+            : "am gleichen Standort";
+        const formattedValue =
+          atNames.length > 0 ? formatNames(atNames, true) : "[Termintyp]";
+        parts.push(
+          `gleichzeitig ${count} oder mehr ${formattedValue} ${scopeLabel} gebucht wurden,`,
+        );
         break;
       }
       case "DAY_OF_WEEK": {
@@ -1208,102 +1297,70 @@ function generateRuleName(
           TUESDAY: "Dienstag",
           WEDNESDAY: "Mittwoch",
         };
-        names = valueIds.map((id) => dayLabels[id] || id);
+        const names = (condition.valueIds
+          ?.map((day) => dayLabels[day])
+          .filter(Boolean) ?? []) as string[];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Wochentag]";
+        parts.push(`es ${isExclude ? "nicht" : ""} ${formattedValue} ist,`);
+        break;
+      }
+      case "DAYS_AHEAD": {
+        const days = condition.valueNumber || 0;
+        const dayLabel =
+          days === 1
+            ? "Tag oder mehr entfernt ist,"
+            : "Tage oder mehr entfernt ist,";
+        parts.push(`der Termin ${days} ${dayLabel}`);
         break;
       }
       case "LOCATION": {
-        names = valueIds
-          .map((id) => locations.find((l) => l._id === id)?.name)
-          .filter((name): name is string => name !== undefined);
+        const names = (condition.valueIds
+          ?.map((id) => locations.find((l) => l._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Standort]";
+        parts.push(
+          `der Standort ${isExclude ? "nicht" : ""} ${formattedValue} ist,`,
+        );
         break;
       }
       case "PRACTITIONER": {
-        names = valueIds
-          .map((id) => practitioners.find((p) => p._id === id)?.name)
-          .filter((name): name is string => name !== undefined);
+        const names = (condition.valueIds
+          ?.map((id) => practitioners.find((p) => p._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Behandler]";
+        parts.push(
+          `der Behandler ${isExclude ? "nicht" : ""} ${formattedValue} ist,`,
+        );
         break;
       }
-    }
-
-    return formatNames(names);
-  };
-
-  for (const seg of segments) {
-    if (seg.type === "filter-type" && seg.selected) {
-      // Add "Wenn" only at the very start
-      if (isFirstCondition) {
-        parts.push("Wenn");
-        isFirstCondition = false;
-      }
-
-      const filterTypeLabels: Record<FilterType, string> = {
-        APPOINTMENT_TYPE: "der Termintyp",
-        CONCURRENT_COUNT: "gleichzeitig",
-        DAY_OF_WEEK: "der Wochentag",
-        DAYS_AHEAD: "der Termin",
-        LOCATION: "der Standort",
-        PRACTITIONER: "der Behandler",
-        SAME_DAY_COUNT: "am gleichen Tag",
-      };
-      parts.push(filterTypeLabels[seg.selected] || seg.selected);
-    } else if (seg.type === "filter-value" && seg.selected.length > 0) {
-      if (seg.isExclude) {
-        parts.push("nicht");
-      }
-      const valueNames = getFilterValueNames(seg.filterType, seg.selected);
-      parts.push(valueNames, "ist,");
-    } else if (seg.type === "days-ahead" && seg.days !== null) {
-      const dayLabel =
-        seg.days === 1
-          ? "Tag oder mehr entfernt ist,"
-          : "Tage oder mehr entfernt ist,";
-      parts.push(`${seg.days} ${dayLabel}`);
-    } else if (seg.type === "concurrent-params") {
-      if (seg.count !== null) {
-        parts.push(`${seg.count} oder mehr`);
-      }
-      if (seg.appointmentTypes && seg.appointmentTypes.length > 0) {
-        const typeNames = seg.appointmentTypes
-          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter((name): name is string => name !== undefined);
-        parts.push(formatNames(typeNames));
-      }
-      if (seg.scope) {
-        const scopeLabels = {
-          location: "am gleichen Standort",
-          practice: "in der gesamten Praxis",
-          practitioner: "beim gleichen Behandler",
-        };
-        parts.push(scopeLabels[seg.scope]);
-      }
-      parts.push("gebucht wurden,");
-    } else if (seg.type === "same-day-params") {
-      if (seg.count !== null) {
-        parts.push(`${seg.count} oder mehr`);
-      }
-      if (seg.appointmentTypes && seg.appointmentTypes.length > 0) {
-        const typeNames = seg.appointmentTypes
-          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter((name): name is string => name !== undefined);
-        parts.push(formatNames(typeNames, true));
-      }
-      if (seg.scope) {
-        const scopeLabels = {
-          location: "am gleichen Standort",
-          practice: "in der gesamten Praxis",
-          practitioner: "beim gleichen Behandler",
-        };
-        parts.push(scopeLabels[seg.scope]);
-      }
-      parts.push("gebucht wurden,");
-    } else if (seg.type === "conjunction" && seg.selected) {
-      if (seg.selected === "dann") {
-        parts.push("darf der Termin nicht vergeben werden.");
-      } else {
-        parts.push("und");
+      case "SAME_DAY_COUNT": {
+        const count = condition.count ?? 0;
+        const atNames = (condition.appointmentTypes
+          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const scopeLabel =
+          condition.scope === "practice"
+            ? "in der gesamten Praxis"
+            : condition.scope === "location"
+              ? "am gleichen Standort"
+              : "beim gleichen Behandler";
+        const formattedValue =
+          atNames.length > 0 ? formatNames(atNames, true) : "[Termintyp]";
+        parts.push(
+          `am gleichen Tag ${count} oder mehr ${formattedValue} ${scopeLabel} gebucht wurden,`,
+        );
+        break;
       }
     }
   }
 
-  return parts.join(" ") || "Neue Regel";
+  parts.push("darf der Termin nicht vergeben werden.");
+
+  return parts.join(" ");
 }
