@@ -351,7 +351,17 @@ export function RuleBuilder({
     const conditionTree = buildConditionTree(segments);
 
     // Generate rule name from segments
-    const ruleName = generateRuleName(segments);
+    // Early return if data not ready (should never happen due to guards, but satisfies type checker)
+    if (!appointmentTypes || !practitioners || !locations) {
+      console.error("Cannot save rule: data not ready");
+      return;
+    }
+    const ruleName = generateRuleName(
+      segments,
+      appointmentTypes,
+      practitioners,
+      locations,
+    );
 
     try {
       if (ruleId !== "new") {
@@ -465,7 +475,12 @@ export function RuleBuilder({
             <Card className="p-6" key={rule._id}>
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="font-medium text-sm text-muted-foreground">
-                  {generateRuleName(segments)}
+                  {generateRuleName(
+                    segments,
+                    appointmentTypes,
+                    practitioners,
+                    locations,
+                  )}
                 </div>
                 <Button
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
@@ -594,7 +609,9 @@ function DaysAheadRenderer({
   segment: Extract<Segment, { type: "days-ahead" }>;
 }) {
   const dayLabel =
-    segment.days === 1 ? "Tag entfernt ist" : "Tage entfernt ist";
+    segment.days === 1
+      ? "Tag oder mehr entfernt ist"
+      : "Tage oder mehr entfernt ist";
 
   return (
     <>
@@ -752,7 +769,7 @@ function SegmentRenderer({
 
     if (hasAnyFilter) {
       baseOptions.push({
-        label: "dann blockiere diesen Termin.",
+        label: "darf der Termin nicht vergeben werden.",
         value: "dann",
       });
     }
@@ -780,8 +797,6 @@ function SegmentRenderer({
 
       {segment.type === "filter-type" && (
         <>
-          {/* Add "wenn" before subsequent filter types */}
-          {!isFirstCondition && <ButtonGroupText>wenn</ButtonGroupText>}
           <Combobox
             onValueChange={(value: string | string[]) => {
               onFilterTypeSelect(index, value as FilterType);
@@ -1118,24 +1133,175 @@ function buildConditionTree(segments: Segment[]): unknown {
   };
 }
 
+// Helper to format a list of names with proper German conjunction
+function formatNames(names: string[], isAppointmentType = false): string {
+  if (names.length === 0) {
+    return "";
+  }
+
+  // For appointment types in same-day context, add quotation marks if name contains space, add hyphens, and append "Termine" to last
+  if (isAppointmentType) {
+    const formattedNames = names.map((name, index) => {
+      const hasSpace = name.includes(" ");
+      const quotedName = hasSpace ? `„${name}"` : name;
+      const isLast = index === names.length - 1;
+      return isLast ? `${quotedName}-Termine` : `${quotedName}-`;
+    });
+
+    if (formattedNames.length === 1) {
+      return formattedNames[0] || "";
+    }
+    if (formattedNames.length === 2) {
+      return `${formattedNames[0]} oder ${formattedNames[1]}`;
+    }
+    // 3 or more: "X, Y oder Z"
+    const lastItem = formattedNames[formattedNames.length - 1];
+    const otherItems = formattedNames.slice(0, -1).join(", ");
+    return `${otherItems} oder ${lastItem}`;
+  }
+
+  // For other types, use default formatting
+  if (names.length === 1) {
+    return names[0] || "";
+  }
+  if (names.length === 2) {
+    return `${names[0]} oder ${names[1]}`;
+  }
+  // 3 or more: "X, Y oder Z"
+  const lastItem = names[names.length - 1];
+  const otherItems = names.slice(0, -1).join(", ");
+  return `${otherItems} oder ${lastItem}`;
+}
+
 // Helper function to generate a human-readable rule name from segments
-function generateRuleName(segments: Segment[]): string {
+function generateRuleName(
+  segments: Segment[],
+  appointmentTypes: Doc<"appointmentTypes">[],
+  practitioners: Doc<"practitioners">[],
+  locations: Doc<"locations">[],
+): string {
   const parts: string[] = [];
+  let isFirstCondition = true;
+
+  // Helper to get names for filter values
+  const getFilterValueNames = (
+    filterType: FilterType,
+    valueIds: string[],
+  ): string => {
+    let names: string[] = [];
+
+    switch (filterType) {
+      case "APPOINTMENT_TYPE": {
+        names = valueIds
+          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter((name): name is string => name !== undefined)
+          .map((name) => (name.includes(" ") ? `„${name}"` : name));
+        break;
+      }
+      case "DAY_OF_WEEK": {
+        const dayLabels: Record<string, string> = {
+          FRIDAY: "Freitag",
+          MONDAY: "Montag",
+          SATURDAY: "Samstag",
+          SUNDAY: "Sonntag",
+          THURSDAY: "Donnerstag",
+          TUESDAY: "Dienstag",
+          WEDNESDAY: "Mittwoch",
+        };
+        names = valueIds.map((id) => dayLabels[id] || id);
+        break;
+      }
+      case "LOCATION": {
+        names = valueIds
+          .map((id) => locations.find((l) => l._id === id)?.name)
+          .filter((name): name is string => name !== undefined);
+        break;
+      }
+      case "PRACTITIONER": {
+        names = valueIds
+          .map((id) => practitioners.find((p) => p._id === id)?.name)
+          .filter((name): name is string => name !== undefined);
+        break;
+      }
+    }
+
+    return formatNames(names);
+  };
 
   for (const seg of segments) {
     if (seg.type === "filter-type" && seg.selected) {
+      // Add "Wenn" only at the very start
+      if (isFirstCondition) {
+        parts.push("Wenn");
+        isFirstCondition = false;
+      }
+
       const filterTypeLabels: Record<FilterType, string> = {
-        APPOINTMENT_TYPE: "Termintyp",
-        CONCURRENT_COUNT: "Gleichzeitig",
-        DAY_OF_WEEK: "Wochentag",
-        DAYS_AHEAD: "Termin",
-        LOCATION: "Standort",
-        PRACTITIONER: "Behandler",
-        SAME_DAY_COUNT: "Am gleichen Tag",
+        APPOINTMENT_TYPE: "der Termintyp",
+        CONCURRENT_COUNT: "gleichzeitig",
+        DAY_OF_WEEK: "der Wochentag",
+        DAYS_AHEAD: "der Termin",
+        LOCATION: "der Standort",
+        PRACTITIONER: "der Behandler",
+        SAME_DAY_COUNT: "am gleichen Tag",
       };
       parts.push(filterTypeLabels[seg.selected] || seg.selected);
-    } else if (seg.type === "conjunction" && seg.selected === "und") {
-      parts.push("und");
+    } else if (seg.type === "filter-value" && seg.selected.length > 0) {
+      if (seg.isExclude) {
+        parts.push("nicht");
+      }
+      const valueNames = getFilterValueNames(seg.filterType, seg.selected);
+      parts.push(valueNames, "ist,");
+    } else if (seg.type === "days-ahead" && seg.days !== null) {
+      const dayLabel =
+        seg.days === 1
+          ? "Tag oder mehr entfernt ist,"
+          : "Tage oder mehr entfernt ist,";
+      parts.push(`${seg.days} ${dayLabel}`);
+    } else if (seg.type === "concurrent-params") {
+      if (seg.count !== null) {
+        parts.push(`${seg.count} oder mehr`);
+      }
+      if (seg.appointmentTypes && seg.appointmentTypes.length > 0) {
+        const typeNames = seg.appointmentTypes
+          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter((name): name is string => name !== undefined);
+        parts.push(formatNames(typeNames));
+      }
+      if (seg.scope) {
+        const scopeLabels = {
+          location: "am gleichen Standort",
+          practice: "in der gesamten Praxis",
+          practitioner: "beim gleichen Behandler",
+        };
+        parts.push(scopeLabels[seg.scope]);
+      }
+      parts.push("gebucht wurden,");
+    } else if (seg.type === "same-day-params") {
+      if (seg.count !== null) {
+        parts.push(`${seg.count} oder mehr`);
+      }
+      if (seg.appointmentTypes && seg.appointmentTypes.length > 0) {
+        const typeNames = seg.appointmentTypes
+          .map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter((name): name is string => name !== undefined);
+        parts.push(formatNames(typeNames, true));
+      }
+      if (seg.scope) {
+        const scopeLabels = {
+          location: "am gleichen Standort",
+          practice: "in der gesamten Praxis",
+          practitioner: "beim gleichen Behandler",
+        };
+        parts.push(scopeLabels[seg.scope]);
+      }
+      parts.push("gebucht wurden,");
+    } else if (seg.type === "conjunction" && seg.selected) {
+      if (seg.selected === "dann") {
+        parts.push("darf der Termin nicht vergeben werden.");
+      } else {
+        parts.push("und");
+      }
     }
   }
 
