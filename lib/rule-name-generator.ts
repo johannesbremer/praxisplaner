@@ -3,6 +3,8 @@
  * Used by both the UI (rule-builder.tsx) and tests (ruleEngine.test.ts).
  */
 
+import type { ConditionTreeNode } from "../convex/ruleEngine";
+
 // Condition types matching the UI
 interface Condition {
   id: string;
@@ -10,20 +12,21 @@ interface Condition {
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
-  // For concurrent/same-day count conditions
+  // For concurrent/daily count conditions
   appointmentTypes?: null | string[];
   count?: null | number;
   scope?: "location" | "practice" | "practitioner" | null;
 }
 
+// UI supports a subset of backend condition types
 type ConditionType =
   | "APPOINTMENT_TYPE"
   | "CONCURRENT_COUNT"
+  | "DAILY_CAPACITY"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
-  | "PRACTITIONER"
-  | "SAME_DAY_COUNT";
+  | "PRACTITIONER";
 
 interface Entity {
   _id: string;
@@ -151,6 +154,24 @@ export function generateRuleName(
         );
         break;
       }
+      case "DAILY_CAPACITY": {
+        const count = condition.count ?? 0;
+        const atNames = (condition.appointmentTypes
+          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+          .filter(Boolean) ?? []) as string[];
+        const scopeLabel =
+          condition.scope === "practice"
+            ? "in der gesamten Praxis"
+            : condition.scope === "location"
+              ? "am gleichen Standort"
+              : "beim gleichen Behandler";
+        const formattedValue =
+          atNames.length > 0 ? formatNames(atNames, true) : "[Termintyp]";
+        parts.push(
+          `am gleichen Tag ${count} oder mehr ${formattedValue} ${scopeLabel} gebucht wurden,`,
+        );
+        break;
+      }
       case "DAY_OF_WEEK": {
         const dayLabels: Record<string, string> = {
           FRIDAY: "Freitag",
@@ -203,24 +224,6 @@ export function generateRuleName(
         );
         break;
       }
-      case "SAME_DAY_COUNT": {
-        const count = condition.count ?? 0;
-        const atNames = (condition.appointmentTypes
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
-        const scopeLabel =
-          condition.scope === "practice"
-            ? "in der gesamten Praxis"
-            : condition.scope === "location"
-              ? "am gleichen Standort"
-              : "beim gleichen Behandler";
-        const formattedValue =
-          atNames.length > 0 ? formatNames(atNames, true) : "[Termintyp]";
-        parts.push(
-          `am gleichen Tag ${count} oder mehr ${formattedValue} ${scopeLabel} gebucht wurden,`,
-        );
-        break;
-      }
     }
   }
 
@@ -232,26 +235,25 @@ export function generateRuleName(
 /**
  * Helper to convert condition tree (from DB) to conditions array (for UI).
  */
-export function conditionTreeToConditions(tree: unknown): Condition[] {
-  if (!tree || typeof tree !== "object") {
-    return [];
-  }
-
-  const node = tree as Record<string, unknown>;
+export function conditionTreeToConditions(
+  tree: ConditionTreeNode,
+): Condition[] {
   const conditions: Condition[] = [];
 
   // Handle AND node with multiple conditions
-  if (node["nodeType"] === "AND" && Array.isArray(node["children"])) {
-    const children = node["children"] as Record<string, unknown>[];
-    for (const [index, child] of children.entries()) {
-      const condition = parseConditionNode(child, String(index));
+  if (tree.nodeType === "AND") {
+    for (const [index, child] of tree.children.entries()) {
+      const condition = parseConditionNode(
+        child as ConditionTreeNode,
+        String(index),
+      );
       if (condition) {
         conditions.push(condition);
       }
     }
-  } else if (node["nodeType"] === "CONDITION") {
+  } else if (tree.nodeType === "CONDITION") {
     // Single condition without AND wrapper
-    const condition = parseConditionNode(node, "0");
+    const condition = parseConditionNode(tree, "0");
     if (condition) {
       conditions.push(condition);
     }
@@ -273,21 +275,68 @@ export function conditionTreeToConditions(tree: unknown): Condition[] {
  * Helper to parse a single condition node from tree to Condition object.
  */
 function parseConditionNode(
-  node: Record<string, unknown>,
+  node: ConditionTreeNode,
   id: string,
 ): Condition | null {
-  const conditionType = node["conditionType"] as ConditionType;
-  const operator = node["operator"] as string;
+  // Only handle CONDITION nodes
+  if (node.nodeType !== "CONDITION") {
+    return null;
+  }
+
+  const { conditionType, operator, valueIds, valueNumber } = node;
+
+  // Filter out condition types not supported by the UI
+  const supportedTypes: ConditionType[] = [
+    "APPOINTMENT_TYPE",
+    "CONCURRENT_COUNT",
+    "DAILY_CAPACITY",
+    "DAY_OF_WEEK",
+    "DAYS_AHEAD",
+    "LOCATION",
+    "PRACTITIONER",
+  ];
+
+  if (!supportedTypes.includes(conditionType as ConditionType)) {
+    // Skip unsupported condition types
+    return null;
+  }
 
   switch (conditionType) {
+    case "APPOINTMENT_TYPE":
+    case "LOCATION":
+    case "PRACTITIONER": {
+      // Handle filter types with valueIds
+      return {
+        id,
+        operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
+        type: conditionType as ConditionType,
+        valueIds: valueIds ?? [],
+      };
+    }
     case "CONCURRENT_COUNT": {
-      const valueIds = node["valueIds"] as string[] | undefined;
       const [scope, ...appointmentTypeIds] = valueIds ?? [];
 
       return {
         appointmentTypes:
           appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
-        count: (node["valueNumber"] as null | number) ?? null,
+        count: valueNumber ?? null,
+        id,
+        operator: "GREATER_THAN_OR_EQUAL",
+        scope: (scope ?? null) as
+          | "location"
+          | "practice"
+          | "practitioner"
+          | null,
+        type: conditionType,
+      };
+    }
+    case "DAILY_CAPACITY": {
+      const [scope, ...appointmentTypeIds] = valueIds ?? [];
+
+      return {
+        appointmentTypes:
+          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
+        count: valueNumber ?? null,
         id,
         operator: "GREATER_THAN_OR_EQUAL",
         scope: (scope ?? null) as
@@ -300,7 +349,7 @@ function parseConditionNode(
     }
     case "DAY_OF_WEEK": {
       // Convert valueNumber to day name
-      const dayNumber = (node["valueNumber"] as null | number) ?? 0;
+      const dayNumber = valueNumber ?? 0;
       const dayName = dayNumberToName(dayNumber);
 
       return {
@@ -315,36 +364,12 @@ function parseConditionNode(
         id,
         operator: "GREATER_THAN_OR_EQUAL",
         type: conditionType,
-        valueNumber: (node["valueNumber"] as null | number) ?? null,
-      };
-    }
-    case "SAME_DAY_COUNT": {
-      const valueIds = node["valueIds"] as string[] | undefined;
-      const [scope, ...appointmentTypeIds] = valueIds ?? [];
-
-      return {
-        appointmentTypes:
-          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
-        count: (node["valueNumber"] as null | number) ?? null,
-        id,
-        operator: "GREATER_THAN_OR_EQUAL",
-        scope: (scope ?? null) as
-          | "location"
-          | "practice"
-          | "practitioner"
-          | null,
-        type: conditionType,
+        valueNumber: valueNumber ?? null,
       };
     }
     default: {
-      // Handle filter types with valueIds
-      const valueIds = node["valueIds"] as string[] | undefined;
-      return {
-        id,
-        operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
-        type: conditionType,
-        valueIds: valueIds ?? [],
-      };
+      // Exhaustive check - should never reach here if supportedTypes check works
+      return null;
     }
   }
 }

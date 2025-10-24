@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
+import type { ConditionTreeNode } from "@/convex/ruleEngine";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,7 +46,7 @@ interface Condition {
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
-  // For concurrent/same-day count conditions
+  // For concurrent/daily count conditions
   appointmentTypes?: null | string[];
   count?: null | number;
   scope?: "location" | "practice" | "practitioner" | null;
@@ -53,11 +55,11 @@ interface Condition {
 type ConditionType =
   | "APPOINTMENT_TYPE"
   | "CONCURRENT_COUNT"
+  | "DAILY_CAPACITY"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
-  | "PRACTITIONER"
-  | "SAME_DAY_COUNT";
+  | "PRACTITIONER";
 
 // Validation helper
 interface RuleBuilderProps {
@@ -210,7 +212,9 @@ export function RuleBuilder({
               });
             }
 
-            const conditions = conditionTreeToConditions(conditionTree);
+            const conditions = conditionTreeToConditions(
+              conditionTree as ConditionTreeNode,
+            );
             const ruleName = generateRuleName(
               conditions,
               /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
@@ -259,7 +263,7 @@ function validateCondition(condition: Condition): string[] {
       break;
     }
     case "CONCURRENT_COUNT":
-    case "SAME_DAY_COUNT": {
+    case "DAILY_CAPACITY": {
       if (!condition.count || condition.count < 1) {
         invalidFields.push("count");
       }
@@ -300,7 +304,7 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
       return "";
     }
     case "CONCURRENT_COUNT":
-    case "SAME_DAY_COUNT": {
+    case "DAILY_CAPACITY": {
       if (invalidField === "count") {
         return "Bitte geben Sie eine Anzahl von mindestens 1 ein.";
       }
@@ -355,7 +359,7 @@ function RuleEditDialog({
 }: RuleEditDialogProps) {
   // Initialize conditions from existing rule or create new
   const initialConditions: Condition[] = existingRule
-    ? conditionTreeToConditions(existingRule.conditionTree)
+    ? conditionTreeToConditions(existingRule.conditionTree as ConditionTreeNode)
     : [
         {
           id: "1",
@@ -559,7 +563,7 @@ function ConditionEditor({
     { label: "Wochentag", value: "DAY_OF_WEEK" },
     { label: "Tage im Voraus", value: "DAYS_AHEAD" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
-    { label: "Termine am gleichen Tag", value: "SAME_DAY_COUNT" },
+    { label: "Termine am gleichen Tag", value: "DAILY_CAPACITY" },
   ];
 
   return (
@@ -575,7 +579,7 @@ function ConditionEditor({
                 operator:
                   value === "DAYS_AHEAD" ||
                   value === "CONCURRENT_COUNT" ||
-                  value === "SAME_DAY_COUNT"
+                  value === "DAILY_CAPACITY"
                     ? "GREATER_THAN_OR_EQUAL"
                     : "IS",
                 valueIds: [],
@@ -635,7 +639,7 @@ function ConditionEditor({
             />
           )}
 
-          {condition.type === "SAME_DAY_COUNT" && (
+          {condition.type === "DAILY_CAPACITY" && (
             <SameDayCountCondition
               appointmentTypes={appointmentTypes}
               condition={condition}
@@ -999,6 +1003,18 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
         }
         break;
       }
+      case "DAILY_CAPACITY": {
+        if (condition.count && condition.scope) {
+          nodes.push({
+            conditionType: "DAILY_CAPACITY",
+            nodeType: "CONDITION",
+            operator: "GREATER_THAN_OR_EQUAL",
+            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
+            valueNumber: condition.count,
+          });
+        }
+        break;
+      }
       case "DAY_OF_WEEK": {
         // Convert day names to numbers
         if (condition.valueIds && condition.valueIds.length > 0) {
@@ -1020,18 +1036,6 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
             valueNumber: condition.valueNumber,
-          });
-        }
-        break;
-      }
-      case "SAME_DAY_COUNT": {
-        if (condition.count && condition.scope) {
-          nodes.push({
-            conditionType: "SAME_DAY_COUNT",
-            nodeType: "CONDITION",
-            operator: "GREATER_THAN_OR_EQUAL",
-            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
-            valueNumber: condition.count,
           });
         }
         break;

@@ -23,6 +23,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import type { Id } from "./_generated/dataModel";
+import type { ConditionTreeNode } from "./ruleEngine";
 
 import {
   conditionTreeToConditions,
@@ -35,18 +36,6 @@ import { modules } from "./test.setup";
 // ================================
 // TEST HELPER FUNCTIONS
 // ================================
-
-/**
- * Type for tree node structure used in test helper.
- */
-interface TreeNode {
-  children?: TreeNode[];
-  conditionType?: string;
-  nodeType?: "AND" | "CONDITION" | "NOT";
-  operator?: string;
-  valueIds?: string[];
-  valueNumber?: number;
-}
 
 /**
  * Wrapper around convexTest that includes our modules.
@@ -135,7 +124,7 @@ async function createRule(
   t: ReturnType<typeof convexTest>,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
-  conditionTree: unknown,
+  conditionTree: ConditionTreeNode,
   enabled = true,
 ) {
   return await t.run(async (ctx) => {
@@ -154,7 +143,7 @@ async function createRule(
 
     // Helper to recursively create condition tree nodes
     async function createTreeNode(
-      node: TreeNode,
+      node: ConditionTreeNode,
       parentId: Id<"ruleConditions">,
       order: number,
     ): Promise<Id<"ruleConditions">> {
@@ -165,23 +154,19 @@ async function createRule(
         parentConditionId: parentId,
         practiceId,
         ruleSetId,
-        ...(node.conditionType && { conditionType: node.conditionType }),
-        ...(node.operator && { operator: node.operator }),
-        ...(node.valueIds && { valueIds: node.valueIds }),
-        ...(node.valueNumber !== undefined && {
-          valueNumber: node.valueNumber,
-        }),
+        ...("conditionType" in node && { conditionType: node.conditionType }),
+        ...("operator" in node && { operator: node.operator }),
+        ...("valueIds" in node && { valueIds: node.valueIds }),
+        ...("valueNumber" in node && { valueNumber: node.valueNumber }),
         createdAt: now,
         lastModified: now,
       });
 
       // If this is a logical operator (AND/NOT), create its children
-      if (node.children) {
+      if ("children" in node) {
         for (let i = 0; i < node.children.length; i++) {
           const child = node.children[i];
-          if (child) {
-            await createTreeNode(child, nodeId, i);
-          }
+          await createTreeNode(child as ConditionTreeNode, nodeId, i);
         }
       }
 
@@ -189,9 +174,7 @@ async function createRule(
     }
 
     // Create the condition tree starting from the root
-    if (conditionTree) {
-      await createTreeNode(conditionTree, rootId, 0);
-    }
+    await createTreeNode(conditionTree, rootId, 0);
 
     return rootId;
   });
@@ -254,9 +237,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block "Checkup" appointments
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Checkup"],
     };
 
@@ -317,9 +300,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block everything EXCEPT "Emergency"
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS_NOT",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS_NOT" as const,
       valueIds: ["Emergency"],
     };
 
@@ -392,9 +375,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block appointments with Dr. Smith
     const conditionTree = {
-      conditionType: "PRACTITIONER",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "PRACTITIONER" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: [drSmithId],
     };
 
@@ -467,9 +450,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block appointments at Main Office
     const conditionTree = {
-      conditionType: "LOCATION",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "LOCATION" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: [mainOfficeId],
     };
 
@@ -536,9 +519,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block Monday appointments (1 = Monday)
     const conditionTree = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1,
     };
 
@@ -605,9 +588,9 @@ describe("Rule Engine: Simple Filter Conditions", () => {
 
     // Create rule: Block "Checkup" OR "Consultation"
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Checkup", "Consultation"],
     };
 
@@ -700,9 +683,9 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
 
     // Create rule: Block appointments >= 30 days ahead
     const conditionTree = {
-      conditionType: "DAYS_AHEAD",
-      nodeType: "CONDITION",
-      operator: "GREATER_THAN_OR_EQUAL",
+      conditionType: "DAYS_AHEAD" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
       valueNumber: 30,
     };
 
@@ -815,9 +798,9 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
 
     // Create rule: Block if >= 2 concurrent appointments at practice level (any type)
     const conditionTree = {
-      conditionType: "CONCURRENT_COUNT",
-      nodeType: "CONDITION",
-      operator: "GREATER_THAN_OR_EQUAL",
+      conditionType: "CONCURRENT_COUNT" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
       valueIds: ["practice"], // [scope] - no appointment types means count all
       valueNumber: 2,
     };
@@ -893,19 +876,19 @@ describe("Rule Engine: Compound Conditions", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Checkup"],
         },
         {
-          conditionType: "DAY_OF_WEEK",
-          nodeType: "CONDITION",
-          operator: "EQUALS",
+          conditionType: "DAY_OF_WEEK" as const,
+          nodeType: "CONDITION" as const,
+          operator: "EQUALS" as const,
           valueNumber: 1, // Monday
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Checkup ist und es Montag ist, darf der Termin nicht vergeben werden."
@@ -1003,25 +986,25 @@ describe("Rule Engine: Compound Conditions", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Checkup"],
         },
         {
-          conditionType: "PRACTITIONER",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "PRACTITIONER" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [drSmithId],
         },
         {
-          conditionType: "LOCATION",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "LOCATION" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [mainOfficeId],
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Checkup ist und der Behandler Dr. Smith ist und der Standort Main Office ist, darf der Termin nicht vergeben werden."
@@ -1127,30 +1110,30 @@ describe("Rule Engine: Compound Conditions", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Checkup"],
         },
         {
           children: [
             {
-              conditionType: "DAY_OF_WEEK",
-              nodeType: "CONDITION",
-              operator: "EQUALS",
+              conditionType: "DAY_OF_WEEK" as const,
+              nodeType: "CONDITION" as const,
+              operator: "EQUALS" as const,
               valueNumber: 1, // Monday
             },
             {
-              conditionType: "DAYS_AHEAD",
-              nodeType: "CONDITION",
-              operator: "GREATER_THAN_OR_EQUAL",
+              conditionType: "DAYS_AHEAD" as const,
+              nodeType: "CONDITION" as const,
+              operator: "GREATER_THAN_OR_EQUAL" as const,
               valueNumber: 14,
             },
           ],
-          nodeType: "AND",
+          nodeType: "AND" as const,
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Checkup ist und es Montag ist und der Termin 14 Tage oder mehr entfernt ist, darf der Termin nicht vergeben werden."
@@ -1242,9 +1225,9 @@ describe("Rule Engine: Multiple Rules", () => {
 
     // Rule 1: Block "Checkup" appointments
     const conditionTree1 = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Checkup"],
     };
 
@@ -1261,9 +1244,9 @@ describe("Rule Engine: Multiple Rules", () => {
 
     // Rule 2: Block Monday appointments
     const conditionTree2 = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1,
     };
 
@@ -1372,9 +1355,9 @@ describe("Rule Engine: Multiple Rules", () => {
 
     // Create a DISABLED rule
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Checkup"],
     };
 
@@ -1465,9 +1448,9 @@ describe("Rule Engine: Edge Cases", () => {
 
     // Create rule with empty valueIds
     await createRule(t, practiceId, ruleSetId, {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: [],
     });
 
@@ -1501,9 +1484,9 @@ describe("Rule Engine: Edge Cases", () => {
 
     // Create rule: Block appointments >= 7 days ahead
     await createRule(t, practiceId, ruleSetId, {
-      conditionType: "DAYS_AHEAD",
-      nodeType: "CONDITION",
-      operator: "GREATER_THAN_OR_EQUAL",
+      conditionType: "DAYS_AHEAD" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
       valueNumber: 7,
     });
 
@@ -1579,9 +1562,9 @@ describe("Rule Engine: Edge Cases", () => {
 
     // Create two rules: Block Saturday and Sunday
     const conditionTree1 = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 6, // Saturday
     };
 
@@ -1597,9 +1580,9 @@ describe("Rule Engine: Edge Cases", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree1);
 
     const conditionTree2 = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 0, // Sunday
     };
 
@@ -1692,19 +1675,19 @@ describe("Rule Engine: Real-World Scenarios", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Surgery"],
         },
         {
           conditionType: "CLIENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Online"],
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Surgery ist und der Client-Typ Online ist, darf der Termin nicht vergeben werden."
@@ -1792,9 +1775,9 @@ describe("Rule Engine: Real-World Scenarios", () => {
     // Create rule: Block appointments on Monday
     // (In a real implementation, you'd also add a TIME_RANGE condition for before 9 AM)
     const conditionTree = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1, // Monday
     };
 
@@ -1869,19 +1852,19 @@ describe("Rule Engine: Real-World Scenarios", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "PRACTITIONER",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "PRACTITIONER" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [drSmithId],
         },
         {
-          conditionType: "DAYS_AHEAD",
-          nodeType: "CONDITION",
-          operator: "GREATER_THAN_OR_EQUAL",
+          conditionType: "DAYS_AHEAD" as const,
+          nodeType: "CONDITION" as const,
+          operator: "GREATER_THAN_OR_EQUAL" as const,
           valueNumber: 14,
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Behandler Dr. Smith ist und der Termin 14 Tage oder mehr entfernt ist, darf der Termin nicht vergeben werden."
@@ -2011,9 +1994,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block Monday appointments
     const conditionTree = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1,
     };
 
@@ -2082,9 +2065,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block Monday appointments only
     const conditionTree = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1,
     };
 
@@ -2132,9 +2115,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block "Surgery" appointments
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Surgery"],
     };
 
@@ -2226,9 +2209,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block Dr. Smith appointments
     const conditionTree = {
-      conditionType: "PRACTITIONER",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "PRACTITIONER" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: [drSmithId],
     };
 
@@ -2307,19 +2290,19 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Surgery"],
         },
         {
-          conditionType: "DAY_OF_WEEK",
-          nodeType: "CONDITION",
-          operator: "EQUALS",
+          conditionType: "DAY_OF_WEEK" as const,
+          nodeType: "CONDITION" as const,
+          operator: "EQUALS" as const,
           valueNumber: 1, // Monday
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Surgery ist und es Montag ist, darf der Termin nicht vergeben werden."
@@ -2430,31 +2413,31 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Surgery"],
         },
         {
-          conditionType: "PRACTITIONER",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "PRACTITIONER" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [drSmithId],
         },
         {
-          conditionType: "LOCATION",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "LOCATION" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [mainOfficeId],
         },
         {
-          conditionType: "DAY_OF_WEEK",
-          nodeType: "CONDITION",
-          operator: "EQUALS",
+          conditionType: "DAY_OF_WEEK" as const,
+          nodeType: "CONDITION" as const,
+          operator: "EQUALS" as const,
           valueNumber: 1, // Monday
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     // Expected behavior: "Wenn der Termintyp Surgery ist und der Behandler Dr. Smith ist und der Standort Main Office ist und es Montag ist, darf der Termin nicht vergeben werden."
@@ -2590,9 +2573,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block appointments >= 30 days ahead
     const conditionTree = {
-      conditionType: "DAYS_AHEAD",
-      nodeType: "CONDITION",
-      operator: "GREATER_THAN_OR_EQUAL",
+      conditionType: "DAYS_AHEAD" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
       valueNumber: 30,
     };
 
@@ -2673,18 +2656,18 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Rule 1: Block "Surgery" appointments
     const conditionTree1 = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
       valueIds: ["Surgery"],
     };
     await createRule(t, practiceId, ruleSetId, conditionTree1);
 
     // Rule 2: Block Monday appointments
     const conditionTree2 = {
-      conditionType: "DAY_OF_WEEK",
-      nodeType: "CONDITION",
-      operator: "EQUALS",
+      conditionType: "DAY_OF_WEEK" as const,
+      nodeType: "CONDITION" as const,
+      operator: "EQUALS" as const,
       valueNumber: 1,
     };
     await createRule(t, practiceId, ruleSetId, conditionTree2);
@@ -2779,9 +2762,9 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Create rule: Block appointments that are NOT Emergency
     const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE",
-      nodeType: "CONDITION",
-      operator: "IS_NOT",
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS_NOT" as const,
       valueIds: ["Emergency"],
     };
 
@@ -2885,25 +2868,25 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "DAY_OF_WEEK",
-          nodeType: "CONDITION",
-          operator: "EQUALS",
+          conditionType: "DAY_OF_WEEK" as const,
+          nodeType: "CONDITION" as const,
+          operator: "EQUALS" as const,
           valueNumber: 1,
         },
         {
-          conditionType: "PRACTITIONER",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "PRACTITIONER" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: [drSmithId],
         },
         {
-          conditionType: "LOCATION",
-          nodeType: "CONDITION",
-          operator: "IS_NOT",
+          conditionType: "LOCATION" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS_NOT" as const,
           valueIds: [mainOfficeId],
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     const expectedRule = generateRuleName(
@@ -3019,26 +3002,26 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Surgery"],
         },
         {
-          conditionType: "DAYS_AHEAD",
-          nodeType: "CONDITION",
-          operator: "GREATER_THAN_OR_EQUAL",
+          conditionType: "DAYS_AHEAD" as const,
+          nodeType: "CONDITION" as const,
+          operator: "GREATER_THAN_OR_EQUAL" as const,
           valueNumber: 14,
         },
         {
-          conditionType: "CONCURRENT_COUNT",
-          nodeType: "CONDITION",
-          operator: "GREATER_THAN_OR_EQUAL",
+          conditionType: "CONCURRENT_COUNT" as const,
+          nodeType: "CONDITION" as const,
+          operator: "GREATER_THAN_OR_EQUAL" as const,
           valueIds: ["practice", "Surgery"], // [scope, ...appointmentTypeIds]
           valueNumber: 2,
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     const expectedRule = generateRuleName(
@@ -3123,41 +3106,41 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS" as const,
           valueIds: ["Surgery"],
         },
         {
           children: [
             {
-              conditionType: "DAY_OF_WEEK",
-              nodeType: "CONDITION",
-              operator: "EQUALS",
+              conditionType: "DAY_OF_WEEK" as const,
+              nodeType: "CONDITION" as const,
+              operator: "EQUALS" as const,
               valueNumber: 1,
             },
             {
               children: [
                 {
-                  conditionType: "PRACTITIONER",
-                  nodeType: "CONDITION",
-                  operator: "IS",
+                  conditionType: "PRACTITIONER" as const,
+                  nodeType: "CONDITION" as const,
+                  operator: "IS" as const,
                   valueIds: [drSmithId],
                 },
                 {
-                  conditionType: "DAYS_AHEAD",
-                  nodeType: "CONDITION",
-                  operator: "GREATER_THAN_OR_EQUAL",
+                  conditionType: "DAYS_AHEAD" as const,
+                  nodeType: "CONDITION" as const,
+                  operator: "GREATER_THAN_OR_EQUAL" as const,
                   valueNumber: 7,
                 },
               ],
-              nodeType: "AND",
+              nodeType: "AND" as const,
             },
           ],
-          nodeType: "AND",
+          nodeType: "AND" as const,
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     const expectedRule = generateRuleName(
@@ -3252,19 +3235,19 @@ describe("E2E: Slot Generation with Rules", () => {
     const conditionTree = {
       children: [
         {
-          conditionType: "APPOINTMENT_TYPE",
-          nodeType: "CONDITION",
-          operator: "IS_NOT",
+          conditionType: "APPOINTMENT_TYPE" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS_NOT" as const,
           valueIds: ["Emergency"],
         },
         {
-          conditionType: "DAY_OF_WEEK",
-          nodeType: "CONDITION",
-          operator: "IS_NOT",
+          conditionType: "DAY_OF_WEEK" as const,
+          nodeType: "CONDITION" as const,
+          operator: "IS_NOT" as const,
           valueNumber: 5, // NOT Friday
         },
       ],
-      nodeType: "AND",
+      nodeType: "AND" as const,
     };
 
     const expectedRule = generateRuleName(
