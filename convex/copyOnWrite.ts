@@ -371,38 +371,64 @@ async function copyConditionNode(
   practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<Id<"ruleConditions">> {
-  // Remap any practitioner/location IDs in the condition values
+  // Remap any practitioner/location/appointmentType IDs in the condition values
   let remappedValueIds = sourceNode.valueIds;
   if (sourceNode.valueIds && sourceNode.conditionType) {
-    if (sourceNode.conditionType === "PRACTITIONER") {
-      remappedValueIds = [];
-      for (const id of sourceNode.valueIds) {
-        const practitionerId = id as Id<"practitioners">;
-        const newId = practitionerIdMap.get(practitionerId);
-        if (!newId) {
-          throw new Error(
-            `Failed to copy rule condition: ` +
-              `Practitioner ID ${practitionerId} not found in mapping. ` +
-              `This indicates data corruption - all practitioners should have been copied.`,
-          );
+    switch (sourceNode.conditionType) {
+      case "APPOINTMENT_TYPE": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const appointmentTypeId = id as Id<"appointmentTypes">;
+          const newId = appointmentTypeIdMap.get(appointmentTypeId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Appointment Type ID ${appointmentTypeId} not found in mapping. ` +
+                `This indicates data corruption - all appointment types should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
         }
-        remappedValueIds.push(newId as string);
+
+        break;
       }
-    } else if (sourceNode.conditionType === "LOCATION") {
-      remappedValueIds = [];
-      for (const id of sourceNode.valueIds) {
-        const locationId = id as Id<"locations">;
-        const newId = locationIdMap.get(locationId);
-        if (!newId) {
-          throw new Error(
-            `Failed to copy rule condition: ` +
-              `Location ID ${locationId} not found in mapping. ` +
-              `This indicates data corruption - all locations should have been copied.`,
-          );
+      case "LOCATION": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const locationId = id as Id<"locations">;
+          const newId = locationIdMap.get(locationId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Location ID ${locationId} not found in mapping. ` +
+                `This indicates data corruption - all locations should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
         }
-        remappedValueIds.push(newId as string);
+
+        break;
       }
+      case "PRACTITIONER": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const practitionerId = id as Id<"practitioners">;
+          const newId = practitionerIdMap.get(practitionerId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Practitioner ID ${practitionerId} not found in mapping. ` +
+                `This indicates data corruption - all practitioners should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
+        }
+
+        break;
+      }
+      // No default
     }
   }
 
@@ -494,6 +520,7 @@ async function copyConditionNode(
       practiceId,
       practitionerIdMap,
       locationIdMap,
+      appointmentTypeIdMap,
     );
   }
 
@@ -502,7 +529,7 @@ async function copyConditionNode(
 
 /**
  * Copy all rule conditions (rules and their condition trees) from source rule set to target rule set.
- * This recursively copies entire condition trees while remapping practitioner/location IDs.
+ * This recursively copies entire condition trees while remapping practitioner/location/appointmentType IDs.
  */
 export async function copyRuleConditions(
   db: DatabaseWriter,
@@ -511,6 +538,7 @@ export async function copyRuleConditions(
   practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
   // Find all root conditions (rules) in the source rule set
   const rootConditions = await db
@@ -530,6 +558,7 @@ export async function copyRuleConditions(
       practiceId,
       practitionerIdMap,
       locationIdMap,
+      appointmentTypeIdMap,
     );
   }
 }
@@ -551,7 +580,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  await copyAppointmentTypes(
+  const appointmentTypeIdMap = await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -583,5 +612,44 @@ export async function copyAllEntities(
     practiceId,
     practitionerIdMap,
     locationIdMap,
+    appointmentTypeIdMap,
   );
+}
+
+// ================================
+// VALIDATION HELPERS FOR ENTITY REFERENCES
+// ================================
+
+/**
+ * Validates that a list of entity IDs all belong to the specified rule set.
+ * This is a critical safety check to prevent bugs where entity IDs from an old
+ * rule set are accidentally used when creating/updating entities in a new rule set.
+ * @throws Error if any entity ID doesn't belong to the expected rule set
+ */
+export async function validateEntityIdsInRuleSet(
+  db: DatabaseReader,
+  entityIds: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+  entityType: "appointmentTypes" | "locations" | "practitioners",
+): Promise<void> {
+  for (const id of entityIds) {
+    const entity = await db.get(id as Id<typeof entityType>);
+
+    if (!entity) {
+      throw new Error(
+        `${entityType} with ID ${id} not found. ` +
+          `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+
+    if (entity.ruleSetId !== expectedRuleSetId) {
+      throw new Error(
+        `${entityType} with ID ${id} belongs to rule set ${entity.ruleSetId}, ` +
+          `but expected rule set ${expectedRuleSetId}. ` +
+          `This is a copy-on-write safety violation - when creating or updating entities ` +
+          `in a new rule set, all referenced entities must also belong to that rule set. ` +
+          `This bug typically occurs when IDs are not properly remapped during copy-on-write operations.`,
+      );
+    }
+  }
 }

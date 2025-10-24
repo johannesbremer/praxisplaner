@@ -22,15 +22,15 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import type { Id } from "./_generated/dataModel";
-import type { ConditionTreeNode } from "./ruleEngine";
+import type { Id } from "../_generated/dataModel";
+import type { ConditionTreeNode } from "../ruleEngine";
 
 import {
   conditionTreeToConditions,
   generateRuleName,
-} from "../lib/rule-name-generator.js";
-import { api, internal } from "./_generated/api";
-import schema from "./schema";
+} from "../../lib/rule-name-generator.js";
+import { api, internal } from "../_generated/api";
+import schema from "../schema";
 import { modules } from "./test.setup";
 
 // ================================
