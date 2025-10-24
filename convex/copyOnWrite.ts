@@ -217,15 +217,18 @@ export async function copyAppointmentTypes(
 
   for (const sourceType of sourceTypes) {
     // Map practitioner IDs to their new versions in the target rule set
-    const allowedPractitionerIds = sourceType.allowedPractitionerIds
-      .map((practitionerId) => practitionerIdMap.get(practitionerId))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
+    const allowedPractitionerIds: Id<"practitioners">[] = [];
 
-    // Ensure we have at least one practitioner (should always be true if source was valid)
-    if (allowedPractitionerIds.length === 0) {
-      throw new Error(
-        `Appointment type "${sourceType.name}" has no valid practitioners after mapping`,
-      );
+    for (const practitionerId of sourceType.allowedPractitionerIds) {
+      const newId = practitionerIdMap.get(practitionerId);
+      if (!newId) {
+        throw new Error(
+          `Failed to copy appointment type "${sourceType.name}": ` +
+            `Practitioner ID ${practitionerId} not found in mapping. ` +
+            `This indicates data corruption - all practitioners should have been copied.`,
+        );
+      }
+      allowedPractitionerIds.push(newId);
     }
 
     const newId = await db.insert("appointmentTypes", {
@@ -325,11 +328,21 @@ export async function copyBaseSchedules(
 
   for (const source of sourceSchedules) {
     const newPractitionerId = practitionerIdMap.get(source.practitionerId);
-    const newLocationId = locationIdMap.get(source.locationId);
+    if (!newPractitionerId) {
+      throw new Error(
+        `Failed to copy base schedule: ` +
+          `Practitioner ID ${source.practitionerId} not found in mapping. ` +
+          `This indicates data corruption - all practitioners should have been copied.`,
+      );
+    }
 
-    if (!newPractitionerId || !newLocationId) {
-      console.warn(`Skipping schedule copy - missing mapped IDs`);
-      continue;
+    const newLocationId = locationIdMap.get(source.locationId);
+    if (!newLocationId) {
+      throw new Error(
+        `Failed to copy base schedule: ` +
+          `Location ID ${source.locationId} not found in mapping. ` +
+          `This indicates data corruption - all locations should have been copied.`,
+      );
     }
 
     await db.insert("baseSchedules", {
@@ -363,21 +376,33 @@ async function copyConditionNode(
   let remappedValueIds = sourceNode.valueIds;
   if (sourceNode.valueIds && sourceNode.conditionType) {
     if (sourceNode.conditionType === "PRACTITIONER") {
-      remappedValueIds = sourceNode.valueIds
-        .map((id) => {
-          const practitionerId = id as Id<"practitioners">;
-          const newId = practitionerIdMap.get(practitionerId);
-          return newId ? (newId as string) : undefined;
-        })
-        .filter((id): id is string => id !== undefined);
+      remappedValueIds = [];
+      for (const id of sourceNode.valueIds) {
+        const practitionerId = id as Id<"practitioners">;
+        const newId = practitionerIdMap.get(practitionerId);
+        if (!newId) {
+          throw new Error(
+            `Failed to copy rule condition: ` +
+              `Practitioner ID ${practitionerId} not found in mapping. ` +
+              `This indicates data corruption - all practitioners should have been copied.`,
+          );
+        }
+        remappedValueIds.push(newId as string);
+      }
     } else if (sourceNode.conditionType === "LOCATION") {
-      remappedValueIds = sourceNode.valueIds
-        .map((id) => {
-          const locationId = id as Id<"locations">;
-          const newId = locationIdMap.get(locationId);
-          return newId ? (newId as string) : undefined;
-        })
-        .filter((id): id is string => id !== undefined);
+      remappedValueIds = [];
+      for (const id of sourceNode.valueIds) {
+        const locationId = id as Id<"locations">;
+        const newId = locationIdMap.get(locationId);
+        if (!newId) {
+          throw new Error(
+            `Failed to copy rule condition: ` +
+              `Location ID ${locationId} not found in mapping. ` +
+              `This indicates data corruption - all locations should have been copied.`,
+          );
+        }
+        remappedValueIds.push(newId as string);
+      }
     }
   }
 
@@ -510,11 +535,6 @@ export async function copyRuleConditions(
 }
 
 /**
- * Copy all entities from source rule set to target rule set.
- * This is the main atomic operation that ensures all entities are copied together.
- * ```
- *
- * /**
  * Copy all entities from source rule set to target rule set.
  * This is the main atomic operation that ensures all entities are copied together.
  */

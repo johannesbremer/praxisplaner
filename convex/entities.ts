@@ -1566,11 +1566,6 @@ export const getRules = query({
 // These are convenience queries that fetch from the active rule set using practiceId
 // ================================
 
-// ================================
-// ACTIVE RULE SET QUERIES
-// These are convenience queries that fetch from the active rule set using practiceId
-// ================================
-
 /**
  * Get practitioners from the active rule set
  */

@@ -303,12 +303,11 @@ async function evaluateCondition(
     }
 
     default: {
-      // Unknown condition type - fail safe by not blocking
-      console.warn(
-        "Unknown condition type:",
-        conditionType as string | undefined,
+      // Unknown condition type - this indicates data corruption
+      throw new Error(
+        `Unknown condition type: ${conditionType as string | undefined}. ` +
+          `This indicates data corruption in rule conditions.`,
       );
-      return false;
     }
   }
 }
@@ -335,8 +334,10 @@ async function evaluateConditionTree(
 ): Promise<boolean> {
   const node = await db.get(nodeId);
   if (!node) {
-    console.warn(`Condition node not found: ${nodeId}`);
-    return false;
+    throw new Error(
+      `Condition node not found: ${nodeId}. ` +
+        `This indicates data corruption - referenced node does not exist.`,
+    );
   }
 
   // If this is a leaf condition, evaluate it directly
@@ -353,8 +354,10 @@ async function evaluateConditionTree(
     .collect();
 
   if (children.length === 0) {
-    console.warn(`Logical operator node has no children: ${nodeId}`);
-    return false;
+    throw new Error(
+      `Logical operator node has no children: ${nodeId}. ` +
+        `This indicates data corruption - AND/NOT nodes must have children.`,
+    );
   }
 
   // Evaluate based on node type
@@ -373,10 +376,10 @@ async function evaluateConditionTree(
     case "NOT": {
       // Invert the result of the single child
       if (children.length !== 1) {
-        console.warn(
-          `NOT node should have exactly 1 child, has ${children.length}: ${nodeId}`,
+        throw new Error(
+          `NOT node should have exactly 1 child, has ${children.length}: ${nodeId}. ` +
+            `This indicates data corruption.`,
         );
-        return false;
       }
       const child = children[0];
       if (!child) {
@@ -387,8 +390,10 @@ async function evaluateConditionTree(
     }
 
     default: {
-      console.warn(`Unknown node type: ${node.nodeType}`);
-      return false;
+      throw new Error(
+        `Unknown node type: ${node.nodeType}. ` +
+          `This indicates data corruption in rule condition tree.`,
+      );
     }
   }
 }
@@ -435,10 +440,10 @@ export const checkRulesForAppointment = internalQuery({
 
       // A root node should have exactly one child (the top of the condition tree)
       if (rootChildren.length !== 1) {
-        console.warn(
-          `Root rule node should have exactly 1 child, has ${rootChildren.length}: ${rule._id}`,
+        throw new Error(
+          `Root rule node should have exactly 1 child, has ${rootChildren.length}: ${rule._id}. ` +
+            `This indicates data corruption in rule structure.`,
         );
-        continue;
       }
 
       const rootChild = rootChildren[0];
