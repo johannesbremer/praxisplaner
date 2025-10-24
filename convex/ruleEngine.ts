@@ -114,27 +114,53 @@ async function evaluateCondition(
 
     case "CONCURRENT_COUNT": {
       // Check concurrent appointments at a specific time slot
+      // valueIds structure: [scope, ...appointmentTypeIds]
+      // - scope: "practice", "location", or "practitioner"
+      // - appointmentTypeIds: optional list of appointment types to count
+      // valueNumber: the count threshold
       if (valueNumber === undefined) {
         return false;
       }
 
-      // Query appointments that overlap with this time slot
-      // For simplicity, we check appointments that start at the exact same time
+      const [scope, ...appointmentTypeIds] = valueIds ?? [];
+
+      // Build the query filter based on scope
       const existingAppointments = await db
         .query("appointments")
         .withIndex("by_start")
-        .filter((q) =>
-          q.and(
+        .filter((q) => {
+          const filters = [
             q.eq(q.field("start"), context.dateTime),
             q.eq(q.field("practiceId"), context.practiceId),
-            ...(context.locationId
-              ? [q.eq(q.field("locationId"), context.locationId)]
-              : []),
-          ),
-        )
+          ];
+
+          // Apply scope-based filtering
+          if (scope === "location" && context.locationId) {
+            filters.push(q.eq(q.field("locationId"), context.locationId));
+          } else if (scope === "practitioner") {
+            filters.push(
+              q.eq(q.field("practitionerId"), context.practitionerId),
+            );
+          }
+          // "practice" scope means no additional filtering - count across entire practice
+
+          return q.and(...filters);
+        })
         .collect();
 
-      const currentCount = existingAppointments.length;
+      // Filter by appointment types if specified
+      let filteredAppointments = existingAppointments;
+      if (appointmentTypeIds.length > 0) {
+        filteredAppointments = existingAppointments.filter((apt) =>
+          apt.appointmentType
+            ? appointmentTypeIds.includes(apt.appointmentType)
+            : false,
+        );
+      }
+
+      // Count existing appointments + 1 for the appointment being evaluated
+      // This represents "if this appointment were booked, how many concurrent would there be?"
+      const currentCount = filteredAppointments.length + 1;
       return compareValue(currentCount, valueNumber);
     }
 
