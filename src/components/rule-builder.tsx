@@ -63,7 +63,7 @@ type ConditionType =
 
 // Validation helper
 interface RuleBuilderProps {
-  onRuleCreated?: () => void;
+  onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
@@ -121,12 +121,16 @@ export function RuleBuilder({
 
   const handleDeleteRule = async (ruleId: Id<"ruleConditions">) => {
     try {
-      await deleteRuleMutation({
+      const { ruleSetId: newRuleSetId } = await deleteRuleMutation({
         practiceId,
         ruleId,
         sourceRuleSetId: ruleSetId,
       });
-      onRuleCreated?.();
+      
+      // Notify parent if rule set changed (new unsaved rule set was created)
+      if (onRuleCreated && newRuleSetId !== ruleSetId) {
+        onRuleCreated(newRuleSetId);
+      }
     } catch (error) {
       console.error("Failed to delete rule:", error);
     }
@@ -203,13 +207,16 @@ export function RuleBuilder({
           locations={locations!}
           onClose={closeDialog}
           onCreate={async (conditionTree) => {
+            let finalRuleSetId = ruleSetId;
+            
             if (editingRuleId !== "new") {
               // Delete old rule first
-              await deleteRuleMutation({
+              const { ruleSetId: deleteRuleSetId } = await deleteRuleMutation({
                 practiceId,
                 ruleId: editingRuleId,
                 sourceRuleSetId: ruleSetId,
               });
+              finalRuleSetId = deleteRuleSetId;
             }
 
             const conditions = conditionTreeToConditions(
@@ -225,18 +232,22 @@ export function RuleBuilder({
               locations!,
             );
 
-            await createRuleMutation({
+            const { ruleSetId: createRuleSetId } = await createRuleMutation({
               conditionTree: conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
               enabled: true,
               name: ruleName,
               practiceId,
-              sourceRuleSetId: ruleSetId,
+              sourceRuleSetId: finalRuleSetId,
             });
 
             closeDialog();
-            onRuleCreated?.();
+            
+            // Notify parent if rule set changed (new unsaved rule set was created)
+            if (onRuleCreated && createRuleSetId !== ruleSetId) {
+              onRuleCreated(createRuleSetId);
+            }
           }}
           /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
           practitioners={practitioners!}

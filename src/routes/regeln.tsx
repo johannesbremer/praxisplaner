@@ -909,13 +909,7 @@ function LogicView() {
                   <CardContent>
                     {currentWorkingRuleSet && (
                       <RuleBuilder
-                        onRuleCreated={() => {
-                          // Rules are created in the unsaved rule set
-                          // The unsaved rule set will be created automatically by CoW
-                          if (unsavedRuleSet) {
-                            handleRuleSetCreated(unsavedRuleSet._id);
-                          }
-                        }}
+                        onRuleCreated={handleRuleSetCreated}
                         practiceId={currentPractice._id}
                         ruleSetId={currentWorkingRuleSet._id}
                       />
