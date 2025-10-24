@@ -10,6 +10,9 @@ import {
   simulatedContextValidator,
 } from "./validators";
 
+// Constants
+const DEFAULT_SLOT_DURATION_MINUTES = 5;
+
 interface SchedulingResultSlot {
   blockedByRuleId?: Id<"ruleConditions">; // Changed from "rules" to "ruleConditions"
   duration: number;
@@ -223,7 +226,7 @@ export const getSlotsForDay = query({
         const scheduleEnd = new Date(targetDate);
         scheduleEnd.setUTCHours(endHour, endMinute, 0, 0);
 
-        const slotDuration = 30;
+        const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
         for (
           let slotTime = new Date(scheduleStart);
           slotTime < scheduleEnd;
