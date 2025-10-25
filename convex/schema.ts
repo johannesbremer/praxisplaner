@@ -9,7 +9,7 @@ export default defineSchema({
     title: v.string(),
 
     // Additional fields
-    appointmentType: v.optional(v.string()),
+    appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),
@@ -27,7 +27,8 @@ export default defineSchema({
     .index("by_start_end", ["start", "end"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
-    .index("by_practiceId", ["practiceId"]),
+    .index("by_practiceId", ["practiceId"])
+    .index("by_appointmentTypeId", ["appointmentTypeId"]),
 
   appointmentTypes: defineTable({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner

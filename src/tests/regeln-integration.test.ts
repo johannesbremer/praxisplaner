@@ -7,6 +7,7 @@ import type { SchedulingSimulatedContext } from "../types";
 const baseAppointment: Doc<"appointments"> = {
   _creationTime: 0,
   _id: "appointment-base" as Id<"appointments">,
+  appointmentTypeId: "appointmentType1" as Id<"appointmentTypes">,
   createdAt: 0n,
   end: "2024-01-15T11:00:00Z",
   lastModified: 0n,
@@ -26,15 +27,16 @@ const createAppointment = (
 describe("Regeln Integration - Simulation Metadata", () => {
   it("marks calendar events as simulation when flag is set", () => {
     const practitionerId = "practitioner1" as Id<"practitioners">;
+    const appointmentTypeId = "appointmentType2" as Id<"appointmentTypes">;
     const event = createAppointment({
       _id: "sim-appointment-123" as Id<"appointments">,
-      appointmentType: "Erstberatung",
+      appointmentTypeId,
       isSimulation: true,
       practitionerId,
     });
 
     expect(event.isSimulation).toBe(true);
-    expect(event.appointmentType).toBe("Erstberatung");
+    expect(event.appointmentTypeId).toBe(appointmentTypeId);
     expect(event.locationId).toBe("location1");
     expect(event.practitionerId).toBe(practitionerId);
   });
@@ -49,18 +51,19 @@ describe("Regeln Integration - Simulation Metadata", () => {
   });
 
   it("allows updating simulated context dynamically", () => {
+    const appointmentTypeId = "appointmentType3" as Id<"appointmentTypes">;
     const context: SchedulingSimulatedContext = {
-      appointmentType: "Akutsprechstunde",
+      appointmentTypeId,
       patient: { isNew: true },
-    } as SchedulingSimulatedContext;
+    };
 
     const updatedContext: SchedulingSimulatedContext = {
       ...context,
       locationId: "location2" as Id<"locations">,
       patient: { isNew: false },
-    } as SchedulingSimulatedContext;
+    };
 
-    expect(updatedContext.appointmentType).toBe("Akutsprechstunde");
+    expect(updatedContext.appointmentTypeId).toBe(appointmentTypeId);
     expect(updatedContext.patient.isNew).toBe(false);
     expect(updatedContext.locationId).toBe("location2");
   });

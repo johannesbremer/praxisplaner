@@ -126,7 +126,7 @@ export function RuleBuilder({
         ruleId,
         sourceRuleSetId: ruleSetId,
       });
-      
+
       // Notify parent if rule set changed (new unsaved rule set was created)
       if (onRuleCreated && newRuleSetId !== ruleSetId) {
         onRuleCreated(newRuleSetId);
@@ -139,76 +139,73 @@ export function RuleBuilder({
   // Get existing rule for editing
   const editingRule = existingRules?.find((r) => r._id === editingRuleId);
 
+  // Early return for loading state
+  if (!dataReady || !appointmentTypes || !practitioners || !locations) {
+    return (
+      <div className="space-y-4">
+        <div className="text-sm text-muted-foreground">Lade Daten...</div>
+      </div>
+    );
+  }
+
+  // At this point, TypeScript knows all data is loaded
   return (
     <div className="space-y-4">
-      {/* Show loading state if data is still loading */}
-      {!dataReady && (
-        <div className="text-sm text-muted-foreground">Lade Daten...</div>
-      )}
-
       {/* Render all existing rules as cards */}
-      {dataReady &&
-        existingRules?.map((rule) => {
-          const ruleName = generateRuleName(
-            conditionTreeToConditions(rule.conditionTree),
-            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-            appointmentTypes!,
-            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-            practitioners!,
-            /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-            locations!,
-          );
+      {existingRules?.map((rule) => {
+        const ruleName = generateRuleName(
+          conditionTreeToConditions(rule.conditionTree),
+          appointmentTypes,
+          practitioners,
+          locations,
+        );
 
-          return (
-            <Card key={rule._id}>
-              <CardHeader>
-                <CardTitle className="font-normal">{ruleName}</CardTitle>
-                <CardAction className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      openEditRuleDialog(rule._id);
-                    }}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      void handleDeleteRule(rule._id);
-                    }}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </CardAction>
-              </CardHeader>
-            </Card>
-          );
-        })}
+        return (
+          <Card key={rule._id}>
+            <CardHeader>
+              <CardTitle className="font-normal">{ruleName}</CardTitle>
+              <CardAction className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    openEditRuleDialog(rule._id);
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={() => {
+                    void handleDeleteRule(rule._id);
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </CardAction>
+            </CardHeader>
+          </Card>
+        );
+      })}
 
       {/* Add new rule button */}
-      {dataReady && (
-        <Button className="gap-2" onClick={openNewRuleDialog}>
-          <Plus className="h-4 w-4" />
-          Neue Regel
-        </Button>
-      )}
+      <Button className="gap-2" onClick={openNewRuleDialog}>
+        <Plus className="h-4 w-4" />
+        Neue Regel
+      </Button>
 
       {/* Edit/Create Rule Dialog */}
-      {dataReady && editingRuleId && (
+      {editingRuleId && (
         <RuleEditDialog
-          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-          appointmentTypes={appointmentTypes!}
+          appointmentTypes={appointmentTypes}
           existingRule={editingRule}
           isOpen={isDialogOpen}
-          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-          locations={locations!}
+          locations={locations}
           onClose={closeDialog}
           onCreate={async (conditionTree) => {
             let finalRuleSetId = ruleSetId;
-            
+
             if (editingRuleId !== "new") {
               // Delete old rule first
               const { ruleSetId: deleteRuleSetId } = await deleteRuleMutation({
@@ -224,12 +221,9 @@ export function RuleBuilder({
             );
             const ruleName = generateRuleName(
               conditions,
-              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-              appointmentTypes!,
-              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-              practitioners!,
-              /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-              locations!,
+              appointmentTypes,
+              practitioners,
+              locations,
             );
 
             const { ruleSetId: createRuleSetId } = await createRuleMutation({
@@ -243,14 +237,13 @@ export function RuleBuilder({
             });
 
             closeDialog();
-            
+
             // Notify parent if rule set changed (new unsaved rule set was created)
             if (onRuleCreated && createRuleSetId !== ruleSetId) {
               onRuleCreated(createRuleSetId);
             }
           }}
-          /* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */
-          practitioners={practitioners!}
+          practitioners={practitioners}
         />
       )}
     </div>

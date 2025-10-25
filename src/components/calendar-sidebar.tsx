@@ -58,7 +58,7 @@ export function CalendarSidebar() {
     if (simulatedContext && onUpdateSimulatedContext) {
       // Simulation mode: update simulated context
       const newContext = {
-        appointmentType: simulatedContext.appointmentType,
+        appointmentTypeId: simulatedContext.appointmentTypeId,
         ...(locationId && { locationId }),
         patient: simulatedContext.patient,
       };

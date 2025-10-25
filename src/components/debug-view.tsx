@@ -61,11 +61,18 @@ export function DebugView({
   })();
 
   // First query: Get available dates (lightweight)
-  const availableDatesResult = useQuery(api.scheduling.getAvailableDates, {
-    dateRange,
-    practiceId,
-    simulatedContext: sanitizedSimulatedContext,
-  });
+  const availableDatesResult = useQuery(
+    api.scheduling.getAvailableDates,
+    sanitizedSimulatedContext.appointmentTypeId &&
+      sanitizedSimulatedContext.appointmentTypeId !==
+        ("" as Id<"appointmentTypes">)
+      ? {
+          dateRange,
+          practiceId,
+          simulatedContext: sanitizedSimulatedContext,
+        }
+      : "skip",
+  );
 
   // Track which date user wants to debug
   const [selectedDebugDate, setSelectedDebugDate] = useState<null | string>(
@@ -90,7 +97,11 @@ export function DebugView({
   // Second query: Get slots for the selected date only
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedDebugDate && ruleSetId
+    selectedDebugDate &&
+      ruleSetId &&
+      sanitizedSimulatedContext.appointmentTypeId &&
+      sanitizedSimulatedContext.appointmentTypeId !==
+        ("" as Id<"appointmentTypes">)
       ? {
           date: selectedDebugDate,
           practiceId,

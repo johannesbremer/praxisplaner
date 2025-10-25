@@ -22,7 +22,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { ConditionTreeNode } from "../ruleEngine";
 
 import {
@@ -117,6 +117,31 @@ async function createLocation(
 }
 
 /**
+ * Helper to create an appointment type in a rule set.
+ */
+async function createAppointmentType(
+  t: ReturnType<typeof convexTest>,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+  name: string,
+  practitionerIds: Id<"practitioners">[],
+  duration = 30,
+) {
+  return await t.run(async (ctx) => {
+    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
+      allowedPractitionerIds: practitionerIds,
+      createdAt: BigInt(Date.now()),
+      duration,
+      lastModified: BigInt(Date.now()),
+      name,
+      practiceId,
+      ruleSetId,
+    });
+    return appointmentTypeId;
+  });
+}
+
+/**
  * Helper to create a rule with condition tree.
  * This mimics what the UI does when creating rules through the dialog.
  */
@@ -188,7 +213,7 @@ async function createAppointment(
   practiceId: Id<"practices">,
   practitionerId: Id<"practitioners">,
   locationId: Id<"locations">,
-  appointmentType: string,
+  appointmentTypeId: Id<"appointmentTypes">,
   startTime: string,
   duration = 30,
 ) {
@@ -196,8 +221,15 @@ async function createAppointment(
     const start = new Date(startTime);
     const end = new Date(start.getTime() + duration * 60 * 1000);
 
+    const appointmentType = (await ctx.db.get(
+      appointmentTypeId,
+    )) as Doc<"appointmentTypes"> | null;
+    if (!appointmentType) {
+      throw new Error(`Appointment type ${appointmentTypeId} not found`);
+    }
+
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentType,
+      appointmentTypeId,
       createdAt: BigInt(Date.now()),
       end: end.toISOString(),
       lastModified: BigInt(Date.now()),
@@ -205,7 +237,7 @@ async function createAppointment(
       practiceId,
       practitionerId,
       start: start.toISOString(),
-      title: `${appointmentType} appointment`,
+      title: `${appointmentType.name} appointment`,
     });
     return appointmentId;
   });
@@ -235,12 +267,28 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       "Main Office",
     );
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [practitionerId],
+    );
+
     // Create rule: Block "Checkup" appointments
     const conditionTree = {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Checkup"],
+      valueIds: [checkupTypeId],
     };
 
     await createRule(t, practiceId, ruleSetId, conditionTree);
@@ -250,7 +298,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -269,7 +317,93 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
+          dateTime: "2025-10-27T10:00:00.000Z",
+          locationId,
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-10-24T10:00:00.000Z",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(consultationResult.isBlocked).toBe(false);
+    expect(consultationResult.blockedByRuleIds).toHaveLength(0);
+  });
+
+  test("APPOINTMENT_TYPE with IS operator using IDs (real-world scenario) - should block matching type", async () => {
+    const t = createTestContext();
+
+    // Setup
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(
+      t,
+      practiceId,
+      ruleSetId,
+      "Main Office",
+    );
+
+    // Create appointment types in the database (like the UI does)
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [practitionerId],
+    );
+
+    // Create rule: Block "Checkup" appointments using the ID (as the UI does)
+    const conditionTree = {
+      conditionType: "APPOINTMENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
+      valueIds: [checkupTypeId], // Using ID, not name!
+    };
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    // Test: Checkup appointment should be blocked
+    // BUT: context.appointmentType is the NAME "Checkup", not the ID!
+    const checkupResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId, // This is a NAME, not an ID
+          dateTime: "2025-10-27T10:00:00.000Z",
+          locationId,
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-10-24T10:00:00.000Z",
+        },
+        ruleSetId,
+      },
+    );
+
+    // This test will FAIL because we're comparing ID to NAME
+    expect(checkupResult.isBlocked).toBe(true);
+    expect(checkupResult.blockedByRuleIds).toHaveLength(1);
+
+    // Test: Different appointment type should be allowed
+    const consultationResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -298,12 +432,28 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Clinic");
 
+    // Create appointment types
+    const emergencyTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Emergency",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block everything EXCEPT "Emergency"
     const conditionTree = {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS_NOT" as const,
-      valueIds: ["Emergency"],
+      valueIds: [emergencyTypeId],
     };
 
     // Expected behavior: "Wenn der Termintyp nicht Emergency ist, darf der Termin nicht vergeben werden."
@@ -322,7 +472,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Emergency",
+          appointmentTypeId: emergencyTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -340,7 +490,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -373,6 +523,15 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
+
     // Create rule: Block appointments with Dr. Smith
     const conditionTree = {
       conditionType: "PRACTITIONER" as const,
@@ -397,7 +556,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -415,7 +574,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -448,6 +607,15 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
     const branchId = await createLocation(t, practiceId, ruleSetId, "Branch");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block appointments at Main Office
     const conditionTree = {
       conditionType: "LOCATION" as const,
@@ -472,7 +640,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: mainOfficeId,
           practiceId,
@@ -490,7 +658,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: branchId,
           practiceId,
@@ -517,6 +685,15 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block Monday appointments (1 = Monday)
     const conditionTree = {
       conditionType: "DAY_OF_WEEK" as const,
@@ -541,7 +718,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z", // Monday
           locationId,
           practiceId,
@@ -559,7 +736,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
           locationId,
           practiceId,
@@ -586,20 +763,43 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [practitionerId],
+    );
+    const emergencyTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Emergency",
+      [practitionerId],
+    );
+
     // Create rule: Block "Checkup" OR "Consultation"
     const conditionTree = {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Checkup", "Consultation"],
+      valueIds: [checkupTypeId, consultationTypeId],
     };
 
     // Expected behavior: "Wenn der Termintyp Checkup oder Consultation ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
       [
-        { _id: "Checkup", name: "Checkup" },
-        { _id: "Consultation", name: "Consultation" },
+        { _id: checkupTypeId, name: "Checkup" },
+        { _id: consultationTypeId, name: "Consultation" },
       ],
       [],
       [],
@@ -613,7 +813,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -630,7 +830,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -648,7 +848,7 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Emergency",
+          appointmentTypeId: emergencyTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
           practiceId,
@@ -681,6 +881,15 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block appointments >= 30 days ahead
     const conditionTree = {
       conditionType: "DAYS_AHEAD" as const,
@@ -707,7 +916,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-22T10:00:00.000Z", // 29 days ahead
           locationId,
           practiceId,
@@ -725,7 +934,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-23T10:00:00.000Z", // 30 days ahead
           locationId,
           practiceId,
@@ -743,7 +952,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-12-23T10:00:00.000Z", // 60 days ahead
           locationId,
           practiceId,
@@ -776,6 +985,22 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [drSmithId, drJonesId],
+    );
+
     const timeSlot = "2025-10-27T10:00:00.000Z";
 
     // Create 2 existing appointments at the same time
@@ -784,7 +1009,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       practiceId,
       drSmithId,
       locationId,
-      "Checkup",
+      checkupTypeId,
       timeSlot,
     );
     await createAppointment(
@@ -792,7 +1017,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       practiceId,
       drJonesId,
       locationId,
-      "Consultation",
+      consultationTypeId,
       timeSlot,
     );
 
@@ -821,7 +1046,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: timeSlot,
           locationId,
           practiceId,
@@ -839,7 +1064,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T11:00:00.000Z", // Different time
           locationId,
           practiceId,
@@ -872,6 +1097,22 @@ describe("Rule Engine: Compound Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [practitionerId],
+    );
+
     // Create rule: Block "Checkup" appointments on Mondays
     const conditionTree = {
       children: [
@@ -879,7 +1120,7 @@ describe("Rule Engine: Compound Conditions", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Checkup"],
+          valueIds: [checkupTypeId],
         },
         {
           conditionType: "DAY_OF_WEEK" as const,
@@ -894,7 +1135,7 @@ describe("Rule Engine: Compound Conditions", () => {
     // Expected behavior: "Wenn der Termintyp Checkup ist und es Montag ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Checkup", name: "Checkup" }],
+      [{ _id: checkupTypeId, name: "Checkup" }],
       [],
       [],
     );
@@ -907,7 +1148,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z", // Monday
           locationId,
           practiceId,
@@ -925,7 +1166,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
           locationId,
           practiceId,
@@ -943,7 +1184,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-27T10:00:00.000Z", // Monday
           locationId,
           practiceId,
@@ -982,6 +1223,22 @@ describe("Rule Engine: Compound Conditions", () => {
     );
     const branchId = await createLocation(t, practiceId, ruleSetId, "Branch");
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [drSmithId, drJonesId],
+    );
+
     // Create rule: Block "Checkup" with "Dr. Smith" at "Main Office"
     const conditionTree = {
       children: [
@@ -989,7 +1246,7 @@ describe("Rule Engine: Compound Conditions", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Checkup"],
+          valueIds: [checkupTypeId],
         },
         {
           conditionType: "PRACTITIONER" as const,
@@ -1010,7 +1267,7 @@ describe("Rule Engine: Compound Conditions", () => {
     // Expected behavior: "Wenn der Termintyp Checkup ist und der Behandler Dr. Smith ist und der Standort Main Office ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Checkup", name: "Checkup" }],
+      [{ _id: checkupTypeId, name: "Checkup" }],
       [{ _id: drSmithId, name: "Dr. Smith" }],
       [{ _id: mainOfficeId, name: "Main Office" }],
     );
@@ -1023,7 +1280,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: mainOfficeId,
           practiceId,
@@ -1041,7 +1298,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: mainOfficeId,
           practiceId,
@@ -1059,7 +1316,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: branchId,
           practiceId,
@@ -1077,7 +1334,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId: mainOfficeId,
           practiceId,
@@ -1104,6 +1361,15 @@ describe("Rule Engine: Compound Conditions", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block "Checkup" appointments that are:
     // - On Monday OR Tuesday (day 1 or 2)
     // - AND more than 14 days in advance
@@ -1113,7 +1379,7 @@ describe("Rule Engine: Compound Conditions", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Checkup"],
+          valueIds: [checkupTypeId],
         },
         {
           children: [
@@ -1139,7 +1405,7 @@ describe("Rule Engine: Compound Conditions", () => {
     // Expected behavior: "Wenn der Termintyp Checkup ist und es Montag ist und der Termin 14 Tage oder mehr entfernt ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Checkup", name: "Checkup" }],
+      [{ _id: checkupTypeId, name: "Checkup" }],
       [],
       [],
     );
@@ -1154,7 +1420,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-17T10:00:00.000Z", // Monday, 24 days ahead
           locationId,
           practiceId,
@@ -1172,7 +1438,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-03T10:00:00.000Z", // Monday, 10 days ahead
           locationId,
           practiceId,
@@ -1190,7 +1456,7 @@ describe("Rule Engine: Compound Conditions", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-19T10:00:00.000Z", // Wednesday, 26 days ahead
           locationId,
           practiceId,
@@ -1223,18 +1489,34 @@ describe("Rule Engine: Multiple Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+    const consultationTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Consultation",
+      [practitionerId],
+    );
+
     // Rule 1: Block "Checkup" appointments
     const conditionTree1 = {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Checkup"],
+      valueIds: [checkupTypeId],
     };
 
     // Expected behavior: "Wenn der Termintyp Checkup ist, darf der Termin nicht vergeben werden."
     const expectedRule1 = generateRuleName(
       conditionTreeToConditions(conditionTree1),
-      [{ _id: "Checkup", name: "Checkup" }],
+      [{ _id: checkupTypeId, name: "Checkup" }],
       [],
       [],
     );
@@ -1266,7 +1548,7 @@ describe("Rule Engine: Multiple Rules", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
           locationId,
           practiceId,
@@ -1285,7 +1567,7 @@ describe("Rule Engine: Multiple Rules", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-27T10:00:00.000Z", // Monday
           locationId,
           practiceId,
@@ -1304,7 +1586,7 @@ describe("Rule Engine: Multiple Rules", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T10:00:00.000Z", // Monday
           locationId,
           practiceId,
@@ -1325,7 +1607,7 @@ describe("Rule Engine: Multiple Rules", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Consultation",
+          appointmentTypeId: consultationTypeId,
           dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
           locationId,
           practiceId,
@@ -1353,19 +1635,28 @@ describe("Rule Engine: Multiple Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create a DISABLED rule
     const conditionTree = {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Checkup"],
+      valueIds: [checkupTypeId],
     };
 
     // Expected behavior (if enabled): "Wenn der Termintyp Checkup ist, darf der Termin nicht vergeben werden."
     // But this rule is DISABLED, so it should not block anything
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Checkup", name: "Checkup" }],
+      [{ _id: checkupTypeId, name: "Checkup" }],
       [],
       [],
     );
@@ -1382,7 +1673,7 @@ describe("Rule Engine: Multiple Rules", () => {
     // Test: Should be allowed even though it matches the condition
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         dateTime: "2025-10-27T10:00:00.000Z",
         locationId,
         practiceId,
@@ -1415,11 +1706,20 @@ describe("Rule Engine: Edge Cases", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // No rules created
 
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         dateTime: "2025-10-27T10:00:00.000Z",
         locationId,
         practiceId,
@@ -1446,6 +1746,15 @@ describe("Rule Engine: Edge Cases", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule with empty valueIds
     await createRule(t, practiceId, ruleSetId, {
       conditionType: "APPOINTMENT_TYPE" as const,
@@ -1456,7 +1765,7 @@ describe("Rule Engine: Edge Cases", () => {
 
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         dateTime: "2025-10-27T10:00:00.000Z",
         locationId,
         practiceId,
@@ -1482,6 +1791,15 @@ describe("Rule Engine: Edge Cases", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block appointments >= 7 days ahead
     await createRule(t, practiceId, ruleSetId, {
       conditionType: "DAYS_AHEAD" as const,
@@ -1497,7 +1815,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: now,
           locationId,
           practiceId,
@@ -1515,7 +1833,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-25T10:00:00.000Z",
           locationId,
           practiceId,
@@ -1533,7 +1851,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-31T10:00:00.000Z",
           locationId,
           practiceId,
@@ -1559,6 +1877,15 @@ describe("Rule Engine: Edge Cases", () => {
       "Dr. Smith",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
 
     // Create two rules: Block Saturday and Sunday
     const conditionTree1 = {
@@ -1602,7 +1929,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-01T10:00:00.000Z", // Saturday
           locationId,
           practiceId,
@@ -1620,7 +1947,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-02T10:00:00.000Z", // Sunday
           locationId,
           practiceId,
@@ -1638,7 +1965,7 @@ describe("Rule Engine: Edge Cases", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-31T10:00:00.000Z", // Friday
           locationId,
           practiceId,
@@ -1671,6 +1998,22 @@ describe("Rule Engine: Real-World Scenarios", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block "Surgery" appointments when clientType is "Online"
     const conditionTree = {
       children: [
@@ -1678,7 +2021,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Surgery"],
+          valueIds: [surgeryTypeId],
         },
         {
           conditionType: "CLIENT_TYPE",
@@ -1693,7 +2036,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
     // Expected behavior: "Wenn der Termintyp Surgery ist und der Client-Typ Online ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [],
       [],
     );
@@ -1706,7 +2049,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Surgery",
+          appointmentTypeId: surgeryTypeId,
           clientType: "Online",
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
@@ -1725,7 +2068,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Surgery",
+          appointmentTypeId: surgeryTypeId,
           clientType: "MFA",
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
@@ -1744,7 +2087,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           clientType: "Online",
           dateTime: "2025-10-27T10:00:00.000Z",
           locationId,
@@ -1772,6 +2115,15 @@ describe("Rule Engine: Real-World Scenarios", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create rule: Block appointments on Monday
     // (In a real implementation, you'd also add a TIME_RANGE condition for before 9 AM)
     const conditionTree = {
@@ -1797,7 +2149,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-27T07:00:00.000Z", // Monday 7 AM
           locationId,
           practiceId,
@@ -1815,7 +2167,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-10-28T07:00:00.000Z", // Tuesday 7 AM
           locationId,
           practiceId,
@@ -1847,6 +2199,15 @@ describe("Rule Engine: Real-World Scenarios", () => {
       "Dr. Jones",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
 
     // Create rule: Block Dr. Smith appointments more than 14 days ahead
     const conditionTree = {
@@ -1885,7 +2246,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-13T10:00:00.000Z", // 20 days ahead
           locationId,
           practiceId,
@@ -1903,7 +2264,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-03T10:00:00.000Z", // 10 days ahead
           locationId,
           practiceId,
@@ -1921,7 +2282,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       internal.ruleEngine.checkRulesForAppointment,
       {
         context: {
-          appointmentType: "Checkup",
+          appointmentTypeId: checkupTypeId,
           dateTime: "2025-11-13T10:00:00.000Z", // 20 days ahead
           locationId,
           practiceId,
@@ -1982,6 +2343,15 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [practitionerId],
+    );
+
     // Create base schedule: Monday-Friday 9am-5pm
     await createBaseSchedule(
       t,
@@ -2017,7 +2387,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -2044,6 +2414,15 @@ describe("E2E: Slot Generation with Rules", () => {
       "Dr. Smith",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [practitionerId],
+    );
 
     // Create base schedules for Monday and Tuesday
     await createBaseSchedule(
@@ -2079,7 +2458,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -2104,6 +2483,22 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     await createBaseSchedule(
       t,
       practiceId,
@@ -2118,13 +2513,13 @@ describe("E2E: Slot Generation with Rules", () => {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Surgery"],
+      valueIds: [surgeryTypeId],
     };
 
     // Expected behavior: "Wenn der Termintyp Surgery ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [],
       [],
     );
@@ -2138,7 +2533,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -2158,7 +2553,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -2188,6 +2583,15 @@ describe("E2E: Slot Generation with Rules", () => {
       "Dr. Jones",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [drSmithId, drJonesId],
+    );
 
     // Create schedules for both practitioners on Monday
     await createBaseSchedule(
@@ -2232,7 +2636,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -2268,6 +2672,22 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create schedules for Monday and Tuesday
     await createBaseSchedule(
       t,
@@ -2293,7 +2713,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Surgery"],
+          valueIds: [surgeryTypeId],
         },
         {
           conditionType: "DAY_OF_WEEK" as const,
@@ -2308,7 +2728,7 @@ describe("E2E: Slot Generation with Rules", () => {
     // Expected behavior: "Wenn der Termintyp Surgery ist und es Montag ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [],
       [],
     );
@@ -2322,7 +2742,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -2338,7 +2758,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -2354,7 +2774,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -2390,6 +2810,22 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const branchId = await createLocation(t, practiceId, ruleSetId, "Branch");
 
+    // Create appointment types
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [drSmithId, drJonesId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
+
     // Create schedules for both practitioners at both locations on Monday
     await createBaseSchedule(
       t,
@@ -2416,7 +2852,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Surgery"],
+          valueIds: [surgeryTypeId],
         },
         {
           conditionType: "PRACTITIONER" as const,
@@ -2443,7 +2879,7 @@ describe("E2E: Slot Generation with Rules", () => {
     // Expected behavior: "Wenn der Termintyp Surgery ist und der Behandler Dr. Smith ist und der Standort Main Office ist und es Montag ist, darf der Termin nicht vergeben werden."
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [{ _id: drSmithId, name: "Dr. Smith" }],
       [{ _id: mainOfficeId, name: "Main Office" }],
     );
@@ -2457,7 +2893,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         locationId: mainOfficeId,
         patient: { isNew: false },
       },
@@ -2477,7 +2913,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         locationId: branchId,
         patient: { isNew: false },
       },
@@ -2497,7 +2933,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         locationId: mainOfficeId,
         patient: { isNew: false },
       },
@@ -2517,7 +2953,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         locationId: mainOfficeId,
         patient: { isNew: false },
       },
@@ -2544,6 +2980,15 @@ describe("E2E: Slot Generation with Rules", () => {
       "Dr. Smith",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [practitionerId],
+    );
 
     // Create schedule for Mondays, Thursdays, and Fridays
     await createBaseSchedule(
@@ -2596,7 +3041,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -2612,7 +3057,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -2635,6 +3080,22 @@ describe("E2E: Slot Generation with Rules", () => {
       "Dr. Smith",
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment types
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
 
     // Create schedules for Monday and Tuesday
     await createBaseSchedule(
@@ -2659,7 +3120,7 @@ describe("E2E: Slot Generation with Rules", () => {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["Surgery"],
+      valueIds: [surgeryTypeId],
     };
     await createRule(t, practiceId, ruleSetId, conditionTree1);
 
@@ -2678,7 +3139,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -2694,7 +3155,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -2710,7 +3171,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -2726,7 +3187,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -2750,6 +3211,22 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const emergencyTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Emergency",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create schedule for Monday
     await createBaseSchedule(
       t,
@@ -2765,12 +3242,12 @@ describe("E2E: Slot Generation with Rules", () => {
       conditionType: "APPOINTMENT_TYPE" as const,
       nodeType: "CONDITION" as const,
       operator: "IS_NOT" as const,
-      valueIds: ["Emergency"],
+      valueIds: [emergencyTypeId],
     };
 
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Emergency", name: "Emergency" }],
+      [{ _id: emergencyTypeId, name: "Emergency" }],
       [],
       [],
     );
@@ -2784,7 +3261,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Emergency",
+        appointmentTypeId: emergencyTypeId,
         patient: { isNew: false },
       },
     });
@@ -2800,7 +3277,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -2842,6 +3319,15 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       "Branch Office",
+    );
+
+    // Create appointment type
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [drSmithId, drJonesId],
     );
 
     // Create schedules for Monday at both locations with both doctors
@@ -2905,7 +3391,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         locationId: branchId,
         patient: { isNew: false },
       },
@@ -2928,7 +3414,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "General",
+        appointmentTypeId: generalTypeId,
         locationId: mainOfficeId,
         patient: { isNew: false },
       },
@@ -2969,6 +3455,15 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [drSmithId, drJonesId],
+    );
+
     // Create schedules for both practitioners on Thursdays
     await createBaseSchedule(
       t,
@@ -2994,7 +3489,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       drSmithId,
       locationId,
-      "Surgery",
+      surgeryTypeId,
       "2025-11-13T10:00:00.000Z",
     );
 
@@ -3005,7 +3500,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Surgery"],
+          valueIds: [surgeryTypeId],
         },
         {
           conditionType: "DAYS_AHEAD" as const,
@@ -3017,7 +3512,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "CONCURRENT_COUNT" as const,
           nodeType: "CONDITION" as const,
           operator: "GREATER_THAN_OR_EQUAL" as const,
-          valueIds: ["practice", "Surgery"], // [scope, ...appointmentTypeIds]
+          valueIds: ["practice", surgeryTypeId], // [scope, ...appointmentTypeIds]
           valueNumber: 2,
         },
       ],
@@ -3026,7 +3521,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [],
       [],
     );
@@ -3041,7 +3536,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3084,6 +3579,15 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment type
+    const surgeryTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Surgery",
+      [drSmithId, drJonesId],
+    );
+
     // Create schedules for next Monday (Oct 27) and following Monday (Nov 3)
     await createBaseSchedule(
       t,
@@ -3109,7 +3613,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
-          valueIds: ["Surgery"],
+          valueIds: [surgeryTypeId],
         },
         {
           children: [
@@ -3145,7 +3649,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Surgery", name: "Surgery" }],
+      [{ _id: surgeryTypeId, name: "Surgery" }],
       [{ _id: drSmithId, name: "Dr. Smith" }],
       [],
     );
@@ -3159,7 +3663,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3186,7 +3690,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Surgery",
+        appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3213,6 +3717,22 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
 
+    // Create appointment types
+    const emergencyTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Emergency",
+      [practitionerId],
+    );
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
     // Create schedules for Monday and Friday
     await createBaseSchedule(
       t,
@@ -3238,7 +3758,7 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "APPOINTMENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS_NOT" as const,
-          valueIds: ["Emergency"],
+          valueIds: [emergencyTypeId],
         },
         {
           conditionType: "DAY_OF_WEEK" as const,
@@ -3252,7 +3772,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     const expectedRule = generateRuleName(
       conditionTreeToConditions(conditionTree),
-      [{ _id: "Emergency", name: "Emergency" }],
+      [{ _id: emergencyTypeId, name: "Emergency" }],
       [],
       [],
     );
@@ -3266,7 +3786,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -3285,7 +3805,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Emergency",
+        appointmentTypeId: emergencyTypeId,
         patient: { isNew: false },
       },
     });
@@ -3301,7 +3821,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentType: "Checkup",
+        appointmentTypeId: checkupTypeId,
         patient: { isNew: false },
       },
     });

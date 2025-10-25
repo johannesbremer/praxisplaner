@@ -24,7 +24,7 @@ import { internalQuery } from "./_generated/server";
  * This is the data available when evaluating whether a rule should block an appointment.
  */
 export const appointmentContextValidator = v.object({
-  appointmentType: v.string(),
+  appointmentTypeId: v.id("appointmentTypes"),
   // Client type (e.g., "Online", "MFA", "Phone-AI")
   clientType: v.optional(v.string()),
   // ISO datetime string
@@ -95,10 +95,10 @@ async function evaluateCondition(
 
   switch (conditionType) {
     case "APPOINTMENT_TYPE": {
-      // Compare appointment type string
+      // Compare appointment type IDs
       const isMatch =
         valueIds && valueIds.length > 0
-          ? valueIds.includes(context.appointmentType)
+          ? valueIds.includes(context.appointmentTypeId)
           : false;
       return operator === "IS" ? isMatch : !isMatch;
     }
@@ -152,8 +152,8 @@ async function evaluateCondition(
       let filteredAppointments = existingAppointments;
       if (appointmentTypeIds.length > 0) {
         filteredAppointments = existingAppointments.filter((apt) =>
-          apt.appointmentType
-            ? appointmentTypeIds.includes(apt.appointmentType)
+          apt.appointmentTypeId
+            ? appointmentTypeIds.includes(apt.appointmentTypeId)
             : false,
         );
       }
@@ -185,7 +185,7 @@ async function evaluateCondition(
             q.gte(q.field("start"), dayStart.toISOString()),
             q.lte(q.field("start"), dayEnd.toISOString()),
             q.eq(q.field("practiceId"), context.practiceId),
-            q.eq(q.field("appointmentType"), context.appointmentType),
+            q.eq(q.field("appointmentTypeId"), context.appointmentTypeId),
             ...(context.practitionerId
               ? [q.eq(q.field("practitionerId"), context.practitionerId)]
               : []),

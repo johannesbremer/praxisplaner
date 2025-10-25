@@ -1,3 +1,4 @@
+import { useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/convex/_generated/api";
 
 import type {
   SchedulingDateRange,
@@ -45,10 +47,23 @@ export function SimulationPanel({
   practiceId,
   ruleSetsQuery,
 }: SimulationPanelProps) {
+  // Get the first rule set to fetch appointment types
+  const firstRuleSetId = ruleSetsQuery?.[0]?._id;
+
+  // Query appointment types to get a valid default
+  const appointmentTypes = useQuery(
+    api.entities.getAppointmentTypes,
+    firstRuleSetId ? { ruleSetId: firstRuleSetId } : "skip",
+  );
+
+  // Get the first appointment type ID for default
+  const defaultAppointmentTypeId = appointmentTypes?.[0]?._id;
+
   // Simulation state
   const [simulatedContext, setSimulatedContext] =
     useState<SchedulingSimulatedContext>({
-      appointmentType: "Erstberatung",
+      appointmentTypeId:
+        defaultAppointmentTypeId ?? (null as unknown as Id<"appointmentTypes">),
       patient: { isNew: true },
     });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -71,7 +86,8 @@ export function SimulationPanel({
 
   const resetSimulation = () => {
     setSimulatedContext({
-      appointmentType: "Erstberatung",
+      appointmentTypeId:
+        defaultAppointmentTypeId ?? (null as unknown as Id<"appointmentTypes">),
       patient: { isNew: true },
     });
     setSelectedDate(new Date());

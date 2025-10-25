@@ -97,7 +97,10 @@ export function PatientFocusedView({
   // Get available dates for the calendar (lightweight query, no rule evaluation)
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
-    selectedLocationId
+    selectedLocationId &&
+      effectiveSimulatedContext.appointmentTypeId &&
+      effectiveSimulatedContext.appointmentTypeId !==
+        ("" as Id<"appointmentTypes">)
       ? {
           dateRange: calendarDateRange,
           practiceId,
@@ -222,7 +225,12 @@ export function PatientFocusedView({
   // This avoids the 32k document limit by only processing one day at a time
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedLocationId && ruleSetId && effectiveUserSelectedDate
+    selectedLocationId &&
+      ruleSetId &&
+      effectiveUserSelectedDate &&
+      effectiveSimulatedContext.appointmentTypeId &&
+      effectiveSimulatedContext.appointmentTypeId !==
+        ("" as Id<"appointmentTypes">)
       ? {
           date: format(effectiveUserSelectedDate, "yyyy-MM-dd"),
           practiceId,
@@ -294,14 +302,14 @@ export function PatientFocusedView({
 
         {/* Terminart Selection - Always visible */}
         <AppointmentTypeSelector
-          onTypeSelect={(type: string) => {
+          onTypeSelect={(type) => {
             onUpdateSimulatedContext?.({
               ...simulatedContext,
-              appointmentType: type,
+              appointmentTypeId: type,
             });
           }}
           ruleSetId={ruleSetId}
-          selectedType={simulatedContext.appointmentType}
+          selectedType={simulatedContext.appointmentTypeId}
         />
 
         {/* Show integrated calendar only when location is selected and slots are loaded */}

@@ -146,7 +146,7 @@ function LogicView() {
 
   // Local appointments for simulation
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
-    appointmentType: "Erstberatung",
+    appointmentTypeId: "" as Id<"appointmentTypes">, // Will be set once types are loaded
     patient: { isNew: true },
   });
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
@@ -246,6 +246,31 @@ function LogicView() {
     api.ruleSets.getVersionHistory,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
+
+  // Get the first rule set to fetch appointment types
+  const firstRuleSetId = ruleSetsQuery?.[0]?._id;
+
+  // Query appointment types to get a valid default
+  const appointmentTypesQuery = useQuery(
+    api.entities.getAppointmentTypes,
+    firstRuleSetId ? { ruleSetId: firstRuleSetId } : "skip",
+  );
+
+  // Get the first appointment type ID for default
+  const defaultAppointmentTypeId = appointmentTypesQuery?.[0]?._id;
+
+  // Initialize appointmentTypeId once appointment types are loaded
+  React.useEffect(() => {
+    if (
+      defaultAppointmentTypeId &&
+      simulatedContext.appointmentTypeId === ("" as Id<"appointmentTypes">)
+    ) {
+      setSimulatedContext((prev) => ({
+        ...prev,
+        appointmentTypeId: defaultAppointmentTypeId,
+      }));
+    }
+  }, [defaultAppointmentTypeId, simulatedContext.appointmentTypeId]);
 
   // Transform rule sets to include isActive computed field
   // RuleSetSummary interface expects: { _id, description, isActive, version }
@@ -382,7 +407,9 @@ function LogicView() {
     setIsResettingSimulation(true);
     try {
       setSimulatedContext({
-        appointmentType: "Erstberatung",
+        appointmentTypeId:
+          defaultAppointmentTypeId ??
+          (null as unknown as Id<"appointmentTypes">),
         patient: { isNew: true },
       });
       setSelectedSlot(null);
@@ -396,7 +423,7 @@ function LogicView() {
     } finally {
       setIsResettingSimulation(false);
     }
-  }, [performClearSimulatedAppointments, pushUrl]);
+  }, [defaultAppointmentTypeId, performClearSimulatedAppointments, pushUrl]);
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
@@ -1245,14 +1272,14 @@ function SimulationControls({
 
         {simulationRuleSetId && (
           <AppointmentTypeSelector
-            onTypeSelect={(type: string) => {
+            onTypeSelect={(type) => {
               onSimulatedContextChange({
                 ...simulatedContext,
-                appointmentType: type,
+                appointmentTypeId: type,
               });
             }}
             ruleSetId={simulationRuleSetId}
-            selectedType={simulatedContext.appointmentType}
+            selectedType={simulatedContext.appointmentTypeId}
           />
         )}
 

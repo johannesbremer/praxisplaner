@@ -265,7 +265,7 @@ export const getSlotsForDay = query({
         }
 
         const appointmentContext = {
-          appointmentType: args.simulatedContext.appointmentType,
+          appointmentTypeId: args.simulatedContext.appointmentTypeId,
           dateTime: slot.startTime,
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId as Id<"practitioners">,

@@ -7,9 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 interface AppointmentTypeSelectorProps {
-  onTypeSelect: (type: string) => void;
+  onTypeSelect: (type: Id<"appointmentTypes">) => void;
   ruleSetId: Id<"ruleSets">;
-  selectedType: string;
+  selectedType: Id<"appointmentTypes"> | undefined;
 }
 
 export function AppointmentTypeSelector({
@@ -36,14 +36,14 @@ export function AppointmentTypeSelector({
         ) : (
           <div className="grid grid-cols-1 gap-2">
             {appointmentTypes.map((appointmentType) => {
-              const isSelected = selectedType === appointmentType.name;
+              const isSelected = selectedType === appointmentType._id;
               return (
                 <Button
                   className="justify-start text-left h-auto p-3"
                   disabled={isSelected}
                   key={appointmentType._id}
                   onClick={() => {
-                    onTypeSelect(appointmentType.name);
+                    onTypeSelect(appointmentType._id);
                   }}
                   size="sm"
                   style={
