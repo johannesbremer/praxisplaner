@@ -29,7 +29,8 @@ export type EntityType =
   | "base schedule"
   | "location"
   | "practitioner"
-  | "rule";
+  | "rule"
+  | "rule condition";
 
 // ================================
 // VALIDATION HELPERS
@@ -216,15 +217,18 @@ export async function copyAppointmentTypes(
 
   for (const sourceType of sourceTypes) {
     // Map practitioner IDs to their new versions in the target rule set
-    const allowedPractitionerIds = sourceType.allowedPractitionerIds
-      .map((practitionerId) => practitionerIdMap.get(practitionerId))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
+    const allowedPractitionerIds: Id<"practitioners">[] = [];
 
-    // Ensure we have at least one practitioner (should always be true if source was valid)
-    if (allowedPractitionerIds.length === 0) {
-      throw new Error(
-        `Appointment type "${sourceType.name}" has no valid practitioners after mapping`,
-      );
+    for (const practitionerId of sourceType.allowedPractitionerIds) {
+      const newId = practitionerIdMap.get(practitionerId);
+      if (!newId) {
+        throw new Error(
+          `Failed to copy appointment type "${sourceType.name}": ` +
+            `Practitioner ID ${practitionerId} not found in mapping. ` +
+            `This indicates data corruption - all practitioners should have been copied.`,
+        );
+      }
+      allowedPractitionerIds.push(newId);
     }
 
     const newId = await db.insert("appointmentTypes", {
@@ -324,11 +328,21 @@ export async function copyBaseSchedules(
 
   for (const source of sourceSchedules) {
     const newPractitionerId = practitionerIdMap.get(source.practitionerId);
-    const newLocationId = locationIdMap.get(source.locationId);
+    if (!newPractitionerId) {
+      throw new Error(
+        `Failed to copy base schedule: ` +
+          `Practitioner ID ${source.practitionerId} not found in mapping. ` +
+          `This indicates data corruption - all practitioners should have been copied.`,
+      );
+    }
 
-    if (!newPractitionerId || !newLocationId) {
-      console.warn(`Skipping schedule copy - missing mapped IDs`);
-      continue;
+    const newLocationId = locationIdMap.get(source.locationId);
+    if (!newLocationId) {
+      throw new Error(
+        `Failed to copy base schedule: ` +
+          `Location ID ${source.locationId} not found in mapping. ` +
+          `This indicates data corruption - all locations should have been copied.`,
+      );
     }
 
     await db.insert("baseSchedules", {
@@ -346,42 +360,206 @@ export async function copyBaseSchedules(
 }
 
 /**
- * Copy all rules from source to target rule set.
- * Remaps practitioner and location IDs to the new rule set's entities.
+ * Recursively copy a condition node and all its children.
+ * Returns the ID of the newly created node.
  */
-export async function copyRules(
+async function copyConditionNode(
+  db: DatabaseWriter,
+  sourceNode: Doc<"ruleConditions">,
+  targetRuleSetId: Id<"ruleSets">,
+  targetParentId: Id<"ruleConditions"> | null,
+  practiceId: Id<"practices">,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
+  locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
+): Promise<Id<"ruleConditions">> {
+  // Remap any practitioner/location/appointmentType IDs in the condition values
+  let remappedValueIds = sourceNode.valueIds;
+  if (sourceNode.valueIds && sourceNode.conditionType) {
+    switch (sourceNode.conditionType) {
+      case "APPOINTMENT_TYPE": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const appointmentTypeId = id as Id<"appointmentTypes">;
+          const newId = appointmentTypeIdMap.get(appointmentTypeId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Appointment Type ID ${appointmentTypeId} not found in mapping. ` +
+                `This indicates data corruption - all appointment types should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
+        }
+
+        break;
+      }
+      case "LOCATION": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const locationId = id as Id<"locations">;
+          const newId = locationIdMap.get(locationId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Location ID ${locationId} not found in mapping. ` +
+                `This indicates data corruption - all locations should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
+        }
+
+        break;
+      }
+      case "PRACTITIONER": {
+        remappedValueIds = [];
+        for (const id of sourceNode.valueIds) {
+          const practitionerId = id as Id<"practitioners">;
+          const newId = practitionerIdMap.get(practitionerId);
+          if (!newId) {
+            throw new Error(
+              `Failed to copy rule condition: ` +
+                `Practitioner ID ${practitionerId} not found in mapping. ` +
+                `This indicates data corruption - all practitioners should have been copied.`,
+            );
+          }
+          remappedValueIds.push(newId as string);
+        }
+
+        break;
+      }
+      // No default
+    }
+  }
+
+  // Build the insert object with explicit isRoot field
+  const insertData: {
+    childOrder: number;
+    conditionType?:
+      | "APPOINTMENT_TYPE"
+      | "CLIENT_TYPE"
+      | "CONCURRENT_COUNT"
+      | "DAILY_CAPACITY"
+      | "DATE_RANGE"
+      | "DAY_OF_WEEK"
+      | "DAYS_AHEAD"
+      | "LOCATION"
+      | "PRACTITIONER"
+      | "PRACTITIONER_TAG"
+      | "TIME_RANGE";
+    copyFromId: Id<"ruleConditions">;
+    createdAt: bigint;
+    enabled?: boolean;
+    isRoot: boolean;
+    lastModified: bigint;
+    nodeType?: "AND" | "CONDITION" | "NOT";
+    operator?:
+      | "EQUALS"
+      | "GREATER_THAN_OR_EQUAL"
+      | "IS"
+      | "IS_NOT"
+      | "LESS_THAN_OR_EQUAL";
+    parentConditionId?: Id<"ruleConditions">;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+    valueIds?: string[];
+    valueNumber?: number;
+  } = {
+    childOrder: sourceNode.childOrder,
+    copyFromId: sourceNode._id,
+    createdAt: BigInt(Date.now()),
+    isRoot: sourceNode.isRoot,
+    lastModified: BigInt(Date.now()),
+    practiceId,
+    ruleSetId: targetRuleSetId,
+  };
+
+  if (targetParentId !== null) {
+    insertData.parentConditionId = targetParentId;
+  }
+
+  if (sourceNode.isRoot && sourceNode.enabled !== undefined) {
+    insertData.enabled = sourceNode.enabled;
+  }
+
+  if (!sourceNode.isRoot && sourceNode.nodeType) {
+    insertData.nodeType = sourceNode.nodeType;
+  }
+
+  if (sourceNode.nodeType === "CONDITION") {
+    if (sourceNode.conditionType) {
+      insertData.conditionType = sourceNode.conditionType;
+    }
+    if (sourceNode.operator) {
+      insertData.operator = sourceNode.operator;
+    }
+    if (remappedValueIds) {
+      insertData.valueIds = remappedValueIds;
+    }
+    if (sourceNode.valueNumber !== undefined) {
+      insertData.valueNumber = sourceNode.valueNumber;
+    }
+  }
+
+  const newNodeId = await db.insert("ruleConditions", insertData);
+
+  // Recursively copy all children
+  const children = await db
+    .query("ruleConditions")
+    .withIndex("by_parentConditionId_childOrder", (q) =>
+      q.eq("parentConditionId", sourceNode._id),
+    )
+    .collect();
+
+  for (const child of children) {
+    await copyConditionNode(
+      db,
+      child,
+      targetRuleSetId,
+      newNodeId,
+      practiceId,
+      practitionerIdMap,
+      locationIdMap,
+      appointmentTypeIdMap,
+    );
+  }
+
+  return newNodeId;
+}
+
+/**
+ * Copy all rule conditions (rules and their condition trees) from source rule set to target rule set.
+ * This recursively copies entire condition trees while remapping practitioner/location/appointmentType IDs.
+ */
+export async function copyRuleConditions(
   db: DatabaseWriter,
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
+  practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
   locationIdMap: Map<Id<"locations">, Id<"locations">>,
+  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
-  const sourceRules = await db
-    .query("rules")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+  // Find all root conditions (rules) in the source rule set
+  const rootConditions = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId_isRoot", (q) =>
+      q.eq("ruleSetId", sourceRuleSetId).eq("isRoot", true),
+    )
     .collect();
 
-  for (const source of sourceRules) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { _creationTime, _id, ruleSetId, ...ruleData } = source;
-
-    // Remap practitioner IDs if present
-    const specificPractitioners = source.specificPractitioners
-      ?.map((id) => practitionerIdMap.get(id))
-      .filter((id): id is Id<"practitioners"> => id !== undefined);
-
-    // Remap location ID if present
-    const limit_atLocation = source.limit_atLocation
-      ? locationIdMap.get(source.limit_atLocation)
-      : undefined;
-
-    await db.insert("rules", {
-      ...ruleData,
-      parentId: source._id, // Track which entity this was copied from
-      ruleSetId: targetRuleSetId,
-      ...(specificPractitioners && { specificPractitioners }),
-      ...(limit_atLocation && { limit_atLocation }),
-    });
+  // Copy each rule tree
+  for (const root of rootConditions) {
+    await copyConditionNode(
+      db,
+      root,
+      targetRuleSetId,
+      null, // Root nodes have no parent
+      practiceId,
+      practitionerIdMap,
+      locationIdMap,
+      appointmentTypeIdMap,
+    );
   }
 }
 
@@ -402,7 +580,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  await copyAppointmentTypes(
+  const appointmentTypeIdMap = await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -426,12 +604,52 @@ export async function copyAllEntities(
     locationIdMap,
   );
 
-  // Copy rules with mapped IDs
-  await copyRules(
+  // Copy rule conditions with mapped IDs
+  await copyRuleConditions(
     db,
     sourceRuleSetId,
     targetRuleSetId,
+    practiceId,
     practitionerIdMap,
     locationIdMap,
+    appointmentTypeIdMap,
   );
+}
+
+// ================================
+// VALIDATION HELPERS FOR ENTITY REFERENCES
+// ================================
+
+/**
+ * Validates that a list of entity IDs all belong to the specified rule set.
+ * This is a critical safety check to prevent bugs where entity IDs from an old
+ * rule set are accidentally used when creating/updating entities in a new rule set.
+ * @throws Error if any entity ID doesn't belong to the expected rule set
+ */
+export async function validateEntityIdsInRuleSet(
+  db: DatabaseReader,
+  entityIds: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+  entityType: "appointmentTypes" | "locations" | "practitioners",
+): Promise<void> {
+  for (const id of entityIds) {
+    const entity = await db.get(id as Id<typeof entityType>);
+
+    if (!entity) {
+      throw new Error(
+        `${entityType} with ID ${id} not found. ` +
+          `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+
+    if (entity.ruleSetId !== expectedRuleSetId) {
+      throw new Error(
+        `${entityType} with ID ${id} belongs to rule set ${entity.ruleSetId}, ` +
+          `but expected rule set ${expectedRuleSetId}. ` +
+          `This is a copy-on-write safety violation - when creating or updating entities ` +
+          `in a new rule set, all referenced entities must also belong to that rule set. ` +
+          `This bug typically occurs when IDs are not properly remapped during copy-on-write operations.`,
+      );
+    }
+  }
 }

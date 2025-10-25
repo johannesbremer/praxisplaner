@@ -42,20 +42,45 @@ export function PatientView({
   showDebugInfo = false,
   simulatedContext,
 }: PatientViewProps) {
-  const slotsResult = useQuery(
-    api.scheduling.getAvailableSlots,
-    ruleSetId
+  // First query: Get available dates for the calendar (lightweight, no rule evaluation)
+  // Skip if appointmentTypeId is not set yet (must be a valid ID, not empty string)
+  const availableDatesResult = useQuery(
+    api.scheduling.getAvailableDates,
+    simulatedContext.appointmentTypeId &&
+      simulatedContext.appointmentTypeId !== ("" as Id<"appointmentTypes">)
       ? {
           dateRange,
+          practiceId,
+          simulatedContext,
+        }
+      : "skip",
+  );
+
+  // Get appointment types to display the name
+  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+    ruleSetId: ruleSetId ?? (null as unknown as Id<"ruleSets">),
+  });
+  const appointmentType = appointmentTypes?.find(
+    (at) => at._id === simulatedContext.appointmentTypeId,
+  );
+
+  // Selected day state - initialized later based on available dates
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+
+  // Second query: Get slots for the selected date only (with full rule evaluation)
+  const slotsResult = useQuery(
+    api.scheduling.getSlotsForDay,
+    selectedDate &&
+      ruleSetId &&
+      simulatedContext.appointmentTypeId &&
+      simulatedContext.appointmentTypeId !== ("" as Id<"appointmentTypes">)
+      ? {
+          date: format(selectedDate, "yyyy-MM-dd"),
           practiceId,
           ruleSetId,
           simulatedContext,
         }
-      : {
-          dateRange,
-          practiceId,
-          simulatedContext,
-        },
+      : "skip",
   );
 
   const allSlots = useMemo<SchedulingSlot[]>(
@@ -87,11 +112,16 @@ export function PatientView({
   }, [dateRange.start, dateRange.end]);
 
   const datesWithAvailabilities = useMemo(() => {
-    const set = new Set(
-      availableSlots.map((slot) => new Date(slot.startTime).toDateString()),
-    );
+    const set = new Set<string>();
+    if (availableDatesResult?.dates) {
+      for (const dateStr of availableDatesResult.dates) {
+        // Convert YYYY-MM-DD to Date and get toDateString() format
+        const date = new Date(dateStr + "T00:00:00");
+        set.add(date.toDateString());
+      }
+    }
     return set;
-  }, [availableSlots]);
+  }, [availableDatesResult]);
 
   // Load public holidays
   const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
@@ -125,8 +155,7 @@ export function PatientView({
     return first;
   }, [datesWithAvailabilities]);
 
-  // Initialize selectedDate with firstAvailableDate when available
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  // Track last first available date to detect changes and auto-initialize selection
   const [lastFirstAvailableDate, setLastFirstAvailableDate] = useState<
     Date | undefined
   >(firstAvailableDate);
@@ -178,7 +207,7 @@ export function PatientView({
         <div className="mb-4">
           <h2 className="text-lg font-semibold mb-2">Terminbuchung</h2>
           <div className="text-sm text-muted-foreground mb-3">
-            {simulatedContext.appointmentType} •{" "}
+            {appointmentType?.name ?? "wird geladen…"} •{" "}
             {simulatedContext.patient.isNew
               ? "Neuer Patient"
               : "Bestandspatient"}

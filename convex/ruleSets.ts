@@ -105,12 +105,13 @@ export const discardUnsavedRuleSet = mutation({
       await ctx.db.delete(schedule._id);
     }
 
-    const rules = await ctx.db
-      .query("rules")
+    // Delete all rule conditions (rules) for this rule set
+    const ruleConditions = await ctx.db
+      .query("ruleConditions")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect();
-    for (const rule of rules) {
-      await ctx.db.delete(rule._id);
+    for (const condition of ruleConditions) {
+      await ctx.db.delete(condition._id);
     }
 
     // Finally, delete the rule set itself
@@ -290,14 +291,14 @@ export const deleteUnsavedRuleSet = mutation({
       );
     }
 
-    // Delete all rules associated with this rule set
-    const rules = await ctx.db
-      .query("rules")
+    // Delete all rule conditions (rules) associated with this rule set
+    const ruleConditions = await ctx.db
+      .query("ruleConditions")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
-    for (const rule of rules) {
-      await ctx.db.delete(rule._id);
+    for (const condition of ruleConditions) {
+      await ctx.db.delete(condition._id);
     }
 
     // Delete all entities associated with this rule set

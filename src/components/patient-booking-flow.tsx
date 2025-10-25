@@ -2,7 +2,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 import type {
   SchedulingDateRange,
-  SchedulingRuleSetId,
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
@@ -15,7 +14,7 @@ interface PatientBookingFlowProps {
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  ruleSetId: Id<"ruleSets">;
   simulatedContext: SchedulingSimulatedContext;
 }
 
@@ -35,7 +34,7 @@ export function PatientBookingFlow({
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           practiceId={practiceId}
-          {...(ruleSetId && { ruleSetId })}
+          ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
         />
       </SmartphoneDevice>

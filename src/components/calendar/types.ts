@@ -10,7 +10,7 @@ export interface Appointment {
   isSimulation: boolean;
   replacesAppointmentId?: Id<"appointments"> | null;
   resource?: {
-    appointmentType?: Doc<"appointments">["appointmentType"];
+    appointmentTypeId?: Doc<"appointments">["appointmentTypeId"];
     isSimulation?: boolean;
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];

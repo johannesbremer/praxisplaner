@@ -9,9 +9,13 @@
  * - Practitioners
  * - Locations
  * - Base Schedules
+ * - Rule Conditions (Rules)
  */
 
-import type { GenericDatabaseReader } from "convex/server";
+import type {
+  GenericDatabaseReader,
+  GenericDatabaseWriter,
+} from "convex/server";
 
 import { v } from "convex/values";
 
@@ -20,12 +24,15 @@ import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import {
+  type EntityType,
   getOrCreateUnsavedRuleSet,
+  validateEntityIdsInRuleSet,
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
 
-// Type alias for cleaner code
+// Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
+type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 
 // ================================
 // SHARED TYPES
@@ -40,7 +47,7 @@ const createResultValidator = v.object({
     v.id("appointmentTypes"),
     v.id("practitioners"),
     v.id("locations"),
-    v.id("rules"),
+    v.id("ruleConditions"), // Changed from "rules" to "ruleConditions"
     v.id("baseSchedules"),
   ),
   ruleSetId: v.id("ruleSets"),
@@ -1106,77 +1113,362 @@ export const getBaseSchedulesByPractitioner = query({
 });
 
 // ================================
-// RULES
+// RULE CONDITIONS (RULES)
 // ================================
 
 /**
- * Get all rules for a specific rule set
+ * Condition tree node definition for creating/updating rules.
+ * This is the input format for building condition trees.
  */
-export const getRules = query({
-  args: {
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("rules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-  },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("rules"),
-      appliesTo: v.union(
-        v.literal("ALL_PRACTITIONERS"),
-        v.literal("SPECIFIC_PRACTITIONERS"),
-      ),
-      block_appointmentTypes: v.optional(v.array(v.string())),
-      block_dateRangeEnd: v.optional(v.string()),
-      block_dateRangeStart: v.optional(v.string()),
-      block_daysOfWeek: v.optional(v.array(v.number())),
-      block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-      block_timeRangeEnd: v.optional(v.string()),
-      block_timeRangeStart: v.optional(v.string()),
-      description: v.string(),
-      limit_appointmentTypes: v.optional(v.array(v.string())),
-      limit_atLocation: v.optional(v.id("locations")),
-      limit_count: v.optional(v.number()),
-      limit_perPractitioner: v.optional(v.boolean()),
-      name: v.string(),
-      practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
-      ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
-      specificPractitioners: v.optional(v.array(v.id("practitioners"))),
-    }),
-  ),
-});
+// Using v.any() for recursive type - we'll validate the structure at runtime
+const conditionTreeNodeValidator = v.union(
+  v.object({
+    children: v.array(v.any()),
+    nodeType: v.union(v.literal("AND"), v.literal("NOT")),
+  }),
+  v.object({
+    conditionType: v.union(
+      v.literal("APPOINTMENT_TYPE"),
+      v.literal("DAY_OF_WEEK"),
+      v.literal("LOCATION"),
+      v.literal("PRACTITIONER"),
+      v.literal("PRACTITIONER_TAG"),
+      v.literal("DATE_RANGE"),
+      v.literal("TIME_RANGE"),
+      v.literal("DAYS_AHEAD"),
+      v.literal("DAILY_CAPACITY"),
+      v.literal("CONCURRENT_COUNT"),
+      v.literal("CLIENT_TYPE"),
+    ),
+    nodeType: v.literal("CONDITION"),
+    operator: v.union(
+      v.literal("IS"),
+      v.literal("IS_NOT"),
+      v.literal("GREATER_THAN_OR_EQUAL"),
+      v.literal("LESS_THAN_OR_EQUAL"),
+      v.literal("EQUALS"),
+    ),
+    valueIds: v.optional(v.array(v.string())),
+    valueNumber: v.optional(v.number()),
+  }),
+);
+
+type ConditionTreeNode =
+  | {
+      children: ConditionTreeNode[];
+      nodeType: "AND" | "NOT";
+    }
+  | {
+      conditionType:
+        | "APPOINTMENT_TYPE"
+        | "CLIENT_TYPE"
+        | "CONCURRENT_COUNT"
+        | "DAILY_CAPACITY"
+        | "DATE_RANGE"
+        | "DAY_OF_WEEK"
+        | "DAYS_AHEAD"
+        | "LOCATION"
+        | "PRACTITIONER"
+        | "PRACTITIONER_TAG"
+        | "TIME_RANGE";
+      nodeType: "CONDITION";
+      operator:
+        | "EQUALS"
+        | "GREATER_THAN_OR_EQUAL"
+        | "IS"
+        | "IS_NOT"
+        | "LESS_THAN_OR_EQUAL";
+      valueIds?: string[];
+      valueNumber?: number;
+    };
 
 /**
- * Create a new rule in a rule set
+ * Recursively remap entity IDs in a condition tree from source rule set to target rule set.
+ * This is needed when the UI passes entity IDs from a different rule set than the target.
+ */
+async function remapConditionTreeEntityIds(
+  db: DatabaseReader,
+  node: ConditionTreeNode,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<ConditionTreeNode> {
+  // If source and target are the same, no remapping needed
+  if (sourceRuleSetId === targetRuleSetId) {
+    return node;
+  }
+
+  if (node.nodeType === "CONDITION") {
+    // Check if this condition type has entity references that need remapping
+    if (node.valueIds && node.valueIds.length > 0) {
+      // Handle CONCURRENT_COUNT and DAILY_CAPACITY specially
+      // Their valueIds structure is: [scope, ...appointmentTypeIds]
+      if (
+        node.conditionType === "CONCURRENT_COUNT" ||
+        node.conditionType === "DAILY_CAPACITY"
+      ) {
+        const [scope, ...appointmentTypeIds] = node.valueIds;
+
+        if (!scope) {
+          throw new Error(
+            `${node.conditionType} condition must have a scope (first element of valueIds)`,
+          );
+        }
+
+        if (appointmentTypeIds.length > 0) {
+          // Remap the appointment type IDs (skip the scope string)
+          const remappedIds: string[] = [scope]; // Keep the scope as-is
+
+          for (const oldId of appointmentTypeIds) {
+            const oldEntity = await db.get(oldId as Id<"appointmentTypes">);
+
+            if (!oldEntity) {
+              throw new Error(
+                `AppointmentType ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+              );
+            }
+
+            // Find the corresponding entity in the target rule set by name
+            const newEntity = await db
+              .query("appointmentTypes")
+              .withIndex("by_ruleSetId", (q) =>
+                q.eq("ruleSetId", targetRuleSetId),
+              )
+              .filter((q) => q.eq(q.field("name"), oldEntity.name))
+              .first();
+
+            if (!newEntity) {
+              throw new Error(
+                `Could not find appointmentType with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+                  `This may indicate the entity was not copied during copy-on-write.`,
+              );
+            }
+
+            remappedIds.push(newEntity._id);
+          }
+
+          return {
+            ...node,
+            valueIds: remappedIds,
+          };
+        }
+
+        // No appointment types to remap, return as-is
+        return node;
+      }
+
+      // Handle standard conditions (PRACTITIONER, LOCATION, APPOINTMENT_TYPE)
+      if (
+        node.conditionType === "PRACTITIONER" ||
+        node.conditionType === "LOCATION" ||
+        node.conditionType === "APPOINTMENT_TYPE"
+      ) {
+        const tableName =
+          node.conditionType === "PRACTITIONER"
+            ? "practitioners"
+            : node.conditionType === "LOCATION"
+              ? "locations"
+              : "appointmentTypes";
+
+        // Remap each entity ID
+        const remappedIds: string[] = [];
+        for (const oldId of node.valueIds) {
+          // Get the old entity
+          const oldEntity = await db.get(
+            oldId as
+              | Id<"appointmentTypes">
+              | Id<"locations">
+              | Id<"practitioners">,
+          );
+
+          if (!oldEntity) {
+            throw new Error(
+              `Entity ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+            );
+          }
+
+          // Find the corresponding entity in the target rule set by name
+          // (entities are copied with the same name)
+          const newEntity = await db
+            .query(tableName)
+            .withIndex("by_ruleSetId", (q) =>
+              q.eq("ruleSetId", targetRuleSetId),
+            )
+            .filter((q) => q.eq(q.field("name"), oldEntity.name))
+            .first();
+
+          if (!newEntity) {
+            throw new Error(
+              `Could not find ${tableName} with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+                `This may indicate the entity was not copied during copy-on-write.`,
+            );
+          }
+
+          remappedIds.push(newEntity._id);
+        }
+
+        return {
+          ...node,
+          valueIds: remappedIds,
+        };
+      }
+    }
+
+    // No remapping needed for this condition
+    return node;
+  }
+
+  // Recursively remap children for AND/NOT nodes
+  if ("children" in node) {
+    const remappedChildren: ConditionTreeNode[] = [];
+    for (const child of node.children) {
+      const remappedChild = await remapConditionTreeEntityIds(
+        db,
+        child,
+        sourceRuleSetId,
+        targetRuleSetId,
+      );
+      remappedChildren.push(remappedChild);
+    }
+
+    return {
+      ...node,
+      children: remappedChildren,
+    };
+  }
+
+  return node;
+}
+
+/**
+ * Recursively insert a condition tree node and its children.
+ * Returns the ID of the created node.
+ */
+async function insertConditionTreeNode(
+  db: DatabaseWriter,
+  node: ConditionTreeNode,
+  parentConditionId: Id<"ruleConditions"> | null,
+  childOrder: number,
+  ruleSetId: Id<"ruleSets">,
+  practiceId: Id<"practices">,
+): Promise<Id<"ruleConditions">> {
+  const now = BigInt(Date.now());
+
+  if (node.nodeType === "CONDITION") {
+    // Validate that any referenced entity IDs belong to the correct rule set
+    if (node.valueIds && node.valueIds.length > 0) {
+      switch (node.conditionType) {
+        case "APPOINTMENT_TYPE": {
+          await validateEntityIdsInRuleSet(
+            db,
+            node.valueIds,
+            ruleSetId,
+            "appointmentTypes",
+          );
+
+          break;
+        }
+        case "CONCURRENT_COUNT":
+        case "DAILY_CAPACITY": {
+          // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds structure is:
+          // [scope, ...appointmentTypeIds]
+          // where scope is a string like "practice", "location", or "practitioner"
+          // We only validate the appointment type IDs (skip the first element)
+          const appointmentTypeIds = node.valueIds.slice(1);
+          if (appointmentTypeIds.length > 0) {
+            await validateEntityIdsInRuleSet(
+              db,
+              appointmentTypeIds,
+              ruleSetId,
+              "appointmentTypes",
+            );
+          }
+
+          break;
+        }
+        case "LOCATION": {
+          await validateEntityIdsInRuleSet(
+            db,
+            node.valueIds,
+            ruleSetId,
+            "locations",
+          );
+
+          break;
+        }
+        case "PRACTITIONER": {
+          await validateEntityIdsInRuleSet(
+            db,
+            node.valueIds,
+            ruleSetId,
+            "practitioners",
+          );
+
+          break;
+        }
+        // No default
+      }
+    }
+
+    // Leaf node
+    const nodeId = await db.insert("ruleConditions", {
+      childOrder,
+      conditionType: node.conditionType,
+      createdAt: now,
+      isRoot: false,
+      lastModified: now,
+      nodeType: "CONDITION",
+      operator: node.operator,
+      ...(parentConditionId && { parentConditionId }),
+      practiceId,
+      ruleSetId,
+      ...(node.valueIds && { valueIds: node.valueIds }),
+      ...(node.valueNumber !== undefined && { valueNumber: node.valueNumber }),
+    });
+    return nodeId;
+  } else {
+    // Logical operator node (AND/NOT)
+    const nodeId = await db.insert("ruleConditions", {
+      childOrder,
+      createdAt: now,
+      isRoot: false,
+      lastModified: now,
+      nodeType: node.nodeType,
+      ...(parentConditionId && { parentConditionId }),
+      practiceId,
+      ruleSetId,
+    });
+
+    // Recursively insert children
+    for (let i = 0; i < node.children.length; i++) {
+      const child = node.children[i];
+      if (!child) {
+        throw new Error(`Child ${i} is undefined`);
+      }
+      await insertConditionTreeNode(
+        db,
+        child,
+        nodeId,
+        i,
+        ruleSetId,
+        practiceId,
+      );
+    }
+
+    return nodeId;
+  }
+}
+
+/**
+ * Create a new rule with its condition tree in an unsaved rule set.
+ * Returns both the created rule ID and the rule set ID.
  */
 export const createRule = mutation({
   args: {
-    appliesTo: v.union(
-      v.literal("ALL_PRACTITIONERS"),
-      v.literal("SPECIFIC_PRACTITIONERS"),
-    ),
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()),
-    block_dateRangeStart: v.optional(v.string()),
-    block_daysOfWeek: v.optional(v.array(v.number())),
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()),
-    block_timeRangeStart: v.optional(v.string()),
-    description: v.string(),
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
+    conditionTree: conditionTreeNodeValidator,
+    enabled: v.optional(v.boolean()),
     name: v.string(),
     practiceId: v.id("practices"),
-    ruleType: v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
     sourceRuleSetId: v.id("ruleSets"),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
   },
   handler: async (ctx, args) => {
     // Get or create unsaved rule set automatically
@@ -1186,137 +1478,77 @@ export const createRule = mutation({
       args.sourceRuleSetId,
     );
 
-    // Check if rule name already exists in this rule set
-    const existing = await ctx.db
-      .query("rules")
-      .withIndex("by_ruleSetId_name", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("name", args.name),
-      )
-      .first();
+    // Remap entity IDs in the condition tree if the source and target rule sets differ
+    // This handles the case where the UI passes entity IDs from the source rule set
+    // but we need to use entity IDs from the target (unsaved) rule set
+    const remappedConditionTree = await remapConditionTreeEntityIds(
+      ctx.db,
+      args.conditionTree as ConditionTreeNode,
+      args.sourceRuleSetId,
+      ruleSetId,
+    );
 
-    if (existing) {
-      throw new Error(
-        `Rule with name "${args.name}" already exists in this rule set`,
-      );
-    }
+    const now = BigInt(Date.now());
 
-    const ruleData: {
-      appliesTo: "ALL_PRACTITIONERS" | "SPECIFIC_PRACTITIONERS";
-      block_appointmentTypes?: string[];
-      block_dateRangeEnd?: string;
-      block_dateRangeStart?: string;
-      block_daysOfWeek?: number[];
-      block_exceptForPractitionerTags?: string[];
-      block_timeRangeEnd?: string;
-      block_timeRangeStart?: string;
-      description: string;
-      limit_appointmentTypes?: string[];
-      limit_atLocation?: Id<"locations">;
-      limit_count?: number;
-      limit_perPractitioner?: boolean;
-      name: string;
-      practiceId: Id<"practices">;
-      ruleSetId: Id<"ruleSets">;
-      ruleType: "BLOCK" | "LIMIT_CONCURRENT";
-      specificPractitioners?: Id<"practitioners">[];
-    } = {
-      appliesTo: args.appliesTo,
-      description: args.description,
-      name: args.name,
+    // Create the root node (the rule itself)
+    const rootId = await ctx.db.insert("ruleConditions", {
+      childOrder: 0, // Root nodes don't have siblings, but we set this for consistency
+      createdAt: now,
+      enabled: args.enabled ?? true,
+      isRoot: true,
+      lastModified: now,
       practiceId: args.practiceId,
       ruleSetId,
-      ruleType: args.ruleType,
-    };
+    });
 
-    if (args.specificPractitioners !== undefined) {
-      ruleData.specificPractitioners = args.specificPractitioners;
-    }
-    if (args.block_appointmentTypes !== undefined) {
-      ruleData.block_appointmentTypes = args.block_appointmentTypes;
-    }
-    if (args.block_dateRangeStart !== undefined) {
-      ruleData.block_dateRangeStart = args.block_dateRangeStart;
-    }
-    if (args.block_dateRangeEnd !== undefined) {
-      ruleData.block_dateRangeEnd = args.block_dateRangeEnd;
-    }
-    if (args.block_daysOfWeek !== undefined) {
-      ruleData.block_daysOfWeek = args.block_daysOfWeek;
-    }
-    if (args.block_timeRangeStart !== undefined) {
-      ruleData.block_timeRangeStart = args.block_timeRangeStart;
-    }
-    if (args.block_timeRangeEnd !== undefined) {
-      ruleData.block_timeRangeEnd = args.block_timeRangeEnd;
-    }
-    if (args.block_exceptForPractitionerTags !== undefined) {
-      ruleData.block_exceptForPractitionerTags =
-        args.block_exceptForPractitionerTags;
-    }
-    if (args.limit_appointmentTypes !== undefined) {
-      ruleData.limit_appointmentTypes = args.limit_appointmentTypes;
-    }
-    if (args.limit_count !== undefined) {
-      ruleData.limit_count = args.limit_count;
-    }
-    if (args.limit_perPractitioner !== undefined) {
-      ruleData.limit_perPractitioner = args.limit_perPractitioner;
-    }
-    if (args.limit_atLocation !== undefined) {
-      ruleData.limit_atLocation = args.limit_atLocation;
-    }
+    // Insert the condition tree as the first (and only) child of the root
+    await insertConditionTreeNode(
+      ctx.db,
+      remappedConditionTree,
+      rootId,
+      0,
+      ruleSetId,
+      args.practiceId,
+    );
 
-    const entityId = await ctx.db.insert("rules", ruleData);
-
-    return { entityId, ruleSetId };
+    return { entityId: rootId, ruleSetId };
   },
   returns: createResultValidator,
 });
 
 /**
- * Update an existing rule
+ * Recursively delete a condition node and all its children.
  */
-export const updateRule = mutation({
+async function deleteConditionTreeNode(
+  db: DatabaseWriter,
+  nodeId: Id<"ruleConditions">,
+): Promise<void> {
+  // Get all children
+  const children = await db
+    .query("ruleConditions")
+    .withIndex("by_parentConditionId", (q) => q.eq("parentConditionId", nodeId))
+    .collect();
+
+  // Recursively delete children first
+  for (const child of children) {
+    await deleteConditionTreeNode(db, child._id);
+  }
+
+  // Delete this node
+  await db.delete(nodeId);
+}
+
+/**
+ * Delete a rule and its entire condition tree from an unsaved rule set.
+ */
+export const deleteRule = mutation({
   args: {
-    appliesTo: v.optional(
-      v.union(
-        v.literal("ALL_PRACTITIONERS"),
-        v.literal("SPECIFIC_PRACTITIONERS"),
-      ),
-    ),
-    block_appointmentTypes: v.optional(v.array(v.string())),
-    block_dateRangeEnd: v.optional(v.string()),
-    block_dateRangeStart: v.optional(v.string()),
-    block_daysOfWeek: v.optional(v.array(v.number())),
-    block_exceptForPractitionerTags: v.optional(v.array(v.string())),
-    block_timeRangeEnd: v.optional(v.string()),
-    block_timeRangeStart: v.optional(v.string()),
-    description: v.optional(v.string()),
-    limit_appointmentTypes: v.optional(v.array(v.string())),
-    limit_atLocation: v.optional(v.id("locations")),
-    limit_count: v.optional(v.number()),
-    limit_perPractitioner: v.optional(v.boolean()),
-    name: v.optional(v.string()),
     practiceId: v.id("practices"),
-    ruleId: v.id("rules"),
-    ruleType: v.optional(
-      v.union(v.literal("BLOCK"), v.literal("LIMIT_CONCURRENT")),
-    ),
+    ruleId: v.id("ruleConditions"),
     sourceRuleSetId: v.id("ruleSets"),
-    specificPractitioners: v.optional(v.array(v.id("practitioners"))),
   },
   handler: async (ctx, args) => {
-    // Get the original rule (might be from active rule set)
-    const originalRule = await ctx.db.get(args.ruleId);
-    if (!originalRule) {
-      throw new Error("Rule not found");
-    }
-
-    if (originalRule.practiceId !== args.practiceId) {
-      throw new Error("Rule does not belong to this practice");
-    }
-
-    // Ensure we have an unsaved rule set - this handles CoW automatically
+    // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
       args.practiceId,
@@ -1324,98 +1556,123 @@ export const updateRule = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
+    const entity = await ctx.db.get(args.ruleId);
+    if (!entity) {
+      throw new Error("Rule not found");
+    }
+
     // If it's already in the unsaved rule set, use it directly
-    // Otherwise, find the copy by parentId
+    // Otherwise, find the copy by copyFromId
     let rule;
-    if (originalRule.ruleSetId === ruleSetId) {
-      rule = originalRule;
+    if (entity.ruleSetId === ruleSetId) {
+      rule = entity;
     } else {
-      rule = await ctx.db
-        .query("rules")
-        .withIndex("by_parentId_ruleSetId", (q) =>
-          q.eq("parentId", originalRule._id).eq("ruleSetId", ruleSetId),
+      // Find the copy in the unsaved rule set
+      const copy = await ctx.db
+        .query("ruleConditions")
+        .withIndex("by_copyFromId_ruleSetId", (q) =>
+          q.eq("copyFromId", args.ruleId).eq("ruleSetId", ruleSetId),
         )
         .first();
 
-      if (!rule) {
+      if (!copy) {
         throw new Error(
-          "Rule not found in unsaved rule set. This should not happen.",
+          "Rule copy not found in unsaved rule set. This should not happen.",
         );
       }
+      rule = copy;
     }
 
-    // If name is changing, check for conflicts
-    if (args.name && args.name !== rule.name) {
-      // Safe to use non-null assertion: args.name is checked above
-      const existing = await ctx.db
-        .query("rules")
-        .withIndex("by_ruleSetId_name", (q) =>
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          q.eq("ruleSetId", ruleSetId).eq("name", args.name!),
+    // Verify it's a root node
+    if (!rule.isRoot) {
+      throw new Error("Can only delete root rule nodes, not condition nodes");
+    }
+
+    // SAFETY: Verify entity belongs to unsaved rule set before deleting
+    await verifyEntityInUnsavedRuleSet(
+      ctx.db,
+      rule.ruleSetId,
+      "rule" as EntityType,
+    );
+
+    // Recursively delete the entire tree
+    await deleteConditionTreeNode(ctx.db, rule._id);
+
+    return { entityId: rule._id, ruleSetId };
+  },
+  returns: createResultValidator,
+});
+
+/**
+ * Update a rule's metadata (enabled status) in an unsaved rule set.
+ * Does NOT support updating the condition tree - use deleteRule + createRule for that.
+ */
+export const updateRule = mutation({
+  args: {
+    enabled: v.optional(v.boolean()),
+    practiceId: v.id("practices"),
+    ruleId: v.id("ruleConditions"),
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    // Get the entity - it might be from the active or unsaved rule set
+    const entity = await ctx.db.get(args.ruleId);
+    if (!entity) {
+      throw new Error("Rule not found");
+    }
+
+    // If it's already in the unsaved rule set, use it directly
+    // Otherwise, find the copy by copyFromId
+    let rule;
+    if (entity.ruleSetId === ruleSetId) {
+      rule = entity;
+    } else {
+      // Find the copy in the unsaved rule set
+      const copy = await ctx.db
+        .query("ruleConditions")
+        .withIndex("by_copyFromId_ruleSetId", (q) =>
+          q.eq("copyFromId", args.ruleId).eq("ruleSetId", ruleSetId),
         )
         .first();
 
-      if (existing && existing._id !== rule._id) {
+      if (!copy) {
         throw new Error(
-          `Rule with name "${args.name}" already exists in this rule set`,
+          "Rule copy not found in unsaved rule set. This should not happen.",
         );
       }
+      rule = copy;
     }
 
-    // Update the rule (use the entity in the unsaved rule set)
-    const updates: Partial<typeof rule> = {};
-    if (args.name !== undefined) {
-      updates.name = args.name;
+    // Verify it's a root node
+    if (!rule.isRoot) {
+      throw new Error("Can only update root rule nodes, not condition nodes");
     }
-    if (args.description !== undefined) {
-      updates.description = args.description;
-    }
-    if (args.ruleType !== undefined) {
-      updates.ruleType = args.ruleType;
-    }
-    if (args.appliesTo !== undefined) {
-      updates.appliesTo = args.appliesTo;
-    }
-    if (args.specificPractitioners !== undefined) {
-      updates.specificPractitioners = args.specificPractitioners;
-    }
-    if (args.block_appointmentTypes !== undefined) {
-      updates.block_appointmentTypes = args.block_appointmentTypes;
-    }
-    if (args.block_dateRangeStart !== undefined) {
-      updates.block_dateRangeStart = args.block_dateRangeStart;
-    }
-    if (args.block_dateRangeEnd !== undefined) {
-      updates.block_dateRangeEnd = args.block_dateRangeEnd;
-    }
-    if (args.block_daysOfWeek !== undefined) {
-      updates.block_daysOfWeek = args.block_daysOfWeek;
-    }
-    if (args.block_timeRangeStart !== undefined) {
-      updates.block_timeRangeStart = args.block_timeRangeStart;
-    }
-    if (args.block_timeRangeEnd !== undefined) {
-      updates.block_timeRangeEnd = args.block_timeRangeEnd;
-    }
-    if (args.block_exceptForPractitionerTags !== undefined) {
-      updates.block_exceptForPractitionerTags =
-        args.block_exceptForPractitionerTags;
-    }
-    if (args.limit_appointmentTypes !== undefined) {
-      updates.limit_appointmentTypes = args.limit_appointmentTypes;
-    }
-    if (args.limit_count !== undefined) {
-      updates.limit_count = args.limit_count;
-    }
-    if (args.limit_perPractitioner !== undefined) {
-      updates.limit_perPractitioner = args.limit_perPractitioner;
-    }
-    if (args.limit_atLocation !== undefined) {
-      updates.limit_atLocation = args.limit_atLocation;
+
+    // Build updates object
+    const updates: Partial<{
+      enabled: boolean;
+      lastModified: bigint;
+    }> = {
+      lastModified: BigInt(Date.now()),
+    };
+
+    if (args.enabled !== undefined) {
+      updates.enabled = args.enabled;
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching
-    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
+    await verifyEntityInUnsavedRuleSet(
+      ctx.db,
+      rule.ruleSetId,
+      "rule" as EntityType,
+    );
 
     await ctx.db.patch(rule._id, updates);
 
@@ -1425,61 +1682,106 @@ export const updateRule = mutation({
 });
 
 /**
- * Delete a rule
+ * Recursively fetch a condition tree node and its children.
  */
-export const deleteRule = mutation({
-  args: {
-    practiceId: v.id("practices"),
-    ruleId: v.id("rules"),
-    sourceRuleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    // Get the original rule (might be from active rule set)
-    const originalRule = await ctx.db.get(args.ruleId);
-    if (!originalRule) {
-      throw new Error("Rule not found");
-    }
+async function fetchConditionTreeNode(
+  db: DatabaseReader,
+  nodeId: Id<"ruleConditions">,
+): Promise<ConditionTreeNode> {
+  const node = await db.get(nodeId);
+  if (!node) {
+    throw new Error("Condition node not found");
+  }
 
-    if (originalRule.practiceId !== args.practiceId) {
-      throw new Error("Rule does not belong to this practice");
+  if (node.nodeType === "CONDITION") {
+    if (!node.conditionType || !node.operator) {
+      throw new Error(
+        "Condition node missing conditionType or operator. Data corruption?",
+      );
     }
+    return {
+      conditionType: node.conditionType,
+      nodeType: "CONDITION",
+      operator: node.operator,
+      ...(node.valueIds && { valueIds: node.valueIds }),
+      ...(node.valueNumber !== undefined && { valueNumber: node.valueNumber }),
+    };
+  } else {
+    // Logical operator node - fetch children
+    if (!node.nodeType) {
+      throw new Error("Logical node missing nodeType. Data corruption?");
+    }
+    const children = await db
+      .query("ruleConditions")
+      .withIndex("by_parentConditionId_childOrder", (q) =>
+        q.eq("parentConditionId", nodeId),
+      )
+      .collect();
 
-    // Ensure we're working with an unsaved rule set - this handles CoW automatically
-    const ruleSetId = await getOrCreateUnsavedRuleSet(
-      ctx.db,
-      args.practiceId,
-      args.sourceRuleSetId,
+    const childNodes = await Promise.all(
+      children.map((child) => fetchConditionTreeNode(db, child._id)),
     );
 
-    // Get the entity - it might be from the active or unsaved rule set
-    // If it's already in the unsaved rule set, use it directly
-    // Otherwise, find the copy by parentId
-    let rule;
-    if (originalRule.ruleSetId === ruleSetId) {
-      rule = originalRule;
-    } else {
-      rule = await ctx.db
-        .query("rules")
-        .withIndex("by_parentId_ruleSetId", (q) =>
-          q.eq("parentId", originalRule._id).eq("ruleSetId", ruleSetId),
-        )
-        .first();
+    return {
+      children: childNodes,
+      nodeType: node.nodeType,
+    };
+  }
+}
 
-      if (!rule) {
-        throw new Error(
-          "Rule not found in unsaved rule set. This should not happen.",
-        );
-      }
-    }
-
-    // SAFETY: Verify entity belongs to unsaved rule set before deleting
-    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
-
-    await ctx.db.delete(rule._id);
-
-    return { entityId: rule._id, ruleSetId };
+/**
+ * Get all rules for a rule set with their denormalized condition trees.
+ */
+export const getRules = query({
+  args: {
+    ruleSetId: v.id("ruleSets"),
   },
-  returns: createResultValidator,
+  handler: async (ctx, args) => {
+    // Get all root nodes (rules)
+    const roots = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId_isRoot", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
+      )
+      .collect();
+
+    // Fetch the condition tree for each rule
+    const rules = await Promise.all(
+      roots.map(async (root) => {
+        // Get the first (and only) child which is the root of the condition tree
+        const conditionTreeRoot = await ctx.db
+          .query("ruleConditions")
+          .withIndex("by_parentConditionId_childOrder", (q) =>
+            q.eq("parentConditionId", root._id),
+          )
+          .first();
+
+        if (!conditionTreeRoot) {
+          throw new Error(
+            `Rule ${root._id} has no condition tree. This should not happen.`,
+          );
+        }
+
+        const conditionTree = await fetchConditionTreeNode(
+          ctx.db,
+          conditionTreeRoot._id,
+        );
+
+        return {
+          _id: root._id,
+          conditionTree,
+          copyFromId: root.copyFromId,
+          createdAt: root.createdAt,
+          enabled: root.enabled ?? true,
+          lastModified: root.lastModified,
+          practiceId: root.practiceId,
+          ruleSetId: root.ruleSetId,
+        };
+      }),
+    );
+
+    return rules;
+  },
 });
 
 // ================================
