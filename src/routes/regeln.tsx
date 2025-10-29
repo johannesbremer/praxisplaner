@@ -146,7 +146,6 @@ function LogicView() {
 
   // Local appointments for simulation
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
-    appointmentTypeId: "" as Id<"appointmentTypes">, // Will be set once types are loaded
     patient: { isNew: true },
   });
   const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
@@ -261,10 +260,7 @@ function LogicView() {
 
   // Initialize appointmentTypeId once appointment types are loaded
   React.useEffect(() => {
-    if (
-      defaultAppointmentTypeId &&
-      simulatedContext.appointmentTypeId === ("" as Id<"appointmentTypes">)
-    ) {
+    if (defaultAppointmentTypeId && !simulatedContext.appointmentTypeId) {
       setSimulatedContext((prev) => ({
         ...prev,
         appointmentTypeId: defaultAppointmentTypeId,
@@ -406,12 +402,13 @@ function LogicView() {
   const resetSimulation = useCallback(async () => {
     setIsResettingSimulation(true);
     try {
-      setSimulatedContext({
-        appointmentTypeId:
-          defaultAppointmentTypeId ??
-          (null as unknown as Id<"appointmentTypes">),
+      const resetContext: SimulatedContext = {
         patient: { isNew: true },
-      });
+      };
+      if (defaultAppointmentTypeId) {
+        resetContext.appointmentTypeId = defaultAppointmentTypeId;
+      }
+      setSimulatedContext(resetContext);
       setSelectedSlot(null);
       pushUrl({
         date: new Date(),

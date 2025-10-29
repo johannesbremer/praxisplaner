@@ -97,10 +97,7 @@ export function PatientFocusedView({
   // Get available dates for the calendar (lightweight query, no rule evaluation)
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
-    selectedLocationId &&
-      effectiveSimulatedContext.appointmentTypeId &&
-      effectiveSimulatedContext.appointmentTypeId !==
-        ("" as Id<"appointmentTypes">)
+    selectedLocationId && effectiveSimulatedContext.appointmentTypeId
       ? {
           dateRange: calendarDateRange,
           practiceId,
@@ -228,9 +225,7 @@ export function PatientFocusedView({
     selectedLocationId &&
       ruleSetId &&
       effectiveUserSelectedDate &&
-      effectiveSimulatedContext.appointmentTypeId &&
-      effectiveSimulatedContext.appointmentTypeId !==
-        ("" as Id<"appointmentTypes">)
+      effectiveSimulatedContext.appointmentTypeId
       ? {
           date: format(effectiveUserSelectedDate, "yyyy-MM-dd"),
           practiceId,

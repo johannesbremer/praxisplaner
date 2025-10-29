@@ -1,7 +1,7 @@
 import { useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -62,14 +62,22 @@ export function SimulationPanel({
   // Simulation state
   const [simulatedContext, setSimulatedContext] =
     useState<SchedulingSimulatedContext>({
-      appointmentTypeId:
-        defaultAppointmentTypeId ?? (null as unknown as Id<"appointmentTypes">),
       patient: { isNew: true },
     });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<null | SchedulingSlot>(null);
   const [simulationRuleSetId, setSimulationRuleSetId] =
     useState<SchedulingRuleSetId>();
+
+  // Initialize appointmentTypeId when available
+  useEffect(() => {
+    if (defaultAppointmentTypeId && !simulatedContext.appointmentTypeId) {
+      setSimulatedContext((prev) => ({
+        ...prev,
+        appointmentTypeId: defaultAppointmentTypeId,
+      }));
+    }
+  }, [defaultAppointmentTypeId, simulatedContext.appointmentTypeId]);
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -85,11 +93,13 @@ export function SimulationPanel({
   };
 
   const resetSimulation = () => {
-    setSimulatedContext({
-      appointmentTypeId:
-        defaultAppointmentTypeId ?? (null as unknown as Id<"appointmentTypes">),
+    const resetContext: SchedulingSimulatedContext = {
       patient: { isNew: true },
-    });
+    };
+    if (defaultAppointmentTypeId) {
+      resetContext.appointmentTypeId = defaultAppointmentTypeId;
+    }
+    setSimulatedContext(resetContext);
     setSelectedDate(new Date());
     setSimulationRuleSetId(undefined);
     setSelectedSlot(null);

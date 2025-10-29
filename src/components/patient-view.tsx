@@ -43,11 +43,10 @@ export function PatientView({
   simulatedContext,
 }: PatientViewProps) {
   // First query: Get available dates for the calendar (lightweight, no rule evaluation)
-  // Skip if appointmentTypeId is not set yet (must be a valid ID, not empty string)
+  // Skip if appointmentTypeId is not set yet
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
-    simulatedContext.appointmentTypeId &&
-      simulatedContext.appointmentTypeId !== ("" as Id<"appointmentTypes">)
+    simulatedContext.appointmentTypeId
       ? {
           dateRange,
           practiceId,
@@ -57,9 +56,10 @@ export function PatientView({
   );
 
   // Get appointment types to display the name
-  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
-    ruleSetId: ruleSetId ?? (null as unknown as Id<"ruleSets">),
-  });
+  const appointmentTypes = useQuery(
+    api.entities.getAppointmentTypes,
+    ruleSetId ? { ruleSetId } : "skip",
+  );
   const appointmentType = appointmentTypes?.find(
     (at) => at._id === simulatedContext.appointmentTypeId,
   );
@@ -70,10 +70,7 @@ export function PatientView({
   // Second query: Get slots for the selected date only (with full rule evaluation)
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedDate &&
-      ruleSetId &&
-      simulatedContext.appointmentTypeId &&
-      simulatedContext.appointmentTypeId !== ("" as Id<"appointmentTypes">)
+    selectedDate && ruleSetId && simulatedContext.appointmentTypeId
       ? {
           date: format(selectedDate, "yyyy-MM-dd"),
           practiceId,
@@ -200,6 +197,29 @@ export function PatientView({
           new Date(slotB.startTime).getTime(),
       );
   }, [availableSlots, selectedDate]);
+
+  // Show prompt if no appointment type selected
+  if (!simulatedContext.appointmentTypeId) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <div className="p-4 pt-12">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-8">
+                <h2 className="text-lg font-semibold mb-2">
+                  Bitte wählen Sie einen Termintyp
+                </h2>
+                <p className="text-muted-foreground">
+                  Um verfügbare Termine anzuzeigen, wählen Sie zunächst einen
+                  Termintyp aus.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto">

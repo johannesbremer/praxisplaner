@@ -108,6 +108,13 @@ export const getSlotsForDay = query({
     simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
+    // Ensure appointmentTypeId is present for rule evaluation
+    if (!args.simulatedContext.appointmentTypeId) {
+      throw new Error(
+        "appointmentTypeId is required in simulatedContext for scheduling queries",
+      );
+    }
+
     // Parse the date and create a single-day range
     const dayStart = new Date(args.date);
     dayStart.setUTCHours(0, 0, 0, 0);
@@ -259,13 +266,16 @@ export const getSlotsForDay = query({
     if (ruleSetId) {
       let totalBlockedCount = 0;
 
+      // At this point we know appointmentTypeId exists due to the guard above
+      const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+
       for (const slot of candidateSlots) {
         if (slot.status === "BLOCKED") {
           continue;
         }
 
         const appointmentContext = {
-          appointmentTypeId: args.simulatedContext.appointmentTypeId,
+          appointmentTypeId,
           dateTime: slot.startTime,
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId as Id<"practitioners">,

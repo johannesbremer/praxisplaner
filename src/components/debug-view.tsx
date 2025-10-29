@@ -63,9 +63,7 @@ export function DebugView({
   // First query: Get available dates (lightweight)
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
-    sanitizedSimulatedContext.appointmentTypeId &&
-      sanitizedSimulatedContext.appointmentTypeId !==
-        ("" as Id<"appointmentTypes">)
+    sanitizedSimulatedContext.appointmentTypeId
       ? {
           dateRange,
           practiceId,
@@ -99,9 +97,7 @@ export function DebugView({
     api.scheduling.getSlotsForDay,
     selectedDebugDate &&
       ruleSetId &&
-      sanitizedSimulatedContext.appointmentTypeId &&
-      sanitizedSimulatedContext.appointmentTypeId !==
-        ("" as Id<"appointmentTypes">)
+      sanitizedSimulatedContext.appointmentTypeId
       ? {
           date: selectedDebugDate,
           practiceId,

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { SchedulingSimulatedContext } from "../../types";
 import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
@@ -1241,6 +1242,11 @@ export function useCalendarLogic({
           return;
         }
 
+        if (!simulatedContext.appointmentTypeId) {
+          alert("Bitte wählen Sie zuerst einen Termintyp aus.");
+          return;
+        }
+
         openAppointmentDialog({
           description: `Erstellen Sie einen neuen Simulationstermin für ${format(startDate, "HH:mm", { locale: de })}.`,
           onSubmit: async (title) => {
@@ -1255,6 +1261,10 @@ export function useCalendarLogic({
 
             if (practitionerId && simulatedContext.locationId && practiceId) {
               try {
+                // At this point we know appointmentTypeId exists due to the guard above
+                const appointmentTypeId =
+                  simulatedContext.appointmentTypeId as Id<"appointmentTypes">;
+
                 await createAppointmentMutation.withOptimisticUpdate(
                   (localStore, args) => {
                     const existingAppointments = localStore.getQuery(
@@ -1292,7 +1302,7 @@ export function useCalendarLogic({
                     }
                   },
                 )({
-                  appointmentTypeId: simulatedContext.appointmentTypeId,
+                  appointmentTypeId,
                   end: endDate.toISOString(),
                   isSimulation: true,
                   locationId: simulatedContext.locationId,
@@ -1654,11 +1664,18 @@ export function useCalendarLogic({
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
-      const newContext = {
-        appointmentTypeId: simulatedContext.appointmentTypeId,
-        ...(locationId && { locationId }),
+      const newContext: SchedulingSimulatedContext = {
         patient: simulatedContext.patient,
       };
+
+      if (simulatedContext.appointmentTypeId) {
+        newContext.appointmentTypeId = simulatedContext.appointmentTypeId;
+      }
+
+      if (locationId) {
+        newContext.locationId = locationId;
+      }
+
       onUpdateSimulatedContext(newContext);
     } else {
       setSelectedLocationId(locationId);
