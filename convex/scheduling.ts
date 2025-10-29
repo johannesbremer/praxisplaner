@@ -122,8 +122,7 @@ export const getSlotsForDay = query({
     const dayEnd = new Date(dayStart);
     dayEnd.setUTCHours(23, 59, 59, 999);
 
-    const log: string[] = [];
-    log.push(`Getting slots for single day: ${args.date}`);
+    const log: string[] = [`Getting slots for single day: ${args.date}`];
 
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
