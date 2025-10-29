@@ -16,6 +16,7 @@ import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
 import type * as patients from "../patients.js";
 import type * as practices from "../practices.js";
+import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
 import type * as validators from "../validators.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   "gdt/validation": typeof gdt_validation;
   patients: typeof patients;
   practices: typeof practices;
+  ruleEngine: typeof ruleEngine;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
   validators: typeof validators;

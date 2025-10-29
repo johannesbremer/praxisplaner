@@ -23,9 +23,10 @@ export const breakTimesValidator = v.optional(
 
 // Simulated context for scheduling (used in debug views)
 export const simulatedContextValidator = v.object({
-  appointmentType: v.string(),
+  appointmentTypeId: v.optional(v.id("appointmentTypes")),
   locationId: v.optional(v.id("locations")),
   patient: v.object({ isNew: v.boolean() }),
+  requestedAt: v.optional(v.string()), // ISO datetime string for when appointment is being requested
 });
 
 // Patient update data (based on schema fields)
@@ -55,7 +56,7 @@ export const availableSlotsResultValidator = v.object({
   log: v.array(v.string()),
   slots: v.array(
     v.object({
-      blockedByRuleId: v.optional(v.id("rules")),
+      blockedByRuleId: v.optional(v.id("ruleConditions")), // Changed from "rules" to "ruleConditions"
       duration: v.number(),
       locationId: v.optional(v.id("locations")),
       practitionerId: v.id("practitioners"),

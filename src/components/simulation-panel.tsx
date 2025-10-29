@@ -1,6 +1,7 @@
+import { useQuery } from "convex/react";
 import { de } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/convex/_generated/api";
 
 import type {
   SchedulingDateRange,
@@ -25,6 +27,7 @@ import type {
   SchedulingSlot,
 } from "../types";
 
+import { createSimulatedContext } from "../../lib/utils";
 import { DebugView } from "./debug-view";
 import { MedicalStaffDisplay } from "./medical-staff-display";
 import { PatientBookingFlow } from "./patient-booking-flow";
@@ -45,16 +48,37 @@ export function SimulationPanel({
   practiceId,
   ruleSetsQuery,
 }: SimulationPanelProps) {
+  // Get the first rule set to fetch appointment types
+  const firstRuleSetId = ruleSetsQuery?.[0]?._id;
+
+  // Query appointment types to get a valid default
+  const appointmentTypes = useQuery(
+    api.entities.getAppointmentTypes,
+    firstRuleSetId ? { ruleSetId: firstRuleSetId } : "skip",
+  );
+
+  // Get the first appointment type ID for default
+  const defaultAppointmentTypeId = appointmentTypes?.[0]?._id;
+
   // Simulation state
   const [simulatedContext, setSimulatedContext] =
     useState<SchedulingSimulatedContext>({
-      appointmentType: "Erstberatung",
       patient: { isNew: true },
     });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<null | SchedulingSlot>(null);
   const [simulationRuleSetId, setSimulationRuleSetId] =
     useState<SchedulingRuleSetId>();
+
+  // Initialize appointmentTypeId when available
+  useEffect(() => {
+    if (defaultAppointmentTypeId && !simulatedContext.appointmentTypeId) {
+      setSimulatedContext((prev) => ({
+        ...prev,
+        appointmentTypeId: defaultAppointmentTypeId,
+      }));
+    }
+  }, [defaultAppointmentTypeId, simulatedContext.appointmentTypeId]);
 
   // Create date range representing a full calendar day without timezone issues
   const year = selectedDate.getFullYear();
@@ -70,10 +94,13 @@ export function SimulationPanel({
   };
 
   const resetSimulation = () => {
-    setSimulatedContext({
-      appointmentType: "Erstberatung",
-      patient: { isNew: true },
+    const resetContext = createSimulatedContext({
+      ...(defaultAppointmentTypeId && {
+        appointmentTypeId: defaultAppointmentTypeId,
+      }),
+      isNewPatient: true,
     });
+    setSimulatedContext(resetContext);
     setSelectedDate(new Date());
     setSimulationRuleSetId(undefined);
     setSelectedSlot(null);
@@ -179,16 +206,23 @@ export function SimulationPanel({
         </TabsList>
 
         <TabsContent className="space-y-6" value="patient">
-          <div className="flex justify-center">
-            <PatientBookingFlow
-              dateRange={dateRange}
-              onSlotClick={handleSlotClick}
-              onUpdateSimulatedContext={setSimulatedContext}
-              practiceId={practiceId}
-              ruleSetId={simulationRuleSetId}
-              simulatedContext={simulatedContext}
-            />
-          </div>
+          {simulationRuleSetId ? (
+            <div className="flex justify-center">
+              <PatientBookingFlow
+                dateRange={dateRange}
+                onSlotClick={handleSlotClick}
+                onUpdateSimulatedContext={setSimulatedContext}
+                practiceId={practiceId}
+                ruleSetId={simulationRuleSetId}
+                simulatedContext={simulatedContext}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center p-8 text-muted-foreground">
+              Bitte wählen Sie einen Regelsatz aus, um die Patientensicht
+              anzuzeigen.
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent className="space-y-6" value="staff">

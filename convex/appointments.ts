@@ -62,13 +62,14 @@ export const getAppointments = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("appointments"),
-      appointmentType: v.optional(v.string()),
+      appointmentTypeId: v.id("appointmentTypes"),
       createdAt: v.int64(),
       end: v.string(),
       isSimulation: v.optional(v.boolean()),
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -116,13 +117,14 @@ export const getAppointmentsInRange = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("appointments"),
-      appointmentType: v.optional(v.string()),
+      appointmentTypeId: v.id("appointmentTypes"),
       createdAt: v.int64(),
       end: v.string(),
       isSimulation: v.optional(v.boolean()),
       lastModified: v.int64(),
       locationId: v.id("locations"),
       patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
@@ -134,7 +136,7 @@ export const getAppointmentsInRange = query({
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
-    appointmentType: v.optional(v.string()),
+    appointmentTypeId: v.id("appointmentTypes"),
     end: v.string(),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -171,7 +173,7 @@ export const createAppointment = mutation({
 // Mutation to update an existing appointment
 export const updateAppointment = mutation({
   args: {
-    appointmentType: v.optional(v.string()),
+    appointmentTypeId: v.optional(v.id("appointmentTypes")),
     end: v.optional(v.string()),
     id: v.id("appointments"),
     isSimulation: v.optional(v.boolean()),

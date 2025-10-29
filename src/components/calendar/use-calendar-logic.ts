@@ -19,6 +19,7 @@ import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { simulatedContextValidator } from "../../../convex/validators";
+import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { slugify } from "../../utils/slug";
@@ -207,6 +208,7 @@ export function useCalendarLogic({
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
             _id: tempId,
+            appointmentTypeId: optimisticArgs.appointmentTypeId,
             createdAt: BigInt(now),
             end: optimisticArgs.end,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -225,9 +227,7 @@ export function useCalendarLogic({
             newAppointment.patientId = optimisticArgs.patientId;
           }
 
-          if (optimisticArgs.appointmentType !== undefined) {
-            newAppointment.appointmentType = optimisticArgs.appointmentType;
-          }
+          newAppointment.appointmentTypeId = optimisticArgs.appointmentTypeId;
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
             newAppointment.replacesAppointmentId =
@@ -500,7 +500,7 @@ export function useCalendarLogic({
           isSimulation: appointment.isSimulation === true,
           replacesAppointmentId: appointment.replacesAppointmentId ?? null,
           resource: {
-            appointmentType: appointment.appointmentType,
+            appointmentTypeId: appointment.appointmentTypeId,
             isSimulation: appointment.isSimulation === true,
             locationId: appointment.locationId,
             patientId: appointment.patientId,
@@ -881,8 +881,15 @@ export function useCalendarLogic({
       }
 
       try {
+        // Appointment type is required
+        if (!appointment.resource?.appointmentTypeId) {
+          toast.error("Terminart fehlt");
+          return null;
+        }
+
         // Build appointment data with proper typing
         const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
+          appointmentTypeId: appointment.resource.appointmentTypeId,
           end: endISO,
           isSimulation: true,
           locationId,
@@ -893,12 +900,7 @@ export function useCalendarLogic({
         };
 
         // Add optional fields only if they exist
-        if (appointment.resource?.appointmentType !== undefined) {
-          appointmentData.appointmentType =
-            appointment.resource.appointmentType;
-        }
-
-        if (appointment.resource?.patientId !== undefined) {
+        if (appointment.resource.patientId !== undefined) {
           appointmentData.patientId = appointment.resource.patientId;
         }
 
@@ -931,7 +933,7 @@ export function useCalendarLogic({
             isSimulation: true,
             locationId,
             practitionerId:
-              practitionerId ?? appointment.resource?.practitionerId,
+              practitionerId ?? appointment.resource.practitionerId,
           },
           startTime: format(new Date(startISO), "HH:mm"),
           title,
@@ -1240,6 +1242,11 @@ export function useCalendarLogic({
           return;
         }
 
+        if (!simulatedContext.appointmentTypeId) {
+          alert("Bitte wählen Sie zuerst einen Termintyp aus.");
+          return;
+        }
+
         openAppointmentDialog({
           description: `Erstellen Sie einen neuen Simulationstermin für ${format(startDate, "HH:mm", { locale: de })}.`,
           onSubmit: async (title) => {
@@ -1254,6 +1261,10 @@ export function useCalendarLogic({
 
             if (practitionerId && simulatedContext.locationId && practiceId) {
               try {
+                // At this point we know appointmentTypeId exists due to the guard above
+                const appointmentTypeId =
+                  simulatedContext.appointmentTypeId as Id<"appointmentTypes">;
+
                 await createAppointmentMutation.withOptimisticUpdate(
                   (localStore, args) => {
                     const existingAppointments = localStore.getQuery(
@@ -1267,6 +1278,7 @@ export function useCalendarLogic({
                       const newAppointment: Doc<"appointments"> = {
                         _creationTime: now,
                         _id: tempId,
+                        appointmentTypeId: args.appointmentTypeId,
                         createdAt: BigInt(now),
                         end: args.end,
                         isSimulation: true,
@@ -1281,9 +1293,6 @@ export function useCalendarLogic({
                         ...(args.patientId !== undefined && {
                           patientId: args.patientId,
                         }),
-                        ...(args.appointmentType !== undefined && {
-                          appointmentType: args.appointmentType,
-                        }),
                       };
                       localStore.setQuery(
                         api.appointments.getAppointments,
@@ -1293,7 +1302,7 @@ export function useCalendarLogic({
                     }
                   },
                 )({
-                  appointmentType: simulatedContext.appointmentType,
+                  appointmentTypeId,
                   end: endDate.toISOString(),
                   isSimulation: true,
                   locationId: simulatedContext.locationId,
@@ -1334,7 +1343,10 @@ export function useCalendarLogic({
                 (
                   simulatedContext as
                     | undefined
-                    | { locationId?: Id<"locations"> }
+                    | {
+                        appointmentTypeId?: Id<"appointmentTypes">;
+                        locationId?: Id<"locations">;
+                      }
                 )?.locationId ?? selectedLocationId;
 
               if (!targetLocationId) {
@@ -1345,7 +1357,22 @@ export function useCalendarLogic({
                 toast.error("Praxis-ID fehlt");
                 return;
               }
+
+              const appointmentTypeId = (
+                simulatedContext as
+                  | undefined
+                  | {
+                      appointmentTypeId?: Id<"appointmentTypes">;
+                      locationId?: Id<"locations">;
+                    }
+              )?.appointmentTypeId;
+              if (!appointmentTypeId) {
+                toast.error("Bitte wählen Sie zuerst eine Terminart aus.");
+                return;
+              }
+
               await runCreateAppointment({
+                appointmentTypeId,
                 end: endDate.toISOString(),
                 isSimulation: false,
                 locationId: targetLocationId,
@@ -1637,11 +1664,14 @@ export function useCalendarLogic({
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
-      const newContext = {
-        appointmentType: simulatedContext.appointmentType,
+      const newContext = createSimulatedContext({
+        ...(simulatedContext.appointmentTypeId && {
+          appointmentTypeId: simulatedContext.appointmentTypeId,
+        }),
+        isNewPatient: simulatedContext.patient.isNew,
         ...(locationId && { locationId }),
-        patient: simulatedContext.patient,
-      };
+      });
+
       onUpdateSimulatedContext(newContext);
     } else {
       setSelectedLocationId(locationId);
