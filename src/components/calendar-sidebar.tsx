@@ -6,7 +6,6 @@ import { AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { SchedulingSimulatedContext } from "../types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calendar } from "@/components/ui/calendar";
@@ -18,6 +17,8 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
 } from "@/components/ui/sidebar";
+
+import type { SchedulingSimulatedContext } from "../types";
 
 import {
   getPublicHolidays,
