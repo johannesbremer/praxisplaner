@@ -18,8 +18,7 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 
-import type { SchedulingSimulatedContext } from "../types";
-
+import { createSimulatedContext } from "../../lib/utils";
 import {
   getPublicHolidays,
   isPublicHolidaySync,
@@ -59,17 +58,13 @@ export function CalendarSidebar() {
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
       // Simulation mode: update simulated context
-      const newContext: SchedulingSimulatedContext = {
-        patient: simulatedContext.patient,
-      };
-
-      if (simulatedContext.appointmentTypeId) {
-        newContext.appointmentTypeId = simulatedContext.appointmentTypeId;
-      }
-
-      if (locationId) {
-        newContext.locationId = locationId;
-      }
+      const newContext = createSimulatedContext({
+        ...(simulatedContext.appointmentTypeId && {
+          appointmentTypeId: simulatedContext.appointmentTypeId,
+        }),
+        isNewPatient: simulatedContext.patient.isNew,
+        ...(locationId && { locationId }),
+      });
 
       onUpdateSimulatedContext(newContext);
     } else {

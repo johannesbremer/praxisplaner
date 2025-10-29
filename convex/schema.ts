@@ -225,6 +225,16 @@ export default defineSchema({
       ),
     ),
 
+    // Scope for CONCURRENT_COUNT and DAILY_CAPACITY conditions
+    // Defines the granularity at which to count/limit appointments
+    scope: v.optional(
+      v.union(
+        v.literal("practice"), // Count across entire practice
+        v.literal("location"), // Count within a specific location
+        v.literal("practitioner"), // Count per practitioner
+      ),
+    ),
+
     // Polymorphic value storage - only populate what's needed
     valueIds: v.optional(v.array(v.string())), // For ID arrays (stored as strings)
     valueNumber: v.optional(v.number()), // For single numeric values

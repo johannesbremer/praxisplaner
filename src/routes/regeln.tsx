@@ -43,6 +43,7 @@ import { api } from "@/convex/_generated/api";
 import type { VersionNode } from "../components/version-graph/types";
 import type { SchedulingSimulatedContext, SchedulingSlot } from "../types";
 
+import { createSimulatedContext } from "../../lib/utils";
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
@@ -402,12 +403,12 @@ function LogicView() {
   const resetSimulation = useCallback(async () => {
     setIsResettingSimulation(true);
     try {
-      const resetContext: SimulatedContext = {
-        patient: { isNew: true },
-      };
-      if (defaultAppointmentTypeId) {
-        resetContext.appointmentTypeId = defaultAppointmentTypeId;
-      }
+      const resetContext = createSimulatedContext({
+        ...(defaultAppointmentTypeId && {
+          appointmentTypeId: defaultAppointmentTypeId,
+        }),
+        isNewPatient: true,
+      });
       setSimulatedContext(resetContext);
       setSelectedSlot(null);
       pushUrl({

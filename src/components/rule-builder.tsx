@@ -1001,7 +1001,8 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
             conditionType: "CONCURRENT_COUNT",
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
-            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
+            scope: condition.scope,
+            valueIds: condition.appointmentTypes ?? [],
             valueNumber: condition.count,
           });
         }
@@ -1013,7 +1014,8 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
             conditionType: "DAILY_CAPACITY",
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
-            valueIds: [condition.scope, ...(condition.appointmentTypes ?? [])],
+            scope: condition.scope,
+            valueIds: condition.appointmentTypes ?? [],
             valueNumber: condition.count,
           });
         }

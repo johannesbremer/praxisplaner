@@ -283,7 +283,7 @@ function parseConditionNode(
     return null;
   }
 
-  const { conditionType, operator, valueIds, valueNumber } = node;
+  const { conditionType, operator, scope, valueIds, valueNumber } = node;
 
   // Filter out condition types not supported by the UI
   const supportedTypes: ConditionType[] = [
@@ -314,36 +314,24 @@ function parseConditionNode(
       };
     }
     case "CONCURRENT_COUNT": {
-      const [scope, ...appointmentTypeIds] = valueIds ?? [];
-
       return {
         appointmentTypes:
-          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
+          (valueIds?.length ?? 0) > 0 ? (valueIds ?? null) : null,
         count: valueNumber ?? null,
         id,
         operator: "GREATER_THAN_OR_EQUAL",
-        scope: (scope ?? null) as
-          | "location"
-          | "practice"
-          | "practitioner"
-          | null,
+        scope: scope ?? null,
         type: conditionType,
       };
     }
     case "DAILY_CAPACITY": {
-      const [scope, ...appointmentTypeIds] = valueIds ?? [];
-
       return {
         appointmentTypes:
-          appointmentTypeIds.length > 0 ? appointmentTypeIds : null,
+          (valueIds?.length ?? 0) > 0 ? (valueIds ?? null) : null,
         count: valueNumber ?? null,
         id,
         operator: "GREATER_THAN_OR_EQUAL",
-        scope: (scope ?? null) as
-          | "location"
-          | "practice"
-          | "practitioner"
-          | null,
+        scope: scope ?? null,
         type: conditionType,
       };
     }

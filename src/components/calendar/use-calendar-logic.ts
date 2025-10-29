@@ -15,11 +15,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { SchedulingSimulatedContext } from "../../types";
 import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { simulatedContextValidator } from "../../../convex/validators";
+import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { slugify } from "../../utils/slug";
@@ -1664,17 +1664,13 @@ export function useCalendarLogic({
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
-      const newContext: SchedulingSimulatedContext = {
-        patient: simulatedContext.patient,
-      };
-
-      if (simulatedContext.appointmentTypeId) {
-        newContext.appointmentTypeId = simulatedContext.appointmentTypeId;
-      }
-
-      if (locationId) {
-        newContext.locationId = locationId;
-      }
+      const newContext = createSimulatedContext({
+        ...(simulatedContext.appointmentTypeId && {
+          appointmentTypeId: simulatedContext.appointmentTypeId,
+        }),
+        isNewPatient: simulatedContext.patient.isNew,
+        ...(locationId && { locationId }),
+      });
 
       onUpdateSimulatedContext(newContext);
     } else {

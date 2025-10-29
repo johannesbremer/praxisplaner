@@ -1026,7 +1026,8 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       conditionType: "CONCURRENT_COUNT" as const,
       nodeType: "CONDITION" as const,
       operator: "GREATER_THAN_OR_EQUAL" as const,
-      valueIds: ["practice"], // [scope] - no appointment types means count all
+      scope: "practice" as const, // New format: scope is separate field
+      valueIds: [], // No appointment types means count all types
       valueNumber: 2,
     };
 
@@ -3043,6 +3044,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: generalTypeId,
         patient: { isNew: false },
+        requestedAt: "2025-10-24T10:00:00.000Z", // Fixed request time for consistent test
       },
     });
 
@@ -3059,6 +3061,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: generalTypeId,
         patient: { isNew: false },
+        requestedAt: "2025-10-24T10:00:00.000Z", // Fixed request time for consistent test
       },
     });
 

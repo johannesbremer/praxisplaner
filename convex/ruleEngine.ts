@@ -114,15 +114,15 @@ async function evaluateCondition(
 
     case "CONCURRENT_COUNT": {
       // Check concurrent appointments at a specific time slot
-      // valueIds structure: [scope, ...appointmentTypeIds]
-      // - scope: "practice", "location", or "practitioner"
-      // - appointmentTypeIds: optional list of appointment types to count
+      // scope: "practice", "location", or "practitioner"
+      // valueIds: optional list of appointment types to count
       // valueNumber: the count threshold
       if (valueNumber === undefined) {
         return false;
       }
 
-      const [scope, ...appointmentTypeIds] = valueIds ?? [];
+      const scope = condition.scope;
+      const appointmentTypeIds = valueIds ?? [];
 
       // Build the query filter based on scope
       const existingAppointments = await db
@@ -558,6 +558,15 @@ export const getRuleDescription = internalQuery({
 });
 
 /**
+ * Scope validator for conditions that operate at different levels.
+ */
+export const scopeValidator = v.union(
+  v.literal("practice"),
+  v.literal("location"),
+  v.literal("practitioner"),
+);
+
+/**
  * Validator for condition tree nodes used in rule creation/updates.
  * Note: Uses v.any() for recursive children array - we validate structure at runtime.
  */
@@ -588,6 +597,9 @@ export const conditionTreeNodeValidator = v.union(
       v.literal("LESS_THAN_OR_EQUAL"),
       v.literal("EQUALS"),
     ),
+    // For CONCURRENT_COUNT and DAILY_CAPACITY: scope defines the granularity
+    scope: v.optional(scopeValidator),
+    // valueIds contains IDs (appointment types, locations, practitioners, etc.)
     valueIds: v.optional(v.array(v.string())),
     valueNumber: v.optional(v.number()),
   }),
@@ -597,6 +609,11 @@ export const conditionTreeNodeValidator = v.union(
  * Type for condition tree nodes, derived from validator.
  */
 export type ConditionTreeNode = Infer<typeof conditionTreeNodeValidator>;
+
+/**
+ * Type for scope (practice, location, or practitioner level).
+ */
+export type Scope = Infer<typeof scopeValidator>;
 
 /**
  * Type guard to check if a node is a logical operator node (AND/NOT).

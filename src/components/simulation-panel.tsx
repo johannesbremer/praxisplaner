@@ -27,6 +27,7 @@ import type {
   SchedulingSlot,
 } from "../types";
 
+import { createSimulatedContext } from "../../lib/utils";
 import { DebugView } from "./debug-view";
 import { MedicalStaffDisplay } from "./medical-staff-display";
 import { PatientBookingFlow } from "./patient-booking-flow";
@@ -93,12 +94,12 @@ export function SimulationPanel({
   };
 
   const resetSimulation = () => {
-    const resetContext: SchedulingSimulatedContext = {
-      patient: { isNew: true },
-    };
-    if (defaultAppointmentTypeId) {
-      resetContext.appointmentTypeId = defaultAppointmentTypeId;
-    }
+    const resetContext = createSimulatedContext({
+      ...(defaultAppointmentTypeId && {
+        appointmentTypeId: defaultAppointmentTypeId,
+      }),
+      isNewPatient: true,
+    });
     setSimulatedContext(resetContext);
     setSelectedDate(new Date());
     setSimulationRuleSetId(undefined);
