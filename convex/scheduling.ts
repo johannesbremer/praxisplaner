@@ -279,7 +279,8 @@ export const getSlotsForDay = query({
           dateTime: slot.startTime,
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId as Id<"practitioners">,
-          requestedAt: new Date().toISOString(),
+          requestedAt:
+            args.simulatedContext.requestedAt ?? new Date().toISOString(),
           ...(slot.locationId && {
             locationId: slot.locationId as Id<"locations">,
           }),

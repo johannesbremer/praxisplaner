@@ -3665,6 +3665,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
+        requestedAt: "2025-10-24T10:00:00.000Z", // Reference date
       },
     });
 
@@ -3692,6 +3693,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
+        requestedAt: "2025-10-24T10:00:00.000Z", // Reference date
       },
     });
 
