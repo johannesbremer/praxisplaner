@@ -24,7 +24,6 @@ export default defineSchema({
     .index("by_start", ["start"])
     .index("by_patientId", ["patientId"])
     .index("by_practitionerId", ["practitionerId"])
-    .index("by_start_end", ["start", "end"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
@@ -41,7 +40,6 @@ export default defineSchema({
     ruleSetId: v.id("ruleSets"), // Required: appointment types are versioned per rule set
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_practiceId_name", ["practiceId", "name"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_name", ["ruleSetId", "name"])
     .index("by_parentId", ["parentId"])
@@ -132,7 +130,6 @@ export default defineSchema({
     version: v.number(),
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_practiceId_description", ["practiceId", "description"])
     .index("by_practiceId_saved", ["practiceId", "saved"]), // For finding unsaved rule sets
 
   /**

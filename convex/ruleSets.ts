@@ -1,7 +1,50 @@
+import type { GenericDatabaseWriter } from "convex/server";
+
 import { v } from "convex/values";
+
+import type { DataModel, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+
+// ================================
+// HELPER FUNCTIONS
+// ================================
+
+/**
+ * Delete entities from a table by ruleSetId in batches to avoid unbounded queries.
+ * @param db Database writer instance
+ * @param table Table name to delete from
+ * @param index Index name to use for querying
+ * @param ruleSetId Rule set ID to filter by
+ * @param batchSize Number of items to process per batch (default 100)
+ */
+async function deleteEntitiesByRuleSet(
+  db: GenericDatabaseWriter<DataModel>,
+  table: keyof DataModel,
+  index: string,
+  ruleSetId: Id<"ruleSets">,
+  batchSize = 100,
+): Promise<void> {
+  let batch = await db
+    .query(table)
+    // @ts-expect-error - Dynamic index usage
+    .withIndex(index, (q) => q.eq("ruleSetId", ruleSetId))
+    .take(batchSize);
+
+  while (batch.length > 0) {
+    for (const item of batch) {
+      await db.delete(item._id);
+    }
+
+    // Get next batch
+    batch = await db
+      .query(table)
+      // @ts-expect-error - Dynamic index usage
+      .withIndex(index, (q) => q.eq("ruleSetId", ruleSetId))
+      .take(batchSize);
+  }
+}
 
 // ================================
 // RULE SET MANAGEMENT - SIMPLIFIED COW WORKFLOW
@@ -69,50 +112,40 @@ export const discardUnsavedRuleSet = mutation({
     }
 
     // Delete the rule set (entities will cascade via Convex deletion rules)
-    // Note: We still manually delete entities for explicit cleanup
+    // Note: We manually delete entities in batches for explicit cleanup
     const ruleSetId = unsavedRuleSet._id;
 
-    // Delete all entities belonging to this rule set
-    const appointmentTypes = await ctx.db
-      .query("appointmentTypes")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    for (const type of appointmentTypes) {
-      await ctx.db.delete(type._id);
-    }
-
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    for (const practitioner of practitioners) {
-      await ctx.db.delete(practitioner._id);
-    }
-
-    const locations = await ctx.db
-      .query("locations")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    for (const location of locations) {
-      await ctx.db.delete(location._id);
-    }
-
-    const baseSchedules = await ctx.db
-      .query("baseSchedules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    for (const schedule of baseSchedules) {
-      await ctx.db.delete(schedule._id);
-    }
-
-    // Delete all rule conditions (rules) for this rule set
-    const ruleConditions = await ctx.db
-      .query("ruleConditions")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    for (const condition of ruleConditions) {
-      await ctx.db.delete(condition._id);
-    }
+    // Delete all entities belonging to this rule set using batch processing
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "appointmentTypes",
+      "by_ruleSetId",
+      ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "practitioners",
+      "by_ruleSetId",
+      ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "locations",
+      "by_ruleSetId",
+      ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "baseSchedules",
+      "by_ruleSetId",
+      ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "ruleConditions",
+      "by_ruleSetId",
+      ruleSetId,
+    );
 
     // Finally, delete the rule set itself
     await ctx.db.delete(ruleSetId);
@@ -133,6 +166,7 @@ export const getUnsavedRuleSet = query({
 
 /**
  * Get all saved rule sets for a practice
+ * Note: Expected to have < 100 rule sets per practice (git-style versioning)
  */
 export const getSavedRuleSets = query({
   args: {
@@ -151,6 +185,7 @@ export const getSavedRuleSets = query({
 /**
  * Get all rule sets (saved and unsaved) for a practice.
  * Used for navigation and URL slug resolution.
+ * Note: Expected to have < 100 rule sets per practice (git-style versioning)
  */
 export const getAllRuleSets = query({
   args: {
@@ -227,6 +262,7 @@ export const getActiveRuleSet = query({
 /**
  * Get version history for a practice.
  * Returns all saved rule sets with metadata about which is active.
+ * Note: Expected to have < 100 rule sets per practice (git-style versioning)
  */
 export const getVersionHistory = query({
   args: {
@@ -291,48 +327,37 @@ export const deleteUnsavedRuleSet = mutation({
       );
     }
 
-    // Delete all rule conditions (rules) associated with this rule set
-    const ruleConditions = await ctx.db
-      .query("ruleConditions")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-
-    for (const condition of ruleConditions) {
-      await ctx.db.delete(condition._id);
-    }
-
-    // Delete all entities associated with this rule set
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-    for (const practitioner of practitioners) {
-      await ctx.db.delete(practitioner._id);
-    }
-
-    const locations = await ctx.db
-      .query("locations")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-    for (const location of locations) {
-      await ctx.db.delete(location._id);
-    }
-
-    const appointmentTypes = await ctx.db
-      .query("appointmentTypes")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-    for (const appointmentType of appointmentTypes) {
-      await ctx.db.delete(appointmentType._id);
-    }
-
-    const baseSchedules = await ctx.db
-      .query("baseSchedules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-      .collect();
-    for (const baseSchedule of baseSchedules) {
-      await ctx.db.delete(baseSchedule._id);
-    }
+    // Delete all entities associated with this rule set using batch processing
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "ruleConditions",
+      "by_ruleSetId",
+      args.ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "practitioners",
+      "by_ruleSetId",
+      args.ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "locations",
+      "by_ruleSetId",
+      args.ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "appointmentTypes",
+      "by_ruleSetId",
+      args.ruleSetId,
+    );
+    await deleteEntitiesByRuleSet(
+      ctx.db,
+      "baseSchedules",
+      "by_ruleSetId",
+      args.ruleSetId,
+    );
 
     // Finally, delete the rule set itself
     await ctx.db.delete(args.ruleSetId);

@@ -88,28 +88,30 @@ export const getAppointmentsInRange = query({
     start: v.string(),
   },
   handler: async (ctx, args) => {
+    // Use index range query instead of filter for better performance
     const appointments = await ctx.db
       .query("appointments")
-      .withIndex("by_start")
-      .filter((q) =>
-        q.and(
-          q.gte(q.field("start"), args.start),
-          q.lte(q.field("start"), args.end),
-        ),
-      )
+      .withIndex("by_start", (q) => q.gte("start", args.start))
       .collect();
+
+    // Filter in code for end date (more efficient than .filter())
+    const filteredAppointments = appointments.filter(
+      (a) => a.start <= args.end,
+    );
 
     const scope: AppointmentScope = args.scope ?? "real";
 
     if (scope === "simulation") {
-      return combineForSimulationScope(appointments);
+      return combineForSimulationScope(filteredAppointments);
     }
 
     if (scope === "all") {
-      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+      return filteredAppointments.toSorted((a, b) =>
+        a.start.localeCompare(b.start),
+      );
     }
 
-    return appointments
+    return filteredAppointments
       .filter((appointment) => appointment.isSimulation !== true)
       .toSorted((a, b) => a.start.localeCompare(b.start));
   },

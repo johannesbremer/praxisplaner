@@ -26,12 +26,21 @@ export const createPractice = mutation({
 
 /**
  * Get all practices in the system.
+ * Note: Expected to have < 100 practices per deployment
  */
 export const getAllPractices = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("practices").collect();
   },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+    }),
+  ),
 });
 
 /**
@@ -44,6 +53,15 @@ export const getPractice = query({
   handler: async (ctx, args) => {
     return await ctx.db.get(args.practiceId);
   },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+    }),
+    v.null(),
+  ),
 });
 
 /**

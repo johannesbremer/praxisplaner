@@ -53,17 +53,14 @@ export const getAvailableDates = query({
         .withIndex("by_practitionerId", (q) =>
           q.eq("practitionerId", practitioner._id),
         )
-        .filter((q) => {
-          // If a location is specified, only get schedules for that location
-          if (args.simulatedContext.locationId) {
-            return q.eq(
-              q.field("locationId"),
-              args.simulatedContext.locationId,
-            );
-          }
-          return true;
-        })
         .collect();
+
+      // Filter in code for location (more efficient than .filter())
+      const filteredSchedules = args.simulatedContext.locationId
+        ? schedules.filter(
+            (s) => s.locationId === args.simulatedContext.locationId,
+          )
+        : schedules;
 
       // Check each day in the range
       for (
@@ -72,7 +69,9 @@ export const getAvailableDates = query({
         currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000)
       ) {
         const dayOfWeek = currentDate.getDay();
-        const hasSchedule = schedules.some((s) => s.dayOfWeek === dayOfWeek);
+        const hasSchedule = filteredSchedules.some(
+          (s) => s.dayOfWeek === dayOfWeek,
+        );
 
         if (hasSchedule) {
           // Format as YYYY-MM-DD

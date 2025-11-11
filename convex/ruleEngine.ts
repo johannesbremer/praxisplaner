@@ -124,34 +124,32 @@ async function evaluateCondition(
       const scope = condition.scope;
       const appointmentTypeIds = valueIds ?? [];
 
-      // Build the query filter based on scope
+      // Use index query and filter in code for better performance
       const existingAppointments = await db
         .query("appointments")
-        .withIndex("by_start")
-        .filter((q) => {
-          const filters = [
-            q.eq(q.field("start"), context.dateTime),
-            q.eq(q.field("practiceId"), context.practiceId),
-          ];
-
-          // Apply scope-based filtering
-          if (scope === "location" && context.locationId) {
-            filters.push(q.eq(q.field("locationId"), context.locationId));
-          } else if (scope === "practitioner") {
-            filters.push(
-              q.eq(q.field("practitionerId"), context.practitionerId),
-            );
-          }
-          // "practice" scope means no additional filtering - count across entire practice
-
-          return q.and(...filters);
-        })
+        .withIndex("by_start", (q) => q.eq("start", context.dateTime))
         .collect();
 
+      // Filter in code based on scope and practice
+      let filteredAppointments = existingAppointments.filter(
+        (apt) => apt.practiceId === context.practiceId,
+      );
+
+      // Apply scope-based filtering
+      if (scope === "location" && context.locationId) {
+        filteredAppointments = filteredAppointments.filter(
+          (apt) => apt.locationId === context.locationId,
+        );
+      } else if (scope === "practitioner") {
+        filteredAppointments = filteredAppointments.filter(
+          (apt) => apt.practitionerId === context.practitionerId,
+        );
+      }
+      // "practice" scope means no additional filtering - count across entire practice
+
       // Filter by appointment types if specified
-      let filteredAppointments = existingAppointments;
       if (appointmentTypeIds.length > 0) {
-        filteredAppointments = existingAppointments.filter((apt) =>
+        filteredAppointments = filteredAppointments.filter((apt) =>
           apt.appointmentTypeId
             ? appointmentTypeIds.includes(apt.appointmentTypeId)
             : false,
@@ -177,26 +175,24 @@ async function evaluateCondition(
       const dayEnd = new Date(appointmentDate);
       dayEnd.setUTCHours(23, 59, 59, 999);
 
+      // Use index range query and filter in code for better performance
       const existingAppointments = await db
         .query("appointments")
-        .withIndex("by_start")
-        .filter((q) =>
-          q.and(
-            q.gte(q.field("start"), dayStart.toISOString()),
-            q.lte(q.field("start"), dayEnd.toISOString()),
-            q.eq(q.field("practiceId"), context.practiceId),
-            q.eq(q.field("appointmentTypeId"), context.appointmentTypeId),
-            ...(context.practitionerId
-              ? [q.eq(q.field("practitionerId"), context.practitionerId)]
-              : []),
-            ...(context.locationId
-              ? [q.eq(q.field("locationId"), context.locationId)]
-              : []),
-          ),
-        )
+        .withIndex("by_start", (q) => q.gte("start", dayStart.toISOString()))
         .collect();
 
-      const currentCount = existingAppointments.length;
+      // Filter in code for better performance
+      const filteredAppointments = existingAppointments.filter(
+        (apt) =>
+          apt.start <= dayEnd.toISOString() &&
+          apt.practiceId === context.practiceId &&
+          apt.appointmentTypeId === context.appointmentTypeId &&
+          (!context.practitionerId ||
+            apt.practitionerId === context.practitionerId) &&
+          (!context.locationId || apt.locationId === context.locationId),
+      );
+
+      const currentCount = filteredAppointments.length;
       return compareValue(currentCount, valueNumber);
     }
 
