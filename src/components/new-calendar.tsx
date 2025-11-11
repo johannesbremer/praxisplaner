@@ -1,9 +1,8 @@
 "use client";
 
-import { addDays, format, isToday } from "date-fns";
-import { de } from "date-fns/locale";
 import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,12 +15,22 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import {
+  formatDateFull,
+  getDayName,
+  isToday,
+  temporalDayToLegacy,
+} from "../utils/time-calculations";
 import { CalendarProvider } from "./calendar-context";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { CalendarGrid } from "./calendar/calendar-grid";
 import { SLOT_DURATION } from "./calendar/types";
 import { useCalendarLogic } from "./calendar/use-calendar-logic";
 
+// Hardcoded timezone for Berlin
+const TIMEZONE = "Europe/Berlin";
+
+// Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
   locationSlug,
   onDateChange,
@@ -37,6 +46,7 @@ export function NewCalendar({
     addAppointment,
     appointments,
     columns,
+    currentTime,
     currentTimeSlot,
     Dialog,
     draggedAppointment,
@@ -70,8 +80,10 @@ export function NewCalendar({
     simulationDate,
   } as NewCalendarProps);
 
-  const currentDayOfWeek = selectedDate.getDay();
+  // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
+  const currentDayOfWeek = temporalDayToLegacy(selectedDate);
 
+  // Check if selected date is today
   const isTodaySelected = isToday(selectedDate);
 
   // Load public holidays
@@ -91,7 +103,7 @@ export function NewCalendar({
   return (
     <CalendarProvider
       value={{
-        currentTime: new Date(),
+        currentTime,
         locationsData,
         onDateChange: handleDateChange,
         onLocationResolved,
@@ -110,13 +122,13 @@ export function NewCalendar({
             <div className="flex items-center gap-3">
               <SidebarTrigger />
               <h2 className="text-xl font-semibold">
-                {format(selectedDate, "EEEE, dd. MMMM yyyy", { locale: de })}
+                {formatDateFull(selectedDate)}
               </h2>
             </div>
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => {
-                  handleDateChange(addDays(selectedDate, -1));
+                  handleDateChange(selectedDate.subtract({ days: 1 }));
                 }}
                 size="sm"
                 variant="outline"
@@ -126,7 +138,7 @@ export function NewCalendar({
               <Button
                 disabled={isTodaySelected}
                 onClick={() => {
-                  handleDateChange(new Date());
+                  handleDateChange(Temporal.Now.plainDateISO(TIMEZONE));
                 }}
                 size="sm"
                 variant="outline"
@@ -135,7 +147,7 @@ export function NewCalendar({
               </Button>
               <Button
                 onClick={() => {
-                  handleDateChange(addDays(selectedDate, 1));
+                  handleDateChange(selectedDate.add({ days: 1 }));
                 }}
                 size="sm"
                 variant="outline"
@@ -161,10 +173,7 @@ export function NewCalendar({
                         {holidayName ? (
                           <>{holidayName}</>
                         ) : (
-                          <>
-                            Keine Therapeuten für{" "}
-                            {format(selectedDate, "EEEE", { locale: de })}
-                          </>
+                          <>Keine Therapeuten für {getDayName(selectedDate)}</>
                         )}
                       </AlertTitle>
                       <AlertDescription>

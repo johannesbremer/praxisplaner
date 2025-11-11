@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { createContext, useContext } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../types";
@@ -13,9 +14,9 @@ import type { SchedulingSimulatedContext } from "../types";
  */
 interface CalendarContextValue {
   // Date and time state
-  currentTime: Date;
-  onDateChange: (date: Date) => void;
-  selectedDate: Date;
+  currentTime: Temporal.ZonedDateTime;
+  onDateChange: (date: Temporal.PlainDate) => void;
+  selectedDate: Temporal.PlainDate;
 
   // Location state
   locationsData?: Doc<"locations">[] | undefined;

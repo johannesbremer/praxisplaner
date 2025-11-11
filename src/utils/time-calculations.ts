@@ -1,15 +1,260 @@
-import {
-  addMinutes,
-  differenceInMinutes,
-  format,
-  parse,
-  startOfDay,
-} from "date-fns";
+import { Temporal } from "temporal-polyfill";
 
 /**
  * Duration of each time slot in minutes
  */
 export const SLOT_DURATION = 5;
+
+/**
+ * Hardcoded timezone for Berlin
+ */
+const TIMEZONE = "Europe/Berlin";
+
+/**
+ * Safe time-of-day for date conversions to avoid DST edge cases.
+ * Noon is chosen because it's far from DST transitions which typically occur at 2-3 AM.
+ */
+const SAFE_TIME_OF_DAY = "12:00:00";
+
+/**
+ * Safely parses an ISO string to a Temporal.Instant.
+ * @param isoString The ISO 8601 string to parse.
+ * @returns The parsed Temporal.Instant, or null if parsing fails.
+ * @example
+ * ```ts
+ * safeParseISOToInstant("2024-01-15T09:30:00Z") // Temporal.Instant
+ * safeParseISOToInstant("invalid") // null
+ * ```
+ */
+export function safeParseISOToInstant(
+  isoString: string,
+): null | Temporal.Instant {
+  try {
+    return Temporal.Instant.from(isoString);
+  } catch (error) {
+    console.error(
+      `Failed to parse ISO string: ${isoString}`,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+/**
+ * Safely parses an ISO string to a Temporal.ZonedDateTime in the Berlin timezone.
+ * @param isoString The ISO 8601 string to parse.
+ * @returns The parsed Temporal.ZonedDateTime, or null if parsing fails.
+ * @example
+ * ```ts
+ * safeParseISOToZoned("2024-01-15T09:30:00Z") // Temporal.ZonedDateTime
+ * safeParseISOToZoned("invalid") // null
+ * ```
+ */
+export function safeParseISOToZoned(
+  isoString: string,
+): null | Temporal.ZonedDateTime {
+  const instant = safeParseISOToInstant(isoString);
+  if (!instant) {
+    return null;
+  }
+
+  try {
+    return instant.toZonedDateTimeISO(TIMEZONE);
+  } catch (error) {
+    console.error(
+      `Failed to convert instant to zoned datetime: ${isoString}`,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+/**
+ * Safely parses an ISO string to a Temporal.PlainDate in the Berlin timezone.
+ * @param isoString The ISO 8601 string to parse.
+ * @returns The parsed Temporal.PlainDate, or null if parsing fails.
+ * @example
+ * ```ts
+ * safeParseISOToPlainDate("2024-01-15T09:30:00Z") // Temporal.PlainDate
+ * safeParseISOToPlainDate("invalid") // null
+ * ```
+ */
+export function safeParseISOToPlainDate(
+  isoString: string,
+): null | Temporal.PlainDate {
+  const zoned = safeParseISOToZoned(isoString);
+  return zoned ? zoned.toPlainDate() : null;
+}
+
+/**
+ * Converts a JS Date to Temporal.PlainDate.
+ * Uses the Europe/Berlin timezone.
+ */
+export function dateToTemporal(date: Date): Temporal.PlainDate {
+  const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
+  return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
+}
+
+/**
+ * Converts a Temporal.PlainDate to JS Date.
+ * Uses noon to avoid DST edge cases.
+ */
+export function temporalToDate(plainDate: Temporal.PlainDate): Date {
+  const zdt = plainDate.toZonedDateTime({
+    plainTime: Temporal.PlainTime.from(SAFE_TIME_OF_DAY),
+    timeZone: TIMEZONE,
+  });
+  return new Date(zdt.epochMilliseconds);
+}
+
+/**
+ * Converts Temporal's ISO 8601 day of week (Monday=1, Sunday=7) to legacy JavaScript format (Sunday=0, Monday=1).
+ * This helper centralizes the conversion logic used throughout the application.
+ * @param plainDate The Temporal.PlainDate to convert.
+ * @returns The day of week as a number (0 = Sunday, 1 = Monday, ..., 6 = Saturday).
+ * @example
+ * ```ts
+ * const monday = Temporal.PlainDate.from("2024-01-15"); // Monday
+ * temporalDayToLegacy(monday) // 1
+ *
+ * const sunday = Temporal.PlainDate.from("2024-01-14"); // Sunday
+ * temporalDayToLegacy(sunday) // 0
+ * ```
+ */
+export function temporalDayToLegacy(plainDate: Temporal.PlainDate): number {
+  // Temporal uses ISO 8601: Monday=1, ..., Sunday=7
+  // JavaScript Date uses: Sunday=0, Monday=1, ..., Saturday=6
+  return plainDate.dayOfWeek === 7 ? 0 : plainDate.dayOfWeek;
+}
+
+/**
+ * Formats a Temporal.PlainDate as YYYY-MM-DD.
+ */
+export function formatDateISO(date: Temporal.PlainDate): string {
+  return date.toString();
+}
+
+/**
+ * Formats a Temporal.PlainDate as DD.MM.YYYY (German format).
+ */
+export function formatDateDE(date: Temporal.PlainDate): string {
+  return `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`;
+}
+
+/**
+ * Formats a Temporal.PlainDate with day name (German).
+ * @param date The date to format.
+ * @returns Formatted date string like "Montag, 15. Januar".
+ * @example
+ * ```ts
+ * formatDateLong(Temporal.PlainDate.from("2024-01-15")) // "Montag, 15. Januar"
+ * ```
+ */
+export function formatDateLong(date: Temporal.PlainDate): string {
+  const dayNames = [
+    "Sonntag",
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+  ];
+  const monthNames = [
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+  ];
+
+  const dayOfWeek = temporalDayToLegacy(date);
+  const dayName = dayNames[dayOfWeek];
+  const monthName = monthNames[date.month - 1];
+
+  return `${dayName}, ${date.day}. ${monthName}`;
+}
+
+/**
+ * Gets the day name in German for a Temporal.PlainDate.
+ */
+export function getDayName(date: Temporal.PlainDate): string {
+  const dayNames = [
+    "Sonntag",
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+  ];
+  const dayOfWeek = temporalDayToLegacy(date);
+  return dayNames[dayOfWeek] ?? "Sonntag";
+}
+
+/**
+ * Checks if a Temporal.PlainDate is today.
+ * @param date The date to check.
+ * @returns True if the date is today, false otherwise.
+ * @example
+ * ```ts
+ * isToday(Temporal.PlainDate.from("2024-01-15")) // true or false depending on current date
+ * ```
+ */
+export function isToday(date: Temporal.PlainDate): boolean {
+  const today = Temporal.Now.plainDateISO(TIMEZONE);
+  return Temporal.PlainDate.compare(date, today) === 0;
+}
+
+/**
+ * Formats a Temporal.PlainDate with full date and day name in German format.
+ * Includes the day of week, day number, month name, and year.
+ * @param date The date to format.
+ * @returns Formatted date string in German.
+ * @example
+ * ```ts
+ * const date = Temporal.PlainDate.from('2024-01-15');
+ * formatDateFull(date); // "Montag, 15. Januar 2024"
+ * ```
+ */
+export function formatDateFull(date: Temporal.PlainDate): string {
+  const dayNames = [
+    "Sonntag",
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+  ];
+  const monthNames = [
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+  ];
+
+  const dayOfWeek = temporalDayToLegacy(date);
+  const dayName = dayNames[dayOfWeek];
+  const monthName = monthNames[date.month - 1];
+
+  return `${dayName}, ${String(date.day).padStart(2, "0")}. ${monthName} ${date.year}`;
+}
 
 /**
  * Converts a time string to the number of minutes elapsed since midnight.
@@ -22,11 +267,12 @@ export const SLOT_DURATION = 5;
  * ```
  */
 export function timeToMinutes(timeStr: string): number {
-  const parsed = parse(timeStr, "HH:mm", new Date(0));
-  if (Number.isNaN(parsed.getTime())) {
+  try {
+    const time = Temporal.PlainTime.from(timeStr);
+    return time.hour * 60 + time.minute;
+  } catch {
     return 0;
   }
-  return differenceInMinutes(parsed, startOfDay(parsed));
 }
 
 /**
@@ -47,25 +293,23 @@ export function timeToSlot(time: string, businessStartHour: number): number {
 }
 
 /**
- * Converts a slot index back to its corresponding time string.
- * @param slot Zero-based slot index within the business day.
- * @param businessStartHour The hour when business operations begin (e.g., 8 for 8 AM).
- * @param selectedDate The reference date for time calculation.
+ * Converts a slot index to its corresponding time string.
+ * @param slot Zero-based slot index from midnight (each slot is 5 minutes).
+ * @param businessStartHour Optional hour offset (defaults to 0 for midnight).
  * @returns Time value in HH:mm format.
  * @example
  * ```ts
- * slotToTime(12, 8, new Date()) // '09:00'
- * slotToTime(6, 8, new Date())  // '08:30'
+ * slotToTime(12)       // '01:00' (12 slots * 5 minutes = 60 minutes from midnight)
+ * slotToTime(108)      // '09:00' (108 slots * 5 minutes = 540 minutes from midnight)
+ * slotToTime(12, 8)    // '09:00' (start at 8AM, 12 slots * 5 min = 60 min after 8AM)
  * ```
  */
-export function slotToTime(
-  slot: number,
-  businessStartHour: number,
-  selectedDate: Date,
-): string {
-  const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-  const dateForSlot = addMinutes(startOfDay(selectedDate), minutesFromStart);
-  return format(dateForSlot, "HH:mm");
+export function slotToTime(slot: number, businessStartHour = 0): string {
+  const minutesFromMidnight = businessStartHour * 60 + slot * SLOT_DURATION;
+  const hours = Math.floor(minutesFromMidnight / 60);
+  const minutes = minutesFromMidnight % 60;
+  const time = Temporal.PlainTime.from({ hour: hours, minute: minutes });
+  return time.toString().slice(0, 5); // "HH:mm"
 }
 
 /**
@@ -88,19 +332,22 @@ export function getCurrentTimeSlot(
   businessStartHour: number,
   businessEndHour: number,
 ): number {
+  // Convert to Temporal for comparison
+  const currentTemporal = dateToTemporal(currentTime);
+  const selectedTemporal = dateToTemporal(selectedDate);
+
   // Check if it's the same day
-  if (
-    currentTime.getFullYear() !== selectedDate.getFullYear() ||
-    currentTime.getMonth() !== selectedDate.getMonth() ||
-    currentTime.getDate() !== selectedDate.getDate()
-  ) {
+  if (!currentTemporal.equals(selectedTemporal)) {
     return -1;
   }
 
-  const minutesFromMidnight = differenceInMinutes(
-    currentTime,
-    startOfDay(currentTime),
-  );
+  // Get time-of-day using Temporal for consistent timezone handling
+  const currentZoned = Temporal.Instant.fromEpochMilliseconds(
+    currentTime.getTime(),
+  ).toZonedDateTimeISO(TIMEZONE);
+  const hours = currentZoned.hour;
+  const minutes = currentZoned.minute;
+  const minutesFromMidnight = hours * 60 + minutes;
   const minutesFromStart = minutesFromMidnight - businessStartHour * 60;
   const totalBusinessMinutes = (businessEndHour - businessStartHour) * 60;
 
@@ -190,4 +437,19 @@ export function calculateBusinessHours(
     businessStartHour,
     totalSlots,
   };
+}
+
+/**
+ * Formats a Temporal.PlainTime to HH:mm format with proper zero-padding.
+ * This is more robust than using .toString().slice(0, 5) which assumes specific string format.
+ * @param time The Temporal.PlainTime to format.
+ * @returns Time string in HH:mm format (e.g., "09:05", "14:30").
+ * @example
+ * ```ts
+ * formatTime(Temporal.PlainTime.from({ hour: 9, minute: 5 })) // "09:05"
+ * formatTime(Temporal.PlainTime.from({ hour: 14, minute: 30 })) // "14:30"
+ * ```
+ */
+export function formatTime(time: Temporal.PlainTime): string {
+  return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
 }

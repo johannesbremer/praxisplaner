@@ -1,19 +1,15 @@
-import { addMinutes, format, startOfDay } from "date-fns";
 import { describe, expect, test } from "vitest";
+
+import { slotToTime } from "../../utils/time-calculations";
 
 describe("Calendar Integration Scenarios", () => {
   describe("Complete Appointment Lifecycle", () => {
     test("should handle appointment creation workflow", () => {
       // Simulate the full workflow of creating an appointment
       const clickedSlot = 108; // 09:00 AM
-      const SLOT_DURATION = 5;
 
-      // Convert slot to time
-      const startMinutes = clickedSlot * SLOT_DURATION;
-      const startTime = format(
-        addMinutes(startOfDay(new Date()), startMinutes),
-        "HH:mm",
-      );
+      // Convert slot to time using imported utility
+      const startTime = slotToTime(clickedSlot);
 
       expect(startTime).toBe("09:00");
 
@@ -45,12 +41,9 @@ describe("Calendar Integration Scenarios", () => {
       };
 
       const newSlot = 120; // 10:00 AM
-      const SLOT_DURATION = 5;
-      const newStartMinutes = newSlot * SLOT_DURATION;
-      const newStartTime = format(
-        addMinutes(startOfDay(new Date()), newStartMinutes),
-        "HH:mm",
-      );
+
+      // Convert slot to time using imported utility
+      const newStartTime = slotToTime(newSlot);
 
       const updatedAppointment = {
         ...originalAppointment,

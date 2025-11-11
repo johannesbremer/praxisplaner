@@ -1,9 +1,8 @@
 "use client";
 
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
 import { AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -23,6 +22,12 @@ import {
   getPublicHolidays,
   isPublicHolidaySync,
 } from "../utils/public-holidays";
+import {
+  dateToTemporal,
+  formatDateDE,
+  getDayName,
+  temporalToDate,
+} from "../utils/time-calculations";
 import { useCalendarContext } from "./calendar-context";
 import { LocationSelector } from "./location-selector";
 
@@ -40,8 +45,10 @@ export function CalendarSidebar() {
     simulatedContext,
   } = useCalendarContext();
 
-  // Load public holidays
-  const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
+  // Load public holidays as Temporal.PlainDate
+  const [publicHolidayDates, setPublicHolidayDates] = useState<
+    Temporal.PlainDate[]
+  >([]);
 
   useEffect(() => {
     void getPublicHolidays().then(setPublicHolidayDates);
@@ -50,7 +57,7 @@ export function CalendarSidebar() {
   const publicHolidaysSet = useMemo(() => {
     const set = new Set<string>();
     for (const date of publicHolidayDates) {
-      set.add(format(date, "yyyy-MM-dd"));
+      set.add(date.toString());
     }
     return set;
   }, [publicHolidayDates]);
@@ -80,6 +87,14 @@ export function CalendarSidebar() {
     }
   };
 
+  // Convert Temporal to Date for the Calendar component
+  const selectedDateAsDate = temporalToDate(selectedDate);
+
+  // Format times and dates using Temporal
+  const currentTimeFormatted = `${String(currentTime.hour).padStart(2, "0")}:${String(currentTime.minute).padStart(2, "0")}`;
+  const selectedDateFormatted = formatDateDE(selectedDate);
+  const dayName = getDayName(selectedDate);
+
   return (
     <Sidebar collapsible="offcanvas" side="left" variant="sidebar">
       <SidebarHeader />
@@ -101,21 +116,22 @@ export function CalendarSidebar() {
             <Calendar
               className="rounded-md border-0"
               disabled={{ dayOfWeek: [0, 6] }}
-              locale={de}
               mode="single"
               modifiers={{
-                publicHoliday: (date) =>
-                  isPublicHolidaySync(date, publicHolidaysSet),
+                publicHoliday: (date) => {
+                  const plainDate = dateToTemporal(date);
+                  return isPublicHolidaySync(plainDate, publicHolidaysSet);
+                },
               }}
               modifiersClassNames={{
                 publicHoliday: "bg-muted/40 text-muted-foreground opacity-60",
               }}
               onSelect={(date) => {
                 if (date) {
-                  onDateChange(date);
+                  onDateChange(dateToTemporal(date));
                 }
               }}
-              selected={selectedDate}
+              selected={selectedDateAsDate}
               weekStartsOn={1}
             />
           </SidebarGroupContent>
@@ -137,9 +153,9 @@ export function CalendarSidebar() {
           <SidebarGroupLabel>Status</SidebarGroupLabel>
           <SidebarGroupContent>
             <div className="text-xs text-muted-foreground space-y-1 px-2">
-              <div>Aktuelle Zeit: {format(currentTime, "HH:mm")}</div>
-              <div>Gewählt: {format(selectedDate, "dd.MM.yyyy")}</div>
-              <div>Tag: {format(selectedDate, "EEEE", { locale: de })}</div>
+              <div>Aktuelle Zeit: {currentTimeFormatted}</div>
+              <div>Gewählt: {selectedDateFormatted}</div>
+              <div>Tag: {dayName}</div>
             </div>
           </SidebarGroupContent>
         </SidebarGroup>

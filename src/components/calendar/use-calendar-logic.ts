@@ -1,18 +1,9 @@
 import type { Infer } from "convex/values";
 
 import { useMutation, useQuery } from "convex/react";
-import {
-  addMinutes,
-  differenceInMinutes,
-  format,
-  isSameDay,
-  parse,
-  parseISO,
-  startOfDay,
-} from "date-fns";
-import { de } from "date-fns/locale";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { Appointment, NewCalendarProps } from "./types";
@@ -23,8 +14,17 @@ import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { slugify } from "../../utils/slug";
+import {
+  formatTime,
+  safeParseISOToPlainDate,
+  safeParseISOToZoned,
+  temporalDayToLegacy,
+} from "../../utils/time-calculations";
 import { useAppointmentDialog } from "../appointment-dialog";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
+
+// Hardcoded timezone for Berlin
+const TIMEZONE = "Europe/Berlin";
 
 /**
  * Deep comparison of appointment arrays.
@@ -39,10 +39,12 @@ export function useCalendarLogic({
   simulatedContext,
   simulationDate,
 }: NewCalendarProps) {
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    simulationDate ?? new Date(),
+  const [selectedDate, setSelectedDate] = useState<Temporal.PlainDate>(
+    () => simulationDate ?? Temporal.Now.plainDateISO(TIMEZONE),
   );
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
+    Temporal.Now.zonedDateTimeISO(TIMEZONE),
+  );
   const [practiceId, setPracticeId] = useState<Id<"practices"> | null>(
     propPracticeId ?? null,
   );
@@ -146,6 +148,7 @@ export function useCalendarLogic({
       } catch (error) {
         captureErrorGlobal(error, {
           context: "NewCalendar - Failed to initialize practice",
+          error: error instanceof Error ? error.message : String(error),
           propPracticeId,
         });
       }
@@ -286,12 +289,8 @@ export function useCalendarLogic({
 
   // Notify parent when date changes
   const handleDateChange = useCallback(
-    (nextDate: Date) => {
-      if (
-        selectedDate.getFullYear() === nextDate.getFullYear() &&
-        selectedDate.getMonth() === nextDate.getMonth() &&
-        selectedDate.getDate() === nextDate.getDate()
-      ) {
+    (nextDate: Temporal.PlainDate) => {
+      if (Temporal.PlainDate.compare(selectedDate, nextDate) === 0) {
         return;
       }
 
@@ -301,12 +300,15 @@ export function useCalendarLogic({
     [selectedDate, onDateChange],
   );
 
-  const currentDayOfWeek = selectedDate.getDay();
+  // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for database compatibility
+  const currentDayOfWeek = temporalDayToLegacy(selectedDate);
 
   // Helper function to convert time string to minutes
   const timeToMinutes = useCallback((timeStr: string): null | number => {
-    const parsed = parse(timeStr, "HH:mm", new Date(0));
-    if (Number.isNaN(parsed.getTime())) {
+    try {
+      const time = Temporal.PlainTime.from(timeStr);
+      return time.hour * 60 + time.minute;
+    } catch {
       captureErrorGlobal(new Error(`Invalid time format: "${timeStr}"`), {
         context: "NewCalendar - Invalid time format in timeToMinutes",
         expectedFormat: "HH:mm",
@@ -314,7 +316,6 @@ export function useCalendarLogic({
       });
       return null;
     }
-    return differenceInMinutes(parsed, startOfDay(parsed));
   }, []);
 
   // Calculate working practitioners and business hours
@@ -458,8 +459,13 @@ export function useCalendarLogic({
       return [];
     }
     return appointmentsData.filter((appointment: Doc<"appointments">) => {
-      const appointmentDate = parseISO(appointment.start);
-      return isSameDay(appointmentDate, selectedDate);
+      const appointmentDate = safeParseISOToPlainDate(appointment.start);
+      if (!appointmentDate) {
+        console.warn(`Invalid appointment start date: ${appointment.start}`);
+        return false;
+      }
+
+      return Temporal.PlainDate.compare(appointmentDate, selectedDate) === 0;
     });
   }, [appointmentsData, selectedDate]);
 
@@ -483,10 +489,18 @@ export function useCalendarLogic({
   const combinedDerivedAppointments = useMemo(() => {
     return locationFilteredAppointments
       .map((appointment: Doc<"appointments">, index): Appointment | null => {
-        const start = parseISO(appointment.start);
-        const end = parseISO(appointment.end);
+        const startZoned = safeParseISOToZoned(appointment.start);
+        const endZoned = safeParseISOToZoned(appointment.end);
+
+        if (!startZoned || !endZoned) {
+          console.warn(
+            `Invalid appointment dates: start=${appointment.start}, end=${appointment.end}`,
+          );
+          return null;
+        }
+
         const duration = Math.round(
-          (end.getTime() - start.getTime()) / (1000 * 60),
+          startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
         );
 
         return {
@@ -506,7 +520,7 @@ export function useCalendarLogic({
             patientId: appointment.patientId,
             practitionerId: appointment.practitionerId,
           },
-          startTime: format(start, "HH:mm"),
+          startTime: formatTime(startZoned.toPlainTime()),
           title: appointment.title,
         };
       })
@@ -609,24 +623,27 @@ export function useCalendarLogic({
   const slotToTime = useCallback(
     (slot: number) => {
       const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-      const dateForSlot = addMinutes(
-        startOfDay(selectedDate),
-        minutesFromStart,
-      );
-      return format(dateForSlot, "HH:mm");
+      const hours = Math.floor(minutesFromStart / 60);
+      const minutes = minutesFromStart % 60;
+
+      const time = new Temporal.PlainTime(hours, minutes);
+      return formatTime(time);
     },
-    [businessStartHour, selectedDate],
+    [businessStartHour],
   );
 
   const getCurrentTimeSlot = useCallback(() => {
-    if (!isSameDay(currentTime, selectedDate) || totalSlots === 0) {
+    if (totalSlots === 0) {
       return -1;
     }
 
-    const minutesFromMidnight = differenceInMinutes(
-      currentTime,
-      startOfDay(currentTime),
-    );
+    const currentDate = currentTime.toPlainDate();
+    if (Temporal.PlainDate.compare(currentDate, selectedDate) !== 0) {
+      return -1;
+    }
+
+    const { hour, minute } = currentTime;
+    const minutesFromMidnight = hour * 60 + minute;
     const minutesFromStart = minutesFromMidnight - businessStartHour * 60;
     const totalBusinessMinutes = (businessEndHour - businessStartHour) * 60;
 
@@ -824,29 +841,57 @@ export function useCalendarLogic({
         return appointment;
       }
 
-      const baseStartDate =
-        options.startISO === undefined
-          ? parse(appointment.startTime, "HH:mm", selectedDate)
-          : new Date(options.startISO);
-
-      if (Number.isNaN(baseStartDate.getTime())) {
+      let startZoned: Temporal.ZonedDateTime;
+      try {
+        if (options.startISO === undefined) {
+          const plainTime = Temporal.PlainTime.from(appointment.startTime);
+          startZoned = selectedDate.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
+          });
+        } else {
+          const parsedStart = safeParseISOToZoned(options.startISO);
+          if (!parsedStart) {
+            throw new Error(`Invalid start ISO string: ${options.startISO}`);
+          }
+          startZoned = parsedStart;
+        }
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context: "Failed to parse start time",
+          error: error instanceof Error ? error.message : String(error),
+          startISO: options.startISO,
+          startTime: appointment.startTime,
+        });
         toast.error("Startzeit konnte nicht ermittelt werden");
         return null;
       }
 
-      const startISO = options.startISO ?? baseStartDate.toISOString();
+      const startISO = options.startISO ?? startZoned.toString();
 
-      const baseEndDate =
-        options.endISO === undefined
-          ? addMinutes(baseStartDate, appointment.duration)
-          : new Date(options.endISO);
-
-      if (Number.isNaN(baseEndDate.getTime())) {
+      let endZoned: Temporal.ZonedDateTime;
+      try {
+        if (options.endISO === undefined) {
+          endZoned = startZoned.add({ minutes: appointment.duration });
+        } else {
+          const parsedEnd = safeParseISOToZoned(options.endISO);
+          if (!parsedEnd) {
+            throw new Error(`Invalid end ISO string: ${options.endISO}`);
+          }
+          endZoned = parsedEnd;
+        }
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context: "Failed to parse end time",
+          duration: appointment.duration,
+          endISO: options.endISO,
+          error: error instanceof Error ? error.message : String(error),
+        });
         toast.error("Endzeit konnte nicht ermittelt werden");
         return null;
       }
 
-      const endISO = options.endISO ?? baseEndDate.toISOString();
+      const endISO = options.endISO ?? endZoned.toString();
 
       // Extract practitioner ID with proper type safety
       const practitionerId: Id<"practitioners"> | undefined =
@@ -915,8 +960,7 @@ export function useCalendarLogic({
           Math.max(
             SLOT_DURATION,
             Math.round(
-              (new Date(endISO).getTime() - new Date(startISO).getTime()) /
-                60000,
+              startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
             ),
           );
 
@@ -935,7 +979,7 @@ export function useCalendarLogic({
             practitionerId:
               practitionerId ?? appointment.resource.practitionerId,
           },
-          startTime: format(new Date(startISO), "HH:mm"),
+          startTime: formatTime(startZoned.toPlainTime()),
           title,
         };
 
@@ -1086,71 +1130,78 @@ export function useCalendarLogic({
     const finalSlot = dragPreview.slot;
     const newTime = slotToTime(finalSlot);
 
-    const startDate = parse(newTime, "HH:mm", selectedDate);
-    if (Number.isNaN(startDate.getTime())) {
-      setDraggedAppointment(null);
-      setDragPreview({ column: "", slot: 0, visible: false });
-      return;
-    }
+    try {
+      const plainTime = Temporal.PlainTime.from(newTime);
+      const startZoned = selectedDate.toZonedDateTime({
+        plainTime,
+        timeZone: TIMEZONE,
+      });
 
-    const endDate = addMinutes(startDate, draggedAppointment.duration);
+      const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
 
-    if (draggedAppointment.convexId) {
-      const newPractitionerId =
-        column !== "ekg" && column !== "labor"
-          ? (column as Id<"practitioners">)
-          : draggedAppointment.resource?.practitionerId;
+      if (draggedAppointment.convexId) {
+        const newPractitionerId =
+          column !== "ekg" && column !== "labor"
+            ? (column as Id<"practitioners">)
+            : draggedAppointment.resource?.practitionerId;
 
-      if (simulatedContext && !draggedAppointment.isSimulation) {
-        await convertRealAppointmentToSimulation(draggedAppointment, {
-          columnOverride: column,
-          durationMinutes: draggedAppointment.duration,
-          endISO: endDate.toISOString(),
-          ...(newPractitionerId && { practitionerId: newPractitionerId }),
-          startISO: startDate.toISOString(),
-        });
-      } else {
-        try {
-          await updateAppointmentMutation.withOptimisticUpdate(
-            (localStore, args) => {
-              const existingAppointments = localStore.getQuery(
-                api.appointments.getAppointments,
-                appointmentsQueryArgs,
-              );
-              if (existingAppointments) {
-                const updatedAppointments = existingAppointments.map((apt) =>
-                  apt._id === args.id
-                    ? {
-                        ...apt,
-                        ...(args.end && { end: args.end }),
-                        ...(args.start && { start: args.start }),
-                        ...(args.practitionerId && {
-                          practitionerId: args.practitionerId,
-                        }),
-                      }
-                    : apt,
-                );
-                localStore.setQuery(
+        if (simulatedContext && !draggedAppointment.isSimulation) {
+          await convertRealAppointmentToSimulation(draggedAppointment, {
+            columnOverride: column,
+            durationMinutes: draggedAppointment.duration,
+            endISO: endZoned.toString(),
+            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            startISO: startZoned.toString(),
+          });
+        } else {
+          try {
+            await updateAppointmentMutation.withOptimisticUpdate(
+              (localStore, args) => {
+                const existingAppointments = localStore.getQuery(
                   api.appointments.getAppointments,
                   appointmentsQueryArgs,
-                  updatedAppointments,
                 );
-              }
-            },
-          )({
-            end: endDate.toISOString(),
-            id: draggedAppointment.convexId,
-            start: startDate.toISOString(),
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
-          });
-        } catch (error) {
-          captureErrorGlobal(error, {
-            appointmentId: draggedAppointment.convexId,
-            context: "NewCalendar - Failed to update appointment (drag)",
-          });
-          toast.error("Termin konnte nicht verschoben werden");
+                if (existingAppointments) {
+                  const updatedAppointments = existingAppointments.map((apt) =>
+                    apt._id === args.id
+                      ? {
+                          ...apt,
+                          ...(args.end && { end: args.end }),
+                          ...(args.start && { start: args.start }),
+                          ...(args.practitionerId && {
+                            practitionerId: args.practitionerId,
+                          }),
+                        }
+                      : apt,
+                  );
+                  localStore.setQuery(
+                    api.appointments.getAppointments,
+                    appointmentsQueryArgs,
+                    updatedAppointments,
+                  );
+                }
+              },
+            )({
+              end: endZoned.toString(),
+              id: draggedAppointment.convexId,
+              start: startZoned.toString(),
+              ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            });
+          } catch (error) {
+            captureErrorGlobal(error, {
+              appointmentId: draggedAppointment.convexId,
+              context: "NewCalendar - Failed to update appointment (drag)",
+            });
+            toast.error("Termin konnte nicht verschoben werden");
+          }
         }
       }
+    } catch (error) {
+      captureErrorGlobal(error, {
+        context: "Failed to parse time during drag",
+        newTime,
+      });
+      toast.error("Termin konnte nicht verschoben werden");
     }
     // Convex optimistic updates will handle the UI update
 
@@ -1186,30 +1237,39 @@ export function useCalendarLogic({
       targetAppointment.convexId
     ) {
       void (async () => {
-        const startDate = parse(
-          targetAppointment.startTime,
-          "HH:mm",
-          selectedDate,
-        );
-        if (Number.isNaN(startDate.getTime())) {
-          toast.error("Startzeit konnte nicht ermittelt werden");
-          return;
-        }
-        const endDate = addMinutes(startDate, targetAppointment.duration);
-        const converted = await convertRealAppointmentToSimulation(
-          targetAppointment,
-          {
-            durationMinutes: targetAppointment.duration,
-            endISO: endDate.toISOString(),
-            startISO: startDate.toISOString(),
-          },
-        );
-        if (converted) {
-          setResizing({
-            appointmentId: converted.id,
-            originalDuration: currentDuration,
-            startY: e.clientY,
+        try {
+          const plainTime = Temporal.PlainTime.from(
+            targetAppointment.startTime,
+          );
+          const startZoned = selectedDate.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
           });
+          const endZoned = startZoned.add({
+            minutes: targetAppointment.duration,
+          });
+
+          const converted = await convertRealAppointmentToSimulation(
+            targetAppointment,
+            {
+              durationMinutes: targetAppointment.duration,
+              endISO: endZoned.toString(),
+              startISO: startZoned.toString(),
+            },
+          );
+          if (converted) {
+            setResizing({
+              appointmentId: converted.id,
+              originalDuration: currentDuration,
+              startY: e.clientY,
+            });
+          }
+        } catch (error) {
+          captureErrorGlobal(error, {
+            context: "Failed to parse time in resize start",
+            startTime: targetAppointment.startTime,
+          });
+          toast.error("Startzeit konnte nicht ermittelt werden");
         }
       })();
       return;
@@ -1229,12 +1289,23 @@ export function useCalendarLogic({
 
     if (duration >= SLOT_DURATION) {
       const startTime = slotToTime(slot);
-      const startDate = parse(startTime, "HH:mm", selectedDate);
-      if (Number.isNaN(startDate.getTime())) {
+
+      let startZoned: Temporal.ZonedDateTime;
+      let endZoned: Temporal.ZonedDateTime;
+      try {
+        const plainTime = Temporal.PlainTime.from(startTime);
+        startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        endZoned = startZoned.add({ minutes: duration });
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context: "Failed to parse time in addAppointment",
+          startTime,
+        });
         return;
       }
-
-      const endDate = addMinutes(startDate, duration);
 
       if (simulatedContext) {
         if (!simulatedContext.locationId) {
@@ -1248,7 +1319,7 @@ export function useCalendarLogic({
         }
 
         openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Simulationstermin für ${format(startDate, "HH:mm", { locale: de })}.`,
+          description: `Erstellen Sie einen neuen Simulationstermin für ${formatTime(startZoned.toPlainTime())}.`,
           onSubmit: async (title) => {
             let practitionerId: Id<"practitioners"> | undefined;
 
@@ -1303,12 +1374,12 @@ export function useCalendarLogic({
                   },
                 )({
                   appointmentTypeId,
-                  end: endDate.toISOString(),
+                  end: endZoned.toString(),
                   isSimulation: true,
                   locationId: simulatedContext.locationId,
                   practiceId,
                   practitionerId,
-                  start: startDate.toISOString(),
+                  start: startZoned.toString(),
                   title,
                 });
                 toast.success("Simulationstermin erstellt");
@@ -1327,7 +1398,7 @@ export function useCalendarLogic({
         });
       } else {
         openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Termin für ${format(startDate, "HH:mm", { locale: de })}.`,
+          description: `Erstellen Sie einen neuen Termin für ${formatTime(startZoned.toPlainTime())}.`,
           onSubmit: async (title) => {
             let practitionerId: Id<"practitioners"> | undefined;
 
@@ -1373,11 +1444,11 @@ export function useCalendarLogic({
 
               await runCreateAppointment({
                 appointmentTypeId,
-                end: endDate.toISOString(),
+                end: endZoned.toString(),
                 isSimulation: false,
                 locationId: targetLocationId,
                 practiceId,
-                start: startDate.toISOString(),
+                start: startZoned.toString(),
                 title,
                 ...(practitionerId && { practitionerId }),
               });
@@ -1462,24 +1533,32 @@ export function useCalendarLogic({
       }
 
       void (async () => {
-        const startDate = parse(appointment.startTime, "HH:mm", selectedDate);
-        if (Number.isNaN(startDate.getTime())) {
+        try {
+          const plainTime = Temporal.PlainTime.from(appointment.startTime);
+          const startZoned = selectedDate.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
+          });
+          const endZoned = startZoned.add({ minutes: appointment.duration });
+
+          const converted = await convertRealAppointmentToSimulation(
+            appointment,
+            {
+              endISO: endZoned.toString(),
+              startISO: startZoned.toString(),
+              title: appointment.title,
+            },
+          );
+
+          if (converted) {
+            openEditDialog(converted);
+          }
+        } catch (error) {
+          captureErrorGlobal(error, {
+            context: "Failed to parse time in edit appointment",
+            startTime: appointment.startTime,
+          });
           toast.error("Startzeit konnte nicht ermittelt werden");
-          return;
-        }
-
-        const endDate = addMinutes(startDate, appointment.duration);
-        const converted = await convertRealAppointmentToSimulation(
-          appointment,
-          {
-            endISO: endDate.toISOString(),
-            startISO: startDate.toISOString(),
-            title: appointment.title,
-          },
-        );
-
-        if (converted) {
-          openEditDialog(converted);
         }
       })();
       return;
@@ -1516,7 +1595,7 @@ export function useCalendarLogic({
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      setCurrentTime(Temporal.Now.zonedDateTimeISO(TIMEZONE));
     }, 60000);
     return () => {
       clearInterval(timer);
@@ -1558,15 +1637,23 @@ export function useCalendarLogic({
             if (simulatedContext && !appointment.isSimulation) {
               return;
             }
-            const startDate = parse(
-              appointment.startTime,
-              "HH:mm",
-              selectedDate,
-            );
-            if (Number.isNaN(startDate.getTime())) {
+
+            let startZoned: Temporal.ZonedDateTime;
+            let endZoned: Temporal.ZonedDateTime;
+            try {
+              const plainTime = Temporal.PlainTime.from(appointment.startTime);
+              startZoned = selectedDate.toZonedDateTime({
+                plainTime,
+                timeZone: TIMEZONE,
+              });
+              endZoned = startZoned.add({ minutes: newDuration });
+            } catch (error) {
+              captureErrorGlobal(error, {
+                context: "Failed to parse time in resize",
+                startTime: appointment.startTime,
+              });
               return;
             }
-            const endDate = addMinutes(startDate, newDuration);
 
             void (async () => {
               // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -1596,7 +1683,7 @@ export function useCalendarLogic({
                     }
                   },
                 )({
-                  end: endDate.toISOString(),
+                  end: endZoned.toString(),
                   id: convexId,
                 });
               } catch (error) {

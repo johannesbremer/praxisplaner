@@ -1,3 +1,5 @@
+import { Temporal } from "temporal-polyfill";
+
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../../types";
 
@@ -22,7 +24,7 @@ export interface Appointment {
 
 export interface NewCalendarProps {
   locationSlug?: string | undefined;
-  onDateChange?: (date: Date) => void;
+  onDateChange?: (date: Temporal.PlainDate) => void;
   onLocationResolved?: (
     locationId: Id<"locations">,
     locationName: string,
@@ -32,7 +34,7 @@ export interface NewCalendarProps {
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;
-  simulationDate?: Date;
+  simulationDate?: Temporal.PlainDate;
 }
 
 export const SLOT_DURATION = 5; // minutes

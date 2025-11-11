@@ -2,9 +2,8 @@ import type { RefObject } from "react";
 import type { Matcher } from "react-day-picker";
 
 import { useQuery } from "convex/react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -32,6 +31,11 @@ import {
   getPublicHolidaysData,
   isPublicHolidaySync,
 } from "../utils/public-holidays";
+import {
+  dateToTemporal,
+  formatDateISO,
+  formatDateLong,
+} from "../utils/time-calculations";
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
 
@@ -153,7 +157,9 @@ export function PatientFocusedView({
   }, [availableDatesResult]);
 
   // Load public holidays
-  const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
+  const [publicHolidayDates, setPublicHolidayDates] = useState<
+    Temporal.PlainDate[]
+  >([]);
   const [publicHolidaysLoaded, setPublicHolidaysLoaded] = useState(false);
 
   useEffect(() => {
@@ -168,7 +174,7 @@ export function PatientFocusedView({
   const publicHolidaysSet = useMemo(() => {
     const set = new Set<string>();
     for (const date of publicHolidayDates) {
-      set.add(format(date, "yyyy-MM-dd"));
+      set.add(date.toString());
     }
     return set;
   }, [publicHolidayDates]);
@@ -227,7 +233,7 @@ export function PatientFocusedView({
       effectiveUserSelectedDate &&
       effectiveSimulatedContext.appointmentTypeId
       ? {
-          date: format(effectiveUserSelectedDate, "yyyy-MM-dd"),
+          date: formatDateISO(dateToTemporal(effectiveUserSelectedDate)),
           practiceId,
           ruleSetId,
           simulatedContext: effectiveSimulatedContext,
@@ -238,7 +244,7 @@ export function PatientFocusedView({
   // Check if selected date is a public holiday
   const selectedDateHolidayName =
     publicHolidaysLoaded && selectedDate
-      ? getPublicHolidayName(selectedDate)
+      ? getPublicHolidayName(dateToTemporal(selectedDate))
       : undefined;
 
   // Use a key to reset state when window or date changes
@@ -338,11 +344,13 @@ export function PatientFocusedView({
                                 weekday: "short",
                               }),
                           }}
-                          locale={de}
                           mode="single"
                           modifiers={{
                             publicHoliday: (date) =>
-                              isPublicHolidaySync(date, publicHolidaysSet),
+                              isPublicHolidaySync(
+                                dateToTemporal(date),
+                                publicHolidaysSet,
+                              ),
                           }}
                           modifiersClassNames={{
                             publicHoliday:
@@ -421,16 +429,14 @@ export function PatientFocusedView({
                 )}
               </ContainerAwareContent>
               {!selectedDateHolidayName && (
-                <CardFooter className="flex flex-col gap-3 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
+                <CardFooter className="flex flex-col gap-3 border-t px-4 py-4! md:flex-row md:px-6 md:py-5!">
                   <div className="text-sm">
                     {selectedDate && selectedSlotKey ? (
                       <>
                         Termin am
                         <span className="font-medium">
                           {" "}
-                          {format(selectedDate, "EEEE, d. MMMM", {
-                            locale: de,
-                          })}{" "}
+                          {formatDateLong(dateToTemporal(selectedDate))}{" "}
                         </span>
                         ausgewählt.
                       </>

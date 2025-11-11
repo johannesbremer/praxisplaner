@@ -1,9 +1,8 @@
 import type { Matcher } from "react-day-picker";
 
 import { useQuery } from "convex/react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -24,6 +23,11 @@ import {
   getPublicHolidays,
   isPublicHolidaySync,
 } from "../utils/public-holidays";
+import {
+  dateToTemporal,
+  formatDateISO,
+  formatDateLong,
+} from "../utils/time-calculations";
 
 interface PatientViewProps {
   dateRange: SchedulingDateRange;
@@ -72,7 +76,7 @@ export function PatientView({
     api.scheduling.getSlotsForDay,
     selectedDate && ruleSetId && simulatedContext.appointmentTypeId
       ? {
-          date: format(selectedDate, "yyyy-MM-dd"),
+          date: formatDateISO(dateToTemporal(selectedDate)),
           practiceId,
           ruleSetId,
           simulatedContext,
@@ -121,7 +125,9 @@ export function PatientView({
   }, [availableDatesResult]);
 
   // Load public holidays
-  const [publicHolidayDates, setPublicHolidayDates] = useState<Date[]>([]);
+  const [publicHolidayDates, setPublicHolidayDates] = useState<
+    Temporal.PlainDate[]
+  >([]);
 
   useEffect(() => {
     void getPublicHolidays().then(setPublicHolidayDates);
@@ -130,7 +136,7 @@ export function PatientView({
   const publicHolidaysSet = useMemo(() => {
     const set = new Set<string>();
     for (const date of publicHolidayDates) {
-      set.add(format(date, "yyyy-MM-dd"));
+      set.add(formatDateISO(date));
     }
     return set;
   }, [publicHolidayDates]);
@@ -261,11 +267,13 @@ export function PatientView({
                     formatWeekdayName: (date) =>
                       date.toLocaleString("de-DE", { weekday: "short" }),
                   }}
-                  locale={de}
                   mode="single"
                   modifiers={{
                     publicHoliday: (date) =>
-                      isPublicHolidaySync(date, publicHolidaysSet),
+                      isPublicHolidaySync(
+                        dateToTemporal(date),
+                        publicHolidaysSet,
+                      ),
                   }}
                   modifiersClassNames={{
                     publicHoliday:
@@ -323,16 +331,14 @@ export function PatientView({
                 </div>
               </div>
             </CardContent>
-            <CardFooter className="flex flex-col gap-4 border-t px-4 !py-4 md:px-6 md:!py-5 md:flex-row">
+            <CardFooter className="flex flex-col gap-4 border-t px-4 py-4! md:flex-row md:px-6 md:py-5!">
               <div className="text-sm">
                 {selectedDate && selectedSlotKey ? (
                   <>
                     Termin am
                     <span className="font-medium">
                       {" "}
-                      {format(selectedDate, "EEEE, d. MMMM", {
-                        locale: de,
-                      })}{" "}
+                      {formatDateLong(dateToTemporal(selectedDate))}{" "}
                     </span>
                     ausgewählt.
                   </>

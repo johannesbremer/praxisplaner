@@ -1,3 +1,5 @@
+import { Temporal } from "temporal-polyfill";
+
 import type { Id } from "../../convex/_generated/dataModel";
 import type {
   SchedulingRuleSetId,
@@ -10,7 +12,7 @@ import { NewCalendar } from "./new-calendar";
 interface PraxisCalendarProps {
   // Notify parent when the current date changes
   locationSlug?: string | undefined;
-  onDateChange?: (date: Date) => void;
+  onDateChange?: (date: Temporal.PlainDate) => void;
   onLocationResolved?: (
     locationId: Id<"locations">,
     locationName: string,
@@ -22,7 +24,7 @@ interface PraxisCalendarProps {
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;
-  simulationDate?: Date;
+  simulationDate?: Temporal.PlainDate;
 }
 
 export function PraxisCalendar(props: PraxisCalendarProps) {

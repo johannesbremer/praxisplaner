@@ -1,3 +1,5 @@
+import { Temporal } from "temporal-polyfill";
+
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -28,8 +30,13 @@ export function MedicalStaffView({
   ruleSetId,
   simulatedContext,
 }: MedicalStaffViewProps) {
-  // Extract the simulation date from dateRange
-  const simulationDate = new Date(dateRange.start);
+  // Extract the simulation date from dateRange - convert from ISO string to Temporal.PlainDate
+  // Use includes check to safely handle strings with or without 'T'
+  const dateString = dateRange.start.includes("T")
+    ? // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      dateRange.start.split("T")[0]!
+    : dateRange.start;
+  const simulationDate = Temporal.PlainDate.from(dateString);
 
   // Show the Terminkalender (appointment calendar) for medical staff
   return (

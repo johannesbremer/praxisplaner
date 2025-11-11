@@ -3,7 +3,6 @@ import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { de } from "date-fns/locale";
 import { RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -1306,7 +1305,6 @@ function SimulationControls({
           <Label>Datum auswählen</Label>
           <Calendar
             className="rounded-md border"
-            locale={de}
             mode="single"
             onSelect={(date) => {
               if (date) {

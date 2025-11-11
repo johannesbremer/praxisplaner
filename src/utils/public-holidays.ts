@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { Temporal } from "temporal-polyfill";
 
 export interface PublicHoliday {
   date: string;
@@ -9,7 +9,7 @@ let publicHolidaysCache: null | Set<string> = null;
 let publicHolidaysDataCache: null | PublicHoliday[] = null;
 
 /**
- * Loads public holidays from the JSON file and caches them as a Set of date strings (YYYY-MM-DD).
+ * Loads public holidays from the JSON file and caches them.
  */
 async function loadPublicHolidays(): Promise<Set<string>> {
   if (publicHolidaysCache) {
@@ -35,34 +35,30 @@ async function loadPublicHolidays(): Promise<Set<string>> {
 
 /**
  * Checks if a given date is a public holiday.
- * @param date The date to check
- * @returns true if the date is a public holiday
  */
-export async function isPublicHoliday(date: Date): Promise<boolean> {
+export async function isPublicHoliday(
+  date: Temporal.PlainDate,
+): Promise<boolean> {
   const holidays = await loadPublicHolidays();
-  const dateString = format(date, "yyyy-MM-dd");
-  return holidays.has(dateString);
+  return holidays.has(date.toString());
 }
 
 /**
- * Gets all public holiday dates as Date objects.
+ * Gets all public holiday dates as Temporal.PlainDate objects.
  */
-export async function getPublicHolidays(): Promise<Date[]> {
+export async function getPublicHolidays(): Promise<Temporal.PlainDate[]> {
   const holidays = await loadPublicHolidays();
-  return [...holidays].map((dateString) => new Date(dateString));
+  return [...holidays].map((dateString) => Temporal.PlainDate.from(dateString));
 }
 
 /**
  * Synchronously checks if a date is a public holiday (requires holidays to be preloaded).
- * @param date The date to check
- * @param holidays Set of holiday date strings in yyyy-MM-dd format
  */
 export function isPublicHolidaySync(
-  date: Date,
+  date: Temporal.PlainDate,
   holidays: Set<string>,
 ): boolean {
-  const dateString = format(date, "yyyy-MM-dd");
-  return holidays.has(dateString);
+  return holidays.has(date.toString());
 }
 
 /**
@@ -81,15 +77,14 @@ export function getPublicHolidaysSync(): Set<string> {
 
 /**
  * Gets the holiday name for a specific date.
- * @param date The date to check
- * @returns The holiday name if found, undefined otherwise
  */
-export function getPublicHolidayName(date: Date): string | undefined {
+export function getPublicHolidayName(
+  date: Temporal.PlainDate,
+): string | undefined {
   if (!publicHolidaysDataCache) {
     return undefined;
   }
-  const dateString = format(date, "yyyy-MM-dd");
-  return publicHolidaysDataCache.find((h) => h.date === dateString)?.fname;
+  return publicHolidaysDataCache.find((h) => h.date === date.toString())?.fname;
 }
 
 /**

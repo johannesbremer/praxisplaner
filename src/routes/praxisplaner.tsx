@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -52,44 +53,35 @@ const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
 const PATIENT_TAB_PREFIX = "patient-";
 
-const parseYmd = (ymd?: string): Date | undefined => {
+const parseYmd = (ymd?: string): Temporal.PlainDate | undefined => {
   if (!ymd || !DATE_REGEX.test(ymd)) {
     return undefined;
   }
 
-  const [ys, ms, ds] = ymd.split("-");
-  const y = Number(ys);
-  const m = Number(ms);
-  const d = Number(ds);
-
-  const dt = new Date(y, m - 1, d);
-  return Number.isNaN(dt.getTime()) ? undefined : dt;
+  try {
+    return Temporal.PlainDate.from(ymd); // ISO format: YYYY-MM-DD
+  } catch {
+    return undefined;
+  }
 };
 
-const formatYmd = (dt: Date): string => {
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const d = String(dt.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+const formatYmd = (dt: Temporal.PlainDate): string => {
+  return dt.toString(); // Returns YYYY-MM-DD
 };
 
-const isToday = (dt?: Date) => {
+const isToday = (dt?: Temporal.PlainDate) => {
   if (!dt) {
     return true;
   }
-  const now = new Date();
-  return (
-    dt.getFullYear() === now.getFullYear() &&
-    dt.getMonth() === now.getMonth() &&
-    dt.getDate() === now.getDate()
-  );
+  const now = Temporal.Now.plainDateISO("Europe/Berlin");
+  return Temporal.PlainDate.compare(dt, now) === 0;
 };
 
 const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
   tab === NERDS_TAB_SEARCH_VALUE ? SETTINGS_TAB : CALENDAR_TAB;
 
 const buildSearchFromState = (
-  date: Date,
+  date: Temporal.PlainDate,
   tab: string,
 ): PraxisplanerSearchParams => {
   if (tab === SETTINGS_TAB) {
@@ -144,7 +136,7 @@ function PraxisPlanerComponent() {
 
   // Tab management state
   const selectedDate = useMemo(
-    () => parseYmd(dateParam) ?? new Date(),
+    () => parseYmd(dateParam) ?? Temporal.Now.plainDateISO("Europe/Berlin"),
     [dateParam],
   );
   const [activeTab, setActiveTab] = useState<string>(() =>
@@ -232,7 +224,7 @@ function PraxisPlanerComponent() {
 
   // Helper to push URL state
   const pushParams = useCallback(
-    (d: Date, tab: string) => {
+    (d: Temporal.PlainDate, tab: string) => {
       const nextSearch = buildSearchFromState(d, tab);
 
       if (nextSearch.date === dateParam && nextSearch.tab === tabParam) {
@@ -248,7 +240,7 @@ function PraxisPlanerComponent() {
   );
 
   const handleDateChange = useCallback(
-    (nextDate: Date) => {
+    (nextDate: Temporal.PlainDate) => {
       if (activeTab !== CALENDAR_TAB) {
         return;
       }

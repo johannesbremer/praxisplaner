@@ -1,7 +1,6 @@
 import { useQuery } from "convex/react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
 import { useState } from "react";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -17,6 +16,11 @@ import type {
   SchedulingSlot,
 } from "../types";
 
+import {
+  dateToTemporal,
+  formatDateFull,
+  formatDateLong,
+} from "../utils/time-calculations";
 import { LocationSelector } from "./location-selector";
 
 interface DebugViewProps {
@@ -152,7 +156,7 @@ export function DebugView({
                 const date = new Date(dateStr + "T00:00:00");
                 return (
                   <option key={dateStr} value={dateStr}>
-                    {format(date, "EEEE, d. MMMM yyyy", { locale: de })}
+                    {formatDateFull(dateToTemporal(date))}
                   </option>
                 );
               })}
@@ -181,10 +185,8 @@ export function DebugView({
                   <div>
                     <h4 className="font-medium mb-2 text-sm">
                       {selectedDebugDate &&
-                        format(
-                          new Date(selectedDebugDate + "T00:00:00"),
-                          "EEEE, d. MMMM",
-                          { locale: de },
+                        formatDateLong(
+                          Temporal.PlainDate.from(selectedDebugDate),
                         )}
                     </h4>
                     <div className="grid gap-1 grid-cols-3">
