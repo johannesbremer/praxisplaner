@@ -152,26 +152,22 @@ describe("Patient Tab Functionality", () => {
     const mockDispatchEvent = vi.fn();
 
     // Mock the window object for Node.js environment
+    class MockCustomEvent {
+      detail: unknown;
+      type: string;
+      constructor(type: string, options?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = options?.detail;
+      }
+    }
+
     interface MockWindow {
-      CustomEvent: new (
-        type: string,
-        options?: { detail?: unknown },
-      ) => {
-        detail: unknown;
-        type: string;
-      };
-      dispatchEvent: ReturnType<typeof vi.fn>;
+      CustomEvent: typeof MockCustomEvent;
+      dispatchEvent: typeof mockDispatchEvent;
     }
 
     const mockWindow: MockWindow = {
-      CustomEvent: class CustomEvent {
-        detail: unknown;
-        type: string;
-        constructor(type: string, options?: { detail?: unknown }) {
-          this.type = type;
-          this.detail = options?.detail;
-        }
-      },
+      CustomEvent: MockCustomEvent,
       dispatchEvent: mockDispatchEvent,
     };
 
