@@ -35,6 +35,7 @@ export function useCalendarLogic({
   onLocationResolved,
   onUpdateSimulatedContext,
   practiceId: propPracticeId,
+  ruleSetId,
   selectedLocationId: externalSelectedLocationId,
   simulatedContext,
   simulationDate,
@@ -176,9 +177,11 @@ export function useCalendarLogic({
     api.entities.getBaseSchedulesFromActive,
     practiceId ? { practiceId } : "skip",
   );
+
+  // Use ruleSetId if provided (simulation mode), otherwise get from active
   const locationsData = useQuery(
-    api.entities.getLocationsFromActive,
-    practiceId ? { practiceId } : "skip",
+    ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
+    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
   );
 
   // Mutations

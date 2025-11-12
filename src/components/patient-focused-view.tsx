@@ -41,6 +41,7 @@ import { LocationSelector } from "./location-selector";
 
 interface PatientFocusedViewProps {
   dateRange: SchedulingDateRange;
+  onLocationChange?: (locationId: Id<"locations">) => void;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
@@ -50,6 +51,7 @@ interface PatientFocusedViewProps {
 
 export function PatientFocusedView({
   dateRange,
+  onLocationChange,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -291,6 +293,8 @@ export function PatientFocusedView({
           locations={safeLocations}
           onLocationSelect={(locationId: Id<"locations">) => {
             setSelectedLocationId(locationId);
+            // Notify parent about location change (for URL updates)
+            onLocationChange?.(locationId);
             // Update simulated context with the selected location
             const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,

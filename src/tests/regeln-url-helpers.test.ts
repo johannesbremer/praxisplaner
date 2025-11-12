@@ -18,9 +18,9 @@ describe("Regeln search helpers", () => {
 
     expect(search).toEqual({
       datum: "2025-01-30",
-      location: "praxis-am-markt",
       patientType: EXISTING_PATIENT_SEGMENT,
       regelwerk: "wintersprechzeiten-2025",
+      standort: "praxis-am-markt",
       tab: "debug",
     });
   });
