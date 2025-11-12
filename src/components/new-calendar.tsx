@@ -215,7 +215,7 @@ export function NewCalendar({
               ) : (
                 <Alert className="m-8 w-96">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Keine Standort ausgewählt</AlertTitle>
+                  <AlertTitle>Kein Standort ausgewählt</AlertTitle>
                 </Alert>
               )
             ) : (
