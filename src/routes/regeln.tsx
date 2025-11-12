@@ -895,15 +895,6 @@ function LogicView() {
                     pushUrl({ date: d });
                   }}
                   onLocationChange={(locationId) => {
-                    console.log(
-                      "🔵 TAB 1 (rule-management) - onLocationChange called with:",
-                      locationId,
-                    );
-                    console.log(
-                      "🔵 TAB 1 - locationsListQuery:",
-                      locationsListQuery?.length,
-                      "locations",
-                    );
                     pushUrl({ locationId });
                   }}
                   onResetSimulation={resetSimulation}
