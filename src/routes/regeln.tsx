@@ -1361,15 +1361,6 @@ function SimulationControls({
             <LocationSelector
               locations={locationsListQuery}
               onLocationSelect={(locationId) => {
-                console.log(
-                  "🟡 SimulationControls onLocationSelect wrapper called with:",
-                  locationId,
-                );
-                console.log(
-                  "🟡 About to call onLocationChange:",
-                  typeof onLocationChange,
-                  onLocationChange.toString().slice(0, 150),
-                );
                 onLocationChange(locationId);
               }}
               selectedLocationId={selectedLocationId}
