@@ -982,20 +982,27 @@ function LogicView() {
           <TabsContent value="staff-view">
             <div className="space-y-6">
               <div className="space-y-6">
-                <MedicalStaffDisplay
-                  dateRange={dateRange}
-                  onSlotClick={handleSlotClick}
-                  onUpdateSimulatedContext={(ctx) => {
-                    setSimulatedContext(ctx);
-                    pushUrl({
-                      isNewPatient: ctx.patient.isNew,
-                      locationId: ctx.locationId,
-                    });
-                  }}
-                  practiceId={currentPractice._id}
-                  ruleSetId={ruleSetIdFromUrl}
-                  simulatedContext={simulatedContext}
-                />
+                {ruleSetIdFromUrl ? (
+                  <MedicalStaffDisplay
+                    dateRange={dateRange}
+                    onSlotClick={handleSlotClick}
+                    onUpdateSimulatedContext={(ctx) => {
+                      setSimulatedContext(ctx);
+                      pushUrl({
+                        isNewPatient: ctx.patient.isNew,
+                        locationId: ctx.locationId,
+                      });
+                    }}
+                    practiceId={currentPractice._id}
+                    ruleSetId={ruleSetIdFromUrl}
+                    simulatedContext={simulatedContext}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center p-8 text-muted-foreground">
+                    Bitte wählen Sie ein Regelwerk aus, um die
+                    Mitarbeiteransicht anzuzeigen.
+                  </div>
+                )}
 
                 <SimulationControls
                   isClearingSimulatedAppointments={
@@ -1045,22 +1052,31 @@ function LogicView() {
             <div className="space-y-6">
               <div className="space-y-6">
                 <div className="space-y-6">
-                  <DebugView
-                    dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
-                    onUpdateSimulatedContext={(ctx) => {
-                      setSimulatedContext(ctx);
-                      pushUrl({
-                        isNewPatient: ctx.patient.isNew,
-                        locationId: ctx.locationId,
-                      });
-                    }}
-                    practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
-                    simulatedContext={simulatedContext}
-                  />
+                  {ruleSetIdFromUrl ? (
+                    <>
+                      <DebugView
+                        dateRange={dateRange}
+                        onSlotClick={handleSlotClick}
+                        onUpdateSimulatedContext={(ctx) => {
+                          setSimulatedContext(ctx);
+                          pushUrl({
+                            isNewPatient: ctx.patient.isNew,
+                            locationId: ctx.locationId,
+                          });
+                        }}
+                        practiceId={currentPractice._id}
+                        ruleSetId={ruleSetIdFromUrl}
+                        simulatedContext={simulatedContext}
+                      />
 
-                  <SlotInspector selectedSlot={selectedSlot} />
+                      <SlotInspector selectedSlot={selectedSlot} />
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center p-8 text-muted-foreground">
+                      Bitte wählen Sie ein Regelwerk aus, um die Debug-Ansicht
+                      anzuzeigen.
+                    </div>
+                  )}
                 </div>
 
                 <SimulationControls

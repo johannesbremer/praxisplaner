@@ -32,8 +32,6 @@ import type {
   PermissionStatus,
 } from "../types";
 
-import { slugify } from "../utils/slug";
-
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { PatientTab } from "../components/patient-tab";
@@ -50,6 +48,7 @@ import {
   normalizePraxisplanerSearch,
   type PraxisplanerSearchParams,
 } from "../utils/praxisplaner-search";
+import { slugify } from "../utils/slug";
 
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;

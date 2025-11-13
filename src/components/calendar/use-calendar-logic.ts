@@ -169,16 +169,20 @@ export function useCalendarLogic({
     api.appointments.getAppointments,
     appointmentsQueryArgs,
   );
-  const practitionersData = useQuery(
-    api.entities.getPractitionersFromActive,
-    practiceId ? { practiceId } : "skip",
-  );
-  const baseSchedulesData = useQuery(
-    api.entities.getBaseSchedulesFromActive,
-    practiceId ? { practiceId } : "skip",
-  );
 
   // Use ruleSetId if provided (simulation mode), otherwise get from active
+  const practitionersData = useQuery(
+    ruleSetId
+      ? api.entities.getPractitioners
+      : api.entities.getPractitionersFromActive,
+    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+  );
+  const baseSchedulesData = useQuery(
+    ruleSetId
+      ? api.entities.getBaseSchedules
+      : api.entities.getBaseSchedulesFromActive,
+    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+  );
   const locationsData = useQuery(
     ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
     ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
