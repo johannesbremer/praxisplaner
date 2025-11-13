@@ -860,10 +860,6 @@ function LogicView() {
                     <PatientBookingFlow
                       dateRange={dateRange}
                       onLocationChange={(locationId) => {
-                        console.log(
-                          "🔵 TAB 1 (PatientBookingFlow) - onLocationChange called with:",
-                          locationId,
-                        );
                         pushUrl({ locationId });
                       }}
                       onSlotClick={handleSlotClick}
