@@ -320,25 +320,20 @@ function LogicView() {
     currentPractice,
   ]);
 
-  // URL derivations & actions (now that we have queries and unsavedRuleSet)
-  const urlHookResult = useRegelnUrl({
-    locationsListQuery: undefined, // Will be populated after we know the rule set
+  // Call URL hook first to get ruleSetIdFromUrl (without locations initially)
+  const urlHookResultInitial = useRegelnUrl({
+    locationsListQuery: undefined,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
 
-  const {
-    activeTab,
-    isNewPatient,
-    navigateTab,
-    raw,
-    ruleSetIdFromUrl,
-    selectedDate,
-  } = urlHookResult;
-
+  // Determine current working rule set based on URL
   const selectedRuleSet = useMemo(
-    () => ruleSetsWithActive?.find((rs) => rs._id === ruleSetIdFromUrl),
-    [ruleSetsWithActive, ruleSetIdFromUrl],
+    () =>
+      ruleSetsWithActive?.find(
+        (rs) => rs._id === urlHookResultInitial.ruleSetIdFromUrl,
+      ),
+    [ruleSetsWithActive, urlHookResultInitial.ruleSetIdFromUrl],
   );
 
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
@@ -353,16 +348,26 @@ function LogicView() {
     currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
   );
 
-  // Re-call the URL hook with locations to get locationIdFromUrl AND pushUrl with locations
-  const urlHookResultWithLocations = useRegelnUrl({
+  // Call URL hook again with locations to get locationIdFromUrl and pushUrl
+  const urlHookResult = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
 
-  // Extract locationIdFromUrl and pushUrl from the hook that has locations data
-  // This ensures pushUrl can properly convert locationId to slug
-  const { locationIdFromUrl, pushUrl } = urlHookResultWithLocations;
+  // Extract all needed values from the hook call with locations
+  const {
+    activeTab,
+    isNewPatient,
+    locationIdFromUrl,
+    navigateTab,
+    pushUrl,
+    raw,
+    selectedDate,
+  } = urlHookResult;
+
+  // Use ruleSetIdFromUrl from the initial hook call for consistency
+  const ruleSetIdFromUrl = urlHookResultInitial.ruleSetIdFromUrl;
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed
