@@ -194,8 +194,7 @@ export function useRegelnUrl(options: {
       return undefined;
     }
     const loc = options.locationsListQuery?.find((l) => l._id === id);
-    const slug = loc ? slugify(loc.name) : undefined;
-    return slug;
+    return loc ? slugify(loc.name) : undefined;
   }
 
   function pushUrl(overrides: {
