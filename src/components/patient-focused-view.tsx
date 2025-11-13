@@ -317,6 +317,30 @@ export function PatientFocusedView({
           selectedType={simulatedContext.appointmentTypeId}
         />
 
+        {/* Show message when location is selected but no appointment type chosen */}
+        {selectedLocationId && !effectiveSimulatedContext.appointmentTypeId && (
+          <Card>
+            <CardContent className="py-6">
+              <div className="text-center text-muted-foreground">
+                Bitte wählen Sie eine Terminart aus.
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Show no appointments message when location is selected and no dates available */}
+        {selectedLocationId &&
+          availableDatesResult &&
+          datesWithAvailabilities.size === 0 && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  An diesem Tag sind keine Termine verfügbar.
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
         {/* Show integrated calendar only when location is selected and slots are loaded */}
         {selectedLocationId && slotsResult && (
           <>
@@ -462,15 +486,18 @@ export function PatientFocusedView({
         )}
 
         {/* Show loading state when location is selected but slots are still loading */}
-        {selectedLocationId && !slotsResult && (
-          <Card>
-            <CardContent className="py-6">
-              <div className="text-center text-muted-foreground">
-                Termine werden geladen...
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {selectedLocationId &&
+          !slotsResult &&
+          availableDatesResult &&
+          datesWithAvailabilities.size > 0 && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  Termine werden geladen...
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Initial locations loading state */}
         {isLocationsLoading && (

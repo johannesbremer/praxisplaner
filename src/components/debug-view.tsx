@@ -111,6 +111,21 @@ export function DebugView({
       : "skip",
   );
 
+  if (!sanitizedSimulatedContext.appointmentTypeId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Debug: Slot Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-muted-foreground">
+            Bitte wählen Sie eine Terminart aus.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!availableDatesResult) {
     return (
       <Card>
@@ -120,6 +135,21 @@ export function DebugView({
         <CardContent>
           <div className="text-muted-foreground">
             Loading available dates...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (availableDatesResult.dates.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Debug: Slot Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-muted-foreground">
+            An diesem Tag sind keine Termine verfügbar.
           </div>
         </CardContent>
       </Card>
