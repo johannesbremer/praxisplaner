@@ -32,6 +32,8 @@ import type {
   PermissionStatus,
 } from "../types";
 
+import { slugify } from "../utils/slug";
+
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { PatientTab } from "../components/patient-tab";
@@ -147,7 +149,7 @@ function PraxisPlanerComponent() {
       return;
     }
     return locationsData.find((loc) => {
-      const slug = loc.name.toLowerCase().replaceAll(/\s+/g, "-");
+      const slug = slugify(loc.name);
       return slug === standortParam;
     });
   }, [standortParam, locationsData]);
@@ -286,7 +288,7 @@ function PraxisPlanerComponent() {
   // Handle location selection from calendar
   const handleLocationResolved = useCallback(
     (_locationId: Id<"locations">, locationName: string) => {
-      const slug = locationName.toLowerCase().replaceAll(/\s+/g, "-");
+      const slug = slugify(locationName);
       pushParams(selectedDate, activeTab, slug);
     },
     [activeTab, pushParams, selectedDate],
