@@ -62,6 +62,7 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
+import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -320,42 +321,39 @@ function LogicView() {
     currentPractice,
   ]);
 
-  // Call URL hook first to get ruleSetIdFromUrl (without locations initially)
-  const urlHookResultInitial = useRegelnUrl({
-    locationsListQuery: undefined,
-    ruleSetsQuery: ruleSetsWithActive,
-    unsavedRuleSet: unsavedRuleSet ?? null,
-  });
+  // Get the search params directly to determine which rule set to use
+  const routeSearch: RegelnSearchParams = Route.useSearch();
 
   // Determine current working rule set based on URL
-  const selectedRuleSet = useMemo(
-    () =>
-      ruleSetsWithActive?.find(
-        (rs) => rs._id === urlHookResultInitial.ruleSetIdFromUrl,
-      ),
-    [ruleSetsWithActive, urlHookResultInitial.ruleSetIdFromUrl],
+  // We'll do a preliminary calculation to fetch locations
+  const preliminarySelectedRuleSet = useMemo(() => {
+    // We need to extract ruleSetIdFromUrl logic inline here to avoid circular dependency
+    const ruleSetSlug = routeSearch.regelwerk;
+    if (!ruleSetSlug) {
+      return;
+    }
+    if (ruleSetSlug === "ungespeichert") {
+      return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
+    }
+    return ruleSetsWithActive?.find(
+      (rs) => slugify(rs.description) === ruleSetSlug,
+    );
+  }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
+
+  const preliminaryWorkingRuleSet = useMemo(
+    () => unsavedRuleSet ?? preliminarySelectedRuleSet ?? activeRuleSet,
+    [unsavedRuleSet, preliminarySelectedRuleSet, activeRuleSet],
   );
 
-  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
-  const currentWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
-  );
-
-  // Fetch locations for the selected rule set (for URL slug mapping and component use)
+  // Fetch locations for the working rule set
   const locationsListQuery = useQuery(
     api.entities.getLocations,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+    preliminaryWorkingRuleSet
+      ? { ruleSetId: preliminaryWorkingRuleSet._id }
+      : "skip",
   );
 
-  // Call URL hook again with locations to get locationIdFromUrl and pushUrl
-  const urlHookResult = useRegelnUrl({
-    locationsListQuery: locationsListQuery ?? undefined,
-    ruleSetsQuery: ruleSetsWithActive,
-    unsavedRuleSet: unsavedRuleSet ?? null,
-  });
-
-  // Extract all needed values from the hook call with locations
+  // Now call the hook ONCE with all the data we have
   const {
     activeTab,
     isNewPatient,
@@ -363,11 +361,25 @@ function LogicView() {
     navigateTab,
     pushUrl,
     raw,
+    ruleSetIdFromUrl,
     selectedDate,
-  } = urlHookResult;
+  } = useRegelnUrl({
+    locationsListQuery: locationsListQuery ?? undefined,
+    ruleSetsQuery: ruleSetsWithActive,
+    unsavedRuleSet: unsavedRuleSet ?? null,
+  });
 
-  // Use ruleSetIdFromUrl from the initial hook call for consistency
-  const ruleSetIdFromUrl = urlHookResultInitial.ruleSetIdFromUrl;
+  // Determine current working rule set based on the properly computed ruleSetIdFromUrl
+  const selectedRuleSet = useMemo(
+    () => ruleSetsWithActive?.find((rs) => rs._id === ruleSetIdFromUrl),
+    [ruleSetsWithActive, ruleSetIdFromUrl],
+  );
+
+  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
+  const currentWorkingRuleSet = useMemo(
+    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
+    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
+  );
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed
