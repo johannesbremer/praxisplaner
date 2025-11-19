@@ -46,16 +46,11 @@ export function DebugView({
     ruleSetId ? { ruleSetId } : "skip",
   );
 
-  // Local state for selected location
-  const [selectedLocationId, setSelectedLocationId] = useState<
-    Id<"locations"> | undefined
-  >(simulatedContext.locationId);
-
   const sanitizedSimulatedContext: SchedulingSimulatedContext = (() => {
-    if (selectedLocationId) {
+    if (simulatedContext.locationId) {
       return {
         ...simulatedContext,
-        locationId: selectedLocationId,
+        locationId: simulatedContext.locationId,
       } as SchedulingSimulatedContext;
     }
 
@@ -81,14 +76,18 @@ export function DebugView({
     null,
   );
 
-  // Auto-select first available date and reset when context changes
+  // Auto-select first available date and reset when context or dateRange changes
   const firstAvailableDate = availableDatesResult?.dates[0];
   const contextKey = JSON.stringify(sanitizedSimulatedContext);
+  const dateRangeKey = JSON.stringify(dateRange);
 
-  // Reset selected date when context changes
+  // Reset selected date when context or dateRange changes
   const [lastContextKey, setLastContextKey] = useState(contextKey);
-  if (lastContextKey !== contextKey) {
+  const [lastDateRangeKey, setLastDateRangeKey] = useState(dateRangeKey);
+
+  if (lastContextKey !== contextKey || lastDateRangeKey !== dateRangeKey) {
     setLastContextKey(contextKey);
+    setLastDateRangeKey(dateRangeKey);
     setSelectedDebugDate(null);
   }
 
@@ -303,14 +302,13 @@ export function DebugView({
         <LocationSelector
           locations={locationsQuery}
           onLocationSelect={(locationId: Id<"locations">) => {
-            setSelectedLocationId(locationId);
             const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
               locationId,
             };
             onUpdateSimulatedContext?.(updatedContext);
           }}
-          selectedLocationId={selectedLocationId}
+          selectedLocationId={simulatedContext.locationId}
         />
       )}
     </>
