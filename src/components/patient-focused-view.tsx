@@ -41,6 +41,7 @@ import { LocationSelector } from "./location-selector";
 
 interface PatientFocusedViewProps {
   dateRange: SchedulingDateRange;
+  onLocationChange?: (locationId: Id<"locations">) => void;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
@@ -50,6 +51,7 @@ interface PatientFocusedViewProps {
 
 export function PatientFocusedView({
   dateRange,
+  onLocationChange,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -291,6 +293,8 @@ export function PatientFocusedView({
           locations={safeLocations}
           onLocationSelect={(locationId: Id<"locations">) => {
             setSelectedLocationId(locationId);
+            // Notify parent about location change (for URL updates)
+            onLocationChange?.(locationId);
             // Update simulated context with the selected location
             const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
@@ -312,6 +316,30 @@ export function PatientFocusedView({
           ruleSetId={ruleSetId}
           selectedType={simulatedContext.appointmentTypeId}
         />
+
+        {/* Show message when location is selected but no appointment type chosen */}
+        {selectedLocationId && !effectiveSimulatedContext.appointmentTypeId && (
+          <Card>
+            <CardContent className="py-6">
+              <div className="text-center text-muted-foreground">
+                Bitte wählen Sie eine Terminart aus.
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Show no appointments message when location is selected and no dates available */}
+        {selectedLocationId &&
+          availableDatesResult &&
+          datesWithAvailabilities.size === 0 && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  An diesem Tag sind keine Termine verfügbar.
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Show integrated calendar only when location is selected and slots are loaded */}
         {selectedLocationId && slotsResult && (
@@ -458,15 +486,18 @@ export function PatientFocusedView({
         )}
 
         {/* Show loading state when location is selected but slots are still loading */}
-        {selectedLocationId && !slotsResult && (
-          <Card>
-            <CardContent className="py-6">
-              <div className="text-center text-muted-foreground">
-                Termine werden geladen...
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {selectedLocationId &&
+          !slotsResult &&
+          availableDatesResult &&
+          datesWithAvailabilities.size > 0 && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  Termine werden geladen...
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Initial locations loading state */}
         {isLocationsLoading && (

@@ -9,9 +9,9 @@ export const EXISTING_PATIENT_SEGMENT = "bestand";
 
 export interface RegelnSearchParams {
   datum?: string;
-  location?: string;
   patientType?: typeof EXISTING_PATIENT_SEGMENT | typeof NEW_PATIENT_SEGMENT;
   regelwerk?: string;
+  standort?: string;
   tab?: RegelnTabParam;
 }
 
@@ -50,7 +50,7 @@ export function buildRegelnSearchFromState(
     search.tab = state.tabParam;
   }
   if (state.locationSlug) {
-    search.location = state.locationSlug;
+    search.standort = state.locationSlug;
   }
   if (state.dateYmd) {
     search.datum = state.dateYmd;
@@ -256,10 +256,10 @@ export function useRegelnUrl(options: {
   return {
     // raw params
     raw: {
-      date: currentRouteState.dateYmd,
-      location: currentRouteState.locationSlug,
+      datum: currentRouteState.dateYmd,
       patientType: currentRouteState.patientTypeSegment,
       ruleSet: currentRouteState.ruleSetSlug,
+      standort: currentRouteState.locationSlug,
       tab: currentRouteState.tabParam,
     },
     // derived state
@@ -285,7 +285,7 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
 
   return {
     dateYmd: params.datum,
-    locationSlug: params.location,
+    locationSlug: params.standort,
     patientTypeSegment,
     ruleSetSlug: params.regelwerk,
     tabParam: params.tab,

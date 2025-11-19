@@ -11,6 +11,7 @@ import { SmartphoneDevice } from "./smartphone-device";
 
 interface PatientBookingFlowProps {
   dateRange: SchedulingDateRange;
+  onLocationChange?: (locationId: Id<"locations">) => void;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId: Id<"practices">;
@@ -20,6 +21,7 @@ interface PatientBookingFlowProps {
 
 export function PatientBookingFlow({
   dateRange,
+  onLocationChange,
   onSlotClick,
   onUpdateSimulatedContext,
   practiceId,
@@ -31,6 +33,7 @@ export function PatientBookingFlow({
       <SmartphoneDevice>
         <PatientFocusedView
           dateRange={dateRange}
+          {...(onLocationChange && { onLocationChange })}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           practiceId={practiceId}

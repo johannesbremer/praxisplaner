@@ -23,7 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { Doc } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type {
   BrowserPermissionState,
   FileSystemDirectoryHandle,
@@ -48,6 +48,7 @@ import {
   normalizePraxisplanerSearch,
   type PraxisplanerSearchParams,
 } from "../utils/praxisplaner-search";
+import { slugify } from "../utils/slug";
 
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
@@ -83,13 +84,24 @@ const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
 const buildSearchFromState = (
   date: Temporal.PlainDate,
   tab: string,
+  standort?: string,
 ): PraxisplanerSearchParams => {
   if (tab === SETTINGS_TAB) {
     return { tab: NERDS_TAB_SEARCH_VALUE };
   }
 
   const dateOut = isToday(date) ? undefined : formatYmd(date);
-  return dateOut ? { date: dateOut } : {};
+  const result: PraxisplanerSearchParams = {};
+
+  if (dateOut) {
+    result.datum = dateOut;
+  }
+
+  if (standort) {
+    result.standort = standort;
+  }
+
+  return result;
 };
 
 const getPatientTabId = (patientId: Doc<"patients">["patientId"]) =>
@@ -116,12 +128,30 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 function PraxisPlanerComponent() {
   const navigate = useNavigate({ from: Route.fullPath });
   const search: PraxisplanerSearchParams = Route.useSearch();
-  const dateParam = search.date;
+  const dateParam = search.datum;
   const tabParam = search.tab;
+  const standortParam = search.standort;
 
   // Query practices to get practiceId for patient mutations
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const currentPractice = practicesQuery?.[0];
+
+  // Query locations to map standortParam to locationId
+  const locationsData = useQuery(
+    api.entities.getLocationsFromActive,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
+
+  // Find selected location based on slug in URL
+  const selectedLocation = useMemo(() => {
+    if (!standortParam || !locationsData) {
+      return;
+    }
+    return locationsData.find((loc) => {
+      const slug = slugify(loc.name);
+      return slug === standortParam;
+    });
+  }, [standortParam, locationsData]);
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
@@ -224,10 +254,14 @@ function PraxisPlanerComponent() {
 
   // Helper to push URL state
   const pushParams = useCallback(
-    (d: Temporal.PlainDate, tab: string) => {
-      const nextSearch = buildSearchFromState(d, tab);
+    (d: Temporal.PlainDate, tab: string, standort?: string) => {
+      const nextSearch = buildSearchFromState(d, tab, standort);
 
-      if (nextSearch.date === dateParam && nextSearch.tab === tabParam) {
+      if (
+        nextSearch.datum === dateParam &&
+        nextSearch.tab === tabParam &&
+        nextSearch.standort === standortParam
+      ) {
         return;
       }
 
@@ -236,7 +270,7 @@ function PraxisPlanerComponent() {
         to: Route.fullPath,
       });
     },
-    [dateParam, navigate, tabParam],
+    [dateParam, standortParam, navigate, tabParam],
   );
 
   const handleDateChange = useCallback(
@@ -245,9 +279,18 @@ function PraxisPlanerComponent() {
         return;
       }
 
-      pushParams(nextDate, activeTab);
+      pushParams(nextDate, activeTab, standortParam);
     },
-    [activeTab, pushParams],
+    [activeTab, standortParam, pushParams],
+  );
+
+  // Handle location selection from calendar
+  const handleLocationResolved = useCallback(
+    (_locationId: Id<"locations">, locationName: string) => {
+      const slug = slugify(locationName);
+      pushParams(selectedDate, activeTab, slug);
+    },
+    [activeTab, pushParams, selectedDate],
   );
 
   // We sync to URL on interactions (tab/date handlers). No effect needed.
@@ -1153,6 +1196,8 @@ function PraxisPlanerComponent() {
             <SidebarProvider className="flex h-full w-full">
               <PraxisCalendar
                 onDateChange={handleDateChange}
+                onLocationResolved={handleLocationResolved}
+                selectedLocationId={selectedLocation?._id}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}
               />

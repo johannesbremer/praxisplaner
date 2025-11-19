@@ -65,12 +65,16 @@ export function CalendarSidebar() {
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
       // Simulation mode: update simulated context
+      // Use the new locationId if provided, otherwise keep the existing one
+      const effectiveLocationId = locationId ?? simulatedContext.locationId;
+
       const newContext = createSimulatedContext({
         ...(simulatedContext.appointmentTypeId && {
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
-        ...(locationId && { locationId }),
+        // Only include locationId if we have one
+        ...(effectiveLocationId && { locationId: effectiveLocationId }),
       });
 
       onUpdateSimulatedContext(newContext);

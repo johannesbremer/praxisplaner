@@ -37,6 +37,7 @@ export function NewCalendar({
   onLocationResolved,
   onUpdateSimulatedContext,
   practiceId: propPracticeId,
+  ruleSetId,
   selectedLocationId: externalSelectedLocationId,
   showGdtAlert = false,
   simulatedContext,
@@ -74,6 +75,7 @@ export function NewCalendar({
     onLocationResolved,
     onUpdateSimulatedContext,
     practiceId: propPracticeId,
+    ruleSetId,
     selectedLocationId: externalSelectedLocationId,
     showGdtAlert,
     simulatedContext,
@@ -164,48 +166,57 @@ export function NewCalendar({
           {/* Main Content */}
           <div className="flex-1 overflow-auto">
             {practiceId ? (
-              holidayName || workingPractitioners.length === 0 ? (
-                <Card className="m-8">
-                  <CardContent className="pt-6">
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>
-                        {holidayName ? (
-                          <>{holidayName}</>
-                        ) : (
-                          <>Keine Therapeuten für {getDayName(selectedDate)}</>
-                        )}
-                      </AlertTitle>
-                      <AlertDescription>
-                        {holidayName
-                          ? "An Feiertagen ist die Praxis geschlossen."
-                          : currentDayOfWeek === 0 || currentDayOfWeek === 6
-                            ? "An diesem Tag sind keine Therapeuten eingeplant. Bitte wählen Sie einen Wochentag aus."
-                            : "Es sind noch keine Therapeuten für diesen Tag eingeplant. Bitte erstellen Sie einen Basisplan in den Einstellungen."}
-                      </AlertDescription>
-                    </Alert>
-                  </CardContent>
-                </Card>
+              selectedLocationId ? (
+                holidayName || workingPractitioners.length === 0 ? (
+                  <Card className="m-8">
+                    <CardContent className="pt-6">
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>
+                          {holidayName ? (
+                            <>{holidayName}</>
+                          ) : (
+                            <>
+                              Keine Therapeuten für {getDayName(selectedDate)}
+                            </>
+                          )}
+                        </AlertTitle>
+                        <AlertDescription>
+                          {holidayName
+                            ? "An Feiertagen ist die Praxis geschlossen."
+                            : currentDayOfWeek === 0 || currentDayOfWeek === 6
+                              ? "An diesem Tag sind keine Therapeuten eingeplant. Bitte wählen Sie einen Wochentag aus."
+                              : "Es sind noch keine Therapeuten für diesen Tag eingeplant. Bitte erstellen Sie einen Basisplan in den Einstellungen."}
+                        </AlertDescription>
+                      </Alert>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <CalendarGrid
+                    appointments={appointments}
+                    columns={columns}
+                    currentTimeSlot={currentTimeSlot}
+                    draggedAppointment={draggedAppointment}
+                    dragPreview={dragPreview}
+                    onAddAppointment={addAppointment}
+                    onDeleteAppointment={handleDeleteAppointment}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={handleDragOver}
+                    onDragStart={handleDragStart}
+                    onDrop={handleDrop}
+                    onEditAppointment={handleEditAppointment}
+                    onResizeStart={handleResizeStart}
+                    slotDuration={SLOT_DURATION}
+                    slotToTime={slotToTime}
+                    timeToSlot={timeToSlot}
+                    totalSlots={totalSlots}
+                  />
+                )
               ) : (
-                <CalendarGrid
-                  appointments={appointments}
-                  columns={columns}
-                  currentTimeSlot={currentTimeSlot}
-                  draggedAppointment={draggedAppointment}
-                  dragPreview={dragPreview}
-                  onAddAppointment={addAppointment}
-                  onDeleteAppointment={handleDeleteAppointment}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={handleDragOver}
-                  onDragStart={handleDragStart}
-                  onDrop={handleDrop}
-                  onEditAppointment={handleEditAppointment}
-                  onResizeStart={handleResizeStart}
-                  slotDuration={SLOT_DURATION}
-                  slotToTime={slotToTime}
-                  timeToSlot={timeToSlot}
-                  totalSlots={totalSlots}
-                />
+                <Alert className="m-8 w-96">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Kein Standort ausgewählt</AlertTitle>
+                </Alert>
               )
             ) : (
               <Card className="m-8">

@@ -47,6 +47,7 @@ import { AppointmentTypeSelector } from "../components/appointment-type-selector
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { DebugView } from "../components/debug-view";
+import { LocationSelector } from "../components/location-selector";
 import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
@@ -61,6 +62,7 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
+import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -74,10 +76,10 @@ export const Route = createFileRoute("/regeln")({
     }
 
     if (
-      typeof params["location"] === "string" &&
-      params["location"].length > 0
+      typeof params["standort"] === "string" &&
+      params["standort"].length > 0
     ) {
-      result.location = params["location"];
+      result.standort = params["standort"];
     }
 
     if (
@@ -119,11 +121,13 @@ type SlotDetails = SchedulingSlot;
 function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
   // URL is the source of truth. No local tab/date/patientType/ruleSet state.
+
   // Practices and initialization
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const initializePracticeMutation = useMutation(
     api.practices.initializeDefaultPractice,
   );
+
   // pushParams will be defined after data queries and derived state
   const { captureError } = useErrorTracking();
 
@@ -234,11 +238,6 @@ function LogicView() {
     api.ruleSets.getAllRuleSets, // Include unsaved for navigation
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
-  // Fetch locations for slug mapping
-  const locationsListQuery = useQuery(
-    api.entities.getLocationsFromActive,
-    currentPractice ? { practiceId: currentPractice._id } : "skip",
-  );
 
   // Fetch version history for visualization
   const versionsQuery = useQuery(
@@ -322,7 +321,39 @@ function LogicView() {
     currentPractice,
   ]);
 
-  // URL derivations & actions (now that we have queries and unsavedRuleSet)
+  // Get the search params directly to determine which rule set to use
+  const routeSearch: RegelnSearchParams = Route.useSearch();
+
+  // Determine current working rule set based on URL
+  // We'll do a preliminary calculation to fetch locations
+  const preliminarySelectedRuleSet = useMemo(() => {
+    // We need to extract ruleSetIdFromUrl logic inline here to avoid circular dependency
+    const ruleSetSlug = routeSearch.regelwerk;
+    if (!ruleSetSlug) {
+      return;
+    }
+    if (ruleSetSlug === "ungespeichert") {
+      return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
+    }
+    return ruleSetsWithActive?.find(
+      (rs) => slugify(rs.description) === ruleSetSlug,
+    );
+  }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
+
+  const preliminaryWorkingRuleSet = useMemo(
+    () => unsavedRuleSet ?? preliminarySelectedRuleSet ?? activeRuleSet,
+    [unsavedRuleSet, preliminarySelectedRuleSet, activeRuleSet],
+  );
+
+  // Fetch locations for the working rule set
+  const locationsListQuery = useQuery(
+    api.entities.getLocations,
+    preliminaryWorkingRuleSet
+      ? { ruleSetId: preliminaryWorkingRuleSet._id }
+      : "skip",
+  );
+
+  // Now call the hook ONCE with all the data we have
   const {
     activeTab,
     isNewPatient,
@@ -333,14 +364,21 @@ function LogicView() {
     ruleSetIdFromUrl,
     selectedDate,
   } = useRegelnUrl({
-    locationsListQuery,
+    locationsListQuery: locationsListQuery ?? undefined,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
 
+  // Determine current working rule set based on the properly computed ruleSetIdFromUrl
   const selectedRuleSet = useMemo(
     () => ruleSetsWithActive?.find((rs) => rs._id === ruleSetIdFromUrl),
     [ruleSetsWithActive, ruleSetIdFromUrl],
+  );
+
+  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
+  const currentWorkingRuleSet = useMemo(
+    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
+    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
   );
 
   // Function to get or wait for the unsaved rule set
@@ -436,12 +474,6 @@ function LogicView() {
     }
   }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
 
-  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
-  const currentWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
-  );
-
   // Keep patient.isNew in local simulatedContext in sync with URL
   React.useEffect(() => {
     if (simulatedContext.patient.isNew !== isNewPatient) {
@@ -452,19 +484,21 @@ function LogicView() {
     }
   }, [isNewPatient, simulatedContext.patient.isNew]);
 
-  // Map URL slugs -> internal IDs for rule set and location
+  // Sync URL location to Context on initial load or URL change (e.g., from shared link)
+  // This is ONE-WAY: URL → Context only. User changes go through onLocationChange → pushUrl → URL
   React.useEffect(() => {
-    if (
-      locationIdFromUrl &&
-      simulatedContext.locationId !== locationIdFromUrl
-    ) {
-      setSimulatedContext((prev) => ({
-        ...prev,
-        locationId: locationIdFromUrl,
-      }));
+    if (locationIdFromUrl) {
+      setSimulatedContext((prev) => {
+        if (prev.locationId === locationIdFromUrl) {
+          return prev;
+        }
+        return {
+          ...prev,
+          locationId: locationIdFromUrl,
+        };
+      });
     }
-  }, [locationIdFromUrl, simulatedContext.locationId]);
-  // No automatic URL mutation when unsaved exists; only mutate on user actions
+  }, [locationIdFromUrl]);
 
   // TODO: Fetch rules for the current working rule set (re-enable once new rule system is implemented)
   // const rulesQuery = useQuery(
@@ -842,8 +876,17 @@ function LogicView() {
                   <div className="flex justify-center">
                     <PatientBookingFlow
                       dateRange={dateRange}
+                      onLocationChange={(locationId) => {
+                        pushUrl({ locationId });
+                      }}
                       onSlotClick={handleSlotClick}
-                      onUpdateSimulatedContext={setSimulatedContext}
+                      onUpdateSimulatedContext={(ctx) => {
+                        setSimulatedContext(ctx);
+                        pushUrl({
+                          isNewPatient: ctx.patient.isNew,
+                          locationId: ctx.locationId,
+                        });
+                      }}
                       practiceId={currentPractice._id}
                       ruleSetId={ruleSetIdFromUrl}
                       simulatedContext={simulatedContext}
@@ -861,16 +904,23 @@ function LogicView() {
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
+                  locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
                   }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
+                  onLocationChange={(locationId) => {
+                    pushUrl({ locationId });
+                  }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushUrl({ isNewPatient: ctx.patient.isNew });
+                    pushUrl({
+                      isNewPatient: ctx.patient.isNew,
+                      locationId: ctx.locationId,
+                    });
                   }}
                   onSimulationRuleSetChange={(id) => {
                     // If unsaved exists and target is not the unsaved id, show save dialog
@@ -884,6 +934,7 @@ function LogicView() {
                   }}
                   ruleSetsQuery={ruleSetsWithActive}
                   selectedDate={selectedDate}
+                  selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
                   simulationRuleSetId={ruleSetIdFromUrl}
                 />
@@ -948,30 +999,50 @@ function LogicView() {
           <TabsContent value="staff-view">
             <div className="space-y-6">
               <div className="space-y-6">
-                <MedicalStaffDisplay
-                  dateRange={dateRange}
-                  onSlotClick={handleSlotClick}
-                  onUpdateSimulatedContext={setSimulatedContext}
-                  practiceId={currentPractice._id}
-                  ruleSetId={ruleSetIdFromUrl}
-                  simulatedContext={simulatedContext}
-                />
+                {ruleSetIdFromUrl ? (
+                  <MedicalStaffDisplay
+                    dateRange={dateRange}
+                    onSlotClick={handleSlotClick}
+                    onUpdateSimulatedContext={(ctx) => {
+                      setSimulatedContext(ctx);
+                      pushUrl({
+                        isNewPatient: ctx.patient.isNew,
+                        locationId: ctx.locationId,
+                      });
+                    }}
+                    practiceId={currentPractice._id}
+                    ruleSetId={ruleSetIdFromUrl}
+                    simulatedContext={simulatedContext}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center p-8 text-muted-foreground">
+                    Bitte wählen Sie ein Regelwerk aus, um die
+                    Mitarbeiteransicht anzuzeigen.
+                  </div>
+                )}
 
                 <SimulationControls
                   isClearingSimulatedAppointments={
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
+                  locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
                   }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
+                  onLocationChange={(locationId) => {
+                    pushUrl({ locationId });
+                  }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushUrl({ isNewPatient: ctx.patient.isNew });
+                    pushUrl({
+                      isNewPatient: ctx.patient.isNew,
+                      locationId: ctx.locationId,
+                    });
                   }}
                   onSimulationRuleSetChange={(id) => {
                     if (unsavedRuleSet && id !== unsavedRuleSet._id) {
@@ -984,6 +1055,7 @@ function LogicView() {
                   }}
                   ruleSetsQuery={ruleSetsWithActive}
                   selectedDate={selectedDate}
+                  selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
                   simulationRuleSetId={ruleSetIdFromUrl}
                 />
@@ -996,16 +1068,31 @@ function LogicView() {
             <div className="space-y-6">
               <div className="space-y-6">
                 <div className="space-y-6">
-                  <DebugView
-                    dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
-                    onUpdateSimulatedContext={setSimulatedContext}
-                    practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
-                    simulatedContext={simulatedContext}
-                  />
+                  {ruleSetIdFromUrl ? (
+                    <>
+                      <DebugView
+                        dateRange={dateRange}
+                        onSlotClick={handleSlotClick}
+                        onUpdateSimulatedContext={(ctx) => {
+                          setSimulatedContext(ctx);
+                          pushUrl({
+                            isNewPatient: ctx.patient.isNew,
+                            locationId: ctx.locationId,
+                          });
+                        }}
+                        practiceId={currentPractice._id}
+                        ruleSetId={ruleSetIdFromUrl}
+                        simulatedContext={simulatedContext}
+                      />
 
-                  <SlotInspector selectedSlot={selectedSlot} />
+                      <SlotInspector selectedSlot={selectedSlot} />
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center p-8 text-muted-foreground">
+                      Bitte wählen Sie ein Regelwerk aus, um die Debug-Ansicht
+                      anzuzeigen.
+                    </div>
+                  )}
                 </div>
 
                 <SimulationControls
@@ -1013,16 +1100,23 @@ function LogicView() {
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
+                  locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
                   }
                   onDateChange={(d) => {
                     pushUrl({ date: d });
                   }}
+                  onLocationChange={(locationId) => {
+                    pushUrl({ locationId });
+                  }}
                   onResetSimulation={resetSimulation}
                   onSimulatedContextChange={(ctx) => {
                     setSimulatedContext(ctx);
-                    pushUrl({ isNewPatient: ctx.patient.isNew });
+                    pushUrl({
+                      isNewPatient: ctx.patient.isNew,
+                      locationId: ctx.locationId,
+                    });
                   }}
                   onSimulationRuleSetChange={(id) => {
                     if (unsavedRuleSet && id !== unsavedRuleSet._id) {
@@ -1035,6 +1129,7 @@ function LogicView() {
                   }}
                   ruleSetsQuery={ruleSetsWithActive}
                   selectedDate={selectedDate}
+                  selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
                   simulationRuleSetId={ruleSetIdFromUrl}
                 />
@@ -1194,20 +1289,30 @@ function SaveDialogForm({
 function SimulationControls({
   isClearingSimulatedAppointments,
   isResettingSimulation,
+  locationsListQuery,
   onClearSimulatedAppointments,
   onDateChange,
+  onLocationChange,
   onResetSimulation,
   onSimulatedContextChange,
   onSimulationRuleSetChange,
   ruleSetsQuery,
   selectedDate,
+  selectedLocationId,
   simulatedContext,
   simulationRuleSetId,
 }: {
   isClearingSimulatedAppointments: boolean;
   isResettingSimulation: boolean;
+  locationsListQuery:
+    | undefined
+    | {
+        _id: Id<"locations">;
+        name: string;
+      }[];
   onClearSimulatedAppointments: () => Promise<void>;
   onDateChange: (date: Date) => void;
+  onLocationChange: (locationId: Id<"locations"> | undefined) => void;
   onResetSimulation: () => Promise<void>;
   onSimulatedContextChange: (context: SimulatedContext) => void;
   onSimulationRuleSetChange: (ruleSetId: Id<"ruleSets"> | undefined) => void;
@@ -1220,6 +1325,7 @@ function SimulationControls({
         version: number;
       }[];
   selectedDate: Date;
+  selectedLocationId: Id<"locations"> | undefined;
   simulatedContext: SimulatedContext;
   simulationRuleSetId: Id<"ruleSets"> | undefined;
 }) {
@@ -1279,6 +1385,23 @@ function SimulationControls({
             selectedType={simulatedContext.appointmentTypeId}
           />
         )}
+
+        <div className="space-y-2">
+          <Label>Standort auswählen</Label>
+          {locationsListQuery && locationsListQuery.length > 0 ? (
+            <LocationSelector
+              locations={locationsListQuery}
+              onLocationSelect={(locationId) => {
+                onLocationChange(locationId);
+              }}
+              selectedLocationId={selectedLocationId}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Keine Standorte verfügbar
+            </p>
+          )}
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="patient-type">Patiententyp</Label>

@@ -1,7 +1,10 @@
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { SchedulingSimulatedContext } from "../../types";
+import type {
+  SchedulingRuleSetId,
+  SchedulingSimulatedContext,
+} from "../../types";
 
 export interface Appointment {
   color: string;
@@ -31,6 +34,7 @@ export interface NewCalendarProps {
   ) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId?: Id<"practices">;
+  ruleSetId?: SchedulingRuleSetId;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;

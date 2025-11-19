@@ -46,16 +46,11 @@ export function DebugView({
     ruleSetId ? { ruleSetId } : "skip",
   );
 
-  // Local state for selected location
-  const [selectedLocationId, setSelectedLocationId] = useState<
-    Id<"locations"> | undefined
-  >(simulatedContext.locationId);
-
   const sanitizedSimulatedContext: SchedulingSimulatedContext = (() => {
-    if (selectedLocationId) {
+    if (simulatedContext.locationId) {
       return {
         ...simulatedContext,
-        locationId: selectedLocationId,
+        locationId: simulatedContext.locationId,
       } as SchedulingSimulatedContext;
     }
 
@@ -81,14 +76,18 @@ export function DebugView({
     null,
   );
 
-  // Auto-select first available date and reset when context changes
+  // Auto-select first available date and reset when context or dateRange changes
   const firstAvailableDate = availableDatesResult?.dates[0];
   const contextKey = JSON.stringify(sanitizedSimulatedContext);
+  const dateRangeKey = JSON.stringify(dateRange);
 
-  // Reset selected date when context changes
+  // Reset selected date when context or dateRange changes
   const [lastContextKey, setLastContextKey] = useState(contextKey);
-  if (lastContextKey !== contextKey) {
+  const [lastDateRangeKey, setLastDateRangeKey] = useState(dateRangeKey);
+
+  if (lastContextKey !== contextKey || lastDateRangeKey !== dateRangeKey) {
     setLastContextKey(contextKey);
+    setLastDateRangeKey(dateRangeKey);
     setSelectedDebugDate(null);
   }
 
@@ -111,6 +110,21 @@ export function DebugView({
       : "skip",
   );
 
+  if (!sanitizedSimulatedContext.appointmentTypeId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Debug: Slot Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-muted-foreground">
+            Bitte wählen Sie eine Terminart aus.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!availableDatesResult) {
     return (
       <Card>
@@ -120,6 +134,21 @@ export function DebugView({
         <CardContent>
           <div className="text-muted-foreground">
             Loading available dates...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (availableDatesResult.dates.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Debug: Slot Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-muted-foreground">
+            An diesem Tag sind keine Termine verfügbar.
           </div>
         </CardContent>
       </Card>
@@ -273,14 +302,13 @@ export function DebugView({
         <LocationSelector
           locations={locationsQuery}
           onLocationSelect={(locationId: Id<"locations">) => {
-            setSelectedLocationId(locationId);
             const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
               locationId,
             };
             onUpdateSimulatedContext?.(updatedContext);
           }}
-          selectedLocationId={selectedLocationId}
+          selectedLocationId={simulatedContext.locationId}
         />
       )}
     </>
