@@ -488,10 +488,15 @@ function LogicView() {
   // This is ONE-WAY: URL → Context only. User changes go through onLocationChange → pushUrl → URL
   React.useEffect(() => {
     if (locationIdFromUrl) {
-      setSimulatedContext((prev) => ({
-        ...prev,
-        locationId: locationIdFromUrl,
-      }));
+      setSimulatedContext((prev) => {
+        if (prev.locationId === locationIdFromUrl) {
+          return prev;
+        }
+        return {
+          ...prev,
+          locationId: locationIdFromUrl,
+        };
+      });
     }
   }, [locationIdFromUrl]);
 
