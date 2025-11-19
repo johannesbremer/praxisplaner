@@ -904,7 +904,6 @@ function LogicView() {
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
-                  key="tab1-simulation-controls"
                   locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
@@ -1027,7 +1026,6 @@ function LogicView() {
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
-                  key="tab2-simulation-controls"
                   locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
@@ -1102,7 +1100,6 @@ function LogicView() {
                     isClearingSimulatedAppointments
                   }
                   isResettingSimulation={isResettingSimulation}
-                  key="tab3-simulation-controls"
                   locationsListQuery={locationsListQuery}
                   onClearSimulatedAppointments={
                     handleClearSimulatedAppointments
