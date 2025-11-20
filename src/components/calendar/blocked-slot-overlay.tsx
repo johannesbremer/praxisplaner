@@ -14,7 +14,7 @@ export function BlockedSlotOverlay({
 
   return (
     <div
-      className="absolute left-1 right-1 bg-muted/60 pointer-events-none z-10 h-(--blocked-slot-height) top-(--blocked-slot-top)"
+      className="absolute left-0 right-0 bg-muted/80 pointer-events-none z-10 h-(--blocked-slot-height) top-(--blocked-slot-top)"
       style={
         {
           "--blocked-slot-height": `${height}px`,
