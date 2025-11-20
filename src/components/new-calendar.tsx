@@ -56,7 +56,6 @@ export function NewCalendar({
     appointments,
     blockedSlots,
     blockedSlotWarning,
-    breakSlots,
     // businessEndHour,
     // businessStartHour,
     // calendarRef,
@@ -242,7 +241,6 @@ export function NewCalendar({
                   <CalendarGrid
                     appointments={appointments}
                     blockedSlots={blockedSlots}
-                    breakSlots={breakSlots}
                     columns={columns}
                     currentTimeSlot={currentTimeSlot}
                     draggedAppointment={draggedAppointment}
