@@ -161,7 +161,7 @@ export function CalendarGrid({
 
     return columnBreakSlots.map((breakSlot) => (
       <div
-        className="absolute left-0 right-0 bg-gray-400/30 pointer-events-none z-10"
+        className="absolute left-0 right-0 bg-muted/40 pointer-events-none z-10"
         key={`break-${column}-${breakSlot.slot}`}
         style={{
           height: `${breakSlot.slotCount * 16}px`,
