@@ -719,7 +719,7 @@ export function useCalendarLogic({
     return blocked;
   }, [slotsResult, workingPractitioners, timeToSlot]);
 
-  // Map break times from base schedules to calendar grid positions
+  // Map break times from base schedules and merge them into blocked slots
   const breakSlots = useMemo(() => {
     if (!baseSchedulesData || workingPractitioners.length === 0) {
       return [];
@@ -727,8 +727,8 @@ export function useCalendarLogic({
 
     const breaks: {
       column: string;
+      reason?: string;
       slot: number;
-      slotCount: number;
     }[] = [];
 
     for (const schedule of baseSchedulesData) {
@@ -749,16 +749,35 @@ export function useCalendarLogic({
         const startSlot = timeToSlot(breakTime.start);
         const endSlot = timeToSlot(breakTime.end);
 
-        breaks.push({
-          column: practitionerColumn.id,
-          slot: startSlot,
-          slotCount: endSlot - startSlot,
-        });
+        // Add each individual slot from the break as a blocked slot
+        for (let slot = startSlot; slot < endSlot; slot++) {
+          breaks.push({
+            column: practitionerColumn.id,
+            reason: "Break",
+            slot,
+          });
+        }
       }
     }
 
     return breaks;
   }, [baseSchedulesData, workingPractitioners, timeToSlot]);
+
+  // Merge blocked slots and break slots, then deduplicate
+  const allBlockedSlots = useMemo(() => {
+    const combined = [...blockedSlots, ...breakSlots];
+
+    // Deduplicate by column and slot
+    const uniqueSlots = new Map<string, (typeof combined)[0]>();
+    for (const slot of combined) {
+      const key = `${slot.column}-${slot.slot}`;
+      if (!uniqueSlots.has(key)) {
+        uniqueSlots.set(key, slot);
+      }
+    }
+
+    return [...uniqueSlots.values()];
+  }, [blockedSlots, breakSlots]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {
@@ -1406,53 +1425,30 @@ export function useCalendarLogic({
   };
 
   const addAppointment = (column: string, slot: number) => {
-    // Check if this slot is during a break time
-    const isBreakTime = breakSlots.some(
-      (breakSlot) =>
-        breakSlot.column === column &&
-        slot >= breakSlot.slot &&
-        slot < breakSlot.slot + breakSlot.slotCount,
-    );
-
-    if (isBreakTime) {
-      // Show break time warning dialog
-      const slotTime = slotToTime(slot);
-      setBlockedSlotWarning({
-        column,
-        onConfirm: () => {
-          // User confirmed, proceed with appointment creation despite break
-          createAppointmentInSlot(column, slot);
-        },
-        reason:
-          "Dieser Zeitfenster liegt in einer Pausenzeit. Möchten Sie trotzdem einen Termin erstellen?",
-        slot,
-        slotTime,
-      });
-      return;
-    }
-
-    // Check if this slot is blocked by a rule
-    const blockedSlot = blockedSlots.find(
+    // Check if this slot is blocked (including breaks and rules)
+    const blockedSlotData = allBlockedSlots.find(
       (blocked) => blocked.column === column && blocked.slot === slot,
     );
 
-    if (blockedSlot) {
-      // Show rule blocking warning dialog
+    if (blockedSlotData) {
+      // Show blocked slot warning dialog
       const slotTime = slotToTime(slot);
       setBlockedSlotWarning({
         column,
         onConfirm: () => {
-          // User confirmed, proceed with appointment creation
+          // User confirmed, proceed with appointment creation despite block
           createAppointmentInSlot(column, slot);
         },
-        ...(blockedSlot.reason && { reason: blockedSlot.reason }),
+        reason:
+          blockedSlotData.reason ||
+          "Dieser Zeitfenster ist blockiert. Möchten Sie trotzdem einen Termin erstellen?",
         slot,
         slotTime,
       });
       return;
     }
 
-    // No break time or blocked slot, proceed normally
+    // No blocked slot, proceed normally
     createAppointmentInSlot(column, slot);
   };
 
@@ -1773,9 +1769,8 @@ export function useCalendarLogic({
   return {
     addAppointment,
     appointments,
-    blockedSlots,
+    blockedSlots: allBlockedSlots,
     blockedSlotWarning,
-    breakSlots,
     businessEndHour,
     businessStartHour,
     calendarRef,

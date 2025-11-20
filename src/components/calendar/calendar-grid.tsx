@@ -13,16 +13,9 @@ interface BlockedSlot {
   slot: number;
 }
 
-interface BreakSlot {
-  column: string;
-  slot: number;
-  slotCount: number; // How many consecutive slots this break spans
-}
-
 interface CalendarGridProps {
   appointments: Appointment[];
   blockedSlots?: BlockedSlot[];
-  breakSlots?: BreakSlot[];
   columns: { id: string; title: string }[];
   currentTimeSlot: number;
   draggedAppointment: Appointment | null;
@@ -52,7 +45,6 @@ interface CalendarGridProps {
 export function CalendarGrid({
   appointments,
   blockedSlots = [],
-  breakSlots = [],
   columns,
   currentTimeSlot,
   draggedAppointment,
@@ -153,23 +145,6 @@ export function CalendarGrid({
     ));
   };
 
-  const renderBreakSlots = (column: string) => {
-    const columnBreakSlots = breakSlots.filter(
-      (slot) => slot.column === column,
-    );
-
-    return columnBreakSlots.map((breakSlot, index) => (
-      <div
-        className="absolute left-0 right-0 bg-muted/40 pointer-events-none z-10"
-        key={`break-${column}-${breakSlot.slot}-${index}`}
-        style={{
-          height: `${breakSlot.slotCount * 16}px`,
-          top: `${breakSlot.slot * 16}px`,
-        }}
-      />
-    ));
-  };
-
   return (
     <div
       className="grid min-h-full"
@@ -235,7 +210,6 @@ export function CalendarGrid({
               </div>
             )}
 
-            {renderBreakSlots(column.id)}
             {renderBlockedSlots(column.id)}
             {renderDragPreview(column.id)}
             {renderAppointments(column.id)}
