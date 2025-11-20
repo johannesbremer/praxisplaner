@@ -73,7 +73,6 @@ export const getAppointments = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
-      title: v.string(),
     }),
   ),
 });
@@ -130,7 +129,6 @@ export const getAppointmentsInRange = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
-      title: v.string(),
     }),
   ),
 });
@@ -147,7 +145,6 @@ export const createAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
-    title: v.string(),
   },
   handler: async (ctx, args) => {
     const now = BigInt(Date.now());
@@ -184,7 +181,6 @@ export const updateAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.optional(v.string()),
-    title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updateData } = args;

@@ -11,6 +11,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -390,6 +391,11 @@ function RuleEditDialog({
           <DialogTitle>
             {existingRule ? "Regel bearbeiten" : "Neue Regel erstellen"}
           </DialogTitle>
+          <DialogDescription>
+            {existingRule
+              ? "Bearbeiten Sie die Bedingungen dieser Regel."
+              : "Erstellen Sie eine neue Regel mit Bedingungen."}
+          </DialogDescription>
         </DialogHeader>
 
         <form

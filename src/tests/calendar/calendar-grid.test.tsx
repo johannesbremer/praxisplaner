@@ -14,7 +14,6 @@ describe("CalendarGrid", () => {
       id: "apt-1",
       isSimulation: false,
       startTime: "09:00",
-      title: "Morning Consultation",
     },
     {
       color: "bg-green-500",
@@ -23,7 +22,6 @@ describe("CalendarGrid", () => {
       id: "apt-2",
       isSimulation: false,
       startTime: "14:00",
-      title: "Afternoon Checkup",
     },
   ];
 
@@ -400,7 +398,6 @@ describe("CalendarGrid", () => {
           id: "apt-1",
           isSimulation: false,
           startTime: "09:00",
-          title: "Appointment 1",
         },
         {
           color: "bg-green-500",
@@ -409,7 +406,6 @@ describe("CalendarGrid", () => {
           id: "apt-2",
           isSimulation: false,
           startTime: "10:00",
-          title: "Appointment 2",
         },
         {
           color: "bg-red-500",
@@ -418,7 +414,6 @@ describe("CalendarGrid", () => {
           id: "apt-3",
           isSimulation: false,
           startTime: "11:00",
-          title: "Appointment 3",
         },
       ];
 
@@ -441,7 +436,6 @@ describe("CalendarGrid", () => {
           id: "apt-1",
           isSimulation: false,
           startTime: "09:00",
-          title: "Appointment 1",
         },
         {
           color: "bg-green-500",
@@ -450,7 +444,6 @@ describe("CalendarGrid", () => {
           id: "apt-2",
           isSimulation: false,
           startTime: "09:30",
-          title: "Appointment 2",
         },
       ];
 

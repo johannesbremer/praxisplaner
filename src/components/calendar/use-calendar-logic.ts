@@ -20,7 +20,6 @@ import {
   safeParseISOToZoned,
   temporalDayToLegacy,
 } from "../../utils/time-calculations";
-import { useAppointmentDialog } from "../appointment-dialog";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 
 // Hardcoded timezone for Berlin
@@ -36,6 +35,7 @@ export function useCalendarLogic({
   onUpdateSimulatedContext,
   practiceId: propPracticeId,
   ruleSetId,
+  selectedAppointmentTypeId,
   selectedLocationId: externalSelectedLocationId,
   simulatedContext,
   simulationDate,
@@ -70,7 +70,6 @@ export function useCalendarLogic({
   const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const justFinishedResizingRef = useRef<null | string>(null);
-  const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
 
   // Warning dialog state for blocked slots
   const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
@@ -251,7 +250,6 @@ export function useCalendarLogic({
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
-            title: optimisticArgs.title,
           };
 
           if (optimisticArgs.practitionerId !== undefined) {
@@ -553,7 +551,6 @@ export function useCalendarLogic({
             practitionerId: appointment.practitionerId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
-          title: appointment.title,
         };
       })
       .filter((apt): apt is Appointment => apt !== null);
@@ -887,7 +884,6 @@ export function useCalendarLogic({
     locationId?: Id<"locations">;
     practitionerId?: Id<"practitioners">;
     startISO?: string;
-    title?: string;
   }
 
   /**
@@ -1032,8 +1028,6 @@ export function useCalendarLogic({
         return null;
       }
 
-      const title = options.title ?? appointment.title;
-
       if (!practiceId) {
         toast.error("Praxis-ID fehlt");
         return null;
@@ -1055,7 +1049,6 @@ export function useCalendarLogic({
           practiceId,
           replacesAppointmentId: appointment.convexId,
           start: startISO,
-          title,
         };
 
         // Add optional fields only if they exist
@@ -1094,7 +1087,6 @@ export function useCalendarLogic({
               practitionerId ?? appointment.resource.practitionerId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
-          title,
         };
 
         // Convex optimistic updates will handle the UI update
@@ -1453,25 +1445,6 @@ export function useCalendarLogic({
     const duration = Math.min(defaultDuration, maxAvailableDuration);
 
     if (duration >= SLOT_DURATION) {
-      const startTime = slotToTime(slot);
-
-      let startZoned: Temporal.ZonedDateTime;
-      let endZoned: Temporal.ZonedDateTime;
-      try {
-        const plainTime = Temporal.PlainTime.from(startTime);
-        startZoned = selectedDate.toZonedDateTime({
-          plainTime,
-          timeZone: TIMEZONE,
-        });
-        endZoned = startZoned.add({ minutes: duration });
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse time in addAppointment",
-          startTime,
-        });
-        return;
-      }
-
       if (simulatedContext) {
         if (!simulatedContext.locationId) {
           alert("Bitte wählen Sie zuerst einen Standort aus.");
@@ -1483,151 +1456,90 @@ export function useCalendarLogic({
           return;
         }
 
-        openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Simulationstermin für ${formatTime(startZoned.toPlainTime())}.`,
-          onSubmit: async (title) => {
-            let practitionerId: Id<"practitioners"> | undefined;
+        // Create simulation appointment
+        const practitioner = workingPractitioners.find((p) => p.id === column);
+        if (!practiceId) {
+          toast.error("Praxis nicht gefunden");
+          return;
+        }
 
-            if (column !== "ekg" && column !== "labor") {
-              practitionerId = column as Id<"practitioners">;
-            } else {
-              const practitioner = workingPractitioners[0];
-              practitionerId = practitioner?.id;
-            }
+        // Handle special columns (non-practitioner resources)
+        if (!practitioner && column !== "ekg" && column !== "labor") {
+          toast.error("Ungültige Ressource");
+          return;
+        }
 
-            if (practitionerId && simulatedContext.locationId && practiceId) {
-              try {
-                // At this point we know appointmentTypeId exists due to the guard above
-                const appointmentTypeId =
-                  simulatedContext.appointmentTypeId as Id<"appointmentTypes">;
+        // Calculate start and end times
+        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+        const hours = Math.floor(minutesFromStart / 60);
+        const minutes = minutesFromStart % 60;
+        const plainTime = new Temporal.PlainTime(hours, minutes);
 
-                await createAppointmentMutation.withOptimisticUpdate(
-                  (localStore, args) => {
-                    const existingAppointments = localStore.getQuery(
-                      api.appointments.getAppointments,
-                      appointmentsQueryArgs,
-                    );
-                    if (existingAppointments) {
-                      const now = Date.now();
-                      const tempId =
-                        globalThis.crypto.randomUUID() as Id<"appointments">;
-                      const newAppointment: Doc<"appointments"> = {
-                        _creationTime: now,
-                        _id: tempId,
-                        appointmentTypeId: args.appointmentTypeId,
-                        createdAt: BigInt(now),
-                        end: args.end,
-                        isSimulation: true,
-                        lastModified: BigInt(now),
-                        locationId: args.locationId,
-                        practiceId: args.practiceId,
-                        start: args.start,
-                        title: args.title,
-                        ...(args.practitionerId !== undefined && {
-                          practitionerId: args.practitionerId,
-                        }),
-                        ...(args.patientId !== undefined && {
-                          patientId: args.patientId,
-                        }),
-                      };
-                      localStore.setQuery(
-                        api.appointments.getAppointments,
-                        appointmentsQueryArgs,
-                        [...existingAppointments, newAppointment],
-                      );
-                    }
-                  },
-                )({
-                  appointmentTypeId,
-                  end: endZoned.toString(),
-                  isSimulation: true,
-                  locationId: simulatedContext.locationId,
-                  practiceId,
-                  practitionerId,
-                  start: startZoned.toString(),
-                  title,
-                });
-                toast.success("Simulationstermin erstellt");
-              } catch (error) {
-                captureErrorGlobal(error, {
-                  context:
-                    "NewCalendar - Failed to create simulation appointment",
-                  title,
-                });
-                toast.error("Simulationstermin konnte nicht erstellt werden");
-              }
-            }
-          },
-          title: "Neuer Simulationstermin",
-          type: "create",
+        const startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        const endZoned = startZoned.add({ minutes: duration });
+
+        const startISO = startZoned.toString();
+        const endISO = endZoned.toString();
+
+        void runCreateAppointment({
+          appointmentTypeId: simulatedContext.appointmentTypeId,
+          end: endISO,
+          isSimulation: true,
+          locationId: simulatedContext.locationId,
+          practiceId,
+          ...(practitioner && { practitionerId: practitioner.id }),
+          start: startISO,
         });
       } else {
-        openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Termin für ${formatTime(startZoned.toPlainTime())}.`,
-          onSubmit: async (title) => {
-            let practitionerId: Id<"practitioners"> | undefined;
+        // Create real appointment - require appointment type to be selected
+        if (!selectedAppointmentTypeId) {
+          toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
+          return;
+        }
 
-            if (column !== "ekg" && column !== "labor") {
-              practitionerId = column as Id<"practitioners">;
-            } else {
-              const practitioner = workingPractitioners[0];
-              practitionerId = practitioner?.id;
-            }
+        if (!selectedLocationId) {
+          toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+          return;
+        }
 
-            try {
-              const targetLocationId =
-                (
-                  simulatedContext as
-                    | undefined
-                    | {
-                        appointmentTypeId?: Id<"appointmentTypes">;
-                        locationId?: Id<"locations">;
-                      }
-                )?.locationId ?? selectedLocationId;
+        const practitioner = workingPractitioners.find((p) => p.id === column);
+        if (!practiceId) {
+          toast.error("Praxis nicht gefunden");
+          return;
+        }
 
-              if (!targetLocationId) {
-                toast.error("Bitte wählen Sie zuerst einen Standort aus.");
-                return;
-              }
-              if (!practiceId) {
-                toast.error("Praxis-ID fehlt");
-                return;
-              }
+        // Handle special columns (non-practitioner resources)
+        if (!practitioner && column !== "ekg" && column !== "labor") {
+          toast.error("Ungültige Ressource");
+          return;
+        }
 
-              const appointmentTypeId = (
-                simulatedContext as
-                  | undefined
-                  | {
-                      appointmentTypeId?: Id<"appointmentTypes">;
-                      locationId?: Id<"locations">;
-                    }
-              )?.appointmentTypeId;
-              if (!appointmentTypeId) {
-                toast.error("Bitte wählen Sie zuerst eine Terminart aus.");
-                return;
-              }
+        // Calculate start and end times
+        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+        const hours = Math.floor(minutesFromStart / 60);
+        const minutes = minutesFromStart % 60;
+        const plainTime = new Temporal.PlainTime(hours, minutes);
 
-              await runCreateAppointment({
-                appointmentTypeId,
-                end: endZoned.toString(),
-                isSimulation: false,
-                locationId: targetLocationId,
-                practiceId,
-                start: startZoned.toString(),
-                title,
-                ...(practitionerId && { practitionerId }),
-              });
-              toast.success("Termin erstellt");
-            } catch (error) {
-              captureErrorGlobal(error, {
-                context: "NewCalendar - Failed to create appointment",
-                title,
-              });
-              toast.error("Termin konnte nicht erstellt werden");
-            }
-          },
-          title: "Neuer Termin",
-          type: "create",
+        const startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        const endZoned = startZoned.add({ minutes: duration });
+
+        const startISO = startZoned.toString();
+        const endISO = endZoned.toString();
+
+        void runCreateAppointment({
+          appointmentTypeId: selectedAppointmentTypeId,
+          end: endISO,
+          isSimulation: false,
+          locationId: selectedLocationId,
+          practiceId,
+          ...(practitioner && { practitionerId: practitioner.id }),
+          start: startISO,
         });
       }
     }
@@ -1639,97 +1551,8 @@ export function useCalendarLogic({
       return;
     }
 
-    const openEditDialog = (target: Appointment) => {
-      openAppointmentDialog({
-        defaultTitle: target.title,
-        description: `Bearbeiten Sie den Termin "${target.title}".`,
-        onSubmit: async (newTitle) => {
-          if (newTitle === target.title) {
-            return;
-          }
-
-          const convexId = target.convexId;
-          if (convexId === undefined) {
-            return;
-          }
-
-          try {
-            await updateAppointmentMutation.withOptimisticUpdate(
-              (localStore, args) => {
-                const existingAppointments = localStore.getQuery(
-                  api.appointments.getAppointments,
-                  appointmentsQueryArgs,
-                );
-                if (existingAppointments) {
-                  const updatedAppointments = existingAppointments.map((apt) =>
-                    apt._id === args.id && args.title
-                      ? { ...apt, title: args.title }
-                      : apt,
-                  );
-                  localStore.setQuery(
-                    api.appointments.getAppointments,
-                    appointmentsQueryArgs,
-                    updatedAppointments,
-                  );
-                }
-              },
-            )({
-              id: convexId,
-              title: newTitle,
-            });
-            toast.success("Termin aktualisiert");
-          } catch (error) {
-            captureErrorGlobal(error, {
-              appointmentId: convexId,
-              context: "NewCalendar - Failed to update appointment title",
-            });
-            toast.error("Termin konnte nicht aktualisiert werden");
-          }
-        },
-        title: "Termin bearbeiten",
-        type: "edit",
-      });
-    };
-
-    if (simulatedContext && !appointment.isSimulation) {
-      if (appointment.convexId === undefined) {
-        openEditDialog(appointment);
-        return;
-      }
-
-      void (async () => {
-        try {
-          const plainTime = Temporal.PlainTime.from(appointment.startTime);
-          const startZoned = selectedDate.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-          const endZoned = startZoned.add({ minutes: appointment.duration });
-
-          const converted = await convertRealAppointmentToSimulation(
-            appointment,
-            {
-              endISO: endZoned.toString(),
-              startISO: startZoned.toString(),
-              title: appointment.title,
-            },
-          );
-
-          if (converted) {
-            openEditDialog(converted);
-          }
-        } catch (error) {
-          captureErrorGlobal(error, {
-            context: "Failed to parse time in edit appointment",
-            startTime: appointment.startTime,
-          });
-          toast.error("Startzeit konnte nicht ermittelt werden");
-        }
-      })();
-      return;
-    }
-
-    openEditDialog(appointment);
+    // Editing appointments is now done via the new appointment flow dialog
+    toast.info("Bearbeiten von Terminen ist über den neuen Dialog möglich.");
   };
 
   const handleDeleteAppointment = (appointment: Appointment) => {
@@ -1942,7 +1765,6 @@ export function useCalendarLogic({
     columns,
     currentTime,
     currentTimeSlot: getCurrentTimeSlot(),
-    Dialog,
     draggedAppointment,
     dragPreview,
     handleDateChange,

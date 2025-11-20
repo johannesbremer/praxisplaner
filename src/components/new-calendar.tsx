@@ -46,6 +46,11 @@ export function NewCalendar({
   simulatedContext,
   simulationDate,
 }: NewCalendarProps) {
+  // State for appointment type selection - must be defined before useCalendarLogic
+  const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
+    Id<"appointmentTypes"> | undefined
+  >();
+
   const {
     addAppointment,
     appointments,
@@ -58,7 +63,6 @@ export function NewCalendar({
     columns,
     currentTime,
     currentTimeSlot,
-    Dialog,
     draggedAppointment,
     dragPreview,
     handleDateChange,
@@ -86,6 +90,7 @@ export function NewCalendar({
     onUpdateSimulatedContext,
     practiceId: propPracticeId,
     ruleSetId,
+    selectedAppointmentTypeId,
     selectedLocationId: externalSelectedLocationId,
     showGdtAlert,
     simulatedContext,
@@ -111,11 +116,6 @@ export function NewCalendar({
   const holidayName = publicHolidaysLoaded
     ? getPublicHolidayName(selectedDate)
     : undefined;
-
-  // State for appointment type selection
-  const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
-    Id<"appointmentTypes"> | undefined
-  >();
 
   const handleAppointmentTypeSelect = useCallback(
     (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
@@ -298,7 +298,6 @@ export function NewCalendar({
         })}
         slotTime={blockedSlotWarning?.slotTime || ""}
       />
-      {Dialog}
     </CalendarProvider>
   );
 }

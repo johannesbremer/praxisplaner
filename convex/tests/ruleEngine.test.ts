@@ -240,7 +240,6 @@ async function createAppointment(
       practiceId,
       practitionerId,
       start: startInstant.toString(),
-      title: `${appointmentType.name} appointment`,
     });
     return appointmentId;
   });
