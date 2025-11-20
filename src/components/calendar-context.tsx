@@ -23,6 +23,14 @@ interface CalendarContextValue {
   onLocationSelect: (locationId: Id<"locations"> | undefined) => void;
   selectedLocationId: Id<"locations"> | undefined;
 
+  // Appointment type state
+  onAppointmentTypeSelect?: (
+    appointmentTypeId?: Id<"appointmentTypes">,
+  ) => void;
+  practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: Id<"ruleSets"> | undefined;
+  selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
+
   // Simulation mode state
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)

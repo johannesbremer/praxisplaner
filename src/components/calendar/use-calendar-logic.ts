@@ -72,6 +72,15 @@ export function useCalendarLogic({
   const justFinishedResizingRef = useRef<null | string>(null);
   const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
 
+  // Warning dialog state for blocked slots
+  const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
+    column: string;
+    onConfirm: () => void;
+    reason?: string;
+    slot: number;
+    slotTime: string;
+  }>(null);
+
   // Devtools instrumentation
   const [mountTime] = useState(() => Date.now());
   const mountTimeRef = useRef<number>(mountTime);
@@ -186,6 +195,22 @@ export function useCalendarLogic({
   const locationsData = useQuery(
     ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
     ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+  );
+
+  // Query for available/blocked slots when in simulation mode with appointment type selected
+  const slotsResult = useQuery(
+    api.scheduling.getSlotsForDay,
+    simulatedContext?.appointmentTypeId &&
+      simulatedContext.locationId &&
+      practiceId &&
+      ruleSetId
+      ? {
+          date: selectedDate.toString(),
+          practiceId,
+          ruleSetId,
+          simulatedContext,
+        }
+      : "skip",
   );
 
   // Mutations
@@ -638,6 +663,88 @@ export function useCalendarLogic({
     },
     [businessStartHour],
   );
+
+  // Map blocked slots from query to calendar grid positions
+  const blockedSlots = useMemo(() => {
+    if (!slotsResult?.slots || workingPractitioners.length === 0) {
+      return [];
+    }
+
+    const blocked: {
+      blockedByRuleId?: Id<"ruleConditions">;
+      column: string;
+      reason?: string;
+      slot: number;
+    }[] = [];
+
+    for (const slotData of slotsResult.slots) {
+      if (slotData.status === "BLOCKED" && slotData.practitionerId) {
+        // Find if this practitioner has a column
+        const practitionerColumn = workingPractitioners.find(
+          (p) => p.id === slotData.practitionerId,
+        );
+
+        if (practitionerColumn) {
+          const startTime = Temporal.Instant.from(slotData.startTime)
+            .toZonedDateTimeISO(TIMEZONE)
+            .toPlainTime();
+          const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
+
+          blocked.push({
+            column: practitionerColumn.id,
+            slot,
+            ...(slotData.reason && { reason: slotData.reason }),
+            ...(slotData.blockedByRuleId && {
+              blockedByRuleId: slotData.blockedByRuleId,
+            }),
+          });
+        }
+      }
+    }
+
+    return blocked;
+  }, [slotsResult, workingPractitioners, timeToSlot]);
+
+  // Map break times from base schedules to calendar grid positions
+  const breakSlots = useMemo(() => {
+    if (!baseSchedulesData || workingPractitioners.length === 0) {
+      return [];
+    }
+
+    const breaks: {
+      column: string;
+      slot: number;
+      slotCount: number;
+    }[] = [];
+
+    for (const schedule of baseSchedulesData) {
+      if (!schedule.breakTimes || schedule.breakTimes.length === 0) {
+        continue;
+      }
+
+      // Find if this practitioner has a column
+      const practitionerColumn = workingPractitioners.find(
+        (p) => p.id === schedule.practitionerId,
+      );
+
+      if (!practitionerColumn) {
+        continue;
+      }
+
+      for (const breakTime of schedule.breakTimes) {
+        const startSlot = timeToSlot(breakTime.start);
+        const endSlot = timeToSlot(breakTime.end);
+
+        breaks.push({
+          column: practitionerColumn.id,
+          slot: startSlot,
+          slotCount: endSlot - startSlot,
+        });
+      }
+    }
+
+    return breaks;
+  }, [baseSchedulesData, workingPractitioners, timeToSlot]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {
@@ -1290,6 +1397,57 @@ export function useCalendarLogic({
   };
 
   const addAppointment = (column: string, slot: number) => {
+    // Check if this slot is during a break time
+    const isBreakTime = breakSlots.some(
+      (breakSlot) =>
+        breakSlot.column === column &&
+        slot >= breakSlot.slot &&
+        slot < breakSlot.slot + breakSlot.slotCount,
+    );
+
+    if (isBreakTime) {
+      // Show break time warning dialog
+      const slotTime = slotToTime(slot);
+      setBlockedSlotWarning({
+        column,
+        onConfirm: () => {
+          // User confirmed, proceed with appointment creation despite break
+          createAppointmentInSlot(column, slot);
+        },
+        reason:
+          "Dieser Zeitfenster liegt in einer Pausenzeit. Möchten Sie trotzdem einen Termin erstellen?",
+        slot,
+        slotTime,
+      });
+      return;
+    }
+
+    // Check if this slot is blocked by a rule
+    const blockedSlot = blockedSlots.find(
+      (blocked) => blocked.column === column && blocked.slot === slot,
+    );
+
+    if (blockedSlot) {
+      // Show rule blocking warning dialog
+      const slotTime = slotToTime(slot);
+      setBlockedSlotWarning({
+        column,
+        onConfirm: () => {
+          // User confirmed, proceed with appointment creation
+          createAppointmentInSlot(column, slot);
+        },
+        ...(blockedSlot.reason && { reason: blockedSlot.reason }),
+        slot,
+        slotTime,
+      });
+      return;
+    }
+
+    // No break time or blocked slot, proceed normally
+    createAppointmentInSlot(column, slot);
+  };
+
+  const createAppointmentInSlot = (column: string, slot: number) => {
     const defaultDuration = 30;
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
     const duration = Math.min(defaultDuration, maxAvailableDuration);
@@ -1775,6 +1933,9 @@ export function useCalendarLogic({
   return {
     addAppointment,
     appointments,
+    blockedSlots,
+    blockedSlotWarning,
+    breakSlots,
     businessEndHour,
     businessStartHour,
     calendarRef,
@@ -1797,6 +1958,7 @@ export function useCalendarLogic({
     practiceId,
     selectedDate,
     selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+    setBlockedSlotWarning,
     slotToTime,
     timeToSlot,
     totalSlots,

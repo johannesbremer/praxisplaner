@@ -6,7 +6,7 @@ import type {
   SchedulingSlot,
 } from "../types";
 
-import { PatientFocusedView } from "./patient-focused-view";
+import { PatientView } from "./patient-view";
 import { SmartphoneDevice } from "./smartphone-device";
 
 interface PatientBookingFlowProps {
@@ -31,7 +31,7 @@ export function PatientBookingFlow({
   return (
     <div className="flex justify-center">
       <SmartphoneDevice>
-        <PatientFocusedView
+        <PatientView
           dateRange={dateRange}
           {...(onLocationChange && { onLocationChange })}
           {...(onSlotClick && { onSlotClick })}
