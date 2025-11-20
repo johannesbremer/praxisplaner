@@ -17,6 +17,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import {
+  conditionTreeToConditions,
+  generateRuleName,
+} from "../lib/rule-name-generator.js";
 import { internalQuery } from "./_generated/server";
 
 /**
@@ -487,33 +491,32 @@ export const getRuleDescription = internalQuery({
       };
     }
 
-    // Build tree structure recursively
-    const buildTreeString = async (
+    // Build condition tree recursively
+    const buildConditionTree = async (
       nodeId: Id<"ruleConditions">,
-      depth = 0,
-    ): Promise<string> => {
+    ): Promise<ConditionTreeNode | null> => {
       const node = await ctx.db.get(nodeId);
       if (!node) {
-        return "";
+        return null;
       }
-
-      const indent = "  ".repeat(depth);
-      let result = "";
 
       if (node.nodeType === "CONDITION") {
         // Leaf condition
-        const valueStr =
-          node.valueNumber === undefined
-            ? node.valueIds
-              ? `[${node.valueIds.join(", ")}]`
-              : "[]"
-            : `${node.valueNumber}`;
-        result += `${indent}${node.conditionType} ${node.operator} ${valueStr}\n`;
+        if (!node.conditionType || !node.operator) {
+          return null;
+        }
+        return {
+          conditionType: node.conditionType,
+          nodeType: "CONDITION",
+          operator: node.operator,
+          ...(node.scope && { scope: node.scope }),
+          ...(node.valueIds && { valueIds: node.valueIds }),
+          ...(node.valueNumber !== undefined && {
+            valueNumber: node.valueNumber,
+          }),
+        };
       } else {
-        // Logical operator
-        result += `${indent}${node.nodeType}\n`;
-
-        // Get and process children
+        // Logical operator (AND/OR)
         const children = await ctx.db
           .query("ruleConditions")
           .withIndex("by_parentConditionId_childOrder", (q) =>
@@ -521,12 +524,23 @@ export const getRuleDescription = internalQuery({
           )
           .collect();
 
+        const childTrees: ConditionTreeNode[] = [];
         for (const child of children) {
-          result += await buildTreeString(child._id, depth + 1);
+          const childTree = await buildConditionTree(child._id);
+          if (childTree) {
+            childTrees.push(childTree);
+          }
         }
-      }
 
-      return result;
+        // At this point, nodeType must be either "AND" or "NOT" since we already checked it's not "CONDITION"
+        if (!node.nodeType) {
+          return null;
+        }
+        return {
+          children: childTrees,
+          nodeType: node.nodeType,
+        };
+      }
     };
 
     // Get the first child (root of condition tree)
@@ -537,14 +551,43 @@ export const getRuleDescription = internalQuery({
       )
       .collect();
 
-    let treeStructure = "";
-    if (rootChildren.length > 0 && rootChildren[0]) {
-      treeStructure = await buildTreeString(rootChildren[0]._id);
+    if (rootChildren.length === 0 || !rootChildren[0]) {
+      return {
+        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        treeStructure: "",
+      };
     }
+
+    // Build the condition tree
+    const conditionTree = await buildConditionTree(rootChildren[0]._id);
+    if (!conditionTree) {
+      return {
+        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        treeStructure: "",
+      };
+    }
+
+    // Convert tree to conditions
+    const conditions = conditionTreeToConditions(conditionTree);
+
+    // Fetch all entities needed for name resolution
+    const allAppointmentTypes = await ctx.db
+      .query("appointmentTypes")
+      .collect();
+    const allPractitioners = await ctx.db.query("practitioners").collect();
+    const allLocations = await ctx.db.query("locations").collect();
+
+    // Generate natural language description
+    const naturalLanguageDescription = generateRuleName(
+      conditions,
+      allAppointmentTypes.map((at) => ({ _id: at._id, name: at.name })),
+      allPractitioners.map((p) => ({ _id: p._id, name: p.name })),
+      allLocations.map((l) => ({ _id: l._id, name: l.name })),
+    );
 
     return {
       description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
-      treeStructure,
+      treeStructure: naturalLanguageDescription,
     };
   },
   returns: v.object({
