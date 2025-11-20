@@ -1,9 +1,14 @@
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
+import {
+  evaluateLoadedRulesHelper,
+  preEvaluateDayInvariantRulesHelper,
+} from "./ruleEngine";
 import {
   availableSlotsResultValidator,
   dateRangeValidator,
@@ -12,14 +17,16 @@ import {
 
 // Constants
 const DEFAULT_SLOT_DURATION_MINUTES = 5;
+const TIMEZONE = "Europe/Berlin";
 
-interface SchedulingResultSlot {
-  blockedByRuleId?: Id<"ruleConditions">; // Changed from "rules" to "ruleConditions"
-  duration: number;
+export interface SchedulingResultSlot {
+  blockedByRuleId?: Id<"ruleConditions">;
+  duration: number; // minutes
   locationId?: Id<"locations">;
   practitionerId: Id<"practitioners">;
   practitionerName: string;
-  startTime: string;
+  reason?: string; // Natural language explanation for blocked slots
+  startTime: string; // ISO string
   status: "AVAILABLE" | "BLOCKED";
 }
 
@@ -114,12 +121,8 @@ export const getSlotsForDay = query({
       );
     }
 
-    // Parse the date and create a single-day range
-    const dayStart = new Date(args.date);
-    dayStart.setUTCHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(dayStart);
-    dayEnd.setUTCHours(23, 59, 59, 999);
+    // Parse the date directly as a Temporal.PlainDate to avoid timezone issues
+    const targetPlainDate = Temporal.PlainDate.from(args.date);
 
     const log: string[] = [`Getting slots for single day: ${args.date}`];
 
@@ -181,7 +184,9 @@ export const getSlotsForDay = query({
       status: "AVAILABLE" | "BLOCKED";
     }[] = [];
 
-    const targetDate = new Date(dayStart);
+    // Get day of week from Temporal (Monday = 1, Sunday = 7) and convert to JS (Sunday = 0, Monday = 1)
+    const dayOfWeek =
+      targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
 
     for (const practitioner of practitioners) {
       const schedules = await ctx.db
@@ -207,7 +212,6 @@ export const getSlotsForDay = query({
             : " (all locations)"),
       );
 
-      const dayOfWeek = targetDate.getDay();
       const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
 
       if (schedule) {
@@ -225,19 +229,37 @@ export const getSlotsForDay = query({
           continue;
         }
 
-        const scheduleStart = new Date(targetDate);
-        scheduleStart.setUTCHours(startHour, startMinute, 0, 0);
+        // Parse the schedule times in Berlin timezone
+        const scheduleStartTime = Temporal.PlainTime.from(
+          `${schedule.startTime}:00`,
+        );
+        const scheduleEndTime = Temporal.PlainTime.from(
+          `${schedule.endTime}:00`,
+        );
 
-        const scheduleEnd = new Date(targetDate);
-        scheduleEnd.setUTCHours(endHour, endMinute, 0, 0);
+        const scheduleStart = targetPlainDate
+          .toZonedDateTime({
+            plainTime: scheduleStartTime,
+            timeZone: TIMEZONE,
+          })
+          .toInstant();
+
+        const scheduleEnd = targetPlainDate
+          .toZonedDateTime({
+            plainTime: scheduleEndTime,
+            timeZone: TIMEZONE,
+          })
+          .toInstant();
 
         const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
-        for (
-          let slotTime = new Date(scheduleStart);
-          slotTime < scheduleEnd;
-          slotTime = new Date(slotTime.getTime() + slotDuration * 60 * 1000)
-        ) {
-          const timeString = `${slotTime.getUTCHours().toString().padStart(2, "0")}:${slotTime.getUTCMinutes().toString().padStart(2, "0")}`;
+        const slotDurationMillis = slotDuration * 60 * 1000;
+
+        let currentInstant = scheduleStart;
+        while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
+          // Convert to Berlin time for break time checking
+          const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
+          const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
+
           const isBreakTime =
             schedule.breakTimes?.some(
               (breakTime) =>
@@ -250,10 +272,15 @@ export const getSlotsForDay = query({
               ...(defaultLocationId && { locationId: defaultLocationId }),
               practitionerId: practitioner._id,
               practitionerName: practitioner.name,
-              startTime: slotTime.toISOString(),
+              startTime: currentInstant.toString(),
               status: "AVAILABLE",
             });
           }
+
+          // Advance to next slot
+          currentInstant = currentInstant.add({
+            milliseconds: slotDurationMillis,
+          });
         }
       }
     }
@@ -266,6 +293,75 @@ export const getSlotsForDay = query({
 
       // At this point we know appointmentTypeId exists due to the guard above
       const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+
+      // PERFORMANCE FIX: Load rules once and evaluate them for all slots
+      // instead of loading rules separately for each slot
+      const rulesResultRaw = await ctx.runQuery(
+        internal.ruleEngine.loadRulesForRuleSet,
+        { ruleSetId },
+      );
+
+      // Reconstruct the Map ONCE here to avoid repeated serialization
+      const conditionsMap = new Map<
+        Id<"ruleConditions">,
+        Doc<"ruleConditions">
+      >(
+        Object.entries(
+          rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
+        ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
+      );
+
+      const rulesData = {
+        conditions: rulesResultRaw.conditions,
+        conditionsMap,
+        dayInvariantCount: rulesResultRaw.dayInvariantCount,
+        rules: rulesResultRaw.rules,
+        timeVariantCount: rulesResultRaw.timeVariantCount,
+        totalConditions: rulesResultRaw.totalConditions,
+      };
+
+      log.push(
+        `Loaded ${rulesData.rules.length} rules with ${rulesData.totalConditions} total conditions`,
+        `Rule classification: ${rulesData.dayInvariantCount} day-invariant, ${rulesData.timeVariantCount} time-variant`,
+      );
+
+      // Pre-evaluate day-invariant rules once for the entire day
+      // Use the simulatedContext since appointmentTypeId and locationId are fixed for the entire query
+      let preEvaluatedDayRules;
+      if (rulesData.dayInvariantCount > 0 && candidateSlots.length > 0) {
+        const firstSlot = candidateSlots[0];
+        if (firstSlot) {
+          const dayContext = {
+            appointmentTypeId,
+            dateTime: firstSlot.startTime, // Any slot time works for day-invariant rules
+            practiceId: args.practiceId,
+            // Note: We use the first slot's practitionerId here, but PRACTITIONER conditions
+            // should NOT be in the day-invariant set since practitionerId varies per slot
+            practitionerId: firstSlot.practitionerId as Id<"practitioners">,
+            requestedAt:
+              args.simulatedContext.requestedAt ?? new Date().toISOString(),
+            // locationId comes from simulatedContext (fixed for entire query) or slot's default
+            ...(args.simulatedContext.locationId && {
+              locationId: args.simulatedContext.locationId,
+            }),
+            ...(!args.simulatedContext.locationId &&
+              firstSlot.locationId && {
+                locationId: firstSlot.locationId as Id<"locations">,
+              }),
+          };
+
+          // PERFORMANCE: Call helper directly to avoid serialization overhead
+          preEvaluatedDayRules = await preEvaluateDayInvariantRulesHelper(
+            ctx.db,
+            dayContext,
+            rulesData,
+          );
+
+          log.push(
+            `Pre-evaluated ${preEvaluatedDayRules.evaluatedCount} day-invariant rules: ${preEvaluatedDayRules.blockedByRuleIds.length} blocking`,
+          );
+        }
+      }
 
       for (const slot of candidateSlots) {
         if (slot.status === "BLOCKED") {
@@ -284,12 +380,12 @@ export const getSlotsForDay = query({
           }),
         };
 
-        const ruleCheckResult = await ctx.runQuery(
-          internal.ruleEngine.checkRulesForAppointment,
-          {
-            context: appointmentContext,
-            ruleSetId,
-          },
+        // PERFORMANCE: Call helper directly to avoid serialization overhead
+        const ruleCheckResult = await evaluateLoadedRulesHelper(
+          ctx.db,
+          appointmentContext,
+          rulesData,
+          preEvaluatedDayRules,
         );
 
         if (
@@ -331,6 +427,30 @@ export const getSlotsForDay = query({
 
       return slotResult;
     });
+
+    // Generate natural language reasons for blocked slots
+    // TODO: Implement full tree reconstruction and detailed rule descriptions
+    // Add natural language description to blocked slots
+    for (const slot of finalSlots) {
+      if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
+        try {
+          // Use getRuleDescription to get the tree structure description
+          const ruleDescription = await ctx.runQuery(
+            internal.ruleEngine.getRuleDescription,
+            { ruleId: slot.blockedByRuleId },
+          );
+          slot.reason =
+            ruleDescription.treeStructure.trim() ||
+            "Dieser Zeitfenster ist durch eine Regel blockiert.";
+        } catch (error) {
+          // Fallback if we can't generate a reason
+          slot.reason = "Dieser Zeitfenster ist durch eine Regel blockiert.";
+          log.push(
+            `Failed to generate reason for blocked slot: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+        }
+      }
+    }
 
     log.push(
       `Final result: ${finalSlots.filter((s) => s.status === "AVAILABLE").length} available slots, ${finalSlots.filter((s) => s.status === "BLOCKED").length} blocked slots`,

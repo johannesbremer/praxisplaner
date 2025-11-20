@@ -15,7 +15,7 @@ export interface RegelnSearchParams {
   tab?: RegelnTabParam;
 }
 
-export type RegelnTab = "debug-views" | "rule-management" | "staff-view";
+export type RegelnTab = "rule-management" | "staff-view";
 
 export type RegelnTabParam = "debug" | "mitarbeiter" | undefined;
 
@@ -75,9 +75,6 @@ export function internalTabToParam(tab: RegelnTab): RegelnTabParam {
   if (tab === "staff-view") {
     return "mitarbeiter";
   }
-  if (tab === "debug-views") {
-    return "debug";
-  }
   return undefined;
 }
 
@@ -111,9 +108,6 @@ export function parseYmd(ymd?: string): Date | undefined {
 export function tabParamToInternal(tabParam?: string): RegelnTab {
   if (tabParam === "mitarbeiter") {
     return "staff-view";
-  }
-  if (tabParam === "debug") {
-    return "debug-views";
   }
   return "rule-management";
 }

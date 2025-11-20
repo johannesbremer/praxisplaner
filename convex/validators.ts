@@ -61,6 +61,7 @@ export const availableSlotsResultValidator = v.object({
       locationId: v.optional(v.id("locations")),
       practitionerId: v.id("practitioners"),
       practitionerName: v.string(),
+      reason: v.optional(v.string()), // Natural language explanation for blocked slots
       startTime: v.string(),
       status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
     }),

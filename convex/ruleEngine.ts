@@ -17,6 +17,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import {
+  conditionTreeToConditions,
+  generateRuleName,
+} from "../lib/rule-name-generator.js";
 import { internalQuery } from "./_generated/server";
 
 /**
@@ -42,8 +46,37 @@ export const appointmentContextValidator = v.object({
 export type AppointmentContext = Infer<typeof appointmentContextValidator>;
 
 /**
+ * Day-invariant condition types - these only depend on the date and fixed query context,
+ * not time-of-day or per-slot variations, AND don't require database reads beyond initial
+ * rule/condition loading. These can be pre-evaluated once per getSlotsForDay call.
+ *
+ * INCLUDED (day-invariant, no DB reads, fixed per query):
+ * - APPOINTMENT_TYPE: Fixed in simulatedContext for entire getSlotsForDay call
+ * - LOCATION: Fixed in simulatedContext for entire getSlotsForDay call
+ * - CLIENT_TYPE: Fixed (patient.isNew) for entire getSlotsForDay call
+ * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD: Only depend on the date
+ *
+ * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
+ * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
+ * - DAILY_CAPACITY: Queries appointments table to count existing appointments
+ * - PRACTITIONER_TAG: Queries practitioner document to check tags
+ * - CONCURRENT_COUNT: Queries appointments table (also time-variant)
+ */
+const DAY_INVARIANT_CONDITION_TYPES = new Set([
+  "APPOINTMENT_TYPE",
+  "CLIENT_TYPE",
+  "DATE_RANGE",
+  "DAY_OF_WEEK",
+  "DAYS_AHEAD",
+  "LOCATION",
+]);
+
+/**
  * Evaluate a single leaf condition against the appointment context.
  * Returns true if the condition matches (which may mean the appointment should be blocked).
+ * @param db Database reader (used for queries that can't be pre-loaded)
+ * @param condition The condition to evaluate
+ * @param context Appointment context
  */
 async function evaluateCondition(
   db: DatabaseReader,
@@ -315,20 +348,25 @@ async function evaluateCondition(
  * Returns true if the tree evaluates to true (meaning the appointment should be blocked).
  *
  * Tree evaluation rules:
- * - AND: All children must be true.
+ * - AND: All children must be true (short-circuits on first false).
  * - NOT: Inverts the single child result.
  * - CONDITION: Evaluate the leaf condition.
  * @param db Database reader for querying.
  * @param nodeId Root node ID of the condition tree.
  * @param context Appointment context for evaluation.
+ * @param conditionsMap Optional map of pre-loaded conditions for fast lookup
+ * @param allConditions Optional array of all pre-loaded conditions (for children lookup)
  * @returns True if the appointment should be blocked.
  */
 async function evaluateConditionTree(
   db: DatabaseReader,
   nodeId: Id<"ruleConditions">,
   context: AppointmentContext,
+  conditionsMap?: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
+  allConditions?: Doc<"ruleConditions">[],
 ): Promise<boolean> {
-  const node = await db.get(nodeId);
+  // Use cached node if available
+  const node = conditionsMap?.get(nodeId) ?? (await db.get(nodeId));
   if (!node) {
     throw new Error(
       `Condition node not found: ${nodeId}. ` +
@@ -341,13 +379,22 @@ async function evaluateConditionTree(
     return await evaluateCondition(db, node, context);
   }
 
-  // Get ordered children
-  const children = await db
-    .query("ruleConditions")
-    .withIndex("by_parentConditionId_childOrder", (q) =>
-      q.eq("parentConditionId", nodeId),
-    )
-    .collect();
+  // Get ordered children - use pre-loaded conditions if available for faster lookup
+  let children: Doc<"ruleConditions">[];
+  if (allConditions) {
+    // Filter from pre-loaded conditions (much faster than DB query)
+    children = allConditions
+      .filter((c) => c.parentConditionId === nodeId)
+      .toSorted((a, b) => a.childOrder - b.childOrder);
+  } else {
+    // Fall back to DB query if not pre-loaded
+    children = await db
+      .query("ruleConditions")
+      .withIndex("by_parentConditionId_childOrder", (q) =>
+        q.eq("parentConditionId", nodeId),
+      )
+      .collect();
+  }
 
   if (children.length === 0) {
     throw new Error(
@@ -359,9 +406,15 @@ async function evaluateConditionTree(
   // Evaluate based on node type
   switch (node.nodeType) {
     case "AND": {
-      // All children must be true
+      // All children must be true - SHORT CIRCUIT on first false
       for (const child of children) {
-        const result = await evaluateConditionTree(db, child._id, context);
+        const result = await evaluateConditionTree(
+          db,
+          child._id,
+          context,
+          conditionsMap,
+          allConditions,
+        );
         if (!result) {
           return false; // Short-circuit: if any child is false, return false
         }
@@ -381,7 +434,13 @@ async function evaluateConditionTree(
       if (!child) {
         return false;
       }
-      const result = await evaluateConditionTree(db, child._id, context);
+      const result = await evaluateConditionTree(
+        db,
+        child._id,
+        context,
+        conditionsMap,
+        allConditions,
+      );
       return !result;
     }
 
@@ -487,33 +546,32 @@ export const getRuleDescription = internalQuery({
       };
     }
 
-    // Build tree structure recursively
-    const buildTreeString = async (
+    // Build condition tree recursively
+    const buildConditionTree = async (
       nodeId: Id<"ruleConditions">,
-      depth = 0,
-    ): Promise<string> => {
+    ): Promise<ConditionTreeNode | null> => {
       const node = await ctx.db.get(nodeId);
       if (!node) {
-        return "";
+        return null;
       }
-
-      const indent = "  ".repeat(depth);
-      let result = "";
 
       if (node.nodeType === "CONDITION") {
         // Leaf condition
-        const valueStr =
-          node.valueNumber === undefined
-            ? node.valueIds
-              ? `[${node.valueIds.join(", ")}]`
-              : "[]"
-            : `${node.valueNumber}`;
-        result += `${indent}${node.conditionType} ${node.operator} ${valueStr}\n`;
+        if (!node.conditionType || !node.operator) {
+          return null;
+        }
+        return {
+          conditionType: node.conditionType,
+          nodeType: "CONDITION",
+          operator: node.operator,
+          ...(node.scope && { scope: node.scope }),
+          ...(node.valueIds && { valueIds: node.valueIds }),
+          ...(node.valueNumber !== undefined && {
+            valueNumber: node.valueNumber,
+          }),
+        };
       } else {
-        // Logical operator
-        result += `${indent}${node.nodeType}\n`;
-
-        // Get and process children
+        // Logical operator (AND/OR)
         const children = await ctx.db
           .query("ruleConditions")
           .withIndex("by_parentConditionId_childOrder", (q) =>
@@ -521,12 +579,23 @@ export const getRuleDescription = internalQuery({
           )
           .collect();
 
+        const childTrees: ConditionTreeNode[] = [];
         for (const child of children) {
-          result += await buildTreeString(child._id, depth + 1);
+          const childTree = await buildConditionTree(child._id);
+          if (childTree) {
+            childTrees.push(childTree);
+          }
         }
-      }
 
-      return result;
+        // At this point, nodeType must be either "AND" or "NOT" since we already checked it's not "CONDITION"
+        if (!node.nodeType) {
+          return null;
+        }
+        return {
+          children: childTrees,
+          nodeType: node.nodeType,
+        };
+      }
     };
 
     // Get the first child (root of condition tree)
@@ -537,14 +606,43 @@ export const getRuleDescription = internalQuery({
       )
       .collect();
 
-    let treeStructure = "";
-    if (rootChildren.length > 0 && rootChildren[0]) {
-      treeStructure = await buildTreeString(rootChildren[0]._id);
+    if (rootChildren.length === 0 || !rootChildren[0]) {
+      return {
+        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        treeStructure: "",
+      };
     }
+
+    // Build the condition tree
+    const conditionTree = await buildConditionTree(rootChildren[0]._id);
+    if (!conditionTree) {
+      return {
+        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        treeStructure: "",
+      };
+    }
+
+    // Convert tree to conditions
+    const conditions = conditionTreeToConditions(conditionTree);
+
+    // Fetch all entities needed for name resolution
+    const allAppointmentTypes = await ctx.db
+      .query("appointmentTypes")
+      .collect();
+    const allPractitioners = await ctx.db.query("practitioners").collect();
+    const allLocations = await ctx.db.query("locations").collect();
+
+    // Generate natural language description
+    const naturalLanguageDescription = generateRuleName(
+      conditions,
+      allAppointmentTypes.map((at) => ({ _id: at._id, name: at.name })),
+      allPractitioners.map((p) => ({ _id: p._id, name: p.name })),
+      allLocations.map((l) => ({ _id: l._id, name: l.name })),
+    );
 
     return {
       description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
-      treeStructure,
+      treeStructure: naturalLanguageDescription,
     };
   },
   returns: v.object({
@@ -696,4 +794,412 @@ export function validateConditionTree(
   }
 
   return errors;
+}
+
+/**
+ * Helper to recursively determine if a rule tree is day-invariant.
+ * A tree is day-invariant if ALL leaf conditions are day-invariant.
+ */
+function isRuleTreeDayInvariant(
+  nodeId: Id<"ruleConditions">,
+  conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
+  allConditions: Doc<"ruleConditions">[],
+): boolean {
+  const node = conditionsMap.get(nodeId);
+  if (!node) {
+    return false;
+  }
+
+  // If this is a leaf condition, check if it's day-invariant
+  if (node.nodeType === "CONDITION") {
+    return node.conditionType
+      ? DAY_INVARIANT_CONDITION_TYPES.has(node.conditionType)
+      : false;
+  }
+
+  // For AND/NOT nodes, check all children recursively
+  const children = allConditions
+    .filter((c) => c.parentConditionId === nodeId)
+    .toSorted((a, b) => a.childOrder - b.childOrder);
+
+  if (children.length === 0) {
+    return false;
+  }
+
+  // A tree is day-invariant only if ALL children are day-invariant
+  return children.every((child) =>
+    isRuleTreeDayInvariant(child._id, conditionsMap, allConditions),
+  );
+}
+
+/**
+ * PERFORMANCE OPTIMIZATION: Load all rules and their condition trees for a rule set once.
+ * This allows us to evaluate many appointments against the same rules without reloading them each time.
+ *
+ * Returns a structured object containing all rules and all their conditions pre-loaded.
+ */
+export const loadRulesForRuleSet = internalQuery({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Get all enabled root rules for this rule set
+    const rules = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId_isRoot_enabled", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("isRoot", true)
+          .eq("enabled", true),
+      )
+      .collect();
+
+    // Load all conditions for all rules in a single pass
+    // This is much more efficient than loading them recursively for each slot
+    const allConditions = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    // Build a map for quick lookup
+    const conditionsMap = new Map<
+      Id<"ruleConditions">,
+      Doc<"ruleConditions">
+    >();
+    for (const condition of allConditions) {
+      conditionsMap.set(condition._id, condition);
+    }
+
+    // Classify each rule as day-invariant or time-variant
+    const classifiedRules = rules.map((r) => {
+      const rootChildren = allConditions.filter(
+        (c) => c.parentConditionId === r._id,
+      );
+      const firstChild = rootChildren[0];
+      const isDayInvariant =
+        rootChildren.length === 1 &&
+        firstChild !== undefined &&
+        isRuleTreeDayInvariant(firstChild._id, conditionsMap, allConditions);
+
+      return {
+        _id: r._id,
+        isDayInvariant,
+      };
+    });
+
+    return {
+      conditions: allConditions,
+      conditionsMap: Object.fromEntries(conditionsMap),
+      dayInvariantCount: classifiedRules.filter((r) => r.isDayInvariant).length,
+      rules: classifiedRules,
+      timeVariantCount: classifiedRules.filter((r) => !r.isDayInvariant).length,
+      totalConditions: allConditions.length,
+    };
+  },
+  returns: v.object({
+    conditions: v.array(v.any()),
+    conditionsMap: v.any(),
+    dayInvariantCount: v.number(),
+    rules: v.array(
+      v.object({
+        _id: v.id("ruleConditions"),
+        isDayInvariant: v.boolean(),
+      }),
+    ),
+    timeVariantCount: v.number(),
+    totalConditions: v.number(),
+  }),
+});
+
+/**
+ * PERFORMANCE OPTIMIZATION: Pre-evaluate day-invariant rules once per day.
+ * This avoids re-evaluating rules that don't depend on time-of-day.
+ * Plain TypeScript function to avoid serialization overhead.
+ */
+export async function preEvaluateDayInvariantRulesHelper(
+  db: DatabaseReader,
+  context: AppointmentContext,
+  rulesData: {
+    conditions: Doc<"ruleConditions">[];
+    conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>;
+    dayInvariantCount: number;
+    rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+  },
+): Promise<{
+  blockedByRuleIds: Id<"ruleConditions">[];
+  evaluatedCount: number;
+}> {
+  const blockedRuleIds: Id<"ruleConditions">[] = [];
+
+  // Helper to get condition from the pre-loaded map
+  const getCondition = (
+    nodeId: Id<"ruleConditions">,
+  ): Doc<"ruleConditions"> | undefined => {
+    return rulesData.conditionsMap.get(nodeId);
+  };
+
+  // Helper to get children of a condition from the pre-loaded conditions
+  const getChildren = (
+    parentId: Id<"ruleConditions">,
+  ): Doc<"ruleConditions">[] => {
+    const filtered = rulesData.conditions.filter(
+      (c) => c.parentConditionId === parentId,
+    );
+    return filtered.toSorted((a, b) => a.childOrder - b.childOrder);
+  };
+
+  // Recursive function to evaluate condition tree using pre-loaded data
+  const evaluateTreeFromLoaded = async (
+    nodeId: Id<"ruleConditions">,
+  ): Promise<boolean> => {
+    const node = getCondition(nodeId);
+    if (!node) {
+      throw new Error(`Condition node not found: ${nodeId}`);
+    }
+
+    // If this is a leaf condition, evaluate it directly
+    if (node.nodeType === "CONDITION") {
+      return await evaluateCondition(db, node, context);
+    }
+
+    // Get ordered children
+    const children = getChildren(nodeId);
+
+    if (children.length === 0) {
+      throw new Error(`Logical operator node has no children: ${nodeId}`);
+    }
+
+    // Evaluate based on node type
+    switch (node.nodeType) {
+      case "AND": {
+        // All children must be true
+        for (const child of children) {
+          const result = await evaluateTreeFromLoaded(child._id);
+          if (!result) {
+            return false; // Short-circuit
+          }
+        }
+        return true;
+      }
+
+      case "NOT": {
+        // Invert the result of the single child
+        if (children.length !== 1) {
+          throw new Error(`NOT node should have exactly 1 child: ${nodeId}`);
+        }
+        const child = children[0];
+        if (!child) {
+          return false;
+        }
+        const result = await evaluateTreeFromLoaded(child._id);
+        return !result;
+      }
+
+      default: {
+        throw new Error(`Unknown node type: ${node.nodeType}`);
+      }
+    }
+  };
+
+  // Evaluate only day-invariant rules
+  for (const rule of rulesData.rules) {
+    if (!rule.isDayInvariant) {
+      continue; // Skip time-variant rules
+    }
+
+    const rootChildren = getChildren(rule._id);
+
+    if (rootChildren.length === 0) {
+      continue; // Empty rule
+    }
+
+    if (rootChildren.length !== 1) {
+      throw new Error(
+        `Root rule node should have exactly 1 child: ${rule._id}`,
+      );
+    }
+
+    const firstChild = rootChildren[0];
+    if (!firstChild) {
+      continue;
+    }
+
+    try {
+      const isBlocked = await evaluateTreeFromLoaded(firstChild._id);
+      if (isBlocked) {
+        blockedRuleIds.push(rule._id);
+      }
+    } catch (error) {
+      console.error(`Error evaluating day-invariant rule ${rule._id}:`, error);
+      throw error;
+    }
+  }
+
+  return {
+    blockedByRuleIds: blockedRuleIds,
+    evaluatedCount: rulesData.dayInvariantCount,
+  };
+}
+
+/**
+ * PERFORMANCE OPTIMIZATION: Evaluate pre-loaded rules against an appointment context.
+ * Uses the rules and conditions loaded by loadRulesForRuleSet to avoid redundant database queries.
+ * This version also accepts pre-evaluated day-invariant rule results to skip redundant checks.
+ * Plain TypeScript function to avoid serialization overhead.
+ */
+export async function evaluateLoadedRulesHelper(
+  db: DatabaseReader,
+  context: AppointmentContext,
+  rulesData: {
+    conditions: Doc<"ruleConditions">[];
+    conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>;
+    rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+  },
+  preEvaluatedDayRules?: {
+    blockedByRuleIds: Id<"ruleConditions">[];
+    evaluatedCount: number;
+  },
+): Promise<{
+  blockedByRuleIds: Id<"ruleConditions">[];
+  dayInvariantSkipped: number;
+  isBlocked: boolean;
+  timeVariantEvaluated: number;
+}> {
+  const blockedByRuleIds: Id<"ruleConditions">[] = [];
+
+  // Start with pre-evaluated day-invariant rules if provided
+  if (preEvaluatedDayRules) {
+    blockedByRuleIds.push(...preEvaluatedDayRules.blockedByRuleIds);
+  }
+
+  // Helper to get condition from the pre-loaded map
+  const getCondition = (
+    nodeId: Id<"ruleConditions">,
+  ): Doc<"ruleConditions"> | undefined => {
+    return rulesData.conditionsMap.get(nodeId);
+  };
+
+  // Helper to get children of a condition from the pre-loaded conditions
+  const getChildren = (
+    parentId: Id<"ruleConditions">,
+  ): Doc<"ruleConditions">[] => {
+    const filtered = rulesData.conditions.filter(
+      (c) => c.parentConditionId === parentId,
+    );
+    return filtered.toSorted((a, b) => a.childOrder - b.childOrder);
+  };
+
+  // Recursive function to evaluate condition tree using pre-loaded data
+  const evaluateTreeFromLoaded = async (
+    nodeId: Id<"ruleConditions">,
+  ): Promise<boolean> => {
+    const node = getCondition(nodeId);
+    if (!node) {
+      throw new Error(
+        `Condition node not found: ${nodeId}. ` +
+          `This indicates data corruption - referenced node does not exist.`,
+      );
+    }
+
+    // If this is a leaf condition, evaluate it directly
+    if (node.nodeType === "CONDITION") {
+      return await evaluateCondition(db, node, context);
+    }
+
+    // Get ordered children
+    const children = getChildren(nodeId);
+
+    if (children.length === 0) {
+      throw new Error(
+        `Logical operator node has no children: ${nodeId}. ` +
+          `This indicates data corruption - AND/NOT nodes must have children.`,
+      );
+    }
+
+    // Evaluate based on node type
+    switch (node.nodeType) {
+      case "AND": {
+        // All children must be true
+        for (const child of children) {
+          const result = await evaluateTreeFromLoaded(child._id);
+          if (!result) {
+            return false; // Short-circuit: if any child is false, return false
+          }
+        }
+        return true;
+      }
+
+      case "NOT": {
+        // Invert the result of the single child
+        if (children.length !== 1) {
+          throw new Error(
+            `NOT node should have exactly 1 child, has ${children.length}: ${nodeId}. ` +
+              `This indicates data corruption.`,
+          );
+        }
+        const child = children[0];
+        if (!child) {
+          return false;
+        }
+        const result = await evaluateTreeFromLoaded(child._id);
+        return !result;
+      }
+
+      default: {
+        throw new Error(
+          `Unknown node type: ${node.nodeType}. ` +
+            `This indicates data corruption in rule condition tree.`,
+        );
+      }
+    }
+  };
+
+  // Evaluate only time-variant rules (day-invariant rules were pre-evaluated)
+  let timeVariantEvaluated = 0;
+  for (const rule of rulesData.rules) {
+    // Skip day-invariant rules if they were pre-evaluated
+    if (rule.isDayInvariant && preEvaluatedDayRules) {
+      continue;
+    }
+
+    // Get the first child of the root node (the actual condition tree)
+    const rootChildren = getChildren(rule._id);
+
+    timeVariantEvaluated++;
+
+    if (rootChildren.length === 0) {
+      // Empty rule - skip
+      continue;
+    }
+
+    // A root node should have exactly one child (the top of the condition tree)
+    if (rootChildren.length !== 1) {
+      throw new Error(
+        `Root rule node should have exactly 1 child, has ${rootChildren.length}: ${rule._id}. ` +
+          `This indicates data corruption in rule structure.`,
+      );
+    }
+
+    const rootChild = rootChildren[0];
+    if (!rootChild) {
+      continue;
+    }
+
+    // Evaluate the condition tree using pre-loaded data
+    const isBlocked = await evaluateTreeFromLoaded(rootChild._id);
+
+    if (isBlocked) {
+      blockedByRuleIds.push(rule._id);
+      // EARLY TERMINATION: Stop evaluating once we find a blocking rule
+      // No need to check remaining rules since we already know the slot is blocked
+      break;
+    }
+  }
+
+  return {
+    blockedByRuleIds,
+    dayInvariantSkipped: preEvaluatedDayRules?.evaluatedCount ?? 0,
+    isBlocked: blockedByRuleIds.length > 0,
+    timeVariantEvaluated,
+  };
 }

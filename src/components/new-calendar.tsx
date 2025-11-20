@@ -1,8 +1,10 @@
 "use client";
 
 import { AlertCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Temporal } from "temporal-polyfill";
+
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import {
 } from "../utils/time-calculations";
 import { CalendarProvider } from "./calendar-context";
 import { CalendarSidebar } from "./calendar-sidebar";
+import { BlockedSlotWarningDialog } from "./calendar/blocked-slot-warning-dialog";
 import { CalendarGrid } from "./calendar/calendar-grid";
 import { SLOT_DURATION } from "./calendar/types";
 import { useCalendarLogic } from "./calendar/use-calendar-logic";
@@ -43,13 +46,22 @@ export function NewCalendar({
   simulatedContext,
   simulationDate,
 }: NewCalendarProps) {
+  // State for appointment type selection - must be defined before useCalendarLogic
+  const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
+    Id<"appointmentTypes"> | undefined
+  >();
+
   const {
     addAppointment,
     appointments,
+    blockedSlots,
+    blockedSlotWarning,
+    // businessEndHour,
+    // businessStartHour,
+    // calendarRef,
     columns,
     currentTime,
     currentTimeSlot,
-    Dialog,
     draggedAppointment,
     dragPreview,
     handleDateChange,
@@ -65,6 +77,7 @@ export function NewCalendar({
     practiceId,
     selectedDate,
     selectedLocationId,
+    setBlockedSlotWarning,
     slotToTime,
     timeToSlot,
     totalSlots,
@@ -76,6 +89,7 @@ export function NewCalendar({
     onUpdateSimulatedContext,
     practiceId: propPracticeId,
     ruleSetId,
+    selectedAppointmentTypeId,
     selectedLocationId: externalSelectedLocationId,
     showGdtAlert,
     simulatedContext,
@@ -102,15 +116,47 @@ export function NewCalendar({
     ? getPublicHolidayName(selectedDate)
     : undefined;
 
+  const handleAppointmentTypeSelect = useCallback(
+    (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
+      setSelectedAppointmentTypeId(appointmentTypeId);
+
+      // Update simulatedContext immediately when appointment type is selected
+      // This will trigger blocked slots to show right away when the modal opens
+      if (simulatedContext && onUpdateSimulatedContext) {
+        if (appointmentTypeId) {
+          // Add appointment type to context - this triggers blocked slots query
+          const newContext = {
+            ...simulatedContext,
+            appointmentTypeId,
+          };
+          onUpdateSimulatedContext(newContext);
+        } else if (simulatedContext.appointmentTypeId !== undefined) {
+          // Remove appointment type from context - this clears blocked slots
+          const { locationId, patient, requestedAt } = simulatedContext;
+          onUpdateSimulatedContext({
+            ...(locationId && { locationId }),
+            patient,
+            ...(requestedAt && { requestedAt }),
+          });
+        }
+      }
+    },
+    [simulatedContext, onUpdateSimulatedContext],
+  );
+
   return (
     <CalendarProvider
       value={{
         currentTime,
         locationsData,
+        onAppointmentTypeSelect: handleAppointmentTypeSelect,
         onDateChange: handleDateChange,
         onLocationResolved,
         onLocationSelect: handleLocationSelect,
         onUpdateSimulatedContext,
+        practiceId: practiceId ?? undefined,
+        ruleSetId,
+        selectedAppointmentTypeId,
         selectedDate,
         selectedLocationId: simulatedContext?.locationId || selectedLocationId,
         showGdtAlert,
@@ -194,6 +240,7 @@ export function NewCalendar({
                 ) : (
                   <CalendarGrid
                     appointments={appointments}
+                    blockedSlots={blockedSlots}
                     columns={columns}
                     currentTimeSlot={currentTimeSlot}
                     draggedAppointment={draggedAppointment}
@@ -235,7 +282,20 @@ export function NewCalendar({
           </div>
         </div>
       </div>
-      {Dialog}
+      <BlockedSlotWarningDialog
+        onCancel={() => {
+          setBlockedSlotWarning(null);
+        }}
+        onConfirm={() => {
+          blockedSlotWarning?.onConfirm();
+          setBlockedSlotWarning(null);
+        }}
+        open={blockedSlotWarning !== null}
+        {...(blockedSlotWarning?.reason && {
+          reason: blockedSlotWarning.reason,
+        })}
+        slotTime={blockedSlotWarning?.slotTime || ""}
+      />
     </CalendarProvider>
   );
 }

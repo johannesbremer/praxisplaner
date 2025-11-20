@@ -1,13 +1,14 @@
 "use client";
 
 import { AlertCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calendar } from "@/components/ui/calendar";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sidebar,
   SidebarContent,
@@ -28,22 +29,53 @@ import {
   getDayName,
   temporalToDate,
 } from "../utils/time-calculations";
+import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { useCalendarContext } from "./calendar-context";
 import { LocationSelector } from "./location-selector";
+import { StaffAppointmentCreationModal } from "./staff-appointment-creation-modal";
 
 export function CalendarSidebar() {
   const {
     currentTime,
     locationsData,
+    onAppointmentTypeSelect,
     onDateChange,
     onLocationResolved,
     onLocationSelect,
     onUpdateSimulatedContext,
+    practiceId,
+    ruleSetId,
+    selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
     showGdtAlert,
     simulatedContext,
   } = useCalendarContext();
+
+  const [showCreationModal, setShowCreationModal] = useState(false);
+
+  // Stable callback to prevent re-renders
+  const handleTypeSelect = useCallback(
+    (typeId: Id<"appointmentTypes">) => {
+      if (onAppointmentTypeSelect) {
+        onAppointmentTypeSelect(typeId);
+        setShowCreationModal(true);
+      }
+    },
+    [onAppointmentTypeSelect],
+  );
+
+  // Handle modal close - optionally reset appointment type selection
+  const handleModalClose = useCallback(
+    (open: boolean, shouldResetAppointmentType = true) => {
+      setShowCreationModal(open);
+      if (!open && shouldResetAppointmentType && onAppointmentTypeSelect) {
+        // Reset appointment type selection when modal closes (unless manual placement was chosen)
+        onAppointmentTypeSelect();
+      }
+    },
+    [onAppointmentTypeSelect],
+  );
 
   // Load public holidays as Temporal.PlainDate
   const [publicHolidayDates, setPublicHolidayDates] = useState<
@@ -100,70 +132,107 @@ export function CalendarSidebar() {
   const dayName = getDayName(selectedDate);
 
   return (
-    <Sidebar collapsible="offcanvas" side="left" variant="sidebar">
-      <SidebarHeader />
+    <>
+      <Sidebar collapsible="offcanvas" side="left" variant="sidebar">
+        <SidebarHeader />
 
-      <SidebarContent>
-        {showGdtAlert && (
-          <div className="px-2 pt-2">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Keine GDT-Verbindung</AlertTitle>
-              <AlertDescription>
-                Keine Verbindung mit dem PVS möglich!
-              </AlertDescription>
-            </Alert>
-          </div>
-        )}
-        <SidebarGroup>
-          <SidebarGroupContent className="flex items-center justify-center">
-            <Calendar
-              className="rounded-md border-0"
-              disabled={{ dayOfWeek: [0, 6] }}
-              mode="single"
-              modifiers={{
-                publicHoliday: (date) => {
-                  const plainDate = dateToTemporal(date);
-                  return isPublicHolidaySync(plainDate, publicHolidaysSet);
-                },
-              }}
-              modifiersClassNames={{
-                publicHoliday: "bg-muted/40 text-muted-foreground opacity-60",
-              }}
-              onSelect={(date) => {
-                if (date) {
-                  onDateChange(dateToTemporal(date));
-                }
-              }}
-              selected={selectedDateAsDate}
-              weekStartsOn={1}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <SidebarContent>
+          <ScrollArea className="h-full">
+            <div className="pb-[100%]">
+              {showGdtAlert && (
+                <div className="px-2 pt-2">
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Keine GDT-Verbindung</AlertTitle>
+                    <AlertDescription>
+                      Keine Verbindung mit dem PVS möglich!
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
+              <SidebarGroup>
+                <SidebarGroupContent className="flex items-center justify-center">
+                  <Calendar
+                    className="rounded-md border-0"
+                    disabled={{ dayOfWeek: [0, 6] }}
+                    mode="single"
+                    modifiers={{
+                      publicHoliday: (date) => {
+                        const plainDate = dateToTemporal(date);
+                        return isPublicHolidaySync(
+                          plainDate,
+                          publicHolidaysSet,
+                        );
+                      },
+                    }}
+                    modifiersClassNames={{
+                      publicHoliday:
+                        "bg-muted/40 text-muted-foreground opacity-60",
+                    }}
+                    onSelect={(date) => {
+                      if (date) {
+                        onDateChange(dateToTemporal(date));
+                      }
+                    }}
+                    selected={selectedDateAsDate}
+                    weekStartsOn={1}
+                  />
+                </SidebarGroupContent>
+              </SidebarGroup>
 
-        {locationsData && locationsData.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <LocationSelector
-                locations={locationsData}
-                onLocationSelect={handleLocationSelect}
-                selectedLocationId={selectedLocationId}
-              />
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+              {locationsData && locationsData.length > 0 && (
+                <SidebarGroup>
+                  <SidebarGroupContent>
+                    <LocationSelector
+                      locations={locationsData}
+                      onLocationSelect={handleLocationSelect}
+                      selectedLocationId={selectedLocationId}
+                    />
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Status</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <div className="text-xs text-muted-foreground space-y-1 px-2">
-              <div>Aktuelle Zeit: {currentTimeFormatted}</div>
-              <div>Gewählt: {selectedDateFormatted}</div>
-              <div>Tag: {dayName}</div>
+              {ruleSetId && onAppointmentTypeSelect && (
+                <SidebarGroup>
+                  <SidebarGroupContent>
+                    <AppointmentTypeSelector
+                      onTypeSelect={handleTypeSelect}
+                      ruleSetId={ruleSetId}
+                      selectedType={selectedAppointmentTypeId}
+                    />
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              )}
+
+              <SidebarGroup>
+                <SidebarGroupLabel>Status</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <div className="text-xs text-muted-foreground space-y-1 px-2">
+                    <div>Aktuelle Zeit: {currentTimeFormatted}</div>
+                    <div>Gewählt: {selectedDateFormatted}</div>
+                    <div>Tag: {dayName}</div>
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
             </div>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
+          </ScrollArea>
+        </SidebarContent>
+      </Sidebar>
+
+      {/* Only render modal when we have all required IDs */}
+      {practiceId &&
+        ruleSetId &&
+        selectedAppointmentTypeId &&
+        selectedLocationId && (
+          <StaffAppointmentCreationModal
+            appointmentTypeId={selectedAppointmentTypeId}
+            locationId={selectedLocationId}
+            onOpenChange={handleModalClose}
+            open={showCreationModal}
+            practiceId={practiceId}
+            ruleSetId={ruleSetId}
+          />
+        )}
+    </>
   );
 }

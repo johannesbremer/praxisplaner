@@ -13,7 +13,6 @@ describe("CalendarAppointment", () => {
     id: "apt-1",
     isSimulation: false,
     startTime: "09:00",
-    title: "Patient Consultation",
   };
 
   const mockTimeToSlot = vi.fn((time: string) => {
@@ -44,11 +43,6 @@ describe("CalendarAppointment", () => {
   test("renders without crashing", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     expect(container).toBeTruthy();
-  });
-
-  test("displays appointment title", () => {
-    render(<CalendarAppointment {...defaultProps} />);
-    expect(screen.getByText("Patient Consultation")).toBeInTheDocument();
   });
 
   test("displays appointment start time", () => {

@@ -136,6 +136,12 @@ function PraxisPlanerComponent() {
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const currentPractice = practicesQuery?.[0];
 
+  // Query active rule set for the practice
+  const activeRuleSet = useQuery(
+    api.ruleSets.getActiveRuleSet,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
+
   // Query locations to map standortParam to locationId
   const locationsData = useQuery(
     api.entities.getLocationsFromActive,
@@ -1197,6 +1203,7 @@ function PraxisPlanerComponent() {
               <PraxisCalendar
                 onDateChange={handleDateChange}
                 onLocationResolved={handleLocationResolved}
+                ruleSetId={activeRuleSet?._id}
                 selectedLocationId={selectedLocation?._id}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}

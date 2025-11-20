@@ -4,11 +4,18 @@ import { Plus } from "lucide-react";
 
 import type { Appointment } from "./types";
 
+import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
 import { CalendarTimeSlots } from "./calendar-time-slots";
 
+interface BlockedSlot {
+  column: string;
+  slot: number;
+}
+
 interface CalendarGridProps {
   appointments: Appointment[];
+  blockedSlots?: BlockedSlot[];
   columns: { id: string; title: string }[];
   currentTimeSlot: number;
   draggedAppointment: Appointment | null;
@@ -37,6 +44,7 @@ interface CalendarGridProps {
 
 export function CalendarGrid({
   appointments,
+  blockedSlots = [],
   columns,
   currentTimeSlot,
   draggedAppointment,
@@ -91,7 +99,7 @@ export function CalendarGrid({
 
     return (
       <div
-        className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-white border-dashed rounded z-20 h-[var(--calendar-appointment-height)] min-h-4 top-[var(--calendar-appointment-top)]`}
+        className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-white border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
         style={
           {
             "--calendar-appointment-height": `${height}px`,
@@ -100,13 +108,41 @@ export function CalendarGrid({
         }
       >
         <div className="p-1 text-white text-xs">
-          <div className="font-medium truncate">{draggedAppointment.title}</div>
           <div className="text-xs opacity-90">
             {slotToTime(dragPreview.slot)}
           </div>
         </div>
       </div>
     );
+  };
+
+  const renderBlockedSlots = (column: string) => {
+    const columnBlockedSlots = blockedSlots.filter(
+      (slot) => slot.column === column,
+    );
+
+    // Group consecutive blocked slots together to avoid overlapping overlays
+    const groupedSlots: { count: number; start: number }[] = [];
+    const sortedSlots = columnBlockedSlots.toSorted((a, b) => a.slot - b.slot);
+
+    for (const slot of sortedSlots) {
+      const lastGroup = groupedSlots[groupedSlots.length - 1];
+      if (lastGroup && slot.slot === lastGroup.start + lastGroup.count) {
+        // Consecutive slot, extend the group
+        lastGroup.count++;
+      } else {
+        // New group
+        groupedSlots.push({ count: 1, start: slot.slot });
+      }
+    }
+
+    return groupedSlots.map((group) => (
+      <BlockedSlotOverlay
+        key={`blocked-${column}-${group.start}`}
+        slot={group.start}
+        slotCount={group.count}
+      />
+    ));
   };
 
   return (
@@ -163,7 +199,7 @@ export function CalendarGrid({
 
             {currentTimeSlot >= 0 && (
               <div
-                className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 pointer-events-none top-[var(--calendar-current-time-top)]"
+                className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 pointer-events-none top-(--calendar-current-time-top)"
                 style={
                   {
                     "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
@@ -174,6 +210,7 @@ export function CalendarGrid({
               </div>
             )}
 
+            {renderBlockedSlots(column.id)}
             {renderDragPreview(column.id)}
             {renderAppointments(column.id)}
           </div>

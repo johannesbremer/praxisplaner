@@ -22,7 +22,6 @@ export interface Appointment {
     practitionerId?: Doc<"appointments">["practitionerId"];
   };
   startTime: string;
-  title: string;
 }
 
 export interface NewCalendarProps {
@@ -35,6 +34,7 @@ export interface NewCalendarProps {
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId?: Id<"practices">;
   ruleSetId?: SchedulingRuleSetId;
+  selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;

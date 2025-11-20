@@ -14,7 +14,6 @@ const baseAppointment: Doc<"appointments"> = {
   locationId: "location1" as Id<"locations">,
   practiceId: "practice1" as Id<"practices">,
   start: "2024-01-15T10:00:00Z",
-  title: "Simulationstermin",
 };
 
 const createAppointment = (
@@ -44,7 +43,6 @@ describe("Regeln Integration - Simulation Metadata", () => {
   it("defaults to real appointments when simulation flag is absent", () => {
     const event = createAppointment({
       _id: "real-appointment-001" as Id<"appointments">,
-      title: "Regulärer Termin",
     });
 
     expect(event.isSimulation).toBeUndefined();
@@ -75,7 +73,6 @@ describe("Regeln Integration - Simulation Metadata", () => {
       _id: "sim-appointment-practitioner" as Id<"appointments">,
       isSimulation: true,
       practitionerId,
-      title: "Simulation mit Arzt",
     });
 
     expect(event.practitionerId).toBe(practitionerId);
