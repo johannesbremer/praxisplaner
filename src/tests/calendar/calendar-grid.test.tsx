@@ -98,9 +98,10 @@ describe("CalendarGrid", () => {
     });
 
     test("renders all appointments", () => {
-      render(<CalendarGrid {...defaultProps} />);
-      expect(screen.getByText("Morning Consultation")).toBeInTheDocument();
-      expect(screen.getByText("Afternoon Checkup")).toBeInTheDocument();
+      const { container } = render(<CalendarGrid {...defaultProps} />);
+      // Check that both appointments are rendered as draggable elements
+      const draggableElements = container.querySelectorAll("[draggable=true]");
+      expect(draggableElements.length).toBe(mockAppointments.length);
     });
 
     test("renders appointments in correct columns", () => {
@@ -129,9 +130,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} appointments={[]} />,
       );
       expect(container).toBeTruthy();
-      expect(
-        screen.queryByText("Morning Consultation"),
-      ).not.toBeInTheDocument();
+      // Verify no appointment times are rendered
+      const draggableElements = container.querySelectorAll("[draggable=true]");
+      expect(draggableElements.length).toBe(0);
     });
 
     test("renders with single column", () => {
@@ -180,11 +181,9 @@ describe("CalendarGrid", () => {
     });
 
     test("calls onEditAppointment when appointment is clicked", () => {
-      render(<CalendarGrid {...defaultProps} />);
+      const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointment = screen
-        .getByText("Morning Consultation")
-        .closest("div");
+      const appointment = container.querySelector("[draggable=true]");
       if (appointment) {
         fireEvent.click(appointment);
         expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
@@ -194,11 +193,9 @@ describe("CalendarGrid", () => {
     });
 
     test("calls onDeleteAppointment on appointment right-click", () => {
-      render(<CalendarGrid {...defaultProps} />);
+      const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointment = screen
-        .getByText("Morning Consultation")
-        .closest("div");
+      const appointment = container.querySelector("[draggable=true]");
       if (appointment) {
         fireEvent.contextMenu(appointment);
         expect(
@@ -313,7 +310,7 @@ describe("CalendarGrid", () => {
         return;
       }
 
-      render(
+      const { container } = render(
         <CalendarGrid
           {...defaultProps}
           draggedAppointment={draggedApt}
@@ -321,9 +318,11 @@ describe("CalendarGrid", () => {
         />,
       );
 
-      // Preview should show appointment title
-      const previews = screen.getAllByText("Morning Consultation");
-      expect(previews.length).toBeGreaterThan(1); // Original + preview
+      // Preview should show appointment with dashed border
+      const preview = container.querySelector(".border-dashed");
+      expect(preview).toBeInTheDocument();
+      // Preview should show the start time
+      expect(preview?.textContent).toContain("01:00"); // slot 12 = 01:00
     });
   });
 
@@ -417,14 +416,13 @@ describe("CalendarGrid", () => {
         },
       ];
 
-      render(
+      const { container } = render(
         <CalendarGrid {...defaultProps} appointments={mixedAppointments} />,
       );
 
       // All appointments should be rendered
-      expect(screen.getByText("Appointment 1")).toBeInTheDocument();
-      expect(screen.getByText("Appointment 2")).toBeInTheDocument();
-      expect(screen.getByText("Appointment 3")).toBeInTheDocument();
+      const draggableElements = container.querySelectorAll("[draggable=true]");
+      expect(draggableElements.length).toBe(mixedAppointments.length);
     });
 
     test("handles appointments with overlapping times", () => {
@@ -447,7 +445,7 @@ describe("CalendarGrid", () => {
         },
       ];
 
-      render(
+      const { container } = render(
         <CalendarGrid
           {...defaultProps}
           appointments={overlappingAppointments}
@@ -455,8 +453,8 @@ describe("CalendarGrid", () => {
       );
 
       // Both appointments should render (visual overlap is handled by CSS)
-      expect(screen.getByText("Appointment 1")).toBeInTheDocument();
-      expect(screen.getByText("Appointment 2")).toBeInTheDocument();
+      const draggableElements = container.querySelectorAll("[draggable=true]");
+      expect(draggableElements.length).toBe(2);
     });
   });
 
