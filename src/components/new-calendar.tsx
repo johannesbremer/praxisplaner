@@ -121,13 +121,25 @@ export function NewCalendar({
     (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
       setSelectedAppointmentTypeId(appointmentTypeId);
 
-      // Update simulatedContext if we're in simulation mode
+      // Update simulatedContext immediately when appointment type is selected
+      // This will trigger blocked slots to show right away when the modal opens
       if (simulatedContext && onUpdateSimulatedContext) {
-        const newContext = {
-          ...simulatedContext,
-          ...(appointmentTypeId && { appointmentTypeId }),
-        };
-        onUpdateSimulatedContext(newContext);
+        if (appointmentTypeId) {
+          // Add appointment type to context - this triggers blocked slots query
+          const newContext = {
+            ...simulatedContext,
+            appointmentTypeId,
+          };
+          onUpdateSimulatedContext(newContext);
+        } else if (simulatedContext.appointmentTypeId !== undefined) {
+          // Remove appointment type from context - this clears blocked slots
+          const { locationId, patient, requestedAt } = simulatedContext;
+          onUpdateSimulatedContext({
+            ...(locationId && { locationId }),
+            patient,
+            ...(requestedAt && { requestedAt }),
+          });
+        }
       }
     },
     [simulatedContext, onUpdateSimulatedContext],

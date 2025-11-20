@@ -235,10 +235,9 @@ export function StaffAppointmentCreationModal({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>Termin erstellen</DialogTitle>
-              <DialogDescription>
-                Terminart: {appointmentType?.name ?? "Unbekannt"}
-              </DialogDescription>
+              <DialogTitle>
+                {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
+              </DialogTitle>
             </DialogHeader>
 
             <div className="grid gap-4 py-4">
@@ -251,21 +250,29 @@ export function StaffAppointmentCreationModal({
                 variant="outline"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                Nächster verfügbarer Termin
-                {nextAvailableSlot && (
-                  <span className="ml-2 text-sm text-muted-foreground">
-                    (
+                {nextAvailableSlot ? (
+                  <>
+                    {Temporal.Instant.from(nextAvailableSlot.startTime)
+                      .toZonedDateTimeISO("Europe/Berlin")
+                      .toPlainTime()
+                      .toLocaleString("de-DE", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                    Uhr am{" "}
                     {Temporal.Instant.from(nextAvailableSlot.startTime)
                       .toZonedDateTimeISO("Europe/Berlin")
                       .toPlainDate()
                       .toLocaleString("de-DE")}
-                    )
-                  </span>
+                  </>
+                ) : (
+                  "Nächster verfügbarer Termin"
                 )}
               </Button>
 
               <Button
                 className="w-full justify-start"
+                disabled={availableSlots === undefined}
                 onClick={() => {
                   // Close modal but keep appointment type selected for manual placement
                   handleClose(false);
@@ -273,7 +280,7 @@ export function StaffAppointmentCreationModal({
                 variant="outline"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                Termin manuell wählen
+                Anderer Termin
               </Button>
             </div>
 
