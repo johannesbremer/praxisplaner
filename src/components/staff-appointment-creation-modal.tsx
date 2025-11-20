@@ -18,9 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
@@ -85,10 +82,8 @@ export function StaffAppointmentCreationModal({
   );
 
   const form = useForm({
-    defaultValues: {
-      title: "",
-    },
-    onSubmit: async ({ value }) => {
+    defaultValues: {},
+    onSubmit: async () => {
       try {
         if (mode === "next" && nextAvailableSlot) {
           // Create appointment at next available slot
@@ -104,8 +99,6 @@ export function StaffAppointmentCreationModal({
             practiceId,
             practitionerId: nextAvailableSlot.practitionerId,
             start: nextAvailableSlot.startTime,
-            title:
-              value.title || `Termin - ${appointmentType?.name ?? "Unbekannt"}`,
           });
 
           toast.success("Termin erfolgreich erstellt");
@@ -177,44 +170,7 @@ export function StaffAppointmentCreationModal({
             </DialogHeader>
 
             <div className="grid gap-4 py-4">
-              <form.Field
-                name="title"
-                validators={{
-                  onChange: ({ value }) =>
-                    value.trim().length === 0
-                      ? "Titel ist erforderlich"
-                      : undefined,
-                }}
-              >
-                {(field) => {
-                  const isInvalid =
-                    field.state.meta.isTouched && !field.state.meta.isValid;
-                  return (
-                    <Field data-invalid={isInvalid}>
-                      <Label htmlFor={field.name}>Titel</Label>
-                      <Input
-                        aria-invalid={isInvalid}
-                        autoFocus
-                        id={field.name}
-                        name={field.name}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => {
-                          field.handleChange(e.target.value);
-                        }}
-                        placeholder={`Termin - ${appointmentType?.name ?? "Unbekannt"}`}
-                        value={field.state.value}
-                      />
-                      {isInvalid && (
-                        <FieldError
-                          errors={field.state.meta.errors
-                            .filter(Boolean)
-                            .map((error) => ({ message: String(error) }))}
-                        />
-                      )}
-                    </Field>
-                  );
-                }}
-              </form.Field>
+              {/* Form fields can be added here if needed in the future */}
             </div>
 
             <DialogFooter>
@@ -238,6 +194,9 @@ export function StaffAppointmentCreationModal({
               <DialogTitle>
                 {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
               </DialogTitle>
+              <DialogDescription>
+                Wählen Sie eine Option, um einen Termin zu erstellen.
+              </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-4">

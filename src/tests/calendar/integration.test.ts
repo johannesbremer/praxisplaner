@@ -21,7 +21,6 @@ describe("Calendar Integration Scenarios", () => {
         id: crypto.randomUUID(),
         isSimulation: false,
         startTime,
-        title: "New Patient",
       };
 
       expect(appointment.startTime).toBe("09:00");
@@ -37,7 +36,6 @@ describe("Calendar Integration Scenarios", () => {
         id: "apt-1",
         isSimulation: false,
         startTime: "09:00",
-        title: "Checkup",
       };
 
       const newSlot = 120; // 10:00 AM
@@ -62,7 +60,6 @@ describe("Calendar Integration Scenarios", () => {
         id: "apt-1",
         isSimulation: false,
         startTime: "09:00",
-        title: "Consultation",
       };
 
       // Simulate resizing by 3 slots (15 minutes)
@@ -98,11 +95,11 @@ describe("Calendar Integration Scenarios", () => {
     });
 
     test("should handle special resource columns", () => {
-      const columns = [
-        { id: "practitioner-1", title: "Dr. Smith", type: "practitioner" },
-        { id: "practitioner-2", title: "Dr. Jones", type: "practitioner" },
-        { id: "ekg", title: "EKG", type: "equipment" },
-        { id: "labor", title: "Labor", type: "equipment" },
+      const columns: { type: string }[] = [
+        { type: "practitioner" },
+        { type: "practitioner" },
+        { type: "equipment" },
+        { type: "equipment" },
       ];
 
       const practitionerColumns = columns.filter(
@@ -347,7 +344,6 @@ describe("Calendar Integration Scenarios", () => {
           id: "real-1",
           isSimulation: false,
           startTime: "09:00",
-          title: "Real Appointment",
         },
         {
           color: "bg-green-500",
@@ -357,7 +353,6 @@ describe("Calendar Integration Scenarios", () => {
           isSimulation: true,
           replacesAppointmentId: "real-1" as never,
           startTime: "10:00",
-          title: "Simulated Appointment",
         },
       ];
 
@@ -380,7 +375,6 @@ describe("Calendar Integration Scenarios", () => {
         id: "real-1",
         isSimulation: false,
         startTime: "09:00",
-        title: "Original",
       };
 
       const simulatedAppointment = {
@@ -391,7 +385,6 @@ describe("Calendar Integration Scenarios", () => {
         isSimulation: true,
         replacesAppointmentId: realAppointment.convexId,
         startTime: "10:00",
-        title: "Moved",
       };
 
       // In simulation mode, real appointment should be hidden if it has a replacement
@@ -495,12 +488,10 @@ describe("Calendar Integration Scenarios", () => {
         id: "apt-1",
         isSimulation: false,
         startTime: "09:00",
-        title: "Test",
       };
 
       // All required fields present
       expect(appointment.id).toBeTruthy();
-      expect(appointment.title).toBeTruthy();
       expect(appointment.startTime).toBeTruthy();
       expect(appointment.duration).toBeGreaterThan(0);
     });

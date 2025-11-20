@@ -116,7 +116,6 @@ export function CalendarGrid({
         }
       >
         <div className="p-1 text-white text-xs">
-          <div className="font-medium truncate">{draggedAppointment.title}</div>
           <div className="text-xs opacity-90">
             {slotToTime(dragPreview.slot)}
           </div>
@@ -159,10 +158,10 @@ export function CalendarGrid({
       (slot) => slot.column === column,
     );
 
-    return columnBreakSlots.map((breakSlot) => (
+    return columnBreakSlots.map((breakSlot, index) => (
       <div
         className="absolute left-0 right-0 bg-muted/40 pointer-events-none z-10"
-        key={`break-${column}-${breakSlot.slot}`}
+        key={`break-${column}-${breakSlot.slot}-${index}`}
         style={{
           height: `${breakSlot.slotCount * 16}px`,
           top: `${breakSlot.slot * 16}px`,
