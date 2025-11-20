@@ -196,9 +196,12 @@ export function useCalendarLogic({
     ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
   );
 
-  // Query for available/blocked slots when in simulation mode with appointment type selected
+  // Query for available/blocked slots when:
+  // 1. In simulation mode with appointment type selected, OR
+  // 2. In real mode with appointment type selected via calendar sidebar
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
+    // Simulation mode: check simulatedContext
     simulatedContext?.appointmentTypeId &&
       simulatedContext.locationId &&
       practiceId &&
@@ -209,7 +212,21 @@ export function useCalendarLogic({
           ruleSetId,
           simulatedContext,
         }
-      : "skip",
+      : // Real mode: check selectedAppointmentTypeId
+        selectedAppointmentTypeId &&
+          selectedLocationId &&
+          practiceId &&
+          ruleSetId
+        ? {
+            date: selectedDate.toString(),
+            practiceId,
+            ruleSetId,
+            simulatedContext: createSimulatedContext({
+              appointmentTypeId: selectedAppointmentTypeId,
+              locationId: selectedLocationId,
+            }),
+          }
+        : "skip",
   );
 
   // Mutations
