@@ -1,5 +1,6 @@
 "use client";
 
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarIcon } from "lucide-react";
@@ -194,9 +195,11 @@ export function StaffAppointmentCreationModal({
               <DialogTitle>
                 {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
               </DialogTitle>
-              <DialogDescription>
-                Wählen Sie eine Option, um einen Termin zu erstellen.
-              </DialogDescription>
+              <VisuallyHidden>
+                <DialogDescription>
+                  Wählen Sie eine Option, um einen Termin zu erstellen.
+                </DialogDescription>
+              </VisuallyHidden>
             </DialogHeader>
 
             <div className="grid gap-4 py-4">
