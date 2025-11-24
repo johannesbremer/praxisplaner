@@ -61,7 +61,6 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
-import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -338,9 +337,8 @@ function LogicView() {
     if (ruleSetSlug === "ungespeichert") {
       return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
     }
-    return ruleSetsWithActive?.find(
-      (rs) => slugify(rs.description) === ruleSetSlug,
-    );
+    // Match by ID directly - IDs are unique and prevent collisions
+    return ruleSetsWithActive?.find((rs) => rs._id === ruleSetSlug);
   }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
 
   const preliminaryWorkingRuleSet = useMemo(
