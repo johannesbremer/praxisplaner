@@ -70,6 +70,28 @@ export default defineSchema({
     .index("by_parentId", ["parentId"])
     .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
 
+  blockedSlots: defineTable({
+    // Core blocked slot fields
+    end: v.string(), // ISO datetime string
+    start: v.string(), // ISO datetime string
+    title: v.string(), // Required title for the blocked slot
+
+    // Additional fields
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    practiceId: v.id("practices"), // Multi-tenancy support
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+
+    // Metadata
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+  })
+    .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_start", ["start"])
+    .index("by_isSimulation", ["isSimulation"])
+    .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
+
   locations: defineTable({
     name: v.string(),
     parentId: v.optional(v.id("locations")), // Reference to the entity this was copied from

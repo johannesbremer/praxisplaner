@@ -1,12 +1,83 @@
 import { v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader } from "./_generated/server";
 
-import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
 
 type AppointmentDoc = Doc<"appointments">;
-
 type AppointmentScope = "all" | "real" | "simulation";
+
+type BlockedSlotDoc = Doc<"blockedSlots">;
+
+/**
+ * Remaps entity IDs in blocked slots from source rule set to target rule set.
+ * This is needed when viewing simulation data (from a different rule set) in the
+ * context of the active rule set.
+ */
+async function remapBlockedSlotIds(
+  ctx: { db: DatabaseReader },
+  blockedSlots: BlockedSlotDoc[],
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<BlockedSlotDoc[]> {
+  // If rule sets are the same, no remapping needed
+  if (sourceRuleSetId === targetRuleSetId) {
+    return blockedSlots;
+  }
+
+  // Get entity mappings
+  const locationMapping = await mapEntityIdsBetweenRuleSets(
+    ctx.db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    "locations",
+  );
+  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
+    ctx.db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    "practitioners",
+  );
+
+  // Remap IDs in blocked slots
+  return blockedSlots.map((slot) => {
+    const remappedSlot: BlockedSlotDoc = {
+      ...slot,
+      locationId: locationMapping.get(slot.locationId) ?? slot.locationId,
+    };
+    if (slot.practitionerId) {
+      remappedSlot.practitionerId =
+        practitionerMapping.get(slot.practitionerId) ?? slot.practitionerId;
+    }
+    return remappedSlot;
+  });
+}
+
+/**
+ * Remaps entity IDs in appointments from source rule set to target rule set.
+ */
+function combineBlockedSlotsForSimulation(
+  blockedSlots: BlockedSlotDoc[],
+): BlockedSlotDoc[] {
+  const simulationSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation === true,
+  );
+
+  const replacedIds = new Set(
+    simulationSlots.map((slot) => slot.replacesBlockedSlotId).filter(Boolean),
+  );
+
+  const realSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation !== true && !replacedIds.has(slot._id),
+  );
+
+  const merged = [...realSlots, ...simulationSlots];
+
+  return merged.toSorted((a, b) => a.start.localeCompare(b.start));
+}
 
 function combineForSimulationScope(
   appointments: AppointmentDoc[],
@@ -31,32 +102,113 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+async function remapAppointmentIds(
+  ctx: { db: DatabaseReader },
+  appointments: AppointmentDoc[],
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<AppointmentDoc[]> {
+  // If rule sets are the same, no remapping needed
+  if (sourceRuleSetId === targetRuleSetId) {
+    return appointments;
+  }
+
+  // Get entity mappings
+  const locationMapping = await mapEntityIdsBetweenRuleSets(
+    ctx.db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    "locations",
+  );
+  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
+    ctx.db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    "practitioners",
+  );
+  const appointmentTypeMapping = await mapEntityIdsBetweenRuleSets(
+    ctx.db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    "appointmentTypes",
+  );
+
+  // Remap IDs in appointments
+  return appointments.map((appointment) => {
+    const remappedAppointment: AppointmentDoc = {
+      ...appointment,
+      appointmentTypeId:
+        appointmentTypeMapping.get(appointment.appointmentTypeId) ??
+        appointment.appointmentTypeId,
+      locationId:
+        locationMapping.get(appointment.locationId) ?? appointment.locationId,
+    };
+    if (appointment.practitionerId) {
+      remappedAppointment.practitionerId =
+        practitionerMapping.get(appointment.practitionerId) ??
+        appointment.practitionerId;
+    }
+    return remappedAppointment;
+  });
+}
+
 // Query to get all appointments
 export const getAppointments = query({
   args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
     const scope: AppointmentScope = args.scope ?? "real";
 
-    const appointments = await ctx.db
+    let appointments = await ctx.db
       .query("appointments")
       .order("asc")
       .collect();
 
+    // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
+    // from active rule set to selected rule set BEFORE combining with simulation data
+    if (
+      args.selectedRuleSetId &&
+      args.activeRuleSetId &&
+      args.selectedRuleSetId !== args.activeRuleSetId
+    ) {
+      // Only remap real appointments (simulation appointments already have correct IDs)
+      const realAppointments = appointments.filter(
+        (appointment) => appointment.isSimulation !== true,
+      );
+      const simulationAppointments = appointments.filter(
+        (appointment) => appointment.isSimulation === true,
+      );
+
+      const remappedRealAppointments = await remapAppointmentIds(
+        ctx,
+        realAppointments,
+        args.activeRuleSetId,
+        args.selectedRuleSetId,
+      );
+
+      appointments = [...remappedRealAppointments, ...simulationAppointments];
+    }
+
+    let resultAppointments: AppointmentDoc[];
+
     if (scope === "simulation") {
-      return combineForSimulationScope(appointments);
+      resultAppointments = combineForSimulationScope(appointments);
+    } else if (scope === "all") {
+      resultAppointments = appointments.toSorted((a, b) =>
+        a.start.localeCompare(b.start),
+      );
+    } else {
+      resultAppointments = appointments
+        .filter((appointment) => appointment.isSimulation !== true)
+        .toSorted((a, b) => a.start.localeCompare(b.start));
     }
 
-    if (scope === "all") {
-      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
-    }
-
-    return appointments
-      .filter((appointment) => appointment.isSimulation !== true)
-      .toSorted((a, b) => a.start.localeCompare(b.start));
+    return resultAppointments;
   },
   returns: v.array(
     v.object({
@@ -214,8 +366,8 @@ export const deleteAppointment = mutation({
   returns: v.null(),
 });
 
-// Mutation to delete all simulated appointments
-export const deleteAllSimulatedAppointments = mutation({
+// Internal mutation to delete all simulated appointments
+export const deleteAllSimulatedAppointments = internalMutation({
   args: {},
   handler: async (ctx) => {
     const simulatedAppointments = await ctx.db
@@ -230,4 +382,197 @@ export const deleteAllSimulatedAppointments = mutation({
     return simulatedAppointments.length;
   },
   returns: v.number(),
+});
+
+// Query to get all blocked slots
+export const getBlockedSlots = query({
+  args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
+    scope: v.optional(
+      v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+    ),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
+  },
+  handler: async (ctx, args) => {
+    const scope: AppointmentScope = args.scope ?? "real";
+
+    let blockedSlots = await ctx.db
+      .query("blockedSlots")
+      .order("asc")
+      .collect();
+
+    // If both rule set IDs are provided and different, remap entity IDs in REAL blocked slots
+    // from active rule set to selected rule set BEFORE combining with simulation data
+    if (
+      args.selectedRuleSetId &&
+      args.activeRuleSetId &&
+      args.selectedRuleSetId !== args.activeRuleSetId
+    ) {
+      // Only remap real blocked slots (simulation slots already have correct IDs)
+      const realSlots = blockedSlots.filter(
+        (slot) => slot.isSimulation !== true,
+      );
+      const simulationSlots = blockedSlots.filter(
+        (slot) => slot.isSimulation === true,
+      );
+
+      const remappedRealSlots = await remapBlockedSlotIds(
+        ctx,
+        realSlots,
+        args.activeRuleSetId,
+        args.selectedRuleSetId,
+      );
+
+      blockedSlots = [...remappedRealSlots, ...simulationSlots];
+    }
+
+    let resultSlots: BlockedSlotDoc[];
+
+    if (scope === "simulation") {
+      resultSlots = combineBlockedSlotsForSimulation(blockedSlots);
+    } else if (scope === "real") {
+      resultSlots = blockedSlots.filter(
+        (blockedSlot) => blockedSlot.isSimulation !== true,
+      );
+    } else {
+      resultSlots = blockedSlots;
+    }
+
+    return resultSlots;
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("blockedSlots"),
+      createdAt: v.int64(),
+      end: v.string(),
+      isSimulation: v.optional(v.boolean()),
+      lastModified: v.int64(),
+      locationId: v.id("locations"),
+      practiceId: v.id("practices"),
+      practitionerId: v.optional(v.id("practitioners")),
+      replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+      start: v.string(),
+      title: v.string(),
+    }),
+  ),
+});
+
+// Mutation to create a blocked slot
+export const createBlockedSlot = mutation({
+  args: {
+    end: v.string(),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    practiceId: v.id("practices"),
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+    start: v.string(),
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { isSimulation, replacesBlockedSlotId, ...rest } = args;
+
+    if (replacesBlockedSlotId && isSimulation !== true) {
+      throw new Error(
+        "replacesBlockedSlotId can only be used with isSimulation=true",
+      );
+    }
+
+    const id = await ctx.db.insert("blockedSlots", {
+      ...rest,
+      createdAt: BigInt(Date.now()),
+      isSimulation: isSimulation ?? false,
+      lastModified: BigInt(Date.now()),
+      ...(replacesBlockedSlotId && { replacesBlockedSlotId }),
+    });
+
+    return id;
+  },
+  returns: v.id("blockedSlots"),
+});
+
+// Mutation to update a blocked slot
+export const updateBlockedSlot = mutation({
+  args: {
+    end: v.optional(v.string()),
+    id: v.id("blockedSlots"),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.optional(v.id("locations")),
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+    start: v.optional(v.string()),
+    title: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...updates } = args;
+
+    await ctx.db.patch(id, {
+      ...updates,
+      lastModified: BigInt(Date.now()),
+    });
+
+    return null;
+  },
+  returns: v.null(),
+});
+
+// Mutation to delete a blocked slot
+export const deleteBlockedSlot = mutation({
+  args: {
+    id: v.id("blockedSlots"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+    return null;
+  },
+  returns: v.null(),
+});
+
+// Internal mutation to delete all simulated blocked slots
+export const deleteAllSimulatedBlockedSlots = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const simulatedBlockedSlots = await ctx.db
+      .query("blockedSlots")
+      .withIndex("by_isSimulation", (q) => q.eq("isSimulation", true))
+      .collect();
+
+    for (const blockedSlot of simulatedBlockedSlots) {
+      await ctx.db.delete(blockedSlot._id);
+    }
+
+    return simulatedBlockedSlots.length;
+  },
+  returns: v.number(),
+});
+
+// Combined mutation to delete all simulated appointments and blocked slots
+export const deleteAllSimulatedData = mutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    appointmentsDeleted: number;
+    blockedSlotsDeleted: number;
+    total: number;
+  }> => {
+    const appointmentsDeleted: number = await ctx.runMutation(
+      internal.appointments.deleteAllSimulatedAppointments,
+    );
+    const blockedSlotsDeleted: number = await ctx.runMutation(
+      internal.appointments.deleteAllSimulatedBlockedSlots,
+    );
+
+    return {
+      appointmentsDeleted,
+      blockedSlotsDeleted,
+      total: appointmentsDeleted + blockedSlotsDeleted,
+    };
+  },
+  returns: v.object({
+    appointmentsDeleted: v.number(),
+    blockedSlotsDeleted: v.number(),
+    total: v.number(),
+  }),
 });
