@@ -142,8 +142,8 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
 
-  const deleteAllSimulatedAppointmentsMutation = useMutation(
-    api.appointments.deleteAllSimulatedAppointments,
+  const deleteAllSimulatedDataMutation = useMutation(
+    api.appointments.deleteAllSimulatedData,
   );
 
   // Local appointments for simulation
@@ -187,19 +187,29 @@ function LogicView() {
     async (options: { silent?: boolean } = {}) => {
       const { silent = false } = options;
       try {
-        const deletedCount = await deleteAllSimulatedAppointmentsMutation({});
+        const result = await deleteAllSimulatedDataMutation({});
+        const totalDeleted = result.total;
 
         if (!silent) {
-          if (deletedCount > 0) {
-            toast.success(
-              `${deletedCount} Simulationstermin${deletedCount === 1 ? "" : "e"} gelöscht`,
-            );
+          if (totalDeleted > 0) {
+            const parts = [];
+            if (result.appointmentsDeleted > 0) {
+              parts.push(
+                `${result.appointmentsDeleted} Termin${result.appointmentsDeleted === 1 ? "" : "e"}`,
+              );
+            }
+            if (result.blockedSlotsDeleted > 0) {
+              parts.push(
+                `${result.blockedSlotsDeleted} Sperrung${result.blockedSlotsDeleted === 1 ? "" : "en"}`,
+              );
+            }
+            toast.success(`${parts.join(" und ")} gelöscht`);
           } else {
-            toast.info("Keine Simulationstermine vorhanden");
+            toast.info("Keine Simulationsdaten vorhanden");
           }
         }
 
-        return deletedCount;
+        return totalDeleted;
       } catch (error: unknown) {
         captureError(error, {
           context: "simulation_clear",
@@ -208,13 +218,13 @@ function LogicView() {
         const description =
           error instanceof Error ? error.message : "Unbekannter Fehler";
 
-        toast.error("Simulationstermine konnten nicht gelöscht werden", {
+        toast.error("Simulationsdaten konnten nicht gelöscht werden", {
           description,
         });
         throw error;
       }
     },
-    [captureError, deleteAllSimulatedAppointmentsMutation],
+    [captureError, deleteAllSimulatedDataMutation],
   );
 
   const handleClearSimulatedAppointments = useCallback(async () => {

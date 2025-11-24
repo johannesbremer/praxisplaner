@@ -653,3 +653,327 @@ export async function validateEntityIdsInRuleSet(
     }
   }
 }
+
+// ================================
+// ENTITY ID MAPPING HELPERS
+// ================================
+
+/**
+ * Maps entity IDs from a source rule set to a target rule set by following parent/child relationships.
+ * This is useful for displaying simulation data (from a different rule set) in the context of
+ * the active rule set.
+ *
+ * The function works bidirectionally:
+ * - If sourceRuleSetId is an ancestor of targetRuleSetId, it maps children to source.
+ * - If targetRuleSetId is an ancestor of sourceRuleSetId, it maps parents to target.
+ * - If they're on different branches, returns empty map.
+ * @param db Database reader.
+ * @param sourceRuleSetId The rule set ID we're mapping FROM.
+ * @param targetRuleSetId The rule set ID we're mapping TO.
+ * @param table The entity table to map.
+ * @returns Map of source entity ID to target entity ID.
+ */
+export async function mapEntityIdsBetweenRuleSets<
+  T extends
+    | "appointmentTypes"
+    | "baseSchedules"
+    | "locations"
+    | "practitioners",
+>(
+  db: DatabaseReader,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+  table: T,
+): Promise<Map<Id<T>, Id<T>>> {
+  const mapping = new Map<Id<T>, Id<T>>();
+
+  // If rule sets are the same, no mapping needed
+  if (sourceRuleSetId === targetRuleSetId) {
+    return mapping;
+  }
+
+  // Dispatch to table-specific implementation
+  switch (table) {
+    case "appointmentTypes": {
+      return (await mapAppointmentTypeIds(
+        db,
+        sourceRuleSetId,
+        targetRuleSetId,
+      )) as Map<Id<T>, Id<T>>;
+    }
+    case "baseSchedules": {
+      return (await mapBaseScheduleIds(
+        db,
+        sourceRuleSetId,
+        targetRuleSetId,
+      )) as Map<Id<T>, Id<T>>;
+    }
+    case "locations": {
+      return (await mapLocationIds(
+        db,
+        sourceRuleSetId,
+        targetRuleSetId,
+      )) as Map<Id<T>, Id<T>>;
+    }
+    case "practitioners": {
+      return (await mapPractitionerIds(
+        db,
+        sourceRuleSetId,
+        targetRuleSetId,
+      )) as Map<Id<T>, Id<T>>;
+    }
+    default: {
+      return mapping;
+    }
+  }
+}
+
+/**
+ * Maps appointment type IDs between rule sets.
+ */
+async function mapAppointmentTypeIds(
+  db: DatabaseReader,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Map<Id<"appointmentTypes">, Id<"appointmentTypes">>> {
+  const mapping = new Map<Id<"appointmentTypes">, Id<"appointmentTypes">>();
+
+  const sourceEntities = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  for (const sourceEntity of sourceEntities) {
+    const targetEntity = await findCorrespondingAppointmentType(
+      db,
+      sourceEntity,
+      targetRuleSetId,
+    );
+    if (targetEntity) {
+      mapping.set(sourceEntity._id, targetEntity._id);
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Maps location IDs between rule sets.
+ */
+async function mapLocationIds(
+  db: DatabaseReader,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Map<Id<"locations">, Id<"locations">>> {
+  const mapping = new Map<Id<"locations">, Id<"locations">>();
+
+  const sourceEntities = await db
+    .query("locations")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  for (const sourceEntity of sourceEntities) {
+    const targetEntity = await findCorrespondingLocation(
+      db,
+      sourceEntity,
+      targetRuleSetId,
+    );
+    if (targetEntity) {
+      mapping.set(sourceEntity._id, targetEntity._id);
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Maps practitioner IDs between rule sets.
+ */
+async function mapPractitionerIds(
+  db: DatabaseReader,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Map<Id<"practitioners">, Id<"practitioners">>> {
+  const mapping = new Map<Id<"practitioners">, Id<"practitioners">>();
+
+  const sourceEntities = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  for (const sourceEntity of sourceEntities) {
+    const targetEntity = await findCorrespondingPractitioner(
+      db,
+      sourceEntity,
+      targetRuleSetId,
+    );
+    if (targetEntity) {
+      mapping.set(sourceEntity._id, targetEntity._id);
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Maps base schedule IDs between rule sets.
+ */
+async function mapBaseScheduleIds(
+  db: DatabaseReader,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Map<Id<"baseSchedules">, Id<"baseSchedules">>> {
+  const mapping = new Map<Id<"baseSchedules">, Id<"baseSchedules">>();
+
+  const sourceEntities = await db
+    .query("baseSchedules")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  for (const sourceEntity of sourceEntities) {
+    const targetEntity = await findCorrespondingBaseSchedule(
+      db,
+      sourceEntity,
+      targetRuleSetId,
+    );
+    if (targetEntity) {
+      mapping.set(sourceEntity._id, targetEntity._id);
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Finds the corresponding appointment type in a target rule set.
+ */
+async function findCorrespondingAppointmentType(
+  db: DatabaseReader,
+  sourceEntity: Doc<"appointmentTypes">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Doc<"appointmentTypes"> | null> {
+  // Check if source entity has children in target rule set
+  const childInTarget = await db
+    .query("appointmentTypes")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    )
+    .first();
+
+  if (childInTarget) {
+    return childInTarget;
+  }
+
+  // Check if source entity has a parent that might lead to target rule set
+  if (sourceEntity.parentId) {
+    const parent = await db.get(sourceEntity.parentId);
+    if (parent) {
+      if (parent.ruleSetId === targetRuleSetId) {
+        return parent;
+      }
+      return await findCorrespondingAppointmentType(
+        db,
+        parent,
+        targetRuleSetId,
+      );
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Finds the corresponding location in a target rule set.
+ */
+async function findCorrespondingLocation(
+  db: DatabaseReader,
+  sourceEntity: Doc<"locations">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Doc<"locations"> | null> {
+  const childInTarget = await db
+    .query("locations")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    )
+    .first();
+
+  if (childInTarget) {
+    return childInTarget;
+  }
+
+  if (sourceEntity.parentId) {
+    const parent = await db.get(sourceEntity.parentId);
+    if (parent) {
+      if (parent.ruleSetId === targetRuleSetId) {
+        return parent;
+      }
+      return await findCorrespondingLocation(db, parent, targetRuleSetId);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Finds the corresponding practitioner in a target rule set.
+ */
+async function findCorrespondingPractitioner(
+  db: DatabaseReader,
+  sourceEntity: Doc<"practitioners">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Doc<"practitioners"> | null> {
+  const childInTarget = await db
+    .query("practitioners")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    )
+    .first();
+
+  if (childInTarget) {
+    return childInTarget;
+  }
+
+  if (sourceEntity.parentId) {
+    const parent = await db.get(sourceEntity.parentId);
+    if (parent) {
+      if (parent.ruleSetId === targetRuleSetId) {
+        return parent;
+      }
+      return await findCorrespondingPractitioner(db, parent, targetRuleSetId);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Finds the corresponding base schedule in a target rule set.
+ */
+async function findCorrespondingBaseSchedule(
+  db: DatabaseReader,
+  sourceEntity: Doc<"baseSchedules">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Doc<"baseSchedules"> | null> {
+  const childInTarget = await db
+    .query("baseSchedules")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    )
+    .first();
+
+  if (childInTarget) {
+    return childInTarget;
+  }
+
+  if (sourceEntity.parentId) {
+    const parent = await db.get(sourceEntity.parentId);
+    if (parent) {
+      if (parent.ruleSetId === targetRuleSetId) {
+        return parent;
+      }
+      return await findCorrespondingBaseSchedule(db, parent, targetRuleSetId);
+    }
+  }
+
+  return null;
+}

@@ -30,6 +30,17 @@ interface StaffAppointmentCreationModalProps {
   open: boolean;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
+  runCreateAppointment?: (args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    end: string;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    replacesAppointmentId?: Id<"appointments">;
+    start: string;
+  }) => Promise<Id<"appointments"> | undefined>;
 }
 
 export function StaffAppointmentCreationModal({
@@ -39,12 +50,19 @@ export function StaffAppointmentCreationModal({
   open,
   practiceId,
   ruleSetId,
+  runCreateAppointment: runCreateAppointmentProp,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
   );
+
+  // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation
+  const runCreateAppointment =
+    runCreateAppointmentProp ??
+    ((args: Parameters<typeof createAppointmentMutation>[0]) =>
+      createAppointmentMutation(args));
 
   // Get appointment type name for display - only query when modal is open
   const appointmentTypes = useQuery(
@@ -93,7 +111,7 @@ export function StaffAppointmentCreationModal({
             minutes: nextAvailableSlot.duration,
           });
 
-          await createAppointmentMutation({
+          await runCreateAppointment({
             appointmentTypeId,
             end: endTime.toString(),
             locationId,

@@ -37,14 +37,17 @@ import { StaffAppointmentCreationModal } from "./staff-appointment-creation-moda
 export function CalendarSidebar() {
   const {
     currentTime,
+    isBlockingModeActive,
     locationsData,
     onAppointmentTypeSelect,
+    onBlockingModeChange,
     onDateChange,
     onLocationResolved,
     onLocationSelect,
     onUpdateSimulatedContext,
     practiceId,
     ruleSetId,
+    runCreateAppointment,
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
@@ -196,6 +199,8 @@ export function CalendarSidebar() {
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <AppointmentTypeSelector
+                      isBlockingModeActive={isBlockingModeActive}
+                      onBlockingModeChange={onBlockingModeChange}
                       onTypeSelect={handleTypeSelect}
                       ruleSetId={ruleSetId}
                       selectedType={selectedAppointmentTypeId}
@@ -231,6 +236,7 @@ export function CalendarSidebar() {
             open={showCreationModal}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
+            {...(runCreateAppointment && { runCreateAppointment })}
           />
         )}
     </>

@@ -126,6 +126,42 @@ export const getSlotsForDay = query({
 
     const log: string[] = [`Getting slots for single day: ${args.date}`];
 
+    // Fetch blocked slots for this practice and date using efficient date range query
+    const dayStart = targetPlainDate
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const dayEnd = targetPlainDate
+      .add({ days: 1 })
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const allBlockedSlots = await ctx.db
+      .query("blockedSlots")
+      .withIndex("by_practiceId_start", (q) =>
+        q.eq("practiceId", args.practiceId).gte("start", dayStart),
+      )
+      .filter((q) => q.lt(q.field("start"), dayEnd))
+      .collect();
+
+    // Determine if we're in simulation mode based on context presence
+    const isSimulationMode = !!args.simulatedContext.appointmentTypeId;
+
+    // Filter blocked slots by simulation scope
+    const blockedSlotsForDay = allBlockedSlots.filter((blockedSlot) => {
+      // In simulation mode, include both real and simulated blocked slots
+      // In real mode, only include real blocked slots
+      return isSimulationMode ? true : !blockedSlot.isSimulation;
+    });
+
+    log.push(`Found ${blockedSlotsForDay.length} blocked slots for this day`);
+
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
     if (!ruleSetId) {
@@ -286,6 +322,43 @@ export const getSlotsForDay = query({
     }
 
     log.push(`Generated ${candidateSlots.length} candidate slots`);
+
+    // Mark manually blocked slots
+    for (const slot of candidateSlots) {
+      const slotInstant = Temporal.Instant.from(slot.startTime);
+      const slotEndInstant = slotInstant.add({
+        milliseconds: slot.duration * 60 * 1000,
+      });
+
+      // Check if this slot overlaps with any blocked slot
+      const isBlocked = blockedSlotsForDay.some((blockedSlot) => {
+        const blockedStart = Temporal.Instant.from(blockedSlot.start);
+        const blockedEnd = Temporal.Instant.from(blockedSlot.end);
+
+        // Check practitioner match (if blocked slot has practitioner specified)
+        if (
+          blockedSlot.practitionerId &&
+          blockedSlot.practitionerId !== slot.practitionerId
+        ) {
+          return false;
+        }
+
+        // Check if times overlap
+        const overlapStart = Temporal.Instant.compare(slotInstant, blockedEnd);
+        const overlapEnd = Temporal.Instant.compare(
+          slotEndInstant,
+          blockedStart,
+        );
+
+        return overlapStart < 0 && overlapEnd > 0;
+      });
+
+      if (isBlocked) {
+        slot.status = "BLOCKED";
+      }
+    }
+
+    log.push(`Marked slots blocked by manual blocks`);
 
     // Apply rules
     if (ruleSetId) {

@@ -7,12 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 interface AppointmentTypeSelectorProps {
+  isBlockingModeActive?: boolean | undefined;
+  onBlockingModeChange?: ((active: boolean) => void) | undefined;
   onTypeSelect: (type: Id<"appointmentTypes">) => void;
   ruleSetId: Id<"ruleSets">;
   selectedType: Id<"appointmentTypes"> | undefined;
 }
 
 export function AppointmentTypeSelector({
+  isBlockingModeActive = false,
+  onBlockingModeChange,
   onTypeSelect,
   ruleSetId,
   selectedType,
@@ -59,6 +63,19 @@ export function AppointmentTypeSelector({
                 </Button>
               );
             })}
+            {/* Block Slot Button */}
+            {onBlockingModeChange && (
+              <Button
+                className="justify-start text-left h-auto p-3"
+                onClick={() => {
+                  onBlockingModeChange(!isBlockingModeActive);
+                }}
+                size="sm"
+                variant={isBlockingModeActive ? "destructive" : "outline"}
+              >
+                {isBlockingModeActive ? "Sperren aktiv" : "Sperren"}
+              </Button>
+            )}
           </div>
         )}
       </CardContent>
