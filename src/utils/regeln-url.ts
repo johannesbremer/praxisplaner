@@ -151,8 +151,9 @@ export function useRegelnUrl(options: {
     if (currentRouteState.ruleSetSlug === "ungespeichert") {
       return options.unsavedRuleSet?._id;
     }
+    // Use ID directly - IDs are unique and prevent collisions
     const found = options.ruleSetsQuery?.find(
-      (rs) => slugify(rs.description) === currentRouteState.ruleSetSlug,
+      (rs) => rs._id === currentRouteState.ruleSetSlug,
     );
     return found?._id;
   })();
@@ -177,8 +178,10 @@ export function useRegelnUrl(options: {
     if (options.unsavedRuleSet?._id === id) {
       return "ungespeichert";
     }
+    // Return the ID directly instead of slugified description
+    // This ensures uniqueness when multiple rule sets have the same name
     const found = options.ruleSetsQuery?.find((rs) => rs._id === id);
-    return found ? slugify(found.description) : undefined;
+    return found ? found._id : undefined;
   }
 
   function getLocationSlugFromId(
