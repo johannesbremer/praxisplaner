@@ -6,6 +6,7 @@ export default defineSchema({
     // Core appointment fields
     end: v.string(), // ISO datetime string
     start: v.string(), // ISO datetime string
+    title: v.string(), // Snapshot of appointment type name at booking time
 
     // Additional fields
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type

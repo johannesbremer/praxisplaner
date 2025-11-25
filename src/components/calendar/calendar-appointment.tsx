@@ -75,6 +75,13 @@ export function CalendarAppointment({
           >
             {appointment.startTime}
           </div>
+          {!isSingleSlot && (
+            <div
+              className={`text-xs font-medium ${isTwoSlotsOrLess ? "truncate" : ""}`}
+            >
+              {appointment.title}
+            </div>
+          )}
         </div>
       </div>
 

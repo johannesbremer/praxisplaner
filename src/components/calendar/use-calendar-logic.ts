@@ -270,6 +270,28 @@ export function useCalendarLogic({
     ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
   );
 
+  // Query appointment types for duration and title lookup
+  const appointmentTypesData = useQuery(
+    ruleSetId
+      ? api.entities.getAppointmentTypes
+      : api.entities.getAppointmentTypesFromActive,
+    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+  );
+
+  // Create a map for quick appointment type lookup
+  const appointmentTypeMap = useMemo(() => {
+    const map = new Map<
+      Id<"appointmentTypes">,
+      { duration: number; name: string }
+    >();
+    if (appointmentTypesData) {
+      for (const at of appointmentTypesData) {
+        map.set(at._id, { duration: at.duration, name: at.name });
+      }
+    }
+    return map;
+  }, [appointmentTypesData]);
+
   // Query for available/blocked slots when:
   // 1. In simulation mode with appointment type selected, OR
   // 2. In real mode with appointment type selected via calendar sidebar
@@ -354,6 +376,12 @@ export function useCalendarLogic({
           const now = Date.now();
           const tempId = globalThis.crypto.randomUUID() as Id<"appointments">;
 
+          // Get appointment type name for optimistic update
+          const appointmentTypeInfo = appointmentTypeMap.get(
+            optimisticArgs.appointmentTypeId,
+          );
+          const title = appointmentTypeInfo?.name ?? "Termin";
+
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
             _id: tempId,
@@ -365,6 +393,7 @@ export function useCalendarLogic({
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
+            title,
           };
 
           if (optimisticArgs.practitionerId !== undefined) {
@@ -397,7 +426,7 @@ export function useCalendarLogic({
         },
       )(args);
     },
-    [createAppointmentMutation, appointmentsQueryArgs],
+    [createAppointmentMutation, appointmentsQueryArgs, appointmentTypeMap],
   );
 
   const runCreateBlockedSlot = useCallback(
@@ -762,6 +791,9 @@ export function useCalendarLogic({
           startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
         );
 
+        // Title is stored directly on the appointment (snapshot at booking time)
+        const title = appointment.title;
+
         return {
           color:
             APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
@@ -780,6 +812,7 @@ export function useCalendarLogic({
             practitionerId: appointment.practitionerId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
+          title,
         };
       })
       .filter((apt): apt is Appointment => apt !== null);
@@ -1999,9 +2032,18 @@ export function useCalendarLogic({
   };
 
   const createAppointmentInSlot = (column: string, slot: number) => {
-    const defaultDuration = 30;
+    // Get the appointment type ID to determine duration
+    const appointmentTypeId = simulatedContext
+      ? simulatedContext.appointmentTypeId
+      : selectedAppointmentTypeId;
+
+    // Get duration from appointment type, fallback to 30 if not found
+    const appointmentTypeDuration = appointmentTypeId
+      ? (appointmentTypeMap.get(appointmentTypeId)?.duration ?? 30)
+      : 30;
+
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-    const duration = Math.min(defaultDuration, maxAvailableDuration);
+    const duration = Math.min(appointmentTypeDuration, maxAvailableDuration);
 
     if (duration >= SLOT_DURATION) {
       if (simulatedContext) {

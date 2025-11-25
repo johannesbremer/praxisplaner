@@ -53,6 +53,7 @@ describe("Calendar Types and Constants", () => {
         id: "test-1",
         isSimulation: false,
         startTime: "10:00",
+        title: "Test Appointment",
       };
 
       expect(appointment.id).toBe("test-1");
@@ -72,6 +73,7 @@ describe("Calendar Types and Constants", () => {
         id: "test-1",
         isSimulation: false,
         startTime: "10:00",
+        title: "Test Appointment",
       };
 
       expect(appointment.convexId).toBeDefined();
@@ -92,6 +94,7 @@ describe("Calendar Types and Constants", () => {
           practitionerId: "practitioner-1" as never,
         },
         startTime: "10:00",
+        title: "Test Appointment",
       };
 
       expect(appointment.resource).toBeDefined();
@@ -107,6 +110,7 @@ describe("Calendar Types and Constants", () => {
         isSimulation: true,
         replacesAppointmentId: "original-apt-id" as never,
         startTime: "10:00",
+        title: "Test Appointment",
       };
 
       expect(appointment.isSimulation).toBe(true);
@@ -124,6 +128,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${duration}`,
           isSimulation: false,
           startTime: "10:00",
+          title: "Test Appointment",
         };
 
         expect(appointment.duration).toBe(duration);
@@ -141,6 +146,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${startTime}`,
           isSimulation: false,
           startTime,
+          title: "Test Appointment",
         };
 
         expect(appointment.startTime).toBe(startTime);
@@ -158,6 +164,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${column}`,
           isSimulation: false,
           startTime: "10:00",
+          title: "Test Appointment",
         };
 
         expect(appointment.column).toBe(column);

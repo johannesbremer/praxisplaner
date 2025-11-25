@@ -22,6 +22,7 @@ export interface Appointment {
     practitionerId?: Doc<"appointments">["practitionerId"];
   };
   startTime: string;
+  title: string;
 }
 
 export interface NewCalendarProps {

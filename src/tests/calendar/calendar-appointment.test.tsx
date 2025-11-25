@@ -13,6 +13,7 @@ describe("CalendarAppointment", () => {
     id: "apt-1",
     isSimulation: false,
     startTime: "09:00",
+    title: "Test Appointment",
   };
 
   const mockTimeToSlot = vi.fn((time: string) => {
