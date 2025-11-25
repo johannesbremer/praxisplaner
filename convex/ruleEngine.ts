@@ -807,7 +807,10 @@ function isRuleTreeDayInvariant(
 ): boolean {
   const node = conditionsMap.get(nodeId);
   if (!node) {
-    return false;
+    throw new Error(
+      `Condition node not found during classification: ${nodeId}. ` +
+        `This indicates data corruption in rule conditions.`,
+    );
   }
 
   // If this is a leaf condition, check if it's day-invariant
@@ -843,7 +846,10 @@ function isRuleTreeAppointmentTypeIndependent(
 ): boolean {
   const node = conditionsMap.get(nodeId);
   if (!node) {
-    return true; // Doesn't block if node not found
+    throw new Error(
+      `Condition node not found during classification: ${nodeId}. ` +
+        `This indicates data corruption in rule conditions.`,
+    );
   }
 
   // If this is a leaf condition, check if it's NOT appointment type

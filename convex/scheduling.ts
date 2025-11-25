@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader } from "./_generated/server";
 import type { AppointmentContext } from "./ruleEngine";
 
 import { internal } from "./_generated/api";
@@ -29,6 +30,128 @@ export interface SchedulingResultSlot {
   reason?: string; // Natural language explanation for blocked slots
   startTime: string; // ISO string
   status: "AVAILABLE" | "BLOCKED";
+}
+
+/**
+ * Internal candidate slot type used during slot generation.
+ */
+interface CandidateSlot {
+  blockedByRuleId?: string;
+  duration: number;
+  locationId?: string;
+  practitionerId: string;
+  practitionerName?: string; // Optional during generation, required in final result
+  startTime: string;
+  status: "AVAILABLE" | "BLOCKED";
+}
+
+/**
+ * Shared helper to generate candidate slots for a given day.
+ * Reduces code duplication between getSlotsForDay and getBlockedSlotsWithoutAppointmentType.
+ * @returns Array of candidate slots with their initial status (before rule evaluation)
+ */
+async function generateCandidateSlotsForDay(
+  db: DatabaseReader,
+  args: {
+    date: Temporal.PlainDate;
+    locationId?: Id<"locations">;
+    practiceId: Id<"practices">;
+  },
+): Promise<CandidateSlot[]> {
+  const { date: targetPlainDate, locationId, practiceId } = args;
+
+  // Fetch practitioners for this practice
+  const practitioners = await db
+    .query("practitioners")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+    .collect();
+
+  // Fetch locations if needed
+  const locations = await db
+    .query("locations")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+    .collect();
+
+  let defaultLocationId: string | undefined = locationId;
+  if (!defaultLocationId && locations.length > 0) {
+    defaultLocationId = locations[0]?._id;
+  }
+
+  const candidateSlots: CandidateSlot[] = [];
+
+  // Get day of week from Temporal (Monday = 1, Sunday = 7) and convert to JS (Sunday = 0, Monday = 1)
+  const dayOfWeek =
+    targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
+
+  for (const practitioner of practitioners) {
+    const schedules = await db
+      .query("baseSchedules")
+      .withIndex("by_practitionerId", (q) =>
+        q.eq("practitionerId", practitioner._id),
+      )
+      .filter((q) => {
+        if (locationId) {
+          return q.eq(q.field("locationId"), locationId);
+        }
+        return true;
+      })
+      .collect();
+
+    const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
+
+    if (schedule) {
+      const scheduleStartTime = Temporal.PlainTime.from(
+        `${schedule.startTime}:00`,
+      );
+      const scheduleEndTime = Temporal.PlainTime.from(`${schedule.endTime}:00`);
+
+      const scheduleStart = targetPlainDate
+        .toZonedDateTime({
+          plainTime: scheduleStartTime,
+          timeZone: TIMEZONE,
+        })
+        .toInstant();
+
+      const scheduleEnd = targetPlainDate
+        .toZonedDateTime({
+          plainTime: scheduleEndTime,
+          timeZone: TIMEZONE,
+        })
+        .toInstant();
+
+      const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
+      const slotDurationMillis = slotDuration * 60 * 1000;
+
+      let currentInstant = scheduleStart;
+      while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
+        const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
+        const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
+
+        const isBreakTime =
+          schedule.breakTimes?.some(
+            (breakTime) =>
+              timeString >= breakTime.start && timeString < breakTime.end,
+          ) ?? false;
+
+        if (!isBreakTime) {
+          candidateSlots.push({
+            duration: slotDuration,
+            ...(defaultLocationId && { locationId: defaultLocationId }),
+            practitionerId: practitioner._id,
+            practitionerName: practitioner.name,
+            startTime: currentInstant.toString(),
+            status: "AVAILABLE",
+          });
+        }
+
+        currentInstant = currentInstant.add({
+          milliseconds: slotDurationMillis,
+        });
+      }
+    }
+  }
+
+  return candidateSlots;
 }
 
 /**
@@ -196,7 +319,7 @@ export const getSlotsForDay = query({
     log.push(`Found ${locations.length} locations`);
 
     // Determine default location
-    let defaultLocationId: string | undefined;
+    let defaultLocationId: Id<"locations"> | undefined;
     if (args.simulatedContext.locationId) {
       defaultLocationId = args.simulatedContext.locationId;
       log.push(`Using specified location: ${defaultLocationId}`);
@@ -210,117 +333,12 @@ export const getSlotsForDay = query({
       log.push("No locations available - slots will have no location assigned");
     }
 
-    // Generate candidate slots for the single day
-    const candidateSlots: {
-      blockedByRuleId?: string;
-      duration: number;
-      locationId?: string;
-      practitionerId: string;
-      practitionerName: string;
-      startTime: string;
-      status: "AVAILABLE" | "BLOCKED";
-    }[] = [];
-
-    // Get day of week from Temporal (Monday = 1, Sunday = 7) and convert to JS (Sunday = 0, Monday = 1)
-    const dayOfWeek =
-      targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
-
-    for (const practitioner of practitioners) {
-      const schedules = await ctx.db
-        .query("baseSchedules")
-        .withIndex("by_practitionerId", (q) =>
-          q.eq("practitionerId", practitioner._id),
-        )
-        .filter((q) => {
-          if (args.simulatedContext.locationId) {
-            return q.eq(
-              q.field("locationId"),
-              args.simulatedContext.locationId,
-            );
-          }
-          return true;
-        })
-        .collect();
-
-      log.push(
-        `Practitioner ${practitioner.name}: Found ${schedules.length} schedules` +
-          (args.simulatedContext.locationId
-            ? ` for location ${args.simulatedContext.locationId}`
-            : " (all locations)"),
-      );
-
-      const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
-
-      if (schedule) {
-        const [startHour, startMinute] = schedule.startTime
-          .split(":")
-          .map(Number);
-        const [endHour, endMinute] = schedule.endTime.split(":").map(Number);
-
-        if (
-          startHour === undefined ||
-          startMinute === undefined ||
-          endHour === undefined ||
-          endMinute === undefined
-        ) {
-          continue;
-        }
-
-        // Parse the schedule times in Berlin timezone
-        const scheduleStartTime = Temporal.PlainTime.from(
-          `${schedule.startTime}:00`,
-        );
-        const scheduleEndTime = Temporal.PlainTime.from(
-          `${schedule.endTime}:00`,
-        );
-
-        const scheduleStart = targetPlainDate
-          .toZonedDateTime({
-            plainTime: scheduleStartTime,
-            timeZone: TIMEZONE,
-          })
-          .toInstant();
-
-        const scheduleEnd = targetPlainDate
-          .toZonedDateTime({
-            plainTime: scheduleEndTime,
-            timeZone: TIMEZONE,
-          })
-          .toInstant();
-
-        const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
-        const slotDurationMillis = slotDuration * 60 * 1000;
-
-        let currentInstant = scheduleStart;
-        while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
-          // Convert to Berlin time for break time checking
-          const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
-          const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
-
-          const isBreakTime =
-            schedule.breakTimes?.some(
-              (breakTime) =>
-                timeString >= breakTime.start && timeString < breakTime.end,
-            ) ?? false;
-
-          if (!isBreakTime) {
-            candidateSlots.push({
-              duration: slotDuration,
-              ...(defaultLocationId && { locationId: defaultLocationId }),
-              practitionerId: practitioner._id,
-              practitionerName: practitioner.name,
-              startTime: currentInstant.toString(),
-              status: "AVAILABLE",
-            });
-          }
-
-          // Advance to next slot
-          currentInstant = currentInstant.add({
-            milliseconds: slotDurationMillis,
-          });
-        }
-      }
-    }
+    // Generate candidate slots using shared helper
+    const candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
+      date: targetPlainDate,
+      ...(defaultLocationId && { locationId: defaultLocationId }),
+      practiceId: args.practiceId,
+    });
 
     log.push(`Generated ${candidateSlots.length} candidate slots`);
 
@@ -485,7 +503,7 @@ export const getSlotsForDay = query({
       const slotResult: SchedulingResultSlot = {
         duration: slot.duration,
         practitionerId: slot.practitionerId as Id<"practitioners">,
-        practitionerName: slot.practitionerName,
+        practitionerName: slot.practitionerName ?? "Unknown Practitioner",
         startTime: slot.startTime,
         status: slot.status,
       };
@@ -564,104 +582,12 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       return { slots: [] };
     }
 
-    // Fetch practitioners
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    // Fetch locations if needed
-    const locations = await ctx.db
-      .query("locations")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    let defaultLocationId: string | undefined = args.locationId;
-    if (!defaultLocationId && locations.length > 0) {
-      defaultLocationId = locations[0]?._id;
-    }
-
-    // Generate candidate slots
-    const candidateSlots: {
-      blockedByRuleId?: string;
-      duration: number;
-      locationId?: string;
-      practitionerId: string;
-      startTime: string;
-      status: "AVAILABLE" | "BLOCKED";
-    }[] = [];
-
-    const dayOfWeek =
-      targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
-
-    for (const practitioner of practitioners) {
-      const schedules = await ctx.db
-        .query("baseSchedules")
-        .withIndex("by_practitionerId", (q) =>
-          q.eq("practitionerId", practitioner._id),
-        )
-        .filter((q) => {
-          if (args.locationId) {
-            return q.eq(q.field("locationId"), args.locationId);
-          }
-          return true;
-        })
-        .collect();
-
-      const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
-
-      if (schedule) {
-        const scheduleStartTime = Temporal.PlainTime.from(
-          `${schedule.startTime}:00`,
-        );
-        const scheduleEndTime = Temporal.PlainTime.from(
-          `${schedule.endTime}:00`,
-        );
-
-        const scheduleStart = targetPlainDate
-          .toZonedDateTime({
-            plainTime: scheduleStartTime,
-            timeZone: TIMEZONE,
-          })
-          .toInstant();
-
-        const scheduleEnd = targetPlainDate
-          .toZonedDateTime({
-            plainTime: scheduleEndTime,
-            timeZone: TIMEZONE,
-          })
-          .toInstant();
-
-        const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
-        const slotDurationMillis = slotDuration * 60 * 1000;
-
-        let currentInstant = scheduleStart;
-        while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
-          const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
-          const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
-
-          const isBreakTime =
-            schedule.breakTimes?.some(
-              (breakTime) =>
-                timeString >= breakTime.start && timeString < breakTime.end,
-            ) ?? false;
-
-          if (!isBreakTime) {
-            candidateSlots.push({
-              duration: slotDuration,
-              ...(defaultLocationId && { locationId: defaultLocationId }),
-              practitionerId: practitioner._id,
-              startTime: currentInstant.toString(),
-              status: "AVAILABLE",
-            });
-          }
-
-          currentInstant = currentInstant.add({
-            milliseconds: slotDurationMillis,
-          });
-        }
-      }
-    }
+    // Generate candidate slots using shared helper
+    const candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
+      date: targetPlainDate,
+      ...(args.locationId && { locationId: args.locationId }),
+      practiceId: args.practiceId,
+    });
 
     // NOTE: We intentionally do NOT mark manually blocked slots here.
     // Manual blocks are handled separately by the frontend's manualBlockedSlots useMemo
