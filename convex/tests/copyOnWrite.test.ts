@@ -453,7 +453,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     // Create a CONCURRENT_COUNT rule
-    // valueIds structure: [scope, ...appointmentTypeIds]
+    // scope is now a separate field, valueIds contains only appointment type IDs
     const result = await t.mutation(api.entities.createRule, {
       conditionTree: {
         children: [
@@ -461,7 +461,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "CONCURRENT_COUNT",
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
-            valueIds: ["practice", appointmentType.entityId as string],
+            scope: "practice",
+            valueIds: [appointmentType.entityId as string],
             valueNumber: 2,
           },
         ],
@@ -475,7 +476,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(result.entityId).toBeDefined();
     expect(result.ruleSetId).toEqual(unsavedRuleSet._id);
 
-    // Verify the rule was created with the correct valueIds structure
+    // Verify the rule was created with the correct structure
     const ruleConditions = await t.run(async (ctx) => {
       return await ctx.db
         .query("ruleConditions")
@@ -490,9 +491,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     if (!concurrentCondition) {
       throw new Error("Concurrent condition not found");
     }
-    expect(concurrentCondition.valueIds).toEqual([
-      "practice",
-      appointmentType.entityId,
-    ]);
+    // scope is now a separate field
+    expect(concurrentCondition.scope).toEqual("practice");
+    // valueIds only contains appointment type IDs
+    expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
   });
 });

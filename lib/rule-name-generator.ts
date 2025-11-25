@@ -243,10 +243,7 @@ export function conditionTreeToConditions(
   // Handle AND node with multiple conditions
   if (tree.nodeType === "AND") {
     for (const [index, child] of tree.children.entries()) {
-      const condition = parseConditionNode(
-        child as ConditionTreeNode,
-        String(index),
-      );
+      const condition = parseConditionNode(child, String(index));
       if (condition) {
         conditions.push(condition);
       }
