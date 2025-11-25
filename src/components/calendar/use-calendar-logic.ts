@@ -302,6 +302,21 @@ export function useCalendarLogic({
         : "skip",
   );
 
+  // Query for appointment-type-independent blocked slots
+  // This runs always (even without appointment type selected) to show
+  // rules that don't depend on appointment type (e.g., DATE_RANGE, DAY_OF_WEEK)
+  const blockedSlotsWithoutAppointmentTypeResult = useQuery(
+    api.scheduling.getBlockedSlotsWithoutAppointmentType,
+    practiceId && ruleSetId
+      ? {
+          date: selectedDate.toString(),
+          practiceId,
+          ruleSetId,
+          ...(selectedLocationId && { locationId: selectedLocationId }),
+        }
+      : "skip",
+  );
+
   // Mutations
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
@@ -876,7 +891,7 @@ export function useCalendarLogic({
 
   // Map blocked slots from query to calendar grid positions
   const blockedSlots = useMemo(() => {
-    if (!slotsResult?.slots || workingPractitioners.length === 0) {
+    if (workingPractitioners.length === 0) {
       return [];
     }
 
@@ -887,8 +902,37 @@ export function useCalendarLogic({
       slot: number;
     }[] = [];
 
-    for (const slotData of slotsResult.slots) {
-      if (slotData.status === "BLOCKED" && slotData.practitionerId) {
+    // Add blocked slots from main query (appointment-type-dependent rules)
+    if (slotsResult?.slots) {
+      for (const slotData of slotsResult.slots) {
+        if (slotData.status === "BLOCKED" && slotData.practitionerId) {
+          // Find if this practitioner has a column
+          const practitionerColumn = workingPractitioners.find(
+            (p) => p.id === slotData.practitionerId,
+          );
+
+          if (practitionerColumn) {
+            const startTime = Temporal.Instant.from(slotData.startTime)
+              .toZonedDateTimeISO(TIMEZONE)
+              .toPlainTime();
+            const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
+
+            blocked.push({
+              column: practitionerColumn.id,
+              slot,
+              ...(slotData.reason && { reason: slotData.reason }),
+              ...(slotData.blockedByRuleId && {
+                blockedByRuleId: slotData.blockedByRuleId,
+              }),
+            });
+          }
+        }
+      }
+    }
+
+    // Add blocked slots from appointment-type-independent rules query
+    if (blockedSlotsWithoutAppointmentTypeResult?.slots) {
+      for (const slotData of blockedSlotsWithoutAppointmentTypeResult.slots) {
         // Find if this practitioner has a column
         const practitionerColumn = workingPractitioners.find(
           (p) => p.id === slotData.practitionerId,
@@ -900,20 +944,32 @@ export function useCalendarLogic({
             .toPlainTime();
           const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
 
-          blocked.push({
-            column: practitionerColumn.id,
-            slot,
-            ...(slotData.reason && { reason: slotData.reason }),
-            ...(slotData.blockedByRuleId && {
-              blockedByRuleId: slotData.blockedByRuleId,
-            }),
-          });
+          // Check if this slot is already blocked by the main query
+          // to avoid duplicates
+          const alreadyBlocked = blocked.some(
+            (b) => b.column === practitionerColumn.id && b.slot === slot,
+          );
+
+          if (!alreadyBlocked) {
+            blocked.push({
+              column: practitionerColumn.id,
+              slot,
+              ...(slotData.blockedByRuleId && {
+                blockedByRuleId: slotData.blockedByRuleId,
+              }),
+            });
+          }
         }
       }
     }
 
     return blocked;
-  }, [slotsResult, workingPractitioners, timeToSlot]);
+  }, [
+    slotsResult,
+    blockedSlotsWithoutAppointmentTypeResult,
+    workingPractitioners,
+    timeToSlot,
+  ]);
 
   // Map break times from base schedules and merge them into blocked slots
   const breakSlots = useMemo(() => {

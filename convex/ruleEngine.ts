@@ -833,6 +833,44 @@ function isRuleTreeDayInvariant(
 }
 
 /**
+ * Helper to recursively determine if a rule tree is independent of appointment type.
+ * A tree is appointment-type-independent if it contains NO APPOINTMENT_TYPE conditions.
+ */
+function isRuleTreeAppointmentTypeIndependent(
+  nodeId: Id<"ruleConditions">,
+  conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
+  allConditions: Doc<"ruleConditions">[],
+): boolean {
+  const node = conditionsMap.get(nodeId);
+  if (!node) {
+    return true; // Doesn't block if node not found
+  }
+
+  // If this is a leaf condition, check if it's NOT appointment type
+  if (node.nodeType === "CONDITION") {
+    return node.conditionType !== "APPOINTMENT_TYPE";
+  }
+
+  // For AND/NOT nodes, check all children recursively
+  const children = allConditions
+    .filter((c) => c.parentConditionId === nodeId)
+    .toSorted((a, b) => a.childOrder - b.childOrder);
+
+  if (children.length === 0) {
+    return true; // Empty tree doesn't depend on appointment type
+  }
+
+  // A tree is appointment-type-independent only if ALL children are
+  return children.every((child) =>
+    isRuleTreeAppointmentTypeIndependent(
+      child._id,
+      conditionsMap,
+      allConditions,
+    ),
+  );
+}
+
+/**
  * PERFORMANCE OPTIMIZATION: Load all rules and their condition trees for a rule set once.
  * This allows us to evaluate many appointments against the same rules without reloading them each time.
  *
@@ -908,6 +946,108 @@ export const loadRulesForRuleSet = internalQuery({
     ),
     timeVariantCount: v.number(),
     totalConditions: v.number(),
+  }),
+});
+
+/**
+ * Load rules that are independent of appointment type.
+ * These rules can be evaluated and displayed even before a user selects an appointment type.
+ */
+export const loadAppointmentTypeIndependentRules = internalQuery({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    // Get all enabled root rules for this rule set
+    const rules = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId_isRoot_enabled", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("isRoot", true)
+          .eq("enabled", true),
+      )
+      .collect();
+
+    // Load all conditions
+    const allConditions = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    // Build a map for quick lookup
+    const conditionsMap = new Map<
+      Id<"ruleConditions">,
+      Doc<"ruleConditions">
+    >();
+    for (const condition of allConditions) {
+      conditionsMap.set(condition._id, condition);
+    }
+
+    // Filter rules that are appointment-type-independent
+    const appointmentTypeIndependentRules = rules.filter((r) => {
+      const rootChildren = allConditions.filter(
+        (c) => c.parentConditionId === r._id,
+      );
+      const firstChild = rootChildren[0];
+      return (
+        rootChildren.length === 1 &&
+        firstChild !== undefined &&
+        isRuleTreeAppointmentTypeIndependent(
+          firstChild._id,
+          conditionsMap,
+          allConditions,
+        )
+      );
+    });
+
+    // Only return conditions that are part of appointment-type-independent rules
+    const relevantConditionIds = new Set<Id<"ruleConditions">>();
+    const addConditionAndChildren = (conditionId: Id<"ruleConditions">) => {
+      relevantConditionIds.add(conditionId);
+      const children = allConditions.filter(
+        (c) => c.parentConditionId === conditionId,
+      );
+      for (const child of children) {
+        addConditionAndChildren(child._id);
+      }
+    };
+
+    for (const rule of appointmentTypeIndependentRules) {
+      addConditionAndChildren(rule._id);
+    }
+
+    const relevantConditions = allConditions.filter((c) =>
+      relevantConditionIds.has(c._id),
+    );
+
+    // Build filtered conditions map
+    const filteredConditionsMap = new Map<
+      Id<"ruleConditions">,
+      Doc<"ruleConditions">
+    >();
+    for (const condition of relevantConditions) {
+      filteredConditionsMap.set(condition._id, condition);
+    }
+
+    return {
+      conditions: relevantConditions,
+      conditionsMap: Object.fromEntries(filteredConditionsMap),
+      rules: appointmentTypeIndependentRules.map((r) => ({
+        _id: r._id,
+        isDayInvariant: false, // Not used in this context
+      })),
+    };
+  },
+  returns: v.object({
+    conditions: v.array(v.any()),
+    conditionsMap: v.any(),
+    rules: v.array(
+      v.object({
+        _id: v.id("ruleConditions"),
+        isDayInvariant: v.boolean(),
+      }),
+    ),
   }),
 });
 

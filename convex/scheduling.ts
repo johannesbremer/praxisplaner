@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
+import type { AppointmentContext } from "./ruleEngine";
 
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
@@ -532,4 +533,244 @@ export const getSlotsForDay = query({
     return { log, slots: finalSlots };
   },
   returns: availableSlotsResultValidator,
+});
+
+/**
+ * Get blocked slots for a day without requiring appointment type.
+ * This is used to show blocks from appointment-type-independent rules (e.g., DATE_RANGE, DAY_OF_WEEK)
+ * before the user selects an appointment type, making the UI more responsive.
+ */
+export const getBlockedSlotsWithoutAppointmentType = query({
+  args: {
+    date: v.string(), // ISO date string
+    locationId: v.optional(v.id("locations")),
+    practiceId: v.id("practices"),
+    ruleSetId: v.optional(v.id("ruleSets")),
+  },
+  handler: async (ctx, args) => {
+    const targetPlainDate = Temporal.PlainDate.from(args.date);
+
+    // Determine which rule set to use
+    let ruleSetId = args.ruleSetId;
+    if (!ruleSetId) {
+      const practice = await ctx.db.get(args.practiceId);
+      if (practice?.currentActiveRuleSetId) {
+        ruleSetId = practice.currentActiveRuleSetId;
+      }
+    }
+
+    if (!ruleSetId) {
+      // No rules to apply, return empty slots
+      return { slots: [] };
+    }
+
+    // Fetch practitioners
+    const practitioners = await ctx.db
+      .query("practitioners")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    // Fetch locations if needed
+    const locations = await ctx.db
+      .query("locations")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    let defaultLocationId: string | undefined = args.locationId;
+    if (!defaultLocationId && locations.length > 0) {
+      defaultLocationId = locations[0]?._id;
+    }
+
+    // Generate candidate slots
+    const candidateSlots: {
+      blockedByRuleId?: string;
+      duration: number;
+      locationId?: string;
+      practitionerId: string;
+      startTime: string;
+      status: "AVAILABLE" | "BLOCKED";
+    }[] = [];
+
+    const dayOfWeek =
+      targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
+
+    for (const practitioner of practitioners) {
+      const schedules = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_practitionerId", (q) =>
+          q.eq("practitionerId", practitioner._id),
+        )
+        .filter((q) => {
+          if (args.locationId) {
+            return q.eq(q.field("locationId"), args.locationId);
+          }
+          return true;
+        })
+        .collect();
+
+      const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
+
+      if (schedule) {
+        const scheduleStartTime = Temporal.PlainTime.from(
+          `${schedule.startTime}:00`,
+        );
+        const scheduleEndTime = Temporal.PlainTime.from(
+          `${schedule.endTime}:00`,
+        );
+
+        const scheduleStart = targetPlainDate
+          .toZonedDateTime({
+            plainTime: scheduleStartTime,
+            timeZone: TIMEZONE,
+          })
+          .toInstant();
+
+        const scheduleEnd = targetPlainDate
+          .toZonedDateTime({
+            plainTime: scheduleEndTime,
+            timeZone: TIMEZONE,
+          })
+          .toInstant();
+
+        const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
+        const slotDurationMillis = slotDuration * 60 * 1000;
+
+        let currentInstant = scheduleStart;
+        while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
+          const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
+          const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
+
+          const isBreakTime =
+            schedule.breakTimes?.some(
+              (breakTime) =>
+                timeString >= breakTime.start && timeString < breakTime.end,
+            ) ?? false;
+
+          if (!isBreakTime) {
+            candidateSlots.push({
+              duration: slotDuration,
+              ...(defaultLocationId && { locationId: defaultLocationId }),
+              practitionerId: practitioner._id,
+              startTime: currentInstant.toString(),
+              status: "AVAILABLE",
+            });
+          }
+
+          currentInstant = currentInstant.add({
+            milliseconds: slotDurationMillis,
+          });
+        }
+      }
+    }
+
+    // NOTE: We intentionally do NOT mark manually blocked slots here.
+    // Manual blocks are handled separately by the frontend's manualBlockedSlots useMemo
+    // to maintain their draggable/interactive behavior. If we marked them here,
+    // they would be rendered as rule-based overlays instead of interactive blocks.
+
+    // Load rules that are appointment-type-independent
+    const rulesResultRaw = await ctx.runQuery(
+      internal.ruleEngine.loadAppointmentTypeIndependentRules,
+      { ruleSetId },
+    );
+
+    if (rulesResultRaw.rules.length === 0) {
+      // No appointment-type-independent rules, return empty
+      return { slots: [] };
+    }
+
+    // Reconstruct the Map
+    const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
+      Object.entries(
+        rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
+      ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
+    );
+
+    const rulesData = {
+      conditions: rulesResultRaw.conditions,
+      conditionsMap,
+      rules: rulesResultRaw.rules,
+    };
+
+    // Evaluate appointment-type-independent rules for each slot
+    // We use a dummy appointment type ID since these rules don't depend on it
+    const dummyAppointmentTypeId = "" as Id<"appointmentTypes">;
+
+    for (const slot of candidateSlots) {
+      if (slot.status === "BLOCKED") {
+        continue;
+      }
+
+      const appointmentContext: AppointmentContext = {
+        appointmentTypeId: dummyAppointmentTypeId,
+        dateTime: slot.startTime,
+        practiceId: args.practiceId,
+        practitionerId: slot.practitionerId as Id<"practitioners">,
+        requestedAt: new Date().toISOString(),
+        ...(slot.locationId && {
+          locationId: slot.locationId as Id<"locations">,
+        }),
+      };
+
+      const ruleCheckResult = await evaluateLoadedRulesHelper(
+        ctx.db,
+        appointmentContext,
+        rulesData, // No pre-evaluated rules
+      );
+
+      if (
+        ruleCheckResult.isBlocked &&
+        ruleCheckResult.blockedByRuleIds.length > 0
+      ) {
+        slot.status = "BLOCKED";
+        const firstBlockingRuleId = ruleCheckResult.blockedByRuleIds[0];
+        if (firstBlockingRuleId) {
+          slot.blockedByRuleId = firstBlockingRuleId;
+        }
+      }
+    }
+
+    // Return only blocked slots
+    const blockedSlots = candidateSlots
+      .filter((slot) => slot.status === "BLOCKED")
+      .map((slot) => {
+        const result: {
+          blockedByRuleId?: Id<"ruleConditions">;
+          duration: number;
+          locationId?: Id<"locations">;
+          practitionerId: Id<"practitioners">;
+          startTime: string;
+          status: "BLOCKED";
+        } = {
+          duration: slot.duration,
+          practitionerId: slot.practitionerId as Id<"practitioners">,
+          startTime: slot.startTime,
+          status: "BLOCKED" as const,
+        };
+
+        if (slot.blockedByRuleId) {
+          result.blockedByRuleId = slot.blockedByRuleId as Id<"ruleConditions">;
+        }
+
+        if (slot.locationId) {
+          result.locationId = slot.locationId as Id<"locations">;
+        }
+
+        return result;
+      });
+
+    return { slots: blockedSlots };
+  },
+  returns: v.object({
+    slots: v.array(
+      v.object({
+        blockedByRuleId: v.optional(v.id("ruleConditions")),
+        duration: v.number(),
+        locationId: v.optional(v.id("locations")),
+        practitionerId: v.id("practitioners"),
+        startTime: v.string(),
+        status: v.literal("BLOCKED"),
+      }),
+    ),
+  }),
 });
