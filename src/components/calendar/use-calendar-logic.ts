@@ -1092,20 +1092,6 @@ export function useCalendarLogic({
       return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
     });
 
-    // DEV: Diagnostic logging for manual blocked slots
-    if (import.meta.env.DEV && dateFilteredBlocks.length > 0) {
-      console.log("[ManualBlockedSlots] Date-filtered blocks:", {
-        blocks: dateFilteredBlocks.map((b) => ({
-          id: b._id,
-          locationId: b.locationId,
-          practitionerId: b.practitionerId,
-          title: b.title,
-        })),
-        count: dateFilteredBlocks.length,
-        workingPractitionerIds: workingPractitioners.map((p) => p.id),
-      });
-    }
-
     for (const blockedSlot of dateFilteredBlocks) {
       // Find if this practitioner has a column
       const practitionerColumn = blockedSlot.practitionerId
@@ -1161,16 +1147,6 @@ export function useCalendarLogic({
           });
         }
       }
-    }
-
-    // DEV: Log summary of manual blocks mapped
-    if (import.meta.env.DEV && manual.length > 0) {
-      const uniqueIds = [...new Set(manual.map((m) => m.id))];
-      console.log("[ManualBlockedSlots] Successfully mapped:", {
-        blockIds: uniqueIds,
-        totalSlots: manual.length,
-        uniqueBlocks: uniqueIds.length,
-      });
     }
 
     return manual;
