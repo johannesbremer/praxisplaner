@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 
 interface BlockedSlotWarningDialogProps {
+  isManualBlock?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   open: boolean;
@@ -19,12 +20,17 @@ interface BlockedSlotWarningDialogProps {
 }
 
 export function BlockedSlotWarningDialog({
+  isManualBlock = false,
   onCancel,
   onConfirm,
   open,
   reason,
   slotTime,
 }: BlockedSlotWarningDialogProps) {
+  const blockTypeDescription = isManualBlock
+    ? "manuell blockiert"
+    : "durch Regeln blockiert";
+
   return (
     <Dialog onOpenChange={onCancel} open={open}>
       <DialogContent>
@@ -34,8 +40,8 @@ export function BlockedSlotWarningDialog({
             Zeitfenster ist blockiert
           </DialogTitle>
           <DialogDescription>
-            Der gewählte Zeitfenster um {slotTime} Uhr ist durch Regeln
-            blockiert.
+            Der gewählte Zeitfenster um {slotTime} Uhr ist{" "}
+            {blockTypeDescription}.
             {reason && (
               <>
                 <br />

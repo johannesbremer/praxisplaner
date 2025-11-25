@@ -95,6 +95,7 @@ export function useCalendarLogic({
   // Warning dialog state for blocked slots
   const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
     column: string;
+    isManualBlock?: boolean;
     onConfirm: () => void;
     reason?: string;
     slot: number;
@@ -898,6 +899,8 @@ export function useCalendarLogic({
     const blocked: {
       blockedByRuleId?: Id<"ruleConditions">;
       column: string;
+      id?: string; // ID of the manual blocked slot, if applicable
+      isManual?: boolean; // True if blocked by a manual block (not a rule)
       reason?: string;
       slot: number;
     }[] = [];
@@ -917,12 +920,19 @@ export function useCalendarLogic({
               .toPlainTime();
             const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
 
+            // Check if this is a manual block (has blockedByBlockedSlotId)
+            const isManualBlock = !!slotData.blockedByBlockedSlotId;
+
             blocked.push({
               column: practitionerColumn.id,
               slot,
               ...(slotData.reason && { reason: slotData.reason }),
               ...(slotData.blockedByRuleId && {
                 blockedByRuleId: slotData.blockedByRuleId,
+              }),
+              ...(isManualBlock && {
+                id: slotData.blockedByBlockedSlotId,
+                isManual: true,
               }),
             });
           }
@@ -951,11 +961,18 @@ export function useCalendarLogic({
           );
 
           if (!alreadyBlocked) {
+            // Check if this is a manual block (has blockedByBlockedSlotId)
+            const isManualBlock = !!slotData.blockedByBlockedSlotId;
+
             blocked.push({
               column: practitionerColumn.id,
               slot,
               ...(slotData.blockedByRuleId && {
                 blockedByRuleId: slotData.blockedByRuleId,
+              }),
+              ...(isManualBlock && {
+                id: slotData.blockedByBlockedSlotId,
+                isManual: true,
               }),
             });
           }
@@ -1040,11 +1057,42 @@ export function useCalendarLogic({
       return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
     });
 
+    // DEV: Diagnostic logging for manual blocked slots
+    if (import.meta.env.DEV && dateFilteredBlocks.length > 0) {
+      console.log("[ManualBlockedSlots] Date-filtered blocks:", {
+        blocks: dateFilteredBlocks.map((b) => ({
+          id: b._id,
+          locationId: b.locationId,
+          practitionerId: b.practitionerId,
+          title: b.title,
+        })),
+        count: dateFilteredBlocks.length,
+        workingPractitionerIds: workingPractitioners.map((p) => p.id),
+      });
+    }
+
     for (const blockedSlot of dateFilteredBlocks) {
       // Find if this practitioner has a column
       const practitionerColumn = blockedSlot.practitionerId
         ? workingPractitioners.find((p) => p.id === blockedSlot.practitionerId)
         : undefined;
+
+      // DEV: Log when a blocked slot doesn't match any practitioner column
+      if (
+        import.meta.env.DEV &&
+        !practitionerColumn &&
+        blockedSlot.practitionerId
+      ) {
+        console.warn(
+          "[ManualBlockedSlots] Block practitioner not in columns:",
+          {
+            blockId: blockedSlot._id,
+            blockPractitionerId: blockedSlot.practitionerId,
+            blockTitle: blockedSlot.title,
+            workingPractitionerIds: workingPractitioners.map((p) => p.id),
+          },
+        );
+      }
 
       if (practitionerColumn) {
         const startTime = Temporal.Instant.from(blockedSlot.start)
@@ -1080,6 +1128,16 @@ export function useCalendarLogic({
       }
     }
 
+    // DEV: Log summary of manual blocks mapped
+    if (import.meta.env.DEV && manual.length > 0) {
+      const uniqueIds = [...new Set(manual.map((m) => m.id))];
+      console.log("[ManualBlockedSlots] Successfully mapped:", {
+        blockIds: uniqueIds,
+        totalSlots: manual.length,
+        uniqueBlocks: uniqueIds.length,
+      });
+    }
+
     return manual;
   }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
 
@@ -1092,11 +1150,10 @@ export function useCalendarLogic({
     for (const slot of combined) {
       const key = `${slot.column}-${slot.slot}`;
       const existing = uniqueSlots.get(key);
-      // Always keep manual blocked slots (isManual: true), they take priority over breaks and rules
-      // Use optional chaining since only manualBlockedSlots have the isManual property
+
       const existingIsManual =
-        existing && "isManual" in existing && existing.isManual === true;
-      const slotIsManual = "isManual" in slot && slot.isManual === true;
+        existing && "isManual" in existing ? existing.isManual === true : false;
+      const slotIsManual = "isManual" in slot ? slot.isManual === true : false;
 
       if (!existing || (!existingIsManual && slotIsManual)) {
         uniqueSlots.set(key, slot);
@@ -1918,8 +1975,12 @@ export function useCalendarLogic({
     if (blockedSlotData) {
       // Show blocked slot warning dialog
       const slotTime = slotToTime(slot);
+      // Check if this is a manual block (from blockedSlots memo, has isManual flag)
+      const isManualBlock =
+        "isManual" in blockedSlotData && blockedSlotData.isManual === true;
       setBlockedSlotWarning({
         column,
+        isManualBlock,
         onConfirm: () => {
           // User confirmed, proceed with appointment creation despite block
           createAppointmentInSlot(column, slot);
