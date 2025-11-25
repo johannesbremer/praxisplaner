@@ -192,7 +192,9 @@ async function createRule(
       if ("children" in node) {
         for (let i = 0; i < node.children.length; i++) {
           const child = node.children[i];
-          await createTreeNode(child as ConditionTreeNode, nodeId, i);
+          if (child) {
+            await createTreeNode(child, nodeId, i);
+          }
         }
       }
 
@@ -2032,7 +2034,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
           valueIds: [surgeryTypeId],
         },
         {
-          conditionType: "CLIENT_TYPE",
+          conditionType: "CLIENT_TYPE" as const,
           nodeType: "CONDITION" as const,
           operator: "IS" as const,
           valueIds: ["Online"],

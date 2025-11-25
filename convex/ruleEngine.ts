@@ -683,8 +683,68 @@ export const scopeValidator = v.union(
 );
 
 /**
+ * Type for scope (practice, location, or practitioner level).
+ */
+export type Scope = "location" | "practice" | "practitioner";
+
+/**
+ * Condition types supported by the rule engine.
+ */
+export type ConditionType =
+  | "APPOINTMENT_TYPE"
+  | "CLIENT_TYPE"
+  | "CONCURRENT_COUNT"
+  | "DAILY_CAPACITY"
+  | "DATE_RANGE"
+  | "DAY_OF_WEEK"
+  | "DAYS_AHEAD"
+  | "LOCATION"
+  | "PRACTITIONER"
+  | "PRACTITIONER_TAG"
+  | "TIME_RANGE";
+
+/**
+ * Operators supported by conditions.
+ */
+export type ConditionOperator =
+  | "EQUALS"
+  | "GREATER_THAN_OR_EQUAL"
+  | "IS"
+  | "IS_NOT"
+  | "LESS_THAN_OR_EQUAL";
+
+/**
+ * A logical node (AND/NOT) that contains child nodes.
+ */
+export interface LogicalNode {
+  children: ConditionTreeNode[];
+  nodeType: "AND" | "NOT";
+}
+
+/**
+ * A leaf condition node with actual condition data.
+ */
+export interface ConditionNode {
+  conditionType: ConditionType;
+  nodeType: "CONDITION";
+  operator: ConditionOperator;
+  scope?: Scope;
+  valueIds?: string[];
+  valueNumber?: number;
+}
+
+/**
+ * A node in the condition tree - either a logical operator or a leaf condition.
+ * This is a properly typed recursive type (not using Infer to avoid `any` in children).
+ */
+export type ConditionTreeNode = ConditionNode | LogicalNode;
+
+/**
  * Validator for condition tree nodes used in rule creation/updates.
- * Note: Uses v.any() for recursive children array - we validate structure at runtime.
+ *
+ * Note: Convex validators don't support recursive types, so we use v.any() for children.
+ * The actual type safety comes from the ConditionTreeNode type above, which is properly
+ * recursive. Runtime validation is done via validateConditionTree().
  */
 export const conditionTreeNodeValidator = v.union(
   v.object({
@@ -713,50 +773,65 @@ export const conditionTreeNodeValidator = v.union(
       v.literal("LESS_THAN_OR_EQUAL"),
       v.literal("EQUALS"),
     ),
-    // For CONCURRENT_COUNT and DAILY_CAPACITY: scope defines the granularity
     scope: v.optional(scopeValidator),
-    // valueIds contains IDs (appointment types, locations, practitioners, etc.)
     valueIds: v.optional(v.array(v.string())),
     valueNumber: v.optional(v.number()),
   }),
 );
 
 /**
- * Type for condition tree nodes, derived from validator.
- */
-export type ConditionTreeNode = Infer<typeof conditionTreeNodeValidator>;
-
-/**
- * Type for scope (practice, location, or practitioner level).
- */
-export type Scope = Infer<typeof scopeValidator>;
-
-/**
  * Type guard to check if a node is a logical operator node (AND/NOT).
  */
-function isLogicalNode(
-  node: ConditionTreeNode,
-): node is Extract<ConditionTreeNode, { nodeType: "AND" | "NOT" }> {
+export function isLogicalNode(node: ConditionTreeNode): node is LogicalNode {
   return node.nodeType === "AND" || node.nodeType === "NOT";
 }
 
 /**
  * Type guard to check if a node is a condition leaf node.
  */
-function isConditionNode(
+export function isConditionNode(
   node: ConditionTreeNode,
-): node is Extract<ConditionTreeNode, { nodeType: "CONDITION" }> {
+): node is ConditionNode {
   return node.nodeType === "CONDITION";
 }
 
 /**
  * Type guard to check if unknown value is a valid condition tree node.
+ * Use this to safely cast children from the validator's `any[]` to ConditionTreeNode.
  */
-function isValidNode(value: unknown): value is ConditionTreeNode {
+export function isValidNode(value: unknown): value is ConditionTreeNode {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  return "nodeType" in value;
+  if (!("nodeType" in value)) {
+    return false;
+  }
+  const nodeType = (value as { nodeType: unknown }).nodeType;
+  // Check for logical nodes
+  if (nodeType === "AND" || nodeType === "NOT") {
+    return (
+      "children" in value &&
+      Array.isArray((value as { children: unknown }).children)
+    );
+  }
+  // Check for condition nodes
+  if (nodeType === "CONDITION") {
+    return "conditionType" in value && "operator" in value;
+  }
+  return false;
+}
+
+/**
+ * Safely get typed children from a logical node.
+ * Validates each child and throws if any are invalid.
+ */
+export function getTypedChildren(node: LogicalNode): ConditionTreeNode[] {
+  return node.children.map((child: unknown, index: number) => {
+    if (!isValidNode(child)) {
+      throw new Error(`Invalid child at index ${index}`);
+    }
+    return child;
+  });
 }
 
 /**

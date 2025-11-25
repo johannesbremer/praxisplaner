@@ -29,6 +29,12 @@ import {
   validateEntityIdsInRuleSet,
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
+import {
+  type ConditionTreeNode,
+  conditionTreeNodeValidator,
+  getTypedChildren,
+  isLogicalNode,
+} from "./ruleEngine";
 
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
@@ -1116,71 +1122,8 @@ export const getBaseSchedulesByPractitioner = query({
 // RULE CONDITIONS (RULES)
 // ================================
 
-/**
- * Condition tree node definition for creating/updating rules.
- * This is the input format for building condition trees.
- */
-// Using v.any() for recursive type - we'll validate the structure at runtime
-const conditionTreeNodeValidator = v.union(
-  v.object({
-    children: v.array(v.any()),
-    nodeType: v.union(v.literal("AND"), v.literal("NOT")),
-  }),
-  v.object({
-    conditionType: v.union(
-      v.literal("APPOINTMENT_TYPE"),
-      v.literal("DAY_OF_WEEK"),
-      v.literal("LOCATION"),
-      v.literal("PRACTITIONER"),
-      v.literal("PRACTITIONER_TAG"),
-      v.literal("DATE_RANGE"),
-      v.literal("TIME_RANGE"),
-      v.literal("DAYS_AHEAD"),
-      v.literal("DAILY_CAPACITY"),
-      v.literal("CONCURRENT_COUNT"),
-      v.literal("CLIENT_TYPE"),
-    ),
-    nodeType: v.literal("CONDITION"),
-    operator: v.union(
-      v.literal("IS"),
-      v.literal("IS_NOT"),
-      v.literal("GREATER_THAN_OR_EQUAL"),
-      v.literal("LESS_THAN_OR_EQUAL"),
-      v.literal("EQUALS"),
-    ),
-    valueIds: v.optional(v.array(v.string())),
-    valueNumber: v.optional(v.number()),
-  }),
-);
-
-type ConditionTreeNode =
-  | {
-      children: ConditionTreeNode[];
-      nodeType: "AND" | "NOT";
-    }
-  | {
-      conditionType:
-        | "APPOINTMENT_TYPE"
-        | "CLIENT_TYPE"
-        | "CONCURRENT_COUNT"
-        | "DAILY_CAPACITY"
-        | "DATE_RANGE"
-        | "DAY_OF_WEEK"
-        | "DAYS_AHEAD"
-        | "LOCATION"
-        | "PRACTITIONER"
-        | "PRACTITIONER_TAG"
-        | "TIME_RANGE";
-      nodeType: "CONDITION";
-      operator:
-        | "EQUALS"
-        | "GREATER_THAN_OR_EQUAL"
-        | "IS"
-        | "IS_NOT"
-        | "LESS_THAN_OR_EQUAL";
-      valueIds?: string[];
-      valueNumber?: number;
-    };
+// conditionTreeNodeValidator and ConditionTreeNode are imported from ruleEngine.ts
+// to avoid duplication and ensure consistency
 
 /**
  * Recursively remap entity IDs in a condition tree from source rule set to target rule set.
@@ -1200,60 +1143,47 @@ async function remapConditionTreeEntityIds(
   if (node.nodeType === "CONDITION") {
     // Check if this condition type has entity references that need remapping
     if (node.valueIds && node.valueIds.length > 0) {
-      // Handle CONCURRENT_COUNT and DAILY_CAPACITY specially
-      // Their valueIds structure is: [scope, ...appointmentTypeIds]
+      // Handle CONCURRENT_COUNT and DAILY_CAPACITY
+      // Their valueIds contains appointment type IDs (scope is now a separate field)
       if (
         node.conditionType === "CONCURRENT_COUNT" ||
         node.conditionType === "DAILY_CAPACITY"
       ) {
-        const [scope, ...appointmentTypeIds] = node.valueIds;
+        // Remap the appointment type IDs
+        const remappedIds: string[] = [];
 
-        if (!scope) {
-          throw new Error(
-            `${node.conditionType} condition must have a scope (first element of valueIds)`,
-          );
-        }
+        for (const oldId of node.valueIds) {
+          const oldEntity = await db.get(oldId as Id<"appointmentTypes">);
 
-        if (appointmentTypeIds.length > 0) {
-          // Remap the appointment type IDs (skip the scope string)
-          const remappedIds: string[] = [scope]; // Keep the scope as-is
-
-          for (const oldId of appointmentTypeIds) {
-            const oldEntity = await db.get(oldId as Id<"appointmentTypes">);
-
-            if (!oldEntity) {
-              throw new Error(
-                `AppointmentType ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
-              );
-            }
-
-            // Find the corresponding entity in the target rule set by name
-            const newEntity = await db
-              .query("appointmentTypes")
-              .withIndex("by_ruleSetId", (q) =>
-                q.eq("ruleSetId", targetRuleSetId),
-              )
-              .filter((q) => q.eq(q.field("name"), oldEntity.name))
-              .first();
-
-            if (!newEntity) {
-              throw new Error(
-                `Could not find appointmentType with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
-                  `This may indicate the entity was not copied during copy-on-write.`,
-              );
-            }
-
-            remappedIds.push(newEntity._id);
+          if (!oldEntity) {
+            throw new Error(
+              `AppointmentType ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+            );
           }
 
-          return {
-            ...node,
-            valueIds: remappedIds,
-          };
+          // Find the corresponding entity in the target rule set by name
+          const newEntity = await db
+            .query("appointmentTypes")
+            .withIndex("by_ruleSetId", (q) =>
+              q.eq("ruleSetId", targetRuleSetId),
+            )
+            .filter((q) => q.eq(q.field("name"), oldEntity.name))
+            .first();
+
+          if (!newEntity) {
+            throw new Error(
+              `Could not find appointmentType with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+                `This may indicate the entity was not copied during copy-on-write.`,
+            );
+          }
+
+          remappedIds.push(newEntity._id);
         }
 
-        // No appointment types to remap, return as-is
-        return node;
+        return {
+          ...node,
+          valueIds: remappedIds,
+        };
       }
 
       // Handle standard conditions (PRACTITIONER, LOCATION, APPOINTMENT_TYPE)
@@ -1318,9 +1248,10 @@ async function remapConditionTreeEntityIds(
   }
 
   // Recursively remap children for AND/NOT nodes
-  if ("children" in node) {
+  if (isLogicalNode(node)) {
+    const typedChildren = getTypedChildren(node);
     const remappedChildren: ConditionTreeNode[] = [];
-    for (const child of node.children) {
+    for (const child of typedChildren) {
       const remappedChild = await remapConditionTreeEntityIds(
         db,
         child,
@@ -1369,15 +1300,12 @@ async function insertConditionTreeNode(
         }
         case "CONCURRENT_COUNT":
         case "DAILY_CAPACITY": {
-          // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds structure is:
-          // [scope, ...appointmentTypeIds]
-          // where scope is a string like "practice", "location", or "practitioner"
-          // We only validate the appointment type IDs (skip the first element)
-          const appointmentTypeIds = node.valueIds.slice(1);
-          if (appointmentTypeIds.length > 0) {
+          // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds contains appointment type IDs
+          // (scope is now a separate field)
+          if (node.valueIds.length > 0) {
             await validateEntityIdsInRuleSet(
               db,
-              appointmentTypeIds,
+              node.valueIds,
               ruleSetId,
               "appointmentTypes",
             );
@@ -1421,6 +1349,7 @@ async function insertConditionTreeNode(
       ...(parentConditionId && { parentConditionId }),
       practiceId,
       ruleSetId,
+      ...(node.scope && { scope: node.scope }),
       ...(node.valueIds && { valueIds: node.valueIds }),
       ...(node.valueNumber !== undefined && { valueNumber: node.valueNumber }),
     });
@@ -1438,12 +1367,9 @@ async function insertConditionTreeNode(
       ruleSetId,
     });
 
-    // Recursively insert children
-    for (let i = 0; i < node.children.length; i++) {
-      const child = node.children[i];
-      if (!child) {
-        throw new Error(`Child ${i} is undefined`);
-      }
+    // Recursively insert children (getTypedChildren validates all children exist)
+    const typedChildren = getTypedChildren(node);
+    for (const [i, child] of typedChildren.entries()) {
       await insertConditionTreeNode(
         db,
         child,
@@ -1483,7 +1409,7 @@ export const createRule = mutation({
     // but we need to use entity IDs from the target (unsaved) rule set
     const remappedConditionTree = await remapConditionTreeEntityIds(
       ctx.db,
-      args.conditionTree as ConditionTreeNode,
+      args.conditionTree,
       args.sourceRuleSetId,
       ruleSetId,
     );
