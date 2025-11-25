@@ -22,6 +22,7 @@ const DEFAULT_SLOT_DURATION_MINUTES = 5;
 const TIMEZONE = "Europe/Berlin";
 
 export interface SchedulingResultSlot {
+  blockedByBlockedSlotId?: Id<"blockedSlots">; // ID of manual blocked slot that caused this
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number; // minutes
   locationId?: Id<"locations">;
@@ -36,6 +37,7 @@ export interface SchedulingResultSlot {
  * Internal candidate slot type used during slot generation.
  */
 interface CandidateSlot {
+  blockedByBlockedSlotId?: string; // ID of manual blocked slot that caused this
   blockedByRuleId?: string;
   duration: number;
   locationId?: string;
@@ -350,7 +352,7 @@ export const getSlotsForDay = query({
       });
 
       // Check if this slot overlaps with any blocked slot
-      const isBlocked = blockedSlotsForDay.some((blockedSlot) => {
+      const blockingSlot = blockedSlotsForDay.find((blockedSlot) => {
         const blockedStart = Temporal.Instant.from(blockedSlot.start);
         const blockedEnd = Temporal.Instant.from(blockedSlot.end);
 
@@ -372,8 +374,9 @@ export const getSlotsForDay = query({
         return overlapStart < 0 && overlapEnd > 0;
       });
 
-      if (isBlocked) {
+      if (blockingSlot) {
         slot.status = "BLOCKED";
+        slot.blockedByBlockedSlotId = blockingSlot._id;
       }
     }
 
@@ -508,6 +511,11 @@ export const getSlotsForDay = query({
         status: slot.status,
       };
 
+      if (slot.blockedByBlockedSlotId) {
+        slotResult.blockedByBlockedSlotId =
+          slot.blockedByBlockedSlotId as Id<"blockedSlots">;
+      }
+
       if (slot.blockedByRuleId) {
         slotResult.blockedByRuleId =
           slot.blockedByRuleId as Id<"ruleConditions">;
@@ -524,22 +532,32 @@ export const getSlotsForDay = query({
     // TODO: Implement full tree reconstruction and detailed rule descriptions
     // Add natural language description to blocked slots
     for (const slot of finalSlots) {
-      if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
-        try {
-          // Use getRuleDescription to get the tree structure description
-          const ruleDescription = await ctx.runQuery(
-            internal.ruleEngine.getRuleDescription,
-            { ruleId: slot.blockedByRuleId },
+      if (slot.status === "BLOCKED") {
+        // Handle manual blocked slots
+        if (slot.blockedByBlockedSlotId) {
+          // Find the blocked slot to get its title for the reason
+          const blockedSlot = blockedSlotsForDay.find(
+            (bs) => bs._id === slot.blockedByBlockedSlotId,
           );
-          slot.reason =
-            ruleDescription.treeStructure.trim() ||
-            "Dieser Zeitfenster ist durch eine Regel blockiert.";
-        } catch (error) {
-          // Fallback if we can't generate a reason
-          slot.reason = "Dieser Zeitfenster ist durch eine Regel blockiert.";
-          log.push(
-            `Failed to generate reason for blocked slot: ${error instanceof Error ? error.message : "unknown error"}`,
-          );
+          slot.reason = blockedSlot?.title || "Manuell blockierter Zeitraum";
+        } else if (slot.blockedByRuleId) {
+          // Handle rule-based blocked slots
+          try {
+            // Use getRuleDescription to get the tree structure description
+            const ruleDescription = await ctx.runQuery(
+              internal.ruleEngine.getRuleDescription,
+              { ruleId: slot.blockedByRuleId },
+            );
+            slot.reason =
+              ruleDescription.treeStructure.trim() ||
+              "Dieser Zeitfenster ist durch eine Regel blockiert.";
+          } catch (error) {
+            // Fallback if we can't generate a reason
+            slot.reason = "Dieser Zeitfenster ist durch eine Regel blockiert.";
+            log.push(
+              `Failed to generate reason for blocked slot: ${error instanceof Error ? error.message : "unknown error"}`,
+            );
+          }
         }
       }
     }
@@ -661,6 +679,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       .filter((slot) => slot.status === "BLOCKED")
       .map((slot) => {
         const result: {
+          blockedByBlockedSlotId?: Id<"blockedSlots">;
           blockedByRuleId?: Id<"ruleConditions">;
           duration: number;
           locationId?: Id<"locations">;
@@ -673,6 +692,11 @@ export const getBlockedSlotsWithoutAppointmentType = query({
           startTime: slot.startTime,
           status: "BLOCKED" as const,
         };
+
+        if (slot.blockedByBlockedSlotId) {
+          result.blockedByBlockedSlotId =
+            slot.blockedByBlockedSlotId as Id<"blockedSlots">;
+        }
 
         if (slot.blockedByRuleId) {
           result.blockedByRuleId = slot.blockedByRuleId as Id<"ruleConditions">;
@@ -690,6 +714,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
   returns: v.object({
     slots: v.array(
       v.object({
+        blockedByBlockedSlotId: v.optional(v.id("blockedSlots")),
         blockedByRuleId: v.optional(v.id("ruleConditions")),
         duration: v.number(),
         locationId: v.optional(v.id("locations")),

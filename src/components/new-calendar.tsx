@@ -387,6 +387,9 @@ export function NewCalendar({
         </div>
       </div>
       <BlockedSlotWarningDialog
+        {...(blockedSlotWarning?.isManualBlock !== undefined && {
+          isManualBlock: blockedSlotWarning.isManualBlock,
+        })}
         onCancel={() => {
           setBlockedSlotWarning(null);
         }}
