@@ -240,6 +240,7 @@ async function createAppointment(
       practiceId,
       practitionerId,
       start: startInstant.toString(),
+      title: appointmentType.name, // Store appointment type name at booking time
     });
     return appointmentId;
   });

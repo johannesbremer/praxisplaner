@@ -225,6 +225,7 @@ export const getAppointments = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
+      title: v.string(),
     }),
   ),
 });
@@ -281,6 +282,7 @@ export const getAppointmentsInRange = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
+      title: v.string(),
     }),
   ),
 });
@@ -308,11 +310,20 @@ export const createAppointment = mutation({
       );
     }
 
+    // Look up the appointment type to get its name at booking time
+    const appointmentType = await ctx.db.get(args.appointmentTypeId);
+    if (!appointmentType) {
+      throw new Error(
+        `Appointment type with ID ${args.appointmentTypeId} not found`,
+      );
+    }
+
     return await ctx.db.insert("appointments", {
       ...rest,
       createdAt: now,
       isSimulation: isSimulation ?? false,
       lastModified: now,
+      title: appointmentType.name, // Store appointment type name at booking time
       ...(replacesAppointmentId !== undefined && {
         replacesAppointmentId,
       }),

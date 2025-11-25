@@ -1848,3 +1848,23 @@ export const getBaseSchedulesFromActive = query({
       .collect();
   },
 });
+
+/**
+ * Get appointment types from the active rule set
+ */
+export const getAppointmentTypesFromActive = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const practice = await ctx.db.get(args.practiceId);
+    if (!practice?.currentActiveRuleSetId) {
+      return [];
+    }
+    const ruleSetId = practice.currentActiveRuleSetId;
+    return await ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+  },
+});
