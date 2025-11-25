@@ -220,9 +220,9 @@ async function createAppointment(
 ) {
   return await t.run(async (ctx) => {
     // Parse the start time and calculate end time
-    // Use Temporal to ensure consistent ISO string format
-    const startInstant = Temporal.Instant.from(startTime);
-    const endInstant = startInstant.add({ milliseconds: duration * 60 * 1000 });
+    // Use Temporal ZonedDateTime for consistent format
+    const startZoned = Temporal.ZonedDateTime.from(startTime);
+    const endZoned = startZoned.add({ minutes: duration });
 
     const appointmentType = (await ctx.db.get(
       appointmentTypeId,
@@ -234,12 +234,12 @@ async function createAppointment(
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeId,
       createdAt: BigInt(Date.now()),
-      end: endInstant.toString(),
+      end: endZoned.toString(),
       lastModified: BigInt(Date.now()),
       locationId,
       practiceId,
       practitionerId,
-      start: startInstant.toString(),
+      start: startZoned.toString(),
       title: appointmentType.name, // Store appointment type name at booking time
     });
     return appointmentId;
@@ -302,11 +302,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -321,11 +321,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -387,11 +387,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId, // This is a NAME, not an ID
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -407,11 +407,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -476,11 +476,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: emergencyTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -494,11 +494,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -560,11 +560,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -578,11 +578,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId: drJonesId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -644,11 +644,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: mainOfficeId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -662,11 +662,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: branchId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -722,11 +722,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z", // Monday
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]", // Monday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -740,11 +740,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
+          dateTime: "2025-10-28T11:00:00+01:00[Europe/Berlin]", // Tuesday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -817,11 +817,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -834,11 +834,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -852,11 +852,11 @@ describe("Rule Engine: Simple Filter Conditions", () => {
       {
         context: {
           appointmentTypeId: emergencyTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -912,7 +912,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
 
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
-    const requestTime = "2025-10-24T10:00:00.000Z";
+    const requestTime = "2025-10-24T11:00:00+02:00[Europe/Berlin]";
 
     // Test: 29 days ahead should be allowed
     const nearResult = await t.query(
@@ -920,7 +920,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-22T10:00:00.000Z", // 29 days ahead
+          dateTime: "2025-11-22T11:00:00+01:00[Europe/Berlin]", // 29 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -938,7 +938,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-23T10:00:00.000Z", // 30 days ahead
+          dateTime: "2025-11-23T11:00:00+01:00[Europe/Berlin]", // 30 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -956,7 +956,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-12-23T10:00:00.000Z", // 60 days ahead
+          dateTime: "2025-12-23T11:00:00+01:00[Europe/Berlin]", // 60 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -1004,8 +1004,8 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       [drSmithId, drJonesId],
     );
 
-    const timeSlot = Temporal.Instant.from(
-      "2025-10-27T10:00:00.000Z",
+    const timeSlot = Temporal.ZonedDateTime.from(
+      "2025-10-27T11:00:00+01:00[Europe/Berlin]",
     ).toString();
 
     // Create 2 existing appointments at the same time
@@ -1057,7 +1057,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
           locationId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1071,13 +1071,13 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: Temporal.Instant.from(
-            "2025-10-27T11:00:00.000Z",
+          dateTime: Temporal.ZonedDateTime.from(
+            "2025-10-27T12:00:00+01:00[Europe/Berlin]",
           ).toString(), // Different time
           locationId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1157,11 +1157,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z", // Monday
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]", // Monday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1175,11 +1175,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
+          dateTime: "2025-10-28T11:00:00+01:00[Europe/Berlin]", // Tuesday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1193,11 +1193,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z", // Monday
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]", // Monday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1289,11 +1289,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: mainOfficeId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1307,11 +1307,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: mainOfficeId,
           practiceId,
           practitionerId: drJonesId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1325,11 +1325,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: branchId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1343,11 +1343,11 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId: mainOfficeId,
           practiceId,
           practitionerId: drSmithId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1421,7 +1421,7 @@ describe("Rule Engine: Compound Conditions", () => {
 
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
-    const requestTime = "2025-10-24T10:00:00.000Z";
+    const requestTime = "2025-10-24T11:00:00+02:00[Europe/Berlin]";
 
     // Test: Checkup on Monday, 20 days ahead - should be blocked
     const blockedResult = await t.query(
@@ -1429,7 +1429,7 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-17T10:00:00.000Z", // Monday, 24 days ahead
+          dateTime: "2025-11-17T11:00:00+01:00[Europe/Berlin]", // Monday, 24 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -1447,7 +1447,7 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-03T10:00:00.000Z", // Monday, 10 days ahead
+          dateTime: "2025-11-03T11:00:00+01:00[Europe/Berlin]", // Monday, 10 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -1465,7 +1465,7 @@ describe("Rule Engine: Compound Conditions", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-19T10:00:00.000Z", // Wednesday, 26 days ahead
+          dateTime: "2025-11-19T11:00:00+01:00[Europe/Berlin]", // Wednesday, 26 days ahead
           locationId,
           practiceId,
           practitionerId,
@@ -1557,11 +1557,11 @@ describe("Rule Engine: Multiple Rules", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
+          dateTime: "2025-10-28T11:00:00+01:00[Europe/Berlin]", // Tuesday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1576,11 +1576,11 @@ describe("Rule Engine: Multiple Rules", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z", // Monday
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]", // Monday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1595,11 +1595,11 @@ describe("Rule Engine: Multiple Rules", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T10:00:00.000Z", // Monday
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]", // Monday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1616,11 +1616,11 @@ describe("Rule Engine: Multiple Rules", () => {
       {
         context: {
           appointmentTypeId: consultationTypeId,
-          dateTime: "2025-10-28T10:00:00.000Z", // Tuesday
+          dateTime: "2025-10-28T11:00:00+01:00[Europe/Berlin]", // Tuesday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1682,11 +1682,11 @@ describe("Rule Engine: Multiple Rules", () => {
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
         appointmentTypeId: checkupTypeId,
-        dateTime: "2025-10-27T10:00:00.000Z",
+        dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
         locationId,
         practiceId,
         practitionerId,
-        requestedAt: "2025-10-24T10:00:00.000Z",
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
       },
       ruleSetId,
     });
@@ -1728,11 +1728,11 @@ describe("Rule Engine: Edge Cases", () => {
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
         appointmentTypeId: checkupTypeId,
-        dateTime: "2025-10-27T10:00:00.000Z",
+        dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
         locationId,
         practiceId,
         practitionerId,
-        requestedAt: "2025-10-24T10:00:00.000Z",
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
       },
       ruleSetId,
     });
@@ -1774,11 +1774,11 @@ describe("Rule Engine: Edge Cases", () => {
     const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
       context: {
         appointmentTypeId: checkupTypeId,
-        dateTime: "2025-10-27T10:00:00.000Z",
+        dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
         locationId,
         practiceId,
         practitionerId,
-        requestedAt: "2025-10-24T10:00:00.000Z",
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
       },
       ruleSetId,
     });
@@ -1816,7 +1816,7 @@ describe("Rule Engine: Edge Cases", () => {
       valueNumber: 7,
     });
 
-    const now = "2025-10-24T10:00:00.000Z";
+    const now = "2025-10-24T11:00:00+02:00[Europe/Berlin]";
 
     // Test: Same-day booking should be allowed
     const sameDayResult = await t.query(
@@ -1842,7 +1842,7 @@ describe("Rule Engine: Edge Cases", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-25T10:00:00.000Z",
+          dateTime: "2025-10-25T12:00:00+02:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
@@ -1860,7 +1860,7 @@ describe("Rule Engine: Edge Cases", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-31T10:00:00.000Z",
+          dateTime: "2025-10-31T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
@@ -1900,7 +1900,7 @@ describe("Rule Engine: Edge Cases", () => {
       conditionType: "DAY_OF_WEEK" as const,
       nodeType: "CONDITION" as const,
       operator: "EQUALS" as const,
-      valueNumber: 6, // Saturday
+      valueNumber: 6, // Saturday (ISO 8601)
     };
 
     // Expected behavior: "Wenn es Samstag ist, darf der Termin nicht vergeben werden."
@@ -1918,7 +1918,7 @@ describe("Rule Engine: Edge Cases", () => {
       conditionType: "DAY_OF_WEEK" as const,
       nodeType: "CONDITION" as const,
       operator: "EQUALS" as const,
-      valueNumber: 0, // Sunday
+      valueNumber: 7, // Sunday (ISO 8601: 7, not 0)
     };
 
     // Expected behavior: "Wenn es Sonntag ist, darf der Termin nicht vergeben werden."
@@ -1938,11 +1938,11 @@ describe("Rule Engine: Edge Cases", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-01T10:00:00.000Z", // Saturday
+          dateTime: "2025-11-01T11:00:00+01:00[Europe/Berlin]", // Saturday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1956,11 +1956,11 @@ describe("Rule Engine: Edge Cases", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-02T10:00:00.000Z", // Sunday
+          dateTime: "2025-11-02T11:00:00+01:00[Europe/Berlin]", // Sunday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -1974,11 +1974,11 @@ describe("Rule Engine: Edge Cases", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-31T10:00:00.000Z", // Friday
+          dateTime: "2025-10-31T11:00:00+01:00[Europe/Berlin]", // Friday
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2059,11 +2059,11 @@ describe("Rule Engine: Real-World Scenarios", () => {
         context: {
           appointmentTypeId: surgeryTypeId,
           clientType: "Online",
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2078,11 +2078,11 @@ describe("Rule Engine: Real-World Scenarios", () => {
         context: {
           appointmentTypeId: surgeryTypeId,
           clientType: "MFA",
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2097,11 +2097,11 @@ describe("Rule Engine: Real-World Scenarios", () => {
         context: {
           appointmentTypeId: checkupTypeId,
           clientType: "Online",
-          dateTime: "2025-10-27T10:00:00.000Z",
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2158,11 +2158,11 @@ describe("Rule Engine: Real-World Scenarios", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-27T07:00:00.000Z", // Monday 7 AM
+          dateTime: "2025-10-27T08:00:00+01:00[Europe/Berlin]", // Monday 7 AM
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2176,11 +2176,11 @@ describe("Rule Engine: Real-World Scenarios", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-10-28T07:00:00.000Z", // Tuesday 7 AM
+          dateTime: "2025-10-28T08:00:00+01:00[Europe/Berlin]", // Tuesday 7 AM
           locationId,
           practiceId,
           practitionerId,
-          requestedAt: "2025-10-24T10:00:00.000Z",
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
         ruleSetId,
       },
@@ -2247,7 +2247,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
 
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
-    const requestTime = "2025-10-24T10:00:00.000Z";
+    const requestTime = "2025-10-24T11:00:00+02:00[Europe/Berlin]";
 
     // Test: Dr. Smith 20 days ahead should be blocked
     const smithFarResult = await t.query(
@@ -2255,7 +2255,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-13T10:00:00.000Z", // 20 days ahead
+          dateTime: "2025-11-13T11:00:00+01:00[Europe/Berlin]", // 20 days ahead
           locationId,
           practiceId,
           practitionerId: drSmithId,
@@ -2273,7 +2273,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-03T10:00:00.000Z", // 10 days ahead
+          dateTime: "2025-11-03T11:00:00+01:00[Europe/Berlin]", // 10 days ahead
           locationId,
           practiceId,
           practitionerId: drSmithId,
@@ -2291,7 +2291,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
       {
         context: {
           appointmentTypeId: checkupTypeId,
-          dateTime: "2025-11-13T10:00:00.000Z", // 20 days ahead
+          dateTime: "2025-11-13T11:00:00+01:00[Europe/Berlin]", // 20 days ahead
           locationId,
           practiceId,
           practitionerId: drJonesId,
@@ -3051,7 +3051,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: generalTypeId,
         patient: { isNew: false },
-        requestedAt: "2025-10-24T10:00:00.000Z", // Fixed request time for consistent test
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
     });
 
@@ -3068,7 +3068,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: generalTypeId,
         patient: { isNew: false },
-        requestedAt: "2025-10-24T10:00:00.000Z", // Fixed request time for consistent test
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
     });
 
@@ -3501,9 +3501,7 @@ describe("E2E: Slot Generation with Rules", () => {
       month: 11,
       timeZone: "Europe/Berlin",
       year: 2025,
-    })
-      .toInstant()
-      .toString();
+    }).toString();
 
     await createAppointment(
       t,
@@ -3559,7 +3557,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
-        requestedAt: "2025-10-24T10:00:00.000Z",
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
       },
     });
 
@@ -3574,9 +3572,7 @@ describe("E2E: Slot Generation with Rules", () => {
       month: 11,
       timeZone: "Europe/Berlin",
       year: 2025,
-    })
-      .toInstant()
-      .toString();
+    }).toString();
 
     const slot10am = surgerySlots.slots.find(
       (slot) => slot.startTime === expectedSlot10am,
@@ -3593,9 +3589,7 @@ describe("E2E: Slot Generation with Rules", () => {
       month: 11,
       timeZone: "Europe/Berlin",
       year: 2025,
-    })
-      .toInstant()
-      .toString();
+    }).toString();
 
     const slot1030am = surgerySlots.slots.find(
       (slot) => slot.startTime === expectedSlot1030am,
@@ -3709,7 +3703,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
-        requestedAt: "2025-10-24T10:00:00.000Z", // Reference date
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
       },
     });
 
@@ -3737,7 +3731,7 @@ describe("E2E: Slot Generation with Rules", () => {
       simulatedContext: {
         appointmentTypeId: surgeryTypeId,
         patient: { isNew: false },
-        requestedAt: "2025-10-24T10:00:00.000Z", // Reference date
+        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
       },
     });
 

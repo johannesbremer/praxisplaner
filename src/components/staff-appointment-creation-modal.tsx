@@ -106,18 +106,21 @@ export function StaffAppointmentCreationModal({
       try {
         if (mode === "next" && nextAvailableSlot) {
           // Create appointment at next available slot
-          const startTime = Temporal.Instant.from(nextAvailableSlot.startTime);
-          const endTime = startTime.add({
+          // Parse as ZonedDateTime since scheduling query now returns that format
+          const startZoned = Temporal.ZonedDateTime.from(
+            nextAvailableSlot.startTime,
+          );
+          const endZoned = startZoned.add({
             minutes: nextAvailableSlot.duration,
           });
 
           await runCreateAppointment({
             appointmentTypeId,
-            end: endTime.toString(),
+            end: endZoned.toString(),
             locationId,
             practiceId,
             practitionerId: nextAvailableSlot.practitionerId,
-            start: nextAvailableSlot.startTime,
+            start: startZoned.toString(),
           });
 
           toast.success("Termin erfolgreich erstellt");
@@ -165,8 +168,7 @@ export function StaffAppointmentCreationModal({
               <DialogDescription>
                 {nextAvailableSlot && (
                   <>
-                    {Temporal.Instant.from(nextAvailableSlot.startTime)
-                      .toZonedDateTimeISO("Europe/Berlin")
+                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                       .toPlainDate()
                       .toLocaleString("de-DE", {
                         day: "2-digit",
@@ -175,8 +177,7 @@ export function StaffAppointmentCreationModal({
                         year: "numeric",
                       })}{" "}
                     um{" "}
-                    {Temporal.Instant.from(nextAvailableSlot.startTime)
-                      .toZonedDateTimeISO("Europe/Berlin")
+                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                       .toPlainTime()
                       .toLocaleString("de-DE", {
                         hour: "2-digit",
@@ -232,16 +233,14 @@ export function StaffAppointmentCreationModal({
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {nextAvailableSlot ? (
                   <>
-                    {Temporal.Instant.from(nextAvailableSlot.startTime)
-                      .toZonedDateTimeISO("Europe/Berlin")
+                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                       .toPlainTime()
                       .toLocaleString("de-DE", {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}{" "}
                     Uhr am{" "}
-                    {Temporal.Instant.from(nextAvailableSlot.startTime)
-                      .toZonedDateTimeISO("Europe/Berlin")
+                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                       .toPlainDate()
                       .toLocaleString("de-DE")}
                   </>

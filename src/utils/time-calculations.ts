@@ -17,52 +17,24 @@ const TIMEZONE = "Europe/Berlin";
 const SAFE_TIME_OF_DAY = "12:00:00";
 
 /**
- * Safely parses an ISO string to a Temporal.Instant.
- * @param isoString The ISO 8601 string to parse.
- * @returns The parsed Temporal.Instant, or null if parsing fails.
- * @example
- * ```ts
- * safeParseISOToInstant("2024-01-15T09:30:00Z") // Temporal.Instant
- * safeParseISOToInstant("invalid") // null
- * ```
- */
-export function safeParseISOToInstant(
-  isoString: string,
-): null | Temporal.Instant {
-  try {
-    return Temporal.Instant.from(isoString);
-  } catch (error) {
-    console.error(
-      `Failed to parse ISO string: ${isoString}`,
-      error instanceof Error ? error.message : error,
-    );
-    return null;
-  }
-}
-
-/**
- * Safely parses an ISO string to a Temporal.ZonedDateTime in the Berlin timezone.
- * @param isoString The ISO 8601 string to parse.
+ * Safely parses a ZonedDateTime ISO string to a Temporal.ZonedDateTime.
+ * Expects format: `2024-01-15T09:30:00+01:00[Europe/Berlin]`.
+ * @param isoString The ZonedDateTime ISO 8601 string to parse.
  * @returns The parsed Temporal.ZonedDateTime, or null if parsing fails.
  * @example
  * ```ts
- * safeParseISOToZoned("2024-01-15T09:30:00Z") // Temporal.ZonedDateTime
+ * safeParseISOToZoned("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.ZonedDateTime
  * safeParseISOToZoned("invalid") // null
  * ```
  */
 export function safeParseISOToZoned(
   isoString: string,
 ): null | Temporal.ZonedDateTime {
-  const instant = safeParseISOToInstant(isoString);
-  if (!instant) {
-    return null;
-  }
-
   try {
-    return instant.toZonedDateTimeISO(TIMEZONE);
+    return Temporal.ZonedDateTime.from(isoString);
   } catch (error) {
     console.error(
-      `Failed to convert instant to zoned datetime: ${isoString}`,
+      `Failed to parse ZonedDateTime string: ${isoString}`,
       error instanceof Error ? error.message : error,
     );
     return null;
@@ -70,12 +42,13 @@ export function safeParseISOToZoned(
 }
 
 /**
- * Safely parses an ISO string to a Temporal.PlainDate in the Berlin timezone.
- * @param isoString The ISO 8601 string to parse.
+ * Safely parses a ZonedDateTime ISO string to a Temporal.PlainDate.
+ * Expects format: `2024-01-15T10:30:00+01:00[Europe/Berlin]`.
+ * @param isoString The ZonedDateTime ISO 8601 string to parse.
  * @returns The parsed Temporal.PlainDate, or null if parsing fails.
  * @example
  * ```ts
- * safeParseISOToPlainDate("2024-01-15T09:30:00Z") // Temporal.PlainDate
+ * safeParseISOToPlainDate("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.PlainDate
  * safeParseISOToPlainDate("invalid") // null
  * ```
  */

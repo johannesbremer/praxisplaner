@@ -21,6 +21,9 @@ import {
 const DEFAULT_SLOT_DURATION_MINUTES = 5;
 const TIMEZONE = "Europe/Berlin";
 
+/**
+ * Get the current time as a ZonedDateTime string in the configured timezone.
+ */
 export interface SchedulingResultSlot {
   blockedByBlockedSlotId?: Id<"blockedSlots">; // ID of manual blocked slot that caused this
   blockedByRuleId?: Id<"ruleConditions">;
@@ -31,6 +34,10 @@ export interface SchedulingResultSlot {
   reason?: string; // Natural language explanation for blocked slots
   startTime: string; // ISO string
   status: "AVAILABLE" | "BLOCKED";
+}
+
+function getNowAsZonedString(): string {
+  return Temporal.Now.zonedDateTimeISO(TIMEZONE).toString();
 }
 
 /**
@@ -141,7 +148,8 @@ async function generateCandidateSlotsForDay(
             ...(defaultLocationId && { locationId: defaultLocationId }),
             practitionerId: practitioner._id,
             practitionerName: practitioner.name,
-            startTime: currentInstant.toString(),
+            // Use ZonedDateTime format for consistency with appointments/blocked slots
+            startTime: slotZoned.toString(),
             status: "AVAILABLE",
           });
         }
@@ -346,15 +354,21 @@ export const getSlotsForDay = query({
 
     // Mark manually blocked slots
     for (const slot of candidateSlots) {
-      const slotInstant = Temporal.Instant.from(slot.startTime);
-      const slotEndInstant = slotInstant.add({
-        milliseconds: slot.duration * 60 * 1000,
+      // Parse ZonedDateTime string from candidate slots
+      const slotZoned = Temporal.ZonedDateTime.from(slot.startTime);
+      const slotEndZoned = slotZoned.add({
+        minutes: slot.duration,
       });
 
       // Check if this slot overlaps with any blocked slot
       const blockingSlot = blockedSlotsForDay.find((blockedSlot) => {
-        const blockedStart = Temporal.Instant.from(blockedSlot.start);
-        const blockedEnd = Temporal.Instant.from(blockedSlot.end);
+        // Parse ZonedDateTime strings and convert to Instant for comparison
+        const blockedStartZoned = Temporal.ZonedDateTime.from(
+          blockedSlot.start,
+        );
+        const blockedEndZoned = Temporal.ZonedDateTime.from(blockedSlot.end);
+        const blockedStart = blockedStartZoned.toInstant();
+        const blockedEnd = blockedEndZoned.toInstant();
 
         // Check practitioner match (if blocked slot has practitioner specified)
         if (
@@ -364,7 +378,9 @@ export const getSlotsForDay = query({
           return false;
         }
 
-        // Check if times overlap
+        // Check if times overlap (compare instants for timezone-safe comparison)
+        const slotInstant = slotZoned.toInstant();
+        const slotEndInstant = slotEndZoned.toInstant();
         const overlapStart = Temporal.Instant.compare(slotInstant, blockedEnd);
         const overlapEnd = Temporal.Instant.compare(
           slotEndInstant,
@@ -434,7 +450,7 @@ export const getSlotsForDay = query({
             // should NOT be in the day-invariant set since practitionerId varies per slot
             practitionerId: firstSlot.practitionerId as Id<"practitioners">,
             requestedAt:
-              args.simulatedContext.requestedAt ?? new Date().toISOString(),
+              args.simulatedContext.requestedAt ?? getNowAsZonedString(),
             // locationId comes from simulatedContext (fixed for entire query) or slot's default
             ...(args.simulatedContext.locationId && {
               locationId: args.simulatedContext.locationId,
@@ -469,7 +485,7 @@ export const getSlotsForDay = query({
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId as Id<"practitioners">,
           requestedAt:
-            args.simulatedContext.requestedAt ?? new Date().toISOString(),
+            args.simulatedContext.requestedAt ?? getNowAsZonedString(),
           ...(slot.locationId && {
             locationId: slot.locationId as Id<"locations">,
           }),
@@ -650,7 +666,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         dateTime: slot.startTime,
         practiceId: args.practiceId,
         practitionerId: slot.practitionerId as Id<"practitioners">,
-        requestedAt: new Date().toISOString(),
+        requestedAt: getNowAsZonedString(),
         ...(slot.locationId && {
           locationId: slot.locationId as Id<"locations">,
         }),

@@ -29,8 +29,6 @@ import { api } from "@/convex/_generated/api";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
 
-const TIMEZONE = "Europe/Berlin";
-
 const formSchema = z.object({
   durationMinutes: z
     .number()
@@ -46,7 +44,7 @@ const formSchema = z.object({
 
 interface BlockedSlotCreationModalProps {
   initialDurationMinutes: number;
-  initialSlotStart: string; // Temporal.Instant as string
+  initialSlotStart: string; // Temporal.ZonedDateTime as string (Europe/Berlin)
   isSimulation?: boolean;
   locationId: Id<"locations">;
   onOpenChange: (open: boolean) => void;
@@ -94,16 +92,17 @@ export function BlockedSlotCreationModal({
     onSubmit: async ({ value }) => {
       try {
         // Calculate end time based on start and duration
-        const startInstant = Temporal.Instant.from(initialSlotStart);
-        const endInstant = startInstant.add({
+        // Parse as ZonedDateTime to preserve timezone context
+        const startZoned = Temporal.ZonedDateTime.from(initialSlotStart);
+        const endZoned = startZoned.add({
           minutes: value.durationMinutes,
         });
 
         await runCreateBlockedSlot({
-          end: endInstant.toString(),
+          end: endZoned.toString(),
           locationId,
           practiceId,
-          start: initialSlotStart,
+          start: startZoned.toString(),
           title: value.title,
           ...(practitionerId && { practitionerId }),
           ...(isSimulation && { isSimulation: true }),
@@ -138,8 +137,7 @@ export function BlockedSlotCreationModal({
   };
 
   // Format start time for display
-  const startTime = Temporal.Instant.from(initialSlotStart)
-    .toZonedDateTimeISO(TIMEZONE)
+  const startTime = Temporal.ZonedDateTime.from(initialSlotStart)
     .toPlainTime()
     .toString()
     .slice(0, 5);
