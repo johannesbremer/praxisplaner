@@ -4,7 +4,6 @@ import { describe, expect, test } from "vitest";
 import {
   dateToTemporal,
   getCurrentTimeSlot,
-  safeParseISOToInstant,
   safeParseISOToPlainDate,
   safeParseISOToZoned,
   slotToTime,
@@ -122,9 +121,9 @@ describe("Calendar Time Utilities", () => {
     test("should filter appointments by date", () => {
       const selectedDate = Temporal.PlainDate.from("2025-10-01");
       const appointments = [
-        { start: "2025-10-01T09:00:00Z" },
-        { start: "2025-10-01T14:00:00Z" },
-        { start: "2025-10-02T09:00:00Z" },
+        { start: "2025-10-01T09:00:00+02:00[Europe/Berlin]" },
+        { start: "2025-10-01T14:00:00+02:00[Europe/Berlin]" },
+        { start: "2025-10-02T09:00:00+02:00[Europe/Berlin]" },
       ];
 
       const filtered = appointments.filter((apt) => {
@@ -158,10 +157,10 @@ describe("Calendar Time Utilities", () => {
       const date2 = Temporal.PlainDate.from("2025-10-02");
 
       const appointments = [
-        { start: "2025-10-01T09:00:00Z" },
-        { start: "2025-10-01T14:00:00Z" },
-        { start: "2025-10-02T09:00:00Z" },
-        { start: "2025-10-02T14:00:00Z" },
+        { start: "2025-10-01T09:00:00+02:00[Europe/Berlin]" },
+        { start: "2025-10-01T14:00:00+02:00[Europe/Berlin]" },
+        { start: "2025-10-02T09:00:00+02:00[Europe/Berlin]" },
+        { start: "2025-10-02T14:00:00+02:00[Europe/Berlin]" },
       ];
 
       const filtered1 = appointments.filter((apt) => {
@@ -507,49 +506,55 @@ describe("Calendar Time Utilities", () => {
     });
 
     describe("Safe ISO Parsing", () => {
-      test("should safely parse valid ISO strings", () => {
-        const validISO = "2025-01-15T09:30:00Z";
+      test("should safely parse valid ZonedDateTime strings", () => {
+        const validZonedDateTime = "2025-01-15T10:30:00+01:00[Europe/Berlin]";
 
-        const instant = safeParseISOToInstant(validISO);
-        const zoned = safeParseISOToZoned(validISO);
-        const plain = safeParseISOToPlainDate(validISO);
+        const zoned = safeParseISOToZoned(validZonedDateTime);
+        const plain = safeParseISOToPlainDate(validZonedDateTime);
 
-        expect(instant).not.toBeNull();
         expect(zoned).not.toBeNull();
         expect(plain).not.toBeNull();
         expect(plain?.year).toBe(2025);
         expect(plain?.month).toBe(1);
+        expect(plain?.day).toBe(15);
+        expect(zoned?.hour).toBe(10);
+        expect(zoned?.minute).toBe(30);
       });
 
-      test("should return null for invalid ISO strings", () => {
+      test("should return null for invalid ZonedDateTime strings", () => {
         const invalidStrings = [
           "invalid",
-          "2025-13-01T00:00:00Z", // Invalid month
-          "2025-01-32T00:00:00Z", // Invalid day
+          "2025-13-01T00:00:00+01:00[Europe/Berlin]", // Invalid month
+          "2025-01-32T00:00:00+01:00[Europe/Berlin]", // Invalid day
           "not-a-date",
           "",
         ];
 
         for (const invalid of invalidStrings) {
-          expect(safeParseISOToInstant(invalid)).toBeNull();
           expect(safeParseISOToZoned(invalid)).toBeNull();
           expect(safeParseISOToPlainDate(invalid)).toBeNull();
         }
       });
 
-      test("should handle ISO strings with different timezones", () => {
-        const isoWithOffset = "2025-01-15T09:30:00+01:00";
-        const isoUTC = "2025-01-15T09:30:00Z";
+      test("should correctly parse ZonedDateTime with DST handling", () => {
+        // Summer time (CEST = +02:00)
+        const summerTime = "2025-07-15T10:30:00+02:00[Europe/Berlin]";
+        // Winter time (CET = +01:00)
+        const winterTime = "2025-01-15T10:30:00+01:00[Europe/Berlin]";
 
-        const plainWithOffset = safeParseISOToPlainDate(isoWithOffset);
-        const plainUTC = safeParseISOToPlainDate(isoUTC);
+        const summerZoned = safeParseISOToZoned(summerTime);
+        const winterZoned = safeParseISOToZoned(winterTime);
 
-        expect(plainWithOffset).not.toBeNull();
-        expect(plainUTC).not.toBeNull();
+        expect(summerZoned).not.toBeNull();
+        expect(winterZoned).not.toBeNull();
 
-        // Both should parse to dates, but the time may differ in the Berlin timezone
-        expect(plainWithOffset?.year).toBe(2025);
-        expect(plainUTC?.year).toBe(2025);
+        // Both should show 10:30 local time
+        expect(summerZoned?.hour).toBe(10);
+        expect(winterZoned?.hour).toBe(10);
+
+        // But their UTC offsets differ
+        expect(summerZoned?.offset).toBe("+02:00");
+        expect(winterZoned?.offset).toBe("+01:00");
       });
     });
   });

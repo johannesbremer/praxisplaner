@@ -948,9 +948,10 @@ export function useCalendarLogic({
           );
 
           if (practitionerColumn) {
-            const startTime = Temporal.Instant.from(slotData.startTime)
-              .toZonedDateTimeISO(TIMEZONE)
-              .toPlainTime();
+            // Parse ZonedDateTime string from scheduling query
+            const startTime = Temporal.ZonedDateTime.from(
+              slotData.startTime,
+            ).toPlainTime();
             const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
 
             // Check if this is a manual block (has blockedByBlockedSlotId)
@@ -982,9 +983,10 @@ export function useCalendarLogic({
         );
 
         if (practitionerColumn) {
-          const startTime = Temporal.Instant.from(slotData.startTime)
-            .toZonedDateTimeISO(TIMEZONE)
-            .toPlainTime();
+          // Parse ZonedDateTime string from scheduling query
+          const startTime = Temporal.ZonedDateTime.from(
+            slotData.startTime,
+          ).toPlainTime();
           const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
 
           // Check if this slot is already blocked by the main query
@@ -1084,9 +1086,9 @@ export function useCalendarLogic({
 
     // Filter blocked slots by selected date
     const dateFilteredBlocks = blockedSlotsData.filter((blockedSlot) => {
-      const slotDate = Temporal.Instant.from(blockedSlot.start)
-        .toZonedDateTimeISO(TIMEZONE)
-        .toPlainDate();
+      const slotDate = Temporal.ZonedDateTime.from(
+        blockedSlot.start,
+      ).toPlainDate();
       return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
     });
 
@@ -1128,12 +1130,12 @@ export function useCalendarLogic({
       }
 
       if (practitionerColumn) {
-        const startTime = Temporal.Instant.from(blockedSlot.start)
-          .toZonedDateTimeISO(TIMEZONE)
-          .toPlainTime();
-        const endTime = Temporal.Instant.from(blockedSlot.end)
-          .toZonedDateTimeISO(TIMEZONE)
-          .toPlainTime();
+        const startTime = Temporal.ZonedDateTime.from(
+          blockedSlot.start,
+        ).toPlainTime();
+        const endTime = Temporal.ZonedDateTime.from(
+          blockedSlot.end,
+        ).toPlainTime();
 
         const startSlot = timeToSlot(startTime.toString().slice(0, 5));
         const endSlot = timeToSlot(endTime.toString().slice(0, 5));

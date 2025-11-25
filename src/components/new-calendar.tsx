@@ -220,16 +220,14 @@ export function NewCalendar({
       const slotStartTime = slotToTime(slot);
       const [hours, minutes] = slotStartTime.split(":").map(Number);
 
-      const slotStartInstant = selectedDate
-        .toZonedDateTime({
-          plainTime: { hour: hours ?? 0, minute: minutes ?? 0 },
-          timeZone: TIMEZONE,
-        })
-        .toInstant();
+      const slotStartZoned = selectedDate.toZonedDateTime({
+        plainTime: { hour: hours ?? 0, minute: minutes ?? 0 },
+        timeZone: TIMEZONE,
+      });
 
       setBlockedSlotModalData({
         practitionerId: practitionerId as Id<"practitioners">,
-        slotStart: slotStartInstant.toString(),
+        slotStart: slotStartZoned.toString(),
       });
       setBlockedSlotModalOpen(true);
       setIsBlockingModeActive(false); // Deactivate blocking mode after click

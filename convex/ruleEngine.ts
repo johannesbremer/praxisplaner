@@ -13,6 +13,7 @@
 import type { Infer } from "convex/values";
 
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -201,29 +202,45 @@ async function evaluateCondition(
         return false;
       }
 
-      // Query existing appointments for the same day
-      const appointmentDate = new Date(context.dateTime);
-      const dayStart = new Date(appointmentDate);
-      dayStart.setUTCHours(0, 0, 0, 0);
-      const dayEnd = new Date(appointmentDate);
-      dayEnd.setUTCHours(23, 59, 59, 999);
+      // Parse the ZonedDateTime and get the date
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const appointmentDate = appointmentZoned.toPlainDate();
+
+      // Get day boundaries in the same timezone
+      const dayStart = appointmentDate
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("00:00"),
+          timeZone: appointmentZoned.timeZoneId,
+        })
+        .toString();
+      const dayEnd = appointmentDate
+        .add({ days: 1 })
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("00:00"),
+          timeZone: appointmentZoned.timeZoneId,
+        })
+        .toString();
 
       // Use index range query and filter in code for better performance
       const existingAppointments = await db
         .query("appointments")
-        .withIndex("by_start", (q) => q.gte("start", dayStart.toISOString()))
+        .withIndex("by_start", (q) => q.gte("start", dayStart))
         .collect();
 
       // Filter in code for better performance
-      const filteredAppointments = existingAppointments.filter(
-        (apt) =>
-          apt.start <= dayEnd.toISOString() &&
+      // Use Temporal.Instant comparison instead of string comparison to handle offset variations
+      const dayEndInstant = Temporal.ZonedDateTime.from(dayEnd).toInstant();
+      const filteredAppointments = existingAppointments.filter((apt) => {
+        const aptInstant = Temporal.ZonedDateTime.from(apt.start).toInstant();
+        return (
+          Temporal.Instant.compare(aptInstant, dayEndInstant) < 0 &&
           apt.practiceId === context.practiceId &&
           apt.appointmentTypeId === context.appointmentTypeId &&
           (!context.practitionerId ||
             apt.practitionerId === context.practitionerId) &&
-          (!context.locationId || apt.locationId === context.locationId),
-      );
+          (!context.locationId || apt.locationId === context.locationId)
+        );
+      });
 
       const currentCount = filteredAppointments.length;
       return compareValue(currentCount, valueNumber);
@@ -231,34 +248,37 @@ async function evaluateCondition(
 
     case "DATE_RANGE": {
       // Check if appointment date falls within a date range
-      // valueIds should contain [startDate, endDate] as ISO strings
+      // valueIds should contain [startDate, endDate] as PlainDate ISO strings (YYYY-MM-DD)
       if (valueIds?.length !== 2) {
         return false;
       }
-      const appointmentDate = new Date(context.dateTime);
-      const startDate = new Date(valueIds[0] ?? "");
-      const endDate = new Date(valueIds[1] ?? "");
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const appointmentDate = appointmentZoned.toPlainDate();
+      const startDate = Temporal.PlainDate.from(valueIds[0] ?? "");
+      const endDate = Temporal.PlainDate.from(valueIds[1] ?? "");
       const inRange =
-        appointmentDate >= startDate && appointmentDate <= endDate;
+        Temporal.PlainDate.compare(appointmentDate, startDate) >= 0 &&
+        Temporal.PlainDate.compare(appointmentDate, endDate) <= 0;
       return operator === "IS" ? inRange : !inRange;
     }
 
     case "DAY_OF_WEEK": {
-      // Compare day of week (0-6, Sunday=0)
-      const appointmentDate = new Date(context.dateTime);
-      const dayOfWeek = appointmentDate.getUTCDay();
+      // Compare day of week (1-7, Monday=1, Sunday=7 per ISO 8601)
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const dayOfWeek = appointmentZoned.dayOfWeek; // ISO: 1=Monday, 7=Sunday
 
       // Handle both old format (valueIds with day names) and new format (valueNumber)
       let targetDayOfWeek: number | undefined = valueNumber;
 
       // Backward compatibility: if valueNumber is undefined but valueIds has a day name, convert it
+      // Using ISO 8601 format: 1=Monday, 7=Sunday
       if (targetDayOfWeek === undefined && valueIds && valueIds.length > 0) {
         const dayName = valueIds[0];
         const dayMap: Record<string, number> = {
           FRIDAY: 5,
           MONDAY: 1,
           SATURDAY: 6,
-          SUNDAY: 0,
+          SUNDAY: 7, // ISO 8601: Sunday is 7, not 0
           THURSDAY: 4,
           TUESDAY: 2,
           WEDNESDAY: 3,
@@ -285,12 +305,14 @@ async function evaluateCondition(
       if (valueNumber === undefined || !context.requestedAt) {
         return false;
       }
-      const appointmentDate = new Date(context.dateTime);
-      const requestDate = new Date(context.requestedAt);
-      const daysAhead = Math.floor(
-        (appointmentDate.getTime() - requestDate.getTime()) /
-          (1000 * 60 * 60 * 24),
-      );
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const requestZoned = Temporal.ZonedDateTime.from(context.requestedAt);
+
+      // Calculate days difference using PlainDate for accurate day counting
+      const appointmentDate = appointmentZoned.toPlainDate();
+      const requestDate = requestZoned.toPlainDate();
+      const daysAhead = appointmentDate.since(requestDate).days;
+
       return compareValue(daysAhead, valueNumber);
     }
 
@@ -320,9 +342,9 @@ async function evaluateCondition(
       if (valueIds?.length !== 2) {
         return false;
       }
-      const appointmentDate = new Date(context.dateTime);
-      const hours = appointmentDate.getUTCHours();
-      const minutes = appointmentDate.getUTCMinutes();
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const hours = appointmentZoned.hour;
+      const minutes = appointmentZoned.minute;
       const appointmentTime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
 
       const startTime = valueIds[0] ?? "";
