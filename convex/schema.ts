@@ -27,6 +27,7 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"]),
 
   appointmentTypes: defineTable({
