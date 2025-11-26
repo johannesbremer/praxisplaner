@@ -8,6 +8,7 @@ import type { AppointmentContext } from "./ruleEngine";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import {
+  buildPreloadedDayData,
   evaluateLoadedRulesHelper,
   preEvaluateDayInvariantRulesHelper,
 } from "./ruleEngine";
@@ -436,6 +437,23 @@ export const getSlotsForDay = query({
         `Rule classification: ${rulesData.dayInvariantCount} day-invariant, ${rulesData.timeVariantCount} time-variant`,
       );
 
+      // Build preloaded appointment data ONCE per query execution for all rule evaluations
+      // This single query replaces ~26,000 per-slot database reads
+      const dayStr = targetPlainDate.toString(); // YYYY-MM-DD format
+      const preloadedData = await buildPreloadedDayData(
+        ctx.db,
+        args.practiceId,
+        dayStr,
+        practitioners,
+      );
+
+      // Build practitioners Map for rule evaluation
+      const practitionersMap = new Map(practitioners.map((p) => [p._id, p]));
+
+      log.push(
+        `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
+      );
+
       // Pre-evaluate day-invariant rules once for the entire day
       // Use the simulatedContext since appointmentTypeId and locationId are fixed for the entire query
       let preEvaluatedDayRules;
@@ -462,10 +480,10 @@ export const getSlotsForDay = query({
           };
 
           // PERFORMANCE: Call helper directly to avoid serialization overhead
-          preEvaluatedDayRules = await preEvaluateDayInvariantRulesHelper(
-            ctx.db,
+          preEvaluatedDayRules = preEvaluateDayInvariantRulesHelper(
             dayContext,
             rulesData,
+            practitionersMap,
           );
 
           log.push(
@@ -492,10 +510,11 @@ export const getSlotsForDay = query({
         };
 
         // PERFORMANCE: Call helper directly to avoid serialization overhead
-        const ruleCheckResult = await evaluateLoadedRulesHelper(
-          ctx.db,
+        // evaluateLoadedRulesHelper is now synchronous with preloaded data
+        const ruleCheckResult = evaluateLoadedRulesHelper(
           appointmentContext,
           rulesData,
+          preloadedData,
           preEvaluatedDayRules,
         );
 
@@ -545,35 +564,59 @@ export const getSlotsForDay = query({
     });
 
     // Generate natural language reasons for blocked slots
-    // TODO: Implement full tree reconstruction and detailed rule descriptions
-    // Add natural language description to blocked slots
+    // PERFORMANCE FIX: Collect unique rule IDs and fetch descriptions once per rule
+    // instead of once per slot (which was causing ~25k+ document reads)
+
+    // First, collect unique rule IDs from blocked slots
+    const uniqueRuleIds = new Set<Id<"ruleConditions">>();
+    for (const slot of finalSlots) {
+      if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
+        uniqueRuleIds.add(slot.blockedByRuleId);
+      }
+    }
+
+    // Fetch descriptions for unique rules only (once per rule, not per slot)
+    const ruleDescriptionCache = new Map<Id<"ruleConditions">, string>();
+    for (const ruleId of uniqueRuleIds) {
+      try {
+        const ruleDescription = await ctx.runQuery(
+          internal.ruleEngine.getRuleDescription,
+          { ruleId },
+        );
+        ruleDescriptionCache.set(
+          ruleId,
+          ruleDescription.treeStructure.trim() ||
+            "Dieser Zeitfenster ist durch eine Regel blockiert.",
+        );
+      } catch (error) {
+        ruleDescriptionCache.set(
+          ruleId,
+          "Dieser Zeitfenster ist durch eine Regel blockiert.",
+        );
+        log.push(
+          `Failed to generate reason for rule ${ruleId}: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
+      }
+    }
+
+    log.push(
+      `Generated descriptions for ${ruleDescriptionCache.size} unique blocking rules`,
+    );
+
+    // Apply reasons to blocked slots using cached descriptions
     for (const slot of finalSlots) {
       if (slot.status === "BLOCKED") {
-        // Handle manual blocked slots
         if (slot.blockedByBlockedSlotId) {
-          // Find the blocked slot to get its title for the reason
+          // Handle manual blocked slots
           const blockedSlot = blockedSlotsForDay.find(
             (bs) => bs._id === slot.blockedByBlockedSlotId,
           );
           slot.reason = blockedSlot?.title || "Manuell blockierter Zeitraum";
         } else if (slot.blockedByRuleId) {
-          // Handle rule-based blocked slots
-          try {
-            // Use getRuleDescription to get the tree structure description
-            const ruleDescription = await ctx.runQuery(
-              internal.ruleEngine.getRuleDescription,
-              { ruleId: slot.blockedByRuleId },
-            );
-            slot.reason =
-              ruleDescription.treeStructure.trim() ||
-              "Dieser Zeitfenster ist durch eine Regel blockiert.";
-          } catch (error) {
-            // Fallback if we can't generate a reason
-            slot.reason = "Dieser Zeitfenster ist durch eine Regel blockiert.";
-            log.push(
-              `Failed to generate reason for blocked slot: ${error instanceof Error ? error.message : "unknown error"}`,
-            );
-          }
+          // Use cached description
+          slot.reason =
+            ruleDescriptionCache.get(slot.blockedByRuleId) ||
+            "Dieser Zeitfenster ist durch eine Regel blockiert.";
         }
       }
     }
@@ -652,6 +695,21 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       rules: rulesResultRaw.rules,
     };
 
+    // Load practitioners for preloaded data
+    const practitioners = await ctx.db
+      .query("practitioners")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    // Build preloaded appointment data for rule evaluations
+    const dayStr = targetPlainDate.toString();
+    const preloadedData = await buildPreloadedDayData(
+      ctx.db,
+      args.practiceId,
+      dayStr,
+      practitioners,
+    );
+
     // Evaluate appointment-type-independent rules for each slot
     // We use a dummy appointment type ID since these rules don't depend on it
     const dummyAppointmentTypeId = "" as Id<"appointmentTypes">;
@@ -672,10 +730,11 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         }),
       };
 
-      const ruleCheckResult = await evaluateLoadedRulesHelper(
-        ctx.db,
+      // evaluateLoadedRulesHelper is now synchronous with preloaded data
+      const ruleCheckResult = evaluateLoadedRulesHelper(
         appointmentContext,
-        rulesData, // No pre-evaluated rules
+        rulesData,
+        preloadedData, // No pre-evaluated day rules
       );
 
       if (

@@ -8,6 +8,7 @@
  * - evaluateCondition: Evaluate a single leaf condition against appointment context
  * - evaluateConditionTree: Recursively evaluate a condition tree (with AND/NOT operators)
  * - checkRulesForAppointment: Main entry point - check all rules for an appointment
+ * - buildPreloadedDayData: Pre-load all data needed for condition evaluation (called once per query)
  */
 
 import type { Infer } from "convex/values";
@@ -23,6 +24,113 @@ import {
   generateRuleName,
 } from "../lib/rule-name-generator.js";
 import { internalQuery } from "./_generated/server";
+
+// ============================================================================
+// Pre-loaded Data Types and Builder
+// ============================================================================
+
+/**
+ * Pre-loaded data for efficient condition evaluation.
+ * Built once per query execution before the slot loop, enabling O(1) lookups instead of per-slot DB queries.
+ */
+export interface PreloadedDayData {
+  /**
+   * All appointments for the day, for flexible filtering.
+   * Used by CONCURRENT_COUNT which needs to filter by scope and appointment types.
+   */
+  appointments: Doc<"appointments">[];
+
+  /**
+   * Pre-computed daily capacity counts.
+   * Key format: "appointmentTypeId:practitionerId:locationId" (use "undefined" for missing IDs)
+   * Value: count of existing appointments matching that combination
+   */
+  dailyCapacityCounts: Map<string, number>;
+
+  /**
+   * Appointments grouped by start time for CONCURRENT_COUNT lookups.
+   * Key: start time string (ISO ZonedDateTime)
+   * Value: array of appointments starting at that time
+   */
+  appointmentsByStartTime: Map<string, Doc<"appointments">[]>;
+
+  /**
+   * Practitioners by ID for PRACTITIONER_TAG lookups.
+   * Reuses practitioners already loaded by the caller.
+   */
+  practitioners: Map<Id<"practitioners">, Doc<"practitioners">>;
+}
+
+/**
+ * Build pre-loaded data for a single day's condition evaluation.
+ * This function should be called ONCE per query execution (e.g., getSlotsForDay), before the slot loop.
+ * The "day" in the name refers to the date parameter, not a caching duration.
+ * @param db Database reader
+ * @param practiceId Practice to query appointments for
+ * @param day Day as ISO date string (YYYY-MM-DD format)
+ * @param practitioners Pre-loaded practitioners array (reuse from caller to avoid duplicate query)
+ */
+export async function buildPreloadedDayData(
+  db: DatabaseReader,
+  practiceId: Id<"practices">,
+  day: string,
+  practitioners: Doc<"practitioners">[],
+): Promise<PreloadedDayData> {
+  // Parse the day and compute day boundaries
+  const plainDate = Temporal.PlainDate.from(day);
+  const dayStartZdt = plainDate.toZonedDateTime({
+    plainTime: new Temporal.PlainTime(0, 0),
+    timeZone: "Europe/Berlin",
+  });
+  const dayEndZdt = plainDate.add({ days: 1 }).toZonedDateTime({
+    plainTime: new Temporal.PlainTime(0, 0),
+    timeZone: "Europe/Berlin",
+  });
+
+  const dayStartStr = dayStartZdt.toString();
+  const dayEndStr = dayEndZdt.toString();
+
+  // Query appointments for this practice and day only
+  // Use compound index by_practiceId_start with both bounds for efficient filtering
+  const appointments = await db
+    .query("appointments")
+    .withIndex("by_practiceId_start", (q) =>
+      q
+        .eq("practiceId", practiceId)
+        .gte("start", dayStartStr)
+        .lt("start", dayEndStr),
+    )
+    .collect();
+
+  // Build daily capacity counts map
+  // Key: "appointmentTypeId:practitionerId:locationId"
+  const dailyCapacityCounts = new Map<string, number>();
+  for (const apt of appointments) {
+    const key = `${apt.appointmentTypeId}:${apt.practitionerId ?? "undefined"}:${apt.locationId}`;
+    dailyCapacityCounts.set(key, (dailyCapacityCounts.get(key) ?? 0) + 1);
+  }
+
+  // Build appointments by start time map for CONCURRENT_COUNT
+  const appointmentsByStartTime = new Map<string, Doc<"appointments">[]>();
+  for (const apt of appointments) {
+    const existing = appointmentsByStartTime.get(apt.start) ?? [];
+    existing.push(apt);
+    appointmentsByStartTime.set(apt.start, existing);
+  }
+
+  // Build practitioners map from passed-in array
+  const practitionersMap = new Map<Id<"practitioners">, Doc<"practitioners">>();
+  for (const practitioner of practitioners) {
+    practitionersMap.set(practitioner._id, practitioner);
+  }
+
+  return {
+    appointments,
+    appointmentsByStartTime,
+    dailyCapacityCounts,
+    practitioners: practitionersMap,
+  };
+}
 
 /**
  * Validator for appointment context used in rule evaluation.
@@ -51,11 +159,11 @@ export type AppointmentContext = Infer<typeof appointmentContextValidator>;
  * not time-of-day or per-slot variations, AND don't require database reads beyond initial
  * rule/condition loading. These can be pre-evaluated once per getSlotsForDay call.
  *
- * INCLUDED (day-invariant, no DB reads, fixed per query):
- * - APPOINTMENT_TYPE: Fixed in simulatedContext for entire getSlotsForDay call
- * - LOCATION: Fixed in simulatedContext for entire getSlotsForDay call
- * - CLIENT_TYPE: Fixed (patient.isNew) for entire getSlotsForDay call
- * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD: Only depend on the date
+ * INCLUDED (query-invariant, no DB reads, fixed per query execution):
+ * - APPOINTMENT_TYPE: Fixed in simulatedContext for entire query
+ * - LOCATION: Fixed in simulatedContext for entire query
+ * - CLIENT_TYPE: Fixed (patient.isNew) for entire query
+ * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD: Only depend on the target date
  *
  * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
  * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
@@ -75,15 +183,15 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
 /**
  * Evaluate a single leaf condition against the appointment context.
  * Returns true if the condition matches (which may mean the appointment should be blocked).
- * @param db Database reader (used for queries that can't be pre-loaded)
  * @param condition The condition to evaluate
  * @param context Appointment context
+ * @param preloadedData Pre-loaded data for O(1) lookups (required for DAILY_CAPACITY, CONCURRENT_COUNT, PRACTITIONER_TAG)
  */
-async function evaluateCondition(
-  db: DatabaseReader,
+function evaluateCondition(
   condition: Doc<"ruleConditions">,
   context: AppointmentContext,
-): Promise<boolean> {
+  preloadedData: PreloadedDayData,
+): boolean {
   // Only evaluate leaf conditions
   if (condition.nodeType !== "CONDITION") {
     throw new Error(
@@ -158,16 +266,12 @@ async function evaluateCondition(
       const scope = condition.scope;
       const appointmentTypeIds = valueIds ?? [];
 
-      // Use index query and filter in code for better performance
-      const existingAppointments = await db
-        .query("appointments")
-        .withIndex("by_start", (q) => q.eq("start", context.dateTime))
-        .collect();
+      // Use pre-loaded appointments grouped by start time - O(1) lookup
+      // Note: appointments are already filtered by practiceId in buildPreloadedDayData
+      const appointmentsAtTime =
+        preloadedData.appointmentsByStartTime.get(context.dateTime) ?? [];
 
-      // Filter in code based on scope and practice
-      let filteredAppointments = existingAppointments.filter(
-        (apt) => apt.practiceId === context.practiceId,
-      );
+      let filteredAppointments = appointmentsAtTime;
 
       // Apply scope-based filtering
       if (scope === "location" && context.locationId) {
@@ -202,47 +306,12 @@ async function evaluateCondition(
         return false;
       }
 
-      // Parse the ZonedDateTime and get the date
-      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
-      const appointmentDate = appointmentZoned.toPlainDate();
-
-      // Get day boundaries in the same timezone
-      const dayStart = appointmentDate
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("00:00"),
-          timeZone: appointmentZoned.timeZoneId,
-        })
-        .toString();
-      const dayEnd = appointmentDate
-        .add({ days: 1 })
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("00:00"),
-          timeZone: appointmentZoned.timeZoneId,
-        })
-        .toString();
-
-      // Use index range query and filter in code for better performance
-      const existingAppointments = await db
-        .query("appointments")
-        .withIndex("by_start", (q) => q.gte("start", dayStart))
-        .collect();
-
-      // Filter in code for better performance
-      // Use Temporal.Instant comparison instead of string comparison to handle offset variations
-      const dayEndInstant = Temporal.ZonedDateTime.from(dayEnd).toInstant();
-      const filteredAppointments = existingAppointments.filter((apt) => {
-        const aptInstant = Temporal.ZonedDateTime.from(apt.start).toInstant();
-        return (
-          Temporal.Instant.compare(aptInstant, dayEndInstant) < 0 &&
-          apt.practiceId === context.practiceId &&
-          apt.appointmentTypeId === context.appointmentTypeId &&
-          (!context.practitionerId ||
-            apt.practitionerId === context.practitionerId) &&
-          (!context.locationId || apt.locationId === context.locationId)
-        );
-      });
-
-      const currentCount = filteredAppointments.length;
+      // Use pre-computed daily capacity counts - O(1) lookup
+      // Key format: "appointmentTypeId:practitionerId:locationId"
+      // Note: When context.locationId is undefined, this will find no matches (returns 0),
+      // which is correct since appointments always have a locationId in the schema.
+      const key = `${context.appointmentTypeId}:${context.practitionerId}:${context.locationId ?? "undefined"}`;
+      const currentCount = preloadedData.dailyCapacityCounts.get(key) ?? 0;
       return compareValue(currentCount, valueNumber);
     }
 
@@ -327,8 +396,10 @@ async function evaluateCondition(
     }
 
     case "PRACTITIONER_TAG": {
-      // Check if practitioner has a specific tag
-      const practitioner = await db.get(context.practitionerId);
+      // Check if practitioner has a specific tag - O(1) lookup
+      const practitioner = preloadedData.practitioners.get(
+        context.practitionerId,
+      );
       if (!practitioner?.tags || !valueIds) {
         return false;
       }
@@ -373,106 +444,87 @@ async function evaluateCondition(
  * - AND: All children must be true (short-circuits on first false).
  * - NOT: Inverts the single child result.
  * - CONDITION: Evaluate the leaf condition.
- * @param db Database reader for querying.
  * @param nodeId Root node ID of the condition tree.
  * @param context Appointment context for evaluation.
- * @param conditionsMap Optional map of pre-loaded conditions for fast lookup
- * @param allConditions Optional array of all pre-loaded conditions (for children lookup)
+ * @param preloadedData Pre-loaded appointment data for fast lookups (required).
+ * @param conditionsMap Map of pre-loaded conditions for fast lookup (required).
+ * @param allConditions Array of all pre-loaded conditions for children lookup (required).
  * @returns True if the appointment should be blocked.
  */
-async function evaluateConditionTree(
-  db: DatabaseReader,
+function evaluateConditionTree(
   nodeId: Id<"ruleConditions">,
   context: AppointmentContext,
-  conditionsMap?: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
-  allConditions?: Doc<"ruleConditions">[],
-): Promise<boolean> {
-  // Use cached node if available
-  const node = conditionsMap?.get(nodeId) ?? (await db.get(nodeId));
-  if (!node) {
-    throw new Error(
-      `Condition node not found: ${nodeId}. ` +
-        `This indicates data corruption - referenced node does not exist.`,
-    );
-  }
-
-  // If this is a leaf condition, evaluate it directly
-  if (node.nodeType === "CONDITION") {
-    return await evaluateCondition(db, node, context);
-  }
-
-  // Get ordered children - use pre-loaded conditions if available for faster lookup
-  let children: Doc<"ruleConditions">[];
-  if (allConditions) {
-    // Filter from pre-loaded conditions (much faster than DB query)
-    children = allConditions
-      .filter((c) => c.parentConditionId === nodeId)
-      .toSorted((a, b) => a.childOrder - b.childOrder);
-  } else {
-    // Fall back to DB query if not pre-loaded
-    children = await db
-      .query("ruleConditions")
-      .withIndex("by_parentConditionId_childOrder", (q) =>
-        q.eq("parentConditionId", nodeId),
-      )
-      .collect();
-  }
-
-  if (children.length === 0) {
-    throw new Error(
-      `Logical operator node has no children: ${nodeId}. ` +
-        `This indicates data corruption - AND/NOT nodes must have children.`,
-    );
-  }
-
-  // Evaluate based on node type
-  switch (node.nodeType) {
-    case "AND": {
-      // All children must be true - SHORT CIRCUIT on first false
-      for (const child of children) {
-        const result = await evaluateConditionTree(
-          db,
-          child._id,
-          context,
-          conditionsMap,
-          allConditions,
-        );
-        if (!result) {
-          return false; // Short-circuit: if any child is false, return false
-        }
-      }
-      return true;
-    }
-
-    case "NOT": {
-      // Invert the result of the single child
-      if (children.length !== 1) {
-        throw new Error(
-          `NOT node should have exactly 1 child, has ${children.length}: ${nodeId}. ` +
-            `This indicates data corruption.`,
-        );
-      }
-      const child = children[0];
-      if (!child) {
-        return false;
-      }
-      const result = await evaluateConditionTree(
-        db,
-        child._id,
-        context,
-        conditionsMap,
-        allConditions,
-      );
-      return !result;
-    }
-
-    default: {
+  preloadedData: PreloadedDayData,
+  conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
+  allConditions: Doc<"ruleConditions">[],
+): boolean {
+  // Inner recursive function that uses the preloaded data
+  const evaluateTreeInternal = (id: Id<"ruleConditions">): boolean => {
+    // Use cached node from conditionsMap
+    const node = conditionsMap.get(id);
+    if (!node) {
       throw new Error(
-        `Unknown node type: ${node.nodeType}. ` +
-          `This indicates data corruption in rule condition tree.`,
+        `Condition node not found in conditionsMap: ${id}. ` +
+          `All conditions must be pre-loaded for evaluation.`,
       );
     }
-  }
+
+    // If this is a leaf condition, evaluate it directly
+    if (node.nodeType === "CONDITION") {
+      return evaluateCondition(node, context, preloadedData);
+    }
+
+    // Get ordered children from pre-loaded conditions
+    const children = allConditions
+      .filter((c) => c.parentConditionId === id)
+      .toSorted((a, b) => a.childOrder - b.childOrder);
+
+    if (children.length === 0) {
+      throw new Error(
+        `Logical operator node has no children: ${id}. ` +
+          `This indicates data corruption - AND/NOT nodes must have children.`,
+      );
+    }
+
+    // Evaluate based on node type
+    switch (node.nodeType) {
+      case "AND": {
+        // All children must be true - SHORT CIRCUIT on first false
+        for (const child of children) {
+          const result = evaluateTreeInternal(child._id);
+          if (!result) {
+            return false; // Short-circuit: if any child is false, return false
+          }
+        }
+        return true;
+      }
+
+      case "NOT": {
+        // Invert the result of the single child
+        if (children.length !== 1) {
+          throw new Error(
+            `NOT node should have exactly 1 child, has ${children.length}: ${id}. ` +
+              `This indicates data corruption.`,
+          );
+        }
+        const child = children[0];
+        if (!child) {
+          return false;
+        }
+        const result = evaluateTreeInternal(child._id);
+        return !result;
+      }
+
+      default: {
+        throw new Error(
+          `Unknown node type: ${node.nodeType}. ` +
+            `This indicates data corruption in rule condition tree.`,
+        );
+      }
+    }
+  };
+
+  return evaluateTreeInternal(nodeId);
 }
 
 /**
@@ -497,6 +549,40 @@ export const checkRulesForAppointment = internalQuery({
           .eq("enabled", true),
       )
       .collect();
+
+    if (rules.length === 0) {
+      return {
+        blockedByRuleIds: [],
+        isBlocked: false,
+      };
+    }
+
+    // Load all conditions for this rule set (required for synchronous evaluation)
+    const allConditions = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    const conditionsMap = new Map(allConditions.map((c) => [c._id, c]));
+
+    // Build preloaded data for condition evaluation
+    const practitioners = await ctx.db
+      .query("practitioners")
+      .withIndex("by_practiceId", (q) =>
+        q.eq("practiceId", args.context.practiceId),
+      )
+      .collect();
+
+    // Extract date from ISO ZonedDateTime string
+    const dateStr = Temporal.ZonedDateTime.from(args.context.dateTime)
+      .toPlainDate()
+      .toString();
+    const preloadedData = await buildPreloadedDayData(
+      ctx.db,
+      args.context.practiceId,
+      dateStr,
+      practitioners,
+    );
 
     const blockedByRuleIds: Id<"ruleConditions">[] = [];
 
@@ -528,11 +614,13 @@ export const checkRulesForAppointment = internalQuery({
         continue;
       }
 
-      // Evaluate the condition tree
-      const isBlocked = await evaluateConditionTree(
-        ctx.db,
+      // Evaluate the condition tree (synchronously with pre-loaded data)
+      const isBlocked = evaluateConditionTree(
         rootChild._id,
         args.context,
+        preloadedData,
+        conditionsMap,
+        allConditions,
       );
 
       if (isBlocked) {
@@ -1155,12 +1243,15 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
 });
 
 /**
- * PERFORMANCE OPTIMIZATION: Pre-evaluate day-invariant rules once per day.
- * This avoids re-evaluating rules that don't depend on time-of-day.
+ * PERFORMANCE OPTIMIZATION: Pre-evaluate day-invariant rules once per query execution.
+ * This avoids re-evaluating rules that don't depend on time-of-day for each slot.
  * Plain TypeScript function to avoid serialization overhead.
+ *
+ * Note: Day-invariant rules only use conditions that don't require appointment data
+ * (APPOINTMENT_TYPE, CLIENT_TYPE, DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD, LOCATION),
+ * so we pass an empty preloaded data object.
  */
-export async function preEvaluateDayInvariantRulesHelper(
-  db: DatabaseReader,
+export function preEvaluateDayInvariantRulesHelper(
   context: AppointmentContext,
   rulesData: {
     conditions: Doc<"ruleConditions">[];
@@ -1168,11 +1259,21 @@ export async function preEvaluateDayInvariantRulesHelper(
     dayInvariantCount: number;
     rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
   },
-): Promise<{
+  practitioners: Map<Id<"practitioners">, Doc<"practitioners">>,
+): {
   blockedByRuleIds: Id<"ruleConditions">[];
   evaluatedCount: number;
-}> {
+} {
   const blockedRuleIds: Id<"ruleConditions">[] = [];
+
+  // Day-invariant rules don't use DAILY_CAPACITY, CONCURRENT_COUNT, or PRACTITIONER_TAG,
+  // so we create an empty preloaded data object (practitioners passed for completeness)
+  const emptyPreloadedData: PreloadedDayData = {
+    appointments: [],
+    appointmentsByStartTime: new Map(),
+    dailyCapacityCounts: new Map(),
+    practitioners,
+  };
 
   // Helper to get condition from the pre-loaded map
   const getCondition = (
@@ -1192,9 +1293,7 @@ export async function preEvaluateDayInvariantRulesHelper(
   };
 
   // Recursive function to evaluate condition tree using pre-loaded data
-  const evaluateTreeFromLoaded = async (
-    nodeId: Id<"ruleConditions">,
-  ): Promise<boolean> => {
+  const evaluateTreeFromLoaded = (nodeId: Id<"ruleConditions">): boolean => {
     const node = getCondition(nodeId);
     if (!node) {
       throw new Error(`Condition node not found: ${nodeId}`);
@@ -1202,7 +1301,7 @@ export async function preEvaluateDayInvariantRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return await evaluateCondition(db, node, context);
+      return evaluateCondition(node, context, emptyPreloadedData);
     }
 
     // Get ordered children
@@ -1217,7 +1316,7 @@ export async function preEvaluateDayInvariantRulesHelper(
       case "AND": {
         // All children must be true
         for (const child of children) {
-          const result = await evaluateTreeFromLoaded(child._id);
+          const result = evaluateTreeFromLoaded(child._id);
           if (!result) {
             return false; // Short-circuit
           }
@@ -1234,7 +1333,7 @@ export async function preEvaluateDayInvariantRulesHelper(
         if (!child) {
           return false;
         }
-        const result = await evaluateTreeFromLoaded(child._id);
+        const result = evaluateTreeFromLoaded(child._id);
         return !result;
       }
 
@@ -1268,7 +1367,7 @@ export async function preEvaluateDayInvariantRulesHelper(
     }
 
     try {
-      const isBlocked = await evaluateTreeFromLoaded(firstChild._id);
+      const isBlocked = evaluateTreeFromLoaded(firstChild._id);
       if (isBlocked) {
         blockedRuleIds.push(rule._id);
       }
@@ -1290,24 +1389,24 @@ export async function preEvaluateDayInvariantRulesHelper(
  * This version also accepts pre-evaluated day-invariant rule results to skip redundant checks.
  * Plain TypeScript function to avoid serialization overhead.
  */
-export async function evaluateLoadedRulesHelper(
-  db: DatabaseReader,
+export function evaluateLoadedRulesHelper(
   context: AppointmentContext,
   rulesData: {
     conditions: Doc<"ruleConditions">[];
     conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>;
     rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
   },
+  preloadedData: PreloadedDayData,
   preEvaluatedDayRules?: {
     blockedByRuleIds: Id<"ruleConditions">[];
     evaluatedCount: number;
   },
-): Promise<{
+): {
   blockedByRuleIds: Id<"ruleConditions">[];
   dayInvariantSkipped: number;
   isBlocked: boolean;
   timeVariantEvaluated: number;
-}> {
+} {
   const blockedByRuleIds: Id<"ruleConditions">[] = [];
 
   // Start with pre-evaluated day-invariant rules if provided
@@ -1333,9 +1432,7 @@ export async function evaluateLoadedRulesHelper(
   };
 
   // Recursive function to evaluate condition tree using pre-loaded data
-  const evaluateTreeFromLoaded = async (
-    nodeId: Id<"ruleConditions">,
-  ): Promise<boolean> => {
+  const evaluateTreeFromLoaded = (nodeId: Id<"ruleConditions">): boolean => {
     const node = getCondition(nodeId);
     if (!node) {
       throw new Error(
@@ -1346,7 +1443,7 @@ export async function evaluateLoadedRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return await evaluateCondition(db, node, context);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children
@@ -1364,7 +1461,7 @@ export async function evaluateLoadedRulesHelper(
       case "AND": {
         // All children must be true
         for (const child of children) {
-          const result = await evaluateTreeFromLoaded(child._id);
+          const result = evaluateTreeFromLoaded(child._id);
           if (!result) {
             return false; // Short-circuit: if any child is false, return false
           }
@@ -1384,7 +1481,7 @@ export async function evaluateLoadedRulesHelper(
         if (!child) {
           return false;
         }
-        const result = await evaluateTreeFromLoaded(child._id);
+        const result = evaluateTreeFromLoaded(child._id);
         return !result;
       }
 
@@ -1429,7 +1526,7 @@ export async function evaluateLoadedRulesHelper(
     }
 
     // Evaluate the condition tree using pre-loaded data
-    const isBlocked = await evaluateTreeFromLoaded(rootChild._id);
+    const isBlocked = evaluateTreeFromLoaded(rootChild._id);
 
     if (isBlocked) {
       blockedByRuleIds.push(rule._id);
