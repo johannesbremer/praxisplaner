@@ -70,12 +70,18 @@ export function CalendarAppointment({
             isTwoSlotsOrLess ? "flex items-center gap-1 flex-1 min-w-0" : ""
           }
         >
-          <div className="font-medium truncate">{appointment.title}</div>
           <div
             className={`text-xs opacity-90 ${isTwoSlotsOrLess ? "whitespace-nowrap" : ""}`}
           >
             {appointment.startTime}
           </div>
+          {!isSingleSlot && (
+            <div
+              className={`text-xs font-medium ${isTwoSlotsOrLess ? "truncate" : ""}`}
+            >
+              {appointment.title}
+            </div>
+          )}
         </div>
       </div>
 

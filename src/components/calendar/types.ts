@@ -35,6 +35,7 @@ export interface NewCalendarProps {
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   practiceId?: Id<"practices">;
   ruleSetId?: SchedulingRuleSetId;
+  selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean;
   simulatedContext?: SchedulingSimulatedContext;

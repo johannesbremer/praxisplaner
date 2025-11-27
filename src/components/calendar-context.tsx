@@ -23,11 +23,23 @@ interface CalendarContextValue {
   onLocationSelect: (locationId: Id<"locations"> | undefined) => void;
   selectedLocationId: Id<"locations"> | undefined;
 
+  // Appointment type state
+  onAppointmentTypeSelect?: (
+    appointmentTypeId?: Id<"appointmentTypes">,
+  ) => void;
+  practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: Id<"ruleSets"> | undefined;
+  selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
+
   // Simulation mode state
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
     | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
+
+  // Blocking mode state
+  isBlockingModeActive?: boolean | undefined;
+  onBlockingModeChange?: ((active: boolean) => void) | undefined;
 
   // Alert/notification state
   showGdtAlert?: boolean | undefined;
@@ -36,6 +48,19 @@ interface CalendarContextValue {
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
+
+  // Optimistic mutations
+  runCreateAppointment?: (args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    end: string;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    replacesAppointmentId?: Id<"appointments">;
+    start: string;
+  }) => Promise<Id<"appointments"> | undefined>;
 }
 
 const CalendarContext = createContext<CalendarContextValue | null>(null);

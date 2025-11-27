@@ -40,13 +40,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
-import type { SchedulingSimulatedContext, SchedulingSlot } from "../types";
+import type { SchedulingSimulatedContext } from "../types";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
-import { DebugView } from "../components/debug-view";
 import { LocationSelector } from "../components/location-selector";
 import { LocationsManagement } from "../components/locations-management";
 import { MedicalStaffDisplay } from "../components/medical-staff-display";
@@ -62,7 +61,6 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
-import { slugify } from "../utils/slug";
 
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
@@ -115,7 +113,6 @@ interface SaveDialogFormProps {
 }
 
 type SimulatedContext = SchedulingSimulatedContext;
-type SlotDetails = SchedulingSlot;
 
 // Helper: slugify German names to URL-safe strings
 function LogicView() {
@@ -144,20 +141,15 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
 
-  const deleteAllSimulatedAppointmentsMutation = useMutation(
-    api.appointments.deleteAllSimulatedAppointments,
+  const deleteAllSimulatedDataMutation = useMutation(
+    api.appointments.deleteAllSimulatedData,
   );
 
   // Local appointments for simulation
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
     patient: { isNew: true },
   });
-  const [selectedSlot, setSelectedSlot] = useState<null | SlotDetails>(null);
   // URL will be parsed after queries and unsaved draft are known
-
-  const handleSlotClick = (slot: SlotDetails) => {
-    setSelectedSlot(slot);
-  };
 
   // Use the first available practice or initialize one
   const currentPractice = practicesQuery?.[0];
@@ -194,19 +186,29 @@ function LogicView() {
     async (options: { silent?: boolean } = {}) => {
       const { silent = false } = options;
       try {
-        const deletedCount = await deleteAllSimulatedAppointmentsMutation({});
+        const result = await deleteAllSimulatedDataMutation({});
+        const totalDeleted = result.total;
 
         if (!silent) {
-          if (deletedCount > 0) {
-            toast.success(
-              `${deletedCount} Simulationstermin${deletedCount === 1 ? "" : "e"} gelöscht`,
-            );
+          if (totalDeleted > 0) {
+            const parts = [];
+            if (result.appointmentsDeleted > 0) {
+              parts.push(
+                `${result.appointmentsDeleted} Termin${result.appointmentsDeleted === 1 ? "" : "e"}`,
+              );
+            }
+            if (result.blockedSlotsDeleted > 0) {
+              parts.push(
+                `${result.blockedSlotsDeleted} Sperrung${result.blockedSlotsDeleted === 1 ? "" : "en"}`,
+              );
+            }
+            toast.success(`${parts.join(" und ")} gelöscht`);
           } else {
-            toast.info("Keine Simulationstermine vorhanden");
+            toast.info("Keine Simulationsdaten vorhanden");
           }
         }
 
-        return deletedCount;
+        return totalDeleted;
       } catch (error: unknown) {
         captureError(error, {
           context: "simulation_clear",
@@ -215,13 +217,13 @@ function LogicView() {
         const description =
           error instanceof Error ? error.message : "Unbekannter Fehler";
 
-        toast.error("Simulationstermine konnten nicht gelöscht werden", {
+        toast.error("Simulationsdaten konnten nicht gelöscht werden", {
           description,
         });
         throw error;
       }
     },
-    [captureError, deleteAllSimulatedAppointmentsMutation],
+    [captureError, deleteAllSimulatedDataMutation],
   );
 
   const handleClearSimulatedAppointments = useCallback(async () => {
@@ -335,9 +337,8 @@ function LogicView() {
     if (ruleSetSlug === "ungespeichert") {
       return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
     }
-    return ruleSetsWithActive?.find(
-      (rs) => slugify(rs.description) === ruleSetSlug,
-    );
+    // Match by ID directly - IDs are unique and prevent collisions
+    return ruleSetsWithActive?.find((rs) => rs._id === ruleSetSlug);
   }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
 
   const preliminaryWorkingRuleSet = useMemo(
@@ -447,7 +448,6 @@ function LogicView() {
         isNewPatient: true,
       });
       setSimulatedContext(resetContext);
-      setSelectedSlot(null);
       pushUrl({
         date: new Date(),
         isNewPatient: true,
@@ -746,12 +746,11 @@ function LogicView() {
           }}
           value={activeTab}
         >
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="rule-management">
               Regelverwaltung + Patientensicht
             </TabsTrigger>
             <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
-            <TabsTrigger value="debug-views">Debug Views</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Rule Management + Patient View */}
@@ -879,7 +878,6 @@ function LogicView() {
                       onLocationChange={(locationId) => {
                         pushUrl({ locationId });
                       }}
-                      onSlotClick={handleSlotClick}
                       onUpdateSimulatedContext={(ctx) => {
                         setSimulatedContext(ctx);
                         pushUrl({
@@ -1002,7 +1000,6 @@ function LogicView() {
                 {ruleSetIdFromUrl ? (
                   <MedicalStaffDisplay
                     dateRange={dateRange}
-                    onSlotClick={handleSlotClick}
                     onUpdateSimulatedContext={(ctx) => {
                       setSimulatedContext(ctx);
                       pushUrl({
@@ -1020,80 +1017,6 @@ function LogicView() {
                     Mitarbeiteransicht anzuzeigen.
                   </div>
                 )}
-
-                <SimulationControls
-                  isClearingSimulatedAppointments={
-                    isClearingSimulatedAppointments
-                  }
-                  isResettingSimulation={isResettingSimulation}
-                  locationsListQuery={locationsListQuery}
-                  onClearSimulatedAppointments={
-                    handleClearSimulatedAppointments
-                  }
-                  onDateChange={(d) => {
-                    pushUrl({ date: d });
-                  }}
-                  onLocationChange={(locationId) => {
-                    pushUrl({ locationId });
-                  }}
-                  onResetSimulation={resetSimulation}
-                  onSimulatedContextChange={(ctx) => {
-                    setSimulatedContext(ctx);
-                    pushUrl({
-                      isNewPatient: ctx.patient.isNew,
-                      locationId: ctx.locationId,
-                    });
-                  }}
-                  onSimulationRuleSetChange={(id) => {
-                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
-                      setPendingRuleSetId(id);
-                      setActivationName("");
-                      setIsSaveDialogOpen(true);
-                      return;
-                    }
-                    pushUrl({ ruleSetId: id });
-                  }}
-                  ruleSetsQuery={ruleSetsWithActive}
-                  selectedDate={selectedDate}
-                  selectedLocationId={locationIdFromUrl}
-                  simulatedContext={simulatedContext}
-                  simulationRuleSetId={ruleSetIdFromUrl}
-                />
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Tab 3: Debug Views Only */}
-          <TabsContent value="debug-views">
-            <div className="space-y-6">
-              <div className="space-y-6">
-                <div className="space-y-6">
-                  {ruleSetIdFromUrl ? (
-                    <>
-                      <DebugView
-                        dateRange={dateRange}
-                        onSlotClick={handleSlotClick}
-                        onUpdateSimulatedContext={(ctx) => {
-                          setSimulatedContext(ctx);
-                          pushUrl({
-                            isNewPatient: ctx.patient.isNew,
-                            locationId: ctx.locationId,
-                          });
-                        }}
-                        practiceId={currentPractice._id}
-                        ruleSetId={ruleSetIdFromUrl}
-                        simulatedContext={simulatedContext}
-                      />
-
-                      <SlotInspector selectedSlot={selectedSlot} />
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center p-8 text-muted-foreground">
-                      Bitte wählen Sie ein Regelwerk aus, um die Debug-Ansicht
-                      anzuzeigen.
-                    </div>
-                  )}
-                </div>
 
                 <SimulationControls
                   isClearingSimulatedAppointments={
@@ -1375,6 +1298,11 @@ function SimulationControls({
 
         {simulationRuleSetId && (
           <AppointmentTypeSelector
+            onTypeDeselect={() => {
+              const updated = { ...simulatedContext };
+              delete updated.appointmentTypeId;
+              onSimulatedContextChange(updated);
+            }}
             onTypeSelect={(type) => {
               onSimulatedContextChange({
                 ...simulatedContext,
@@ -1467,89 +1395,6 @@ function SimulationControls({
           />
           Alle Simulationstermine löschen
         </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Slot Inspector Component - Extracted from SimulationPanel
-function SlotInspector({ selectedSlot }: { selectedSlot: null | SlotDetails }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Slot Inspector</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {selectedSlot ? (
-          <div className="space-y-3">
-            <div>
-              <Label className="text-sm font-medium">Zeit</Label>
-              <div className="text-lg font-semibold">
-                {/* Always display time as German time by extracting UTC components */}
-                {(() => {
-                  const date = new Date(selectedSlot.startTime);
-                  const hours = date.getUTCHours().toString().padStart(2, "0");
-                  const minutes = date
-                    .getUTCMinutes()
-                    .toString()
-                    .padStart(2, "0");
-                  return `${hours}:${minutes}`;
-                })()}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-sm font-medium">Arzt</Label>
-              <div>{selectedSlot.practitionerName}</div>
-            </div>
-
-            {selectedSlot.locationId && (
-              <div>
-                <Label className="text-sm font-medium">Standort-ID</Label>
-                <div className="text-xs font-mono">
-                  {selectedSlot.locationId}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <Label className="text-sm font-medium">Dauer</Label>
-              <div>{selectedSlot.duration} Minuten</div>
-            </div>
-
-            <div>
-              <Label className="text-sm font-medium">Status</Label>
-              <div>
-                <Badge
-                  variant={
-                    selectedSlot.status === "AVAILABLE"
-                      ? "default"
-                      : "destructive"
-                  }
-                >
-                  {selectedSlot.status === "AVAILABLE"
-                    ? "Verfügbar"
-                    : "Blockiert"}
-                </Badge>
-              </div>
-            </div>
-
-            {selectedSlot.blockedByRuleId && (
-              <div>
-                <Label className="text-sm font-medium">
-                  Blockiert durch Regel
-                </Label>
-                <div className="text-sm text-muted-foreground">
-                  ID: {selectedSlot.blockedByRuleId}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Wählen Sie einen Termin aus, um Details anzuzeigen.
-          </p>
-        )}
       </CardContent>
     </Card>
   );
