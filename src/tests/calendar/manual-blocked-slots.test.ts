@@ -333,7 +333,7 @@ describe("Manual Blocked Slots Integration", () => {
         },
         {
           column: "practitioner1",
-          reason: "Break",
+          reason: "Pause",
           slot: 1,
         },
         {
