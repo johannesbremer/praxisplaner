@@ -27,40 +27,29 @@ export function BlockedSlotWarningDialog({
   reason,
   slotTime,
 }: BlockedSlotWarningDialogProps) {
-  const blockTypeDescription = isManualBlock
-    ? "manuell blockiert"
-    : "durch Regeln blockiert";
+  // Use reason as title if available, otherwise fall back to generic title
+  const title = reason || "Zeitfenster ist blockiert";
+  const description = reason
+    ? "Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?"
+    : `Der gewählte Zeitfenster um ${slotTime} Uhr ist ${isManualBlock ? "manuell blockiert" : "durch Regeln blockiert"}. Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?`;
 
   return (
     <Dialog onOpenChange={onCancel} open={open}>
-      <DialogContent>
+      <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-yellow-500" />
-            Zeitfenster ist blockiert
+            {title}
           </DialogTitle>
-          <DialogDescription>
-            Der gewählte Zeitfenster um {slotTime} Uhr ist{" "}
-            {blockTypeDescription}.
-            {reason && (
-              <>
-                <br />
-                <br />
-                <strong>Grund:</strong> {reason}
-              </>
-            )}
-            <br />
-            <br />
-            Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <DialogFooter>
-          <Button onClick={onCancel} variant="outline">
-            Abbrechen
+          <Button onClick={onConfirm} variant="outline">
+            Trotzdem buchen
           </Button>
-          <Button onClick={onConfirm} variant="default">
-            Termin trotzdem erstellen
+          <Button autoFocus onClick={onCancel} variant="default">
+            Abbrechen
           </Button>
         </DialogFooter>
       </DialogContent>

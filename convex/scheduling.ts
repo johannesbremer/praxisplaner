@@ -749,6 +749,36 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       }
     }
 
+    // Generate natural language reasons for blocked slots
+    // Collect unique rule IDs and fetch descriptions once per rule
+    const uniqueRuleIds = new Set<Id<"ruleConditions">>();
+    for (const slot of candidateSlots) {
+      if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
+        uniqueRuleIds.add(slot.blockedByRuleId as Id<"ruleConditions">);
+      }
+    }
+
+    // Fetch descriptions for unique rules only (once per rule, not per slot)
+    const ruleDescriptionCache = new Map<Id<"ruleConditions">, string>();
+    for (const ruleId of uniqueRuleIds) {
+      try {
+        const ruleDescription = await ctx.runQuery(
+          internal.ruleEngine.getRuleDescription,
+          { ruleId },
+        );
+        ruleDescriptionCache.set(
+          ruleId,
+          ruleDescription.treeStructure.trim() ||
+            "Dieser Zeitfenster ist durch eine Regel blockiert.",
+        );
+      } catch {
+        ruleDescriptionCache.set(
+          ruleId,
+          "Dieser Zeitfenster ist durch eine Regel blockiert.",
+        );
+      }
+    }
+
     // Return only blocked slots
     const blockedSlots = candidateSlots
       .filter((slot) => slot.status === "BLOCKED")
@@ -759,6 +789,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
           duration: number;
           locationId?: Id<"locations">;
           practitionerId: Id<"practitioners">;
+          reason?: string;
           startTime: string;
           status: "BLOCKED";
         } = {
@@ -775,6 +806,10 @@ export const getBlockedSlotsWithoutAppointmentType = query({
 
         if (slot.blockedByRuleId) {
           result.blockedByRuleId = slot.blockedByRuleId as Id<"ruleConditions">;
+          // Add the reason from cache
+          result.reason =
+            ruleDescriptionCache.get(result.blockedByRuleId) ||
+            "Dieser Zeitfenster ist durch eine Regel blockiert.";
         }
 
         if (slot.locationId) {
@@ -794,6 +829,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         duration: v.number(),
         locationId: v.optional(v.id("locations")),
         practitionerId: v.id("practitioners"),
+        reason: v.optional(v.string()),
         startTime: v.string(),
         status: v.literal("BLOCKED"),
       }),
