@@ -1002,6 +1002,7 @@ export function useCalendarLogic({
             blocked.push({
               column: practitionerColumn.id,
               slot,
+              ...(slotData.reason && { reason: slotData.reason }),
               ...(slotData.blockedByRuleId && {
                 blockedByRuleId: slotData.blockedByRuleId,
               }),
