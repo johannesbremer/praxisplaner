@@ -69,7 +69,7 @@ describe("Blocked Slot Deduplication", () => {
         { column: "practitioner1", reason: "Rule blocked", slot: 1 },
       ];
       const breakSlots: BlockedSlot[] = [
-        { column: "practitioner1", reason: "Break", slot: 2 },
+        { column: "practitioner1", reason: "Pause", slot: 2 },
       ];
       const manualSlots: BlockedSlot[] = [
         {
@@ -134,7 +134,7 @@ describe("Blocked Slot Deduplication", () => {
 
     it("should prioritize manual slots over break slots", () => {
       const breakSlots: BlockedSlot[] = [
-        { column: "practitioner1", reason: "Break", slot: 0 },
+        { column: "practitioner1", reason: "Pause", slot: 0 },
       ];
       const manualSlots: BlockedSlot[] = [
         {
@@ -377,7 +377,7 @@ describe("Blocked Slot Deduplication", () => {
         },
       ];
       const ruleSlots: BlockedSlot[] = [
-        { column: "practitioner1", reason: "Break", slot: 1 },
+        { column: "practitioner1", reason: "Pause", slot: 1 },
       ];
 
       const result = deduplicateBlockedSlots(ruleSlots, [], manualSlots);
@@ -399,7 +399,7 @@ describe("Blocked Slot Deduplication", () => {
         { column: "practitioner1", reason: "Rule C", slot: 2 },
       ];
       const breakSlots: BlockedSlot[] = [
-        { column: "practitioner1", reason: "Break", slot: 1 },
+        { column: "practitioner1", reason: "Pause", slot: 1 },
       ];
       const manualSlots: BlockedSlot[] = [
         {

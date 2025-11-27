@@ -1058,7 +1058,7 @@ export function useCalendarLogic({
         for (let slot = startSlot; slot < endSlot; slot++) {
           breaks.push({
             column: practitionerColumn.id,
-            reason: "Break",
+            reason: "Pause",
             slot,
           });
         }
