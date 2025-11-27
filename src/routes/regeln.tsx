@@ -1298,6 +1298,11 @@ function SimulationControls({
 
         {simulationRuleSetId && (
           <AppointmentTypeSelector
+            onTypeDeselect={() => {
+              const updated = { ...simulatedContext };
+              delete updated.appointmentTypeId;
+              onSimulatedContextChange(updated);
+            }}
             onTypeSelect={(type) => {
               onSimulatedContextChange({
                 ...simulatedContext,

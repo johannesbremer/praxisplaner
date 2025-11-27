@@ -1,3 +1,4 @@
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,12 @@ import {
 } from "@/components/ui/dialog";
 
 interface BlockedSlotWarningDialogProps {
+  /**
+   * Whether the user can book over this blocked slot.
+   * If false, only the reason and cancel button are shown.
+   * If true, the "Trotzdem buchen" button is shown.
+   */
+  canBook: boolean;
   isManualBlock?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -20,6 +27,7 @@ interface BlockedSlotWarningDialogProps {
 }
 
 export function BlockedSlotWarningDialog({
+  canBook,
   isManualBlock = false,
   onCancel,
   onConfirm,
@@ -29,9 +37,13 @@ export function BlockedSlotWarningDialog({
 }: BlockedSlotWarningDialogProps) {
   // Use reason as title if available, otherwise fall back to generic title
   const title = reason || "Zeitfenster ist blockiert";
-  const description = reason
-    ? "Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?"
-    : `Der gewählte Zeitfenster um ${slotTime} Uhr ist ${isManualBlock ? "manuell blockiert" : "durch Regeln blockiert"}. Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?`;
+
+  // Adjust description based on whether booking is possible
+  const description = canBook
+    ? reason
+      ? "Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?"
+      : `Der gewählte Zeitfenster um ${slotTime} Uhr ist ${isManualBlock ? "manuell blockiert" : "durch Regeln blockiert"}. Möchten Sie dennoch einen Termin zu dieser Zeit erstellen?`
+    : undefined;
 
   return (
     <Dialog onOpenChange={onCancel} open={open}>
@@ -41,13 +53,23 @@ export function BlockedSlotWarningDialog({
             <AlertTriangle className="h-5 w-5 text-yellow-500" />
             {title}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : (
+            <VisuallyHidden>
+              <DialogDescription>
+                Dieses Zeitfenster ist blockiert.
+              </DialogDescription>
+            </VisuallyHidden>
+          )}
         </DialogHeader>
 
         <DialogFooter>
-          <Button onClick={onConfirm} variant="outline">
-            Trotzdem buchen
-          </Button>
+          {canBook && (
+            <Button onClick={onConfirm} variant="outline">
+              Trotzdem buchen
+            </Button>
+          )}
           <Button autoFocus onClick={onCancel} variant="default">
             Abbrechen
           </Button>

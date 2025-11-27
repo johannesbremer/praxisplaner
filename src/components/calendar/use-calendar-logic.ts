@@ -94,6 +94,7 @@ export function useCalendarLogic({
 
   // Warning dialog state for blocked slots
   const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
+    canBook: boolean;
     column: string;
     isManualBlock?: boolean;
     onConfirm: () => void;
@@ -1990,7 +1991,10 @@ export function useCalendarLogic({
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual === true;
+      // Only allow booking if an appointment type is selected
+      const canBook = selectedAppointmentTypeId !== undefined;
       setBlockedSlotWarning({
+        canBook,
         column,
         isManualBlock,
         onConfirm: () => {

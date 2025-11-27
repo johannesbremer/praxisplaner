@@ -68,6 +68,13 @@ export function CalendarSidebar() {
     [onAppointmentTypeSelect],
   );
 
+  // Handle deselection of appointment type
+  const handleTypeDeselect = useCallback(() => {
+    if (onAppointmentTypeSelect) {
+      onAppointmentTypeSelect();
+    }
+  }, [onAppointmentTypeSelect]);
+
   // Handle modal close - optionally reset appointment type selection
   const handleModalClose = useCallback(
     (open: boolean, shouldResetAppointmentType = true) => {
@@ -201,6 +208,7 @@ export function CalendarSidebar() {
                     <AppointmentTypeSelector
                       isBlockingModeActive={isBlockingModeActive}
                       onBlockingModeChange={onBlockingModeChange}
+                      onTypeDeselect={handleTypeDeselect}
                       onTypeSelect={handleTypeSelect}
                       ruleSetId={ruleSetId}
                       selectedType={selectedAppointmentTypeId}

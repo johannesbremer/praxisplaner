@@ -385,6 +385,7 @@ export function NewCalendar({
         </div>
       </div>
       <BlockedSlotWarningDialog
+        canBook={blockedSlotWarning?.canBook ?? true}
         {...(blockedSlotWarning?.isManualBlock !== undefined && {
           isManualBlock: blockedSlotWarning.isManualBlock,
         })}
