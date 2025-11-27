@@ -309,6 +309,11 @@ export function PatientView({
 
         {/* Terminart Selection - Always visible */}
         <AppointmentTypeSelector
+          onTypeDeselect={() => {
+            const updated = { ...simulatedContext };
+            delete updated.appointmentTypeId;
+            onUpdateSimulatedContext?.(updated);
+          }}
           onTypeSelect={(type) => {
             onUpdateSimulatedContext?.({
               ...simulatedContext,
