@@ -182,6 +182,7 @@ async function createRule(
         ruleSetId,
         ...("conditionType" in node && { conditionType: node.conditionType }),
         ...("operator" in node && { operator: node.operator }),
+        ...("scope" in node && { scope: node.scope }),
         ...("valueIds" in node && { valueIds: node.valueIds }),
         ...("valueNumber" in node && { valueNumber: node.valueNumber }),
         createdAt: now,
@@ -1076,6 +1077,315 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
           dateTime: Temporal.ZonedDateTime.from(
             "2025-10-27T12:00:00+01:00[Europe/Berlin]",
           ).toString(), // Different time
+          locationId,
+          practiceId,
+          practitionerId: drSmithId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(allowedResult.isBlocked).toBe(false);
+  });
+
+  test("CONCURRENT_COUNT with overlap detection - should block when appointments overlap in time", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const drSmithId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type with 30 minute duration
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId],
+      30, // 30 minute duration
+    );
+
+    // Create an existing appointment from 11:00 to 11:30
+    const existingAppointmentTime = Temporal.ZonedDateTime.from(
+      "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+    ).toString();
+    await createAppointment(
+      t,
+      practiceId,
+      drSmithId,
+      locationId,
+      checkupTypeId,
+      existingAppointmentTime,
+      30, // 30 minute duration
+    );
+
+    // Create rule: Block if >= 1 concurrent appointment at practitioner level
+    // (meaning if there's already 1 appointment overlapping, block this slot)
+    const conditionTree = {
+      conditionType: "CONCURRENT_COUNT" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      scope: "practitioner" as const,
+      valueIds: [],
+      valueNumber: 1, // Block if 1 or more existing concurrent appointments
+    };
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    // Test: Slot at 11:15 should be blocked (overlaps with 11:00-11:30 appointment)
+    const overlappingResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: Temporal.ZonedDateTime.from(
+            "2025-10-27T11:15:00+01:00[Europe/Berlin]",
+          ).toString(),
+          locationId,
+          practiceId,
+          practitionerId: drSmithId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(overlappingResult.isBlocked).toBe(true);
+
+    // Test: Slot at 11:30 should be allowed (exactly when previous appointment ends)
+    const adjacentResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: Temporal.ZonedDateTime.from(
+            "2025-10-27T11:30:00+01:00[Europe/Berlin]",
+          ).toString(),
+          locationId,
+          practiceId,
+          practitionerId: drSmithId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(adjacentResult.isBlocked).toBe(false);
+
+    // Test: Slot at 10:30 should be allowed (before the existing appointment)
+    const beforeResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: Temporal.ZonedDateTime.from(
+            "2025-10-27T10:30:00+01:00[Europe/Berlin]",
+          ).toString(),
+          locationId,
+          practiceId,
+          practitionerId: drSmithId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(beforeResult.isBlocked).toBe(false);
+  });
+
+  test("DAILY_CAPACITY with practitioner scope - should block when practitioner reaches limit", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const drSmithId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const drJonesId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Jones",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [drSmithId, drJonesId],
+    );
+
+    // Create 2 existing appointments for Dr. Smith on the same day
+    await createAppointment(
+      t,
+      practiceId,
+      drSmithId,
+      locationId,
+      checkupTypeId,
+      "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+    );
+    await createAppointment(
+      t,
+      practiceId,
+      drSmithId,
+      locationId,
+      checkupTypeId,
+      "2025-10-27T10:00:00+01:00[Europe/Berlin]",
+    );
+
+    // Create rule: Block if practitioner already has >= 2 appointments of this type today
+    const conditionTree = {
+      conditionType: "DAILY_CAPACITY" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      scope: "practitioner" as const,
+      valueIds: [checkupTypeId], // Count checkups specifically
+      valueNumber: 2,
+    };
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    // Test: Third appointment for Dr. Smith should be blocked
+    const blockedResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          practiceId,
+          practitionerId: drSmithId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(blockedResult.isBlocked).toBe(true);
+
+    // Test: First appointment for Dr. Jones should be allowed (different practitioner)
+    const allowedResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          practiceId,
+          practitionerId: drJonesId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(allowedResult.isBlocked).toBe(false);
+  });
+
+  test("DAILY_CAPACITY with practice scope - should block when practice reaches limit", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const drSmithId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const drJonesId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Jones",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    // Create appointment type
+    const emergencyTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Emergency",
+      [drSmithId, drJonesId],
+    );
+
+    // Create 3 existing emergency appointments across different practitioners
+    await createAppointment(
+      t,
+      practiceId,
+      drSmithId,
+      locationId,
+      emergencyTypeId,
+      "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+    );
+    await createAppointment(
+      t,
+      practiceId,
+      drSmithId,
+      locationId,
+      emergencyTypeId,
+      "2025-10-27T10:00:00+01:00[Europe/Berlin]",
+    );
+    await createAppointment(
+      t,
+      practiceId,
+      drJonesId,
+      locationId,
+      emergencyTypeId,
+      "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+    );
+
+    // Create rule: Block if practice already has >= 3 emergency appointments today
+    const conditionTree = {
+      conditionType: "DAILY_CAPACITY" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      scope: "practice" as const,
+      valueIds: [emergencyTypeId],
+      valueNumber: 3,
+    };
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    // Test: Fourth emergency appointment should be blocked (regardless of practitioner)
+    const blockedResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: emergencyTypeId,
+          dateTime: "2025-10-27T14:00:00+01:00[Europe/Berlin]",
+          locationId,
+          practiceId,
+          practitionerId: drJonesId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(blockedResult.isBlocked).toBe(true);
+
+    // Test: Emergency appointment on different day should be allowed
+    const allowedResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: emergencyTypeId,
+          dateTime: "2025-10-28T09:00:00+01:00[Europe/Berlin]", // Next day
           locationId,
           practiceId,
           practitionerId: drSmithId,
@@ -3514,7 +3824,7 @@ describe("E2E: Slot Generation with Rules", () => {
       existingAppointmentTime,
     );
 
-    // Create rule: Block if Surgery AND >= 14 days ahead AND >= 2 concurrent Surgery appointments
+    // Create rule: Block if Surgery AND >= 14 days ahead AND >= 1 concurrent Surgery appointments
     const conditionTree = {
       children: [
         {
@@ -3533,8 +3843,9 @@ describe("E2E: Slot Generation with Rules", () => {
           conditionType: "CONCURRENT_COUNT" as const,
           nodeType: "CONDITION" as const,
           operator: "GREATER_THAN_OR_EQUAL" as const,
-          valueIds: ["practice", surgeryTypeId], // [scope, ...appointmentTypeIds]
-          valueNumber: 2,
+          scope: "practice" as const,
+          valueIds: [surgeryTypeId],
+          valueNumber: 1, // Block if 1 or more existing concurrent appointments
         },
       ],
       nodeType: "AND" as const,
@@ -3551,7 +3862,7 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Surgery 20 days ahead at 10:00 should be BLOCKED
-    // (1 existing Surgery + 1 new = 2 concurrent, which meets >= 2 threshold)
+    // (1 existing Surgery meets >= 1 threshold)
     const surgerySlots = await t.query(api.scheduling.getSlotsForDay, {
       date: "2025-11-13", // 20 days from Oct 24 (Thursday)
       practiceId,
@@ -3583,7 +3894,7 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(slot10am?.status).toBe("BLOCKED");
 
     // At 10:30 Berlin time, there's 0 existing appointments,
-    // so adding 1 would make only 1 total. This should be AVAILABLE (doesn't meet >= 2 threshold)
+    // so this should be AVAILABLE (doesn't meet >= 1 threshold)
     const expectedSlot1030am = Temporal.ZonedDateTime.from({
       day: 13,
       hour: 10,

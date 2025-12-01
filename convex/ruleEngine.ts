@@ -30,6 +30,19 @@ import { internalQuery } from "./_generated/server";
 // ============================================================================
 
 /**
+ * Pre-parsed appointment with epoch milliseconds for fast overlap detection.
+ * Epoch times are computed once during buildPreloadedDayData to avoid repeated Temporal parsing.
+ */
+export interface ParsedAppointment {
+  /** Original appointment document */
+  appointment: Doc<"appointments">;
+  /** Start time as epoch milliseconds (for fast comparison) */
+  startEpochMs: number;
+  /** End time as epoch milliseconds (for fast comparison) */
+  endEpochMs: number;
+}
+
+/**
  * Pre-loaded data for efficient condition evaluation.
  * Built once per query execution before the slot loop, enabling O(1) lookups instead of per-slot DB queries.
  */
@@ -41,8 +54,20 @@ export interface PreloadedDayData {
   appointments: Doc<"appointments">[];
 
   /**
-   * Pre-computed daily capacity counts.
-   * Key format: "appointmentTypeId:practitionerId:locationId" (use "undefined" for missing IDs)
+   * Pre-parsed appointments with epoch times for CONCURRENT_COUNT overlap detection.
+   * Grouped by scope key for efficient filtering:
+   * - "practice": all appointments
+   * - "location:locationId": appointments at this location
+   * - "practitioner:practitionerId": appointments for this practitioner
+   */
+  parsedAppointmentsByScope: Map<string, ParsedAppointment[]>;
+
+  /**
+   * Pre-computed daily capacity counts by scope.
+   * Key formats:
+   * - "practice:appointmentTypeId" - practice-wide count for an appointment type
+   * - "location:locationId:appointmentTypeId" - location-specific count
+   * - "practitioner:practitionerId:appointmentTypeId" - practitioner-specific count
    * Value: count of existing appointments matching that combination
    */
   dailyCapacityCounts: Map<string, number>;
@@ -102,15 +127,84 @@ export async function buildPreloadedDayData(
     )
     .collect();
 
-  // Build daily capacity counts map
-  // Key: "appointmentTypeId:practitionerId:locationId"
-  const dailyCapacityCounts = new Map<string, number>();
+  // Build parsed appointments with pre-computed epoch times for fast overlap detection
+  // Group by scope for efficient CONCURRENT_COUNT filtering
+  const parsedAppointmentsByScope = new Map<string, ParsedAppointment[]>();
+
+  // Initialize practice-wide list
+  const practiceKey = "practice";
+  const practiceAppointments: ParsedAppointment[] = [];
+  parsedAppointmentsByScope.set(practiceKey, practiceAppointments);
+
   for (const apt of appointments) {
-    const key = `${apt.appointmentTypeId}:${apt.practitionerId ?? "undefined"}:${apt.locationId}`;
-    dailyCapacityCounts.set(key, (dailyCapacityCounts.get(key) ?? 0) + 1);
+    // Parse times once per appointment (expensive operation)
+    const startZdt = Temporal.ZonedDateTime.from(apt.start);
+    const endZdt = Temporal.ZonedDateTime.from(apt.end);
+    const parsed: ParsedAppointment = {
+      appointment: apt,
+      endEpochMs: endZdt.epochMilliseconds,
+      startEpochMs: startZdt.epochMilliseconds,
+    };
+
+    // Add to practice-wide list
+    practiceAppointments.push(parsed);
+
+    // Add to location-specific list
+    const locationKey = `location:${apt.locationId}`;
+    let locationAppointments = parsedAppointmentsByScope.get(locationKey);
+    if (!locationAppointments) {
+      locationAppointments = [];
+      parsedAppointmentsByScope.set(locationKey, locationAppointments);
+    }
+    locationAppointments.push(parsed);
+
+    // Add to practitioner-specific list (if practitioner assigned)
+    if (apt.practitionerId) {
+      const practitionerKey = `practitioner:${apt.practitionerId}`;
+      let practitionerAppointments =
+        parsedAppointmentsByScope.get(practitionerKey);
+      if (!practitionerAppointments) {
+        practitionerAppointments = [];
+        parsedAppointmentsByScope.set(
+          practitionerKey,
+          practitionerAppointments,
+        );
+      }
+      practitionerAppointments.push(parsed);
+    }
   }
 
-  // Build appointments by start time map for CONCURRENT_COUNT
+  // Build daily capacity counts by scope
+  // Multiple keys per appointment: practice, location, and practitioner scope
+  const dailyCapacityCounts = new Map<string, number>();
+  for (const apt of appointments) {
+    const typeId = apt.appointmentTypeId;
+
+    // Practice-wide count by appointment type
+    const practiceTypeKey = `practice:${typeId}`;
+    dailyCapacityCounts.set(
+      practiceTypeKey,
+      (dailyCapacityCounts.get(practiceTypeKey) ?? 0) + 1,
+    );
+
+    // Location-specific count by appointment type
+    const locationTypeKey = `location:${apt.locationId}:${typeId}`;
+    dailyCapacityCounts.set(
+      locationTypeKey,
+      (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
+    );
+
+    // Practitioner-specific count by appointment type (if practitioner assigned)
+    if (apt.practitionerId) {
+      const practitionerTypeKey = `practitioner:${apt.practitionerId}:${typeId}`;
+      dailyCapacityCounts.set(
+        practitionerTypeKey,
+        (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
+      );
+    }
+  }
+
+  // Build appointments by start time map (still useful for exact start time lookups)
   const appointmentsByStartTime = new Map<string, Doc<"appointments">[]>();
   for (const apt of appointments) {
     const existing = appointmentsByStartTime.get(apt.start) ?? [];
@@ -128,6 +222,7 @@ export async function buildPreloadedDayData(
     appointments,
     appointmentsByStartTime,
     dailyCapacityCounts,
+    parsedAppointmentsByScope,
     practitioners: practitionersMap,
   };
 }
@@ -255,10 +350,12 @@ function evaluateCondition(
     }
 
     case "CONCURRENT_COUNT": {
-      // Check concurrent appointments at a specific time slot
+      // Check concurrent (overlapping) appointments at a specific time slot
       // scope: "practice", "location", or "practitioner"
       // valueIds: optional list of appointment types to count
       // valueNumber: the count threshold
+      //
+      // An appointment overlaps with time T if: appointment.start <= T < appointment.end
       if (valueNumber === undefined) {
         return false;
       }
@@ -266,53 +363,102 @@ function evaluateCondition(
       const scope = condition.scope;
       const appointmentTypeIds = valueIds ?? [];
 
-      // Use pre-loaded appointments grouped by start time - O(1) lookup
-      // Note: appointments are already filtered by practiceId in buildPreloadedDayData
-      const appointmentsAtTime =
-        preloadedData.appointmentsByStartTime.get(context.dateTime) ?? [];
-
-      let filteredAppointments = appointmentsAtTime;
-
-      // Apply scope-based filtering
+      // Determine scope key for lookup in pre-computed map
+      let scopeKey: string;
       if (scope === "location" && context.locationId) {
-        filteredAppointments = filteredAppointments.filter(
-          (apt) => apt.locationId === context.locationId,
-        );
-      } else if (scope === "practitioner") {
-        filteredAppointments = filteredAppointments.filter(
-          (apt) => apt.practitionerId === context.practitionerId,
-        );
-      }
-      // "practice" scope means no additional filtering - count across entire practice
-
-      // Filter by appointment types if specified
-      if (appointmentTypeIds.length > 0) {
-        filteredAppointments = filteredAppointments.filter((apt) =>
-          apt.appointmentTypeId
-            ? appointmentTypeIds.includes(apt.appointmentTypeId)
-            : false,
-        );
+        scopeKey = `location:${context.locationId}`;
+      } else if (scope === "practitioner" && context.practitionerId) {
+        scopeKey = `practitioner:${context.practitionerId}`;
+      } else {
+        scopeKey = "practice";
       }
 
-      // Count existing appointments + 1 for the appointment being evaluated
-      // This represents "if this appointment were booked, how many concurrent would there be?"
-      const currentCount = filteredAppointments.length + 1;
-      return compareValue(currentCount, valueNumber);
+      // Get pre-parsed appointments for this scope - O(1) lookup
+      const parsedAppointments =
+        preloadedData.parsedAppointmentsByScope.get(scopeKey) ?? [];
+
+      // Parse the slot time once (this is per-slot, but we only parse once per CONCURRENT_COUNT check)
+      const slotZdt = Temporal.ZonedDateTime.from(context.dateTime);
+      const slotEpochMs = slotZdt.epochMilliseconds;
+
+      // Count overlapping appointments using pre-computed epoch times - O(n) where n is appointments in scope
+      // Overlap condition: start <= slotTime < end
+      let overlappingCount = 0;
+      for (const parsed of parsedAppointments) {
+        // Check overlap
+        if (
+          parsed.startEpochMs <= slotEpochMs &&
+          slotEpochMs < parsed.endEpochMs
+        ) {
+          // Check appointment type filter if specified
+          if (appointmentTypeIds.length > 0) {
+            const aptTypeId = parsed.appointment.appointmentTypeId;
+            if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
+              continue;
+            }
+          }
+          overlappingCount++;
+        }
+      }
+
+      // Compare existing overlapping appointments count against the threshold
+      // CONCURRENT_COUNT checks if there are already too many overlapping appointments
+      return compareValue(overlappingCount, valueNumber);
     }
 
     case "DAILY_CAPACITY": {
-      // Check if daily appointment limit is reached for this appointment type/practitioner/location
+      // Check if daily appointment limit is reached
+      // scope: "practice", "location", or "practitioner" (determines aggregation level)
+      // valueIds: optional list of appointment types to count (if empty, counts all types)
+      // valueNumber: the count threshold
       if (valueNumber === undefined) {
         return false;
       }
 
-      // Use pre-computed daily capacity counts - O(1) lookup
-      // Key format: "appointmentTypeId:practitionerId:locationId"
-      // Note: When context.locationId is undefined, this will find no matches (returns 0),
-      // which is correct since appointments always have a locationId in the schema.
-      const key = `${context.appointmentTypeId}:${context.practitionerId}:${context.locationId ?? "undefined"}`;
-      const currentCount = preloadedData.dailyCapacityCounts.get(key) ?? 0;
-      return compareValue(currentCount, valueNumber);
+      const scope = condition.scope ?? "practitioner"; // Default to practitioner for backward compatibility
+      const appointmentTypeIds = valueIds ?? [];
+
+      // Use pre-computed daily capacity counts - O(k) where k is number of appointment types to sum
+      // Key formats:
+      // - "practice:appointmentTypeId" - practice-wide count for an appointment type
+      // - "location:locationId:appointmentTypeId" - location-specific count
+      // - "practitioner:practitionerId:appointmentTypeId" - practitioner-specific count
+
+      let totalCount = 0;
+
+      // If no specific appointment types are specified, we need to count all appointments
+      // For this, we'll sum up the counts for all appointment types in the pre-computed map
+      if (appointmentTypeIds.length === 0) {
+        // Count all appointments matching the scope
+        // This requires iterating the keys - still O(k) where k is unique appointment types
+        const keyPrefix =
+          scope === "practice"
+            ? "practice:"
+            : scope === "location"
+              ? `location:${context.locationId}:`
+              : `practitioner:${context.practitionerId}:`;
+
+        for (const [key, count] of preloadedData.dailyCapacityCounts) {
+          if (key.startsWith(keyPrefix)) {
+            totalCount += count;
+          }
+        }
+      } else {
+        // Sum up counts for each specified appointment type
+        for (const typeId of appointmentTypeIds) {
+          let key: string;
+          if (scope === "practice") {
+            key = `practice:${typeId}`;
+          } else if (scope === "location") {
+            key = `location:${context.locationId}:${typeId}`;
+          } else {
+            key = `practitioner:${context.practitionerId}:${typeId}`;
+          }
+          totalCount += preloadedData.dailyCapacityCounts.get(key) ?? 0;
+        }
+      }
+
+      return compareValue(totalCount, valueNumber);
     }
 
     case "DATE_RANGE": {
@@ -1272,6 +1418,7 @@ export function preEvaluateDayInvariantRulesHelper(
     appointments: [],
     appointmentsByStartTime: new Map(),
     dailyCapacityCounts: new Map(),
+    parsedAppointmentsByScope: new Map(),
     practitioners,
   };
 
