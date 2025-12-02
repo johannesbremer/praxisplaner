@@ -6,8 +6,7 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "build": "pnpm gen && vite build",
-    "build:prod": "pnpm exec convex deploy --yes && vite build",
+    "build": "vite build",
     "dev": "pnpm exec concurrently -r pnpm:dev:web pnpm:dev:db",
     "dev:db": "pnpm exec convex dev",
     "dev:web": "pnpm exec wait-on tcp:127.0.0.1:3210 -t 60000 && vite dev",
