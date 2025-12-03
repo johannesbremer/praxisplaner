@@ -2,6 +2,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type {
+  PatientInfo,
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
 } from "../../types";
@@ -13,6 +14,7 @@ export interface Appointment {
   duration: number; // in minutes
   id: string;
   isSimulation: boolean;
+  patientName?: string; // Patient name for display
   replacesAppointmentId?: Id<"appointments"> | null;
   resource?: {
     appointmentTypeId?: Doc<"appointments">["appointmentTypeId"];
@@ -27,19 +29,21 @@ export interface Appointment {
 
 export interface NewCalendarProps {
   locationSlug?: string | undefined;
-  onDateChange?: (date: Temporal.PlainDate) => void;
-  onLocationResolved?: (
-    locationId: Id<"locations">,
-    locationName: string,
-  ) => void;
-  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
-  practiceId?: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
+  onLocationResolved?:
+    | ((locationId: Id<"locations">, locationName: string) => void)
+    | undefined;
+  onUpdateSimulatedContext?:
+    | ((context: SchedulingSimulatedContext) => void)
+    | undefined;
+  patient?: PatientInfo | undefined;
+  practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: SchedulingRuleSetId | undefined;
   selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;
-  showGdtAlert?: boolean;
-  simulatedContext?: SchedulingSimulatedContext;
-  simulationDate?: Temporal.PlainDate;
+  showGdtAlert?: boolean | undefined;
+  simulatedContext?: SchedulingSimulatedContext | undefined;
+  simulationDate?: Temporal.PlainDate | undefined;
 }
 
 export const SLOT_DURATION = 5; // minutes

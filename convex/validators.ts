@@ -46,6 +46,7 @@ export const practitionerUpdateValidator = v.object({
 
 // Patient upsert result
 export const patientUpsertResultValidator = v.object({
+  convexPatientId: v.id("patients"), // Convex database ID for linking appointments
   isNewPatient: v.boolean(),
   patientId: v.number(),
   success: v.boolean(),

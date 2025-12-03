@@ -5,7 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
 import type {
-  SchedulingDateRange,
+  PatientInfo,
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
   SchedulingSlot,
@@ -14,40 +14,35 @@ import type {
 import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
-  dateRange: SchedulingDateRange;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
+  patient?: PatientInfo;
   practiceId: Id<"practices">;
   ruleSetId?: SchedulingRuleSetId;
   simulatedContext: SchedulingSimulatedContext;
+  simulationDate: Temporal.PlainDate;
 }
 
 export function MedicalStaffView({
-  dateRange,
   onSlotClick,
   onUpdateSimulatedContext,
+  patient,
   practiceId,
   ruleSetId,
   simulatedContext,
+  simulationDate,
 }: MedicalStaffViewProps) {
-  // Extract the simulation date from dateRange - convert from ISO string to Temporal.PlainDate
-  // Use includes check to safely handle strings with or without 'T'
-  const dateString = dateRange.start.includes("T")
-    ? // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      dateRange.start.split("T")[0]!
-    : dateRange.start;
-  const simulationDate = Temporal.PlainDate.from(dateString);
-
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
     <SidebarProvider>
       <div className="flex h-full w-full">
         <PraxisCalendar
-          {...(onSlotClick && { onSlotClick })}
+          onSlotClick={onSlotClick}
+          onUpdateSimulatedContext={onUpdateSimulatedContext}
+          patient={patient}
           practiceId={practiceId}
-          {...(ruleSetId && { ruleSetId })}
+          ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
-          {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           simulationDate={simulationDate}
         />
       </div>

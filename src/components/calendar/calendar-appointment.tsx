@@ -2,6 +2,8 @@ import type React from "react";
 
 import type { Appointment } from "./types";
 
+import { CalendarItemContent } from "./calendar-item-content";
+
 interface CalendarAppointmentProps {
   appointment: Appointment;
   isDragging: boolean;
@@ -32,11 +34,7 @@ export function CalendarAppointment({
   const startSlot = timeToSlot(appointment.startTime);
   const height = (appointment.duration / slotDuration) * 16;
   const top = startSlot * 16;
-
-  // Calculate number of slots
-  const slots = appointment.duration / slotDuration;
-  const isSingleSlot = slots === 1; // 5 minutes
-  const isTwoSlotsOrLess = slots <= 2; // 10 minutes or less
+  const slotCount = appointment.duration / slotDuration;
 
   return (
     <div
@@ -62,28 +60,12 @@ export function CalendarAppointment({
         } as React.CSSProperties
       }
     >
-      <div
-        className={`h-full flex ${isTwoSlotsOrLess ? "flex-row items-center gap-1" : "flex-col justify-between pb-2"} ${isSingleSlot ? "px-0.5 py-0" : "p-1"}`}
-      >
-        <div
-          className={
-            isTwoSlotsOrLess ? "flex items-center gap-1 flex-1 min-w-0" : ""
-          }
-        >
-          <div
-            className={`text-xs opacity-90 ${isTwoSlotsOrLess ? "whitespace-nowrap" : ""}`}
-          >
-            {appointment.startTime}
-          </div>
-          {!isSingleSlot && (
-            <div
-              className={`text-xs font-medium ${isTwoSlotsOrLess ? "truncate" : ""}`}
-            >
-              {appointment.title}
-            </div>
-          )}
-        </div>
-      </div>
+      <CalendarItemContent
+        patientName={appointment.patientName}
+        slotCount={slotCount}
+        startTime={appointment.startTime}
+        title={appointment.title}
+      />
 
       <div
         className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"

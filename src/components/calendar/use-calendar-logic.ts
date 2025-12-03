@@ -46,6 +46,7 @@ export function useCalendarLogic({
   onDateChange,
   onLocationResolved,
   onUpdateSimulatedContext,
+  patient,
   practiceId: propPracticeId,
   ruleSetId,
   selectedAppointmentTypeId,
@@ -774,6 +775,25 @@ export function useCalendarLogic({
     selectedLocationId,
   ]);
 
+  // Collect patient IDs from appointments for batch query
+  const appointmentPatientIds = useMemo(() => {
+    const ids = new Set<Id<"patients">>();
+    for (const appointment of locationFilteredAppointments) {
+      if (appointment.patientId) {
+        ids.add(appointment.patientId);
+      }
+    }
+    return [...ids];
+  }, [locationFilteredAppointments]);
+
+  // Query patient data for appointments
+  const patientData = useQuery(
+    api.patients.getPatientsByIds,
+    appointmentPatientIds.length > 0
+      ? { patientIds: appointmentPatientIds }
+      : "skip",
+  );
+
   // Map to Appointment type
   const combinedDerivedAppointments = useMemo(() => {
     return locationFilteredAppointments
@@ -795,6 +815,18 @@ export function useCalendarLogic({
         // Title is stored directly on the appointment (snapshot at booking time)
         const title = appointment.title;
 
+        // Get patient name if available
+        let patientName: string | undefined;
+        if (appointment.patientId && patientData) {
+          const patientInfo = patientData[appointment.patientId];
+          if (patientInfo) {
+            const parts = [patientInfo.lastName, patientInfo.firstName].filter(
+              Boolean,
+            );
+            patientName = parts.join(", ");
+          }
+        }
+
         return {
           color:
             APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
@@ -804,6 +836,7 @@ export function useCalendarLogic({
           duration,
           id: appointment._id,
           isSimulation: appointment.isSimulation === true,
+          ...(patientName && { patientName }),
           replacesAppointmentId: appointment.replacesAppointmentId ?? null,
           resource: {
             appointmentTypeId: appointment.appointmentTypeId,
@@ -817,7 +850,7 @@ export function useCalendarLogic({
         };
       })
       .filter((apt): apt is Appointment => apt !== null);
-  }, [locationFilteredAppointments]);
+  }, [locationFilteredAppointments, patientData]);
 
   // Derive appointments directly from combinedDerivedAppointments
   // Convex handles optimistic updates, so we don't need manual state management
@@ -2073,6 +2106,9 @@ export function useCalendarLogic({
           end: endISO,
           isSimulation: true,
           locationId: simulatedContext.locationId,
+          ...(patient?.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
@@ -2121,6 +2157,9 @@ export function useCalendarLogic({
           end: endISO,
           isSimulation: false,
           locationId: selectedLocationId,
+          ...(patient?.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,

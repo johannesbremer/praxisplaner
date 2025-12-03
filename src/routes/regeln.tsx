@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { RefreshCw, Save, Trash2 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -40,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
 
 import type { VersionNode } from "../components/version-graph/types";
+import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 
 import { createSimulatedContext } from "../../lib/utils";
@@ -506,7 +508,19 @@ function LogicView() {
   //   currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
   // );
 
+  // Convert selectedDate (JS Date) to Temporal.PlainDate for the calendar components
+  const simulationDate = useMemo(
+    () =>
+      Temporal.PlainDate.from({
+        day: selectedDate.getDate(),
+        month: selectedDate.getMonth() + 1, // JS months are 0-indexed
+        year: selectedDate.getFullYear(),
+      }),
+    [selectedDate],
+  );
+
   // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
+  // This is still used by PatientBookingFlow which hasn't been converted to Temporal yet
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const date = selectedDate.getDate();
@@ -518,6 +532,15 @@ function LogicView() {
     end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
   };
+
+  // Create patient info for the right sidebar in staff view
+  // This extracts patient information from the simulated context
+  const patientInfo: PatientInfo = useMemo(
+    () => ({
+      isNewPatient,
+    }),
+    [isNewPatient],
+  );
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
@@ -999,7 +1022,6 @@ function LogicView() {
               <div className="space-y-6">
                 {ruleSetIdFromUrl ? (
                   <MedicalStaffDisplay
-                    dateRange={dateRange}
                     onUpdateSimulatedContext={(ctx) => {
                       setSimulatedContext(ctx);
                       pushUrl({
@@ -1007,9 +1029,11 @@ function LogicView() {
                         locationId: ctx.locationId,
                       });
                     }}
+                    patient={patientInfo}
                     practiceId={currentPractice._id}
                     ruleSetId={ruleSetIdFromUrl}
                     simulatedContext={simulatedContext}
+                    simulationDate={simulationDate}
                   />
                 ) : (
                   <div className="flex items-center justify-center p-8 text-muted-foreground">
