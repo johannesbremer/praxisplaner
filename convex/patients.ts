@@ -26,13 +26,14 @@ export const createOrUpdatePatient = mutation({
 
     if (!existingPatient) {
       // Create new patient using spread operator with schema types
-      await ctx.db.insert("patients", {
+      const newPatientId = await ctx.db.insert("patients", {
         ...args,
         createdAt: now,
         lastModified: now,
       });
 
       return {
+        convexPatientId: newPatientId,
         isNewPatient: true,
         patientId: args.patientId,
         success: true,
@@ -55,6 +56,7 @@ export const createOrUpdatePatient = mutation({
     await ctx.db.patch(existingPatient._id, updates);
 
     return {
+      convexPatientId: existingPatient._id,
       isNewPatient: false,
       patientId: args.patientId,
       success: true,
@@ -98,4 +100,39 @@ export const getPatient = query({
       .first();
   },
   returns: v.union(v.any(), v.null()), // Patient document or null
+});
+
+/** Get multiple patients by their Convex IDs */
+export const getPatientsByIds = query({
+  args: { patientIds: v.array(v.id("patients")) },
+  handler: async (ctx, args) => {
+    const patients = await Promise.all(
+      args.patientIds.map((id) => ctx.db.get(id)),
+    );
+    // Filter out nulls and return patient map for easy lookup
+    const patientMap: Record<
+      string,
+      { firstName?: string; lastName?: string }
+    > = {};
+    for (const patient of patients) {
+      if (patient) {
+        const entry: { firstName?: string; lastName?: string } = {};
+        if (patient.firstName !== undefined) {
+          entry.firstName = patient.firstName;
+        }
+        if (patient.lastName !== undefined) {
+          entry.lastName = patient.lastName;
+        }
+        patientMap[patient._id] = entry;
+      }
+    }
+    return patientMap;
+  },
+  returns: v.record(
+    v.id("patients"),
+    v.object({
+      firstName: v.optional(v.string()),
+      lastName: v.optional(v.string()),
+    }),
+  ),
 });

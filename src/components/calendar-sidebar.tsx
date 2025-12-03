@@ -1,12 +1,10 @@
 "use client";
 
-import { AlertCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -51,7 +49,6 @@ export function CalendarSidebar() {
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
-    showGdtAlert,
     simulatedContext,
   } = useCalendarContext();
 
@@ -149,17 +146,6 @@ export function CalendarSidebar() {
         <SidebarContent>
           <ScrollArea className="h-full">
             <div className="pb-[100%]">
-              {showGdtAlert && (
-                <div className="px-2 pt-2">
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Keine GDT-Verbindung</AlertTitle>
-                    <AlertDescription>
-                      Keine Verbindung mit dem PVS möglich!
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
               <SidebarGroup>
                 <SidebarGroupContent className="flex items-center justify-center">
                   <Calendar

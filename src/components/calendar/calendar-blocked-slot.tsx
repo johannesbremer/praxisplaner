@@ -1,5 +1,7 @@
 import type React from "react";
 
+import { CalendarItemContent } from "./calendar-item-content";
+
 interface BlockedSlot {
   column: string;
   duration?: number;
@@ -41,11 +43,6 @@ export function CalendarBlockedSlot({
   const height = slotCount * 16;
   const top = blockedSlot.slot * 16;
 
-  // Calculate number of slots
-  const slots = slotCount;
-  const isSingleSlot = slots === 1; // 5 minutes
-  const isTwoSlotsOrLess = slots <= 2; // 10 minutes or less
-
   if (!blockedSlot.id) {
     return null;
   }
@@ -80,26 +77,11 @@ export function CalendarBlockedSlot({
         } as React.CSSProperties
       }
     >
-      <div
-        className={`h-full flex ${isTwoSlotsOrLess ? "flex-row items-center gap-1" : "flex-col justify-between pb-2"} ${isSingleSlot ? "px-0.5 py-0" : "p-1"}`}
-      >
-        <div
-          className={
-            isTwoSlotsOrLess ? "flex items-center gap-1 flex-1 min-w-0" : ""
-          }
-        >
-          <div
-            className={`font-medium truncate ${isTwoSlotsOrLess ? "" : "mb-1"}`}
-          >
-            {blockedSlot.title || "Gesperrt"}
-          </div>
-          <div
-            className={`text-xs opacity-90 ${isTwoSlotsOrLess ? "whitespace-nowrap" : ""}`}
-          >
-            {slotToTime(blockedSlot.slot)}
-          </div>
-        </div>
-      </div>
+      <CalendarItemContent
+        slotCount={slotCount}
+        startTime={slotToTime(blockedSlot.slot)}
+        title={blockedSlot.title || "Gesperrt"}
+      />
 
       <div
         className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
