@@ -45,6 +45,7 @@ export function useCalendarLogic({
   locationSlug,
   onDateChange,
   onLocationResolved,
+  onPatientRequired,
   onUpdateSimulatedContext,
   patient,
   practiceId: propPracticeId,
@@ -786,11 +787,30 @@ export function useCalendarLogic({
     return [...ids];
   }, [locationFilteredAppointments]);
 
+  // Collect temporary patient IDs from appointments for batch query
+  const appointmentTemporaryPatientIds = useMemo(() => {
+    const ids = new Set<Id<"temporaryPatients">>();
+    for (const appointment of locationFilteredAppointments) {
+      if (appointment.temporaryPatientId) {
+        ids.add(appointment.temporaryPatientId);
+      }
+    }
+    return [...ids];
+  }, [locationFilteredAppointments]);
+
   // Query patient data for appointments
   const patientData = useQuery(
     api.patients.getPatientsByIds,
     appointmentPatientIds.length > 0
       ? { patientIds: appointmentPatientIds }
+      : "skip",
+  );
+
+  // Query temporary patient data for appointments
+  const temporaryPatientData = useQuery(
+    api.temporaryPatients.getTemporaryPatientsByIds,
+    appointmentTemporaryPatientIds.length > 0
+      ? { temporaryPatientIds: appointmentTemporaryPatientIds }
       : "skip",
   );
 
@@ -815,7 +835,7 @@ export function useCalendarLogic({
         // Title is stored directly on the appointment (snapshot at booking time)
         const title = appointment.title;
 
-        // Get patient name if available
+        // Get patient name if available (from regular patient or temporary patient)
         let patientName: string | undefined;
         if (appointment.patientId && patientData) {
           const patientInfo = patientData[appointment.patientId];
@@ -824,6 +844,12 @@ export function useCalendarLogic({
               Boolean,
             );
             patientName = parts.join(", ");
+          }
+        } else if (appointment.temporaryPatientId && temporaryPatientData) {
+          const tempPatientInfo =
+            temporaryPatientData[appointment.temporaryPatientId];
+          if (tempPatientInfo) {
+            patientName = `${tempPatientInfo.lastName}, ${tempPatientInfo.firstName}`;
           }
         }
 
@@ -850,7 +876,7 @@ export function useCalendarLogic({
         };
       })
       .filter((apt): apt is Appointment => apt !== null);
-  }, [locationFilteredAppointments, patientData]);
+  }, [locationFilteredAppointments, patientData, temporaryPatientData]);
 
   // Derive appointments directly from combinedDerivedAppointments
   // Convex handles optimistic updates, so we don't need manual state management
@@ -2152,14 +2178,34 @@ export function useCalendarLogic({
         const startISO = startZoned.toString();
         const endISO = endZoned.toString();
 
+        // Check if we have a patient - if not, ask for patient selection
+        if (!patient?.convexPatientId) {
+          if (onPatientRequired) {
+            onPatientRequired({
+              appointmentTypeId: selectedAppointmentTypeId,
+              end: endISO,
+              isSimulation: false,
+              locationId: selectedLocationId,
+              practiceId,
+              ...(practitioner && { practitionerId: practitioner.id }),
+              start: startISO,
+            });
+            return;
+          } else {
+            // If no callback provided, show an error
+            toast.error(
+              "Bitte wählen Sie zuerst einen Patienten aus der rechten Seitenleiste aus.",
+            );
+            return;
+          }
+        }
+
         void runCreateAppointment({
           appointmentTypeId: selectedAppointmentTypeId,
           end: endISO,
           isSimulation: false,
           locationId: selectedLocationId,
-          ...(patient?.convexPatientId && {
-            patientId: patient.convexPatientId,
-          }),
+          patientId: patient.convexPatientId,
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,

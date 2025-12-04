@@ -12,10 +12,11 @@ export default defineSchema({
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
-    patientId: v.optional(v.id("patients")),
+    patientId: v.optional(v.id("patients")), // Real patient from PVS
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    temporaryPatientId: v.optional(v.id("temporaryPatients")), // Walk-in patient without PVS record
 
     // Metadata
     createdAt: v.int64(),
@@ -28,7 +29,8 @@ export default defineSchema({
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
-    .index("by_appointmentTypeId", ["appointmentTypeId"]),
+    .index("by_appointmentTypeId", ["appointmentTypeId"])
+    .index("by_temporaryPatientId", ["temporaryPatientId"]),
 
   appointmentTypes: defineTable({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
@@ -126,6 +128,13 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_practiceId", ["practiceId"]),
 
+  /**
+   * Temporary Patients Table
+   *
+   * Stores temporary patient information for walk-in appointments
+   * where a full patient record from the PVS is not available.
+   * Only requires name and phone number for quick appointment booking.
+   */
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
@@ -154,6 +163,18 @@ export default defineSchema({
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_saved", ["practiceId", "saved"]), // For finding unsaved rule sets
+
+  temporaryPatients: defineTable({
+    firstName: v.string(), // Vorname - Required
+    lastName: v.string(), // Nachname - Required
+    phoneNumber: v.string(), // Telefonnummer - Required
+    practiceId: v.id("practices"), // Multi-tenancy support
+
+    // Metadata
+    createdAt: v.int64(),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_lastName", ["lastName"]),
 
   /**
    * Rule Conditions Table - Recursive Tree Structure for Boolean Logic

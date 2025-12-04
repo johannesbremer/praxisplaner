@@ -136,3 +136,43 @@ export const getPatientsByIds = query({
     }),
   ),
 });
+
+/** Search patients by name */
+export const searchPatients = query({
+  args: {
+    practiceId: v.id("practices"),
+    searchTerm: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get all patients for the practice
+    const patients = await ctx.db
+      .query("patients")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    const searchLower = args.searchTerm.toLowerCase();
+
+    // Filter by search term (name matching)
+    return patients.filter((patient) => {
+      const firstName = patient.firstName?.toLowerCase() ?? "";
+      const lastName = patient.lastName?.toLowerCase() ?? "";
+      return firstName.includes(searchLower) || lastName.includes(searchLower);
+    });
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("patients"),
+      city: v.optional(v.string()),
+      createdAt: v.int64(),
+      dateOfBirth: v.optional(v.string()),
+      firstName: v.optional(v.string()),
+      lastModified: v.int64(),
+      lastName: v.optional(v.string()),
+      patientId: v.number(),
+      practiceId: v.id("practices"),
+      sourceGdtFileName: v.optional(v.string()),
+      street: v.optional(v.string()),
+    }),
+  ),
+});
