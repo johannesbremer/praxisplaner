@@ -27,11 +27,24 @@ export interface Appointment {
   title: string;
 }
 
+/**
+ * Data required to create an appointment.
+ * Used when patient selection is deferred (e.g., when creating via grid click without a patient selected).
+ */
 export interface NewCalendarProps {
   locationSlug?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
+    | undefined;
+
+  /**
+   * Called when an appointment creation is attempted without a patient selected.
+   * The component should show a patient selection modal and then call
+   * `runCreateAppointment` with the pending data plus the selected patient.
+   */
+  onPatientRequired?:
+    | ((pendingData: PendingAppointmentData) => void)
     | undefined;
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
@@ -44,6 +57,16 @@ export interface NewCalendarProps {
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
+}
+
+export interface PendingAppointmentData {
+  appointmentTypeId: Id<"appointmentTypes">;
+  end: string;
+  isSimulation: boolean;
+  locationId: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerId?: Id<"practitioners">;
+  start: string;
 }
 
 export const SLOT_DURATION = 5; // minutes

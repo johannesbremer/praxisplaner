@@ -225,6 +225,7 @@ export const getAppointments = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
+      temporaryPatientId: v.optional(v.id("temporaryPatients")),
       title: v.string(),
     }),
   ),
@@ -282,6 +283,7 @@ export const getAppointmentsInRange = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
+      temporaryPatientId: v.optional(v.id("temporaryPatients")),
       title: v.string(),
     }),
   ),
@@ -299,15 +301,61 @@ export const createAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
+    temporaryPatientId: v.optional(v.id("temporaryPatients")),
   },
   handler: async (ctx, args) => {
     const now = BigInt(Date.now());
-    const { isSimulation, replacesAppointmentId, ...rest } = args;
+    const {
+      isSimulation,
+      patientId,
+      replacesAppointmentId,
+      temporaryPatientId,
+      ...rest
+    } = args;
 
     if (replacesAppointmentId && isSimulation !== true) {
       throw new Error(
         "Only simulated appointments can replace existing appointments.",
       );
+    }
+
+    // For non-simulation appointments, validate that exactly one of patientId or temporaryPatientId is provided
+    if (!isSimulation) {
+      if (!patientId && !temporaryPatientId) {
+        throw new Error(
+          "Either patientId or temporaryPatientId must be provided.",
+        );
+      }
+      if (patientId && temporaryPatientId) {
+        throw new Error(
+          "Cannot provide both patientId and temporaryPatientId. Choose one.",
+        );
+      }
+    }
+
+    // If both are provided (even for simulations), reject
+    if (patientId && temporaryPatientId) {
+      throw new Error(
+        "Cannot provide both patientId and temporaryPatientId. Choose one.",
+      );
+    }
+
+    // If a temporaryPatientId is provided, verify it exists
+    if (temporaryPatientId) {
+      const temporaryPatient = await ctx.db.get(temporaryPatientId);
+      if (!temporaryPatient) {
+        throw new Error(
+          `Temporary patient with ID ${temporaryPatientId} not found`,
+        );
+      }
+    }
+
+    // If a patientId is provided, verify it exists
+    if (patientId) {
+      const patient = await ctx.db.get(patientId);
+      if (!patient) {
+        throw new Error(`Patient with ID ${patientId} not found`);
+      }
     }
 
     // Look up the appointment type to get its name at booking time
@@ -324,6 +372,8 @@ export const createAppointment = mutation({
       isSimulation: isSimulation ?? false,
       lastModified: now,
       title: appointmentType.name, // Store appointment type name at booking time
+      ...(patientId && { patientId }),
+      ...(temporaryPatientId && { temporaryPatientId }),
       ...(replacesAppointmentId !== undefined && {
         replacesAppointmentId,
       }),
@@ -344,6 +394,7 @@ export const updateAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.optional(v.string()),
+    temporaryPatientId: v.optional(v.id("temporaryPatients")),
   },
   handler: async (ctx, args) => {
     const { id, ...updateData } = args;

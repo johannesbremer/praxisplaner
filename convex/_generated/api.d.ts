@@ -19,6 +19,7 @@ import type * as practices from "../practices.js";
 import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
+import type * as temporaryPatients from "../temporaryPatients.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   ruleEngine: typeof ruleEngine;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
+  temporaryPatients: typeof temporaryPatients;
   validators: typeof validators;
 }>;
 

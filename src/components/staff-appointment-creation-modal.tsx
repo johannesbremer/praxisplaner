@@ -3,8 +3,8 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
-import { CalendarIcon } from "lucide-react";
-import { useState } from "react";
+import { CalendarIcon, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -21,13 +21,20 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/convex/_generated/api";
 
+import type { PatientInfo } from "../types";
+
 import { captureErrorGlobal } from "../utils/error-tracking";
+import {
+  TemporaryPatientCreationModal,
+  type TemporaryPatientSelection,
+} from "./patient-selection-modal";
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
   locationId: Id<"locations">;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
   open: boolean;
+  patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
   runCreateAppointment?: (args: {
@@ -40,6 +47,7 @@ interface StaffAppointmentCreationModalProps {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
+    temporaryPatientId?: Id<"temporaryPatients">;
   }) => Promise<Id<"appointments"> | undefined>;
 }
 
@@ -48,21 +56,29 @@ export function StaffAppointmentCreationModal({
   locationId,
   onOpenChange,
   open,
+  patient,
   practiceId,
   ruleSetId,
   runCreateAppointment: runCreateAppointmentProp,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
+  const [showPatientSelectionModal, setShowPatientSelectionModal] =
+    useState(false);
+  const [selectedPatient, setSelectedPatient] =
+    useState<null | TemporaryPatientSelection>(null);
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
   );
 
   // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation
-  const runCreateAppointment =
-    runCreateAppointmentProp ??
-    ((args: Parameters<typeof createAppointmentMutation>[0]) =>
-      createAppointmentMutation(args));
+  const runCreateAppointment = useMemo(
+    () =>
+      runCreateAppointmentProp ??
+      ((args: Parameters<typeof createAppointmentMutation>[0]) =>
+        createAppointmentMutation(args)),
+    [createAppointmentMutation, runCreateAppointmentProp],
+  );
 
   // Get appointment type name for display - only query when modal is open
   const appointmentTypes = useQuery(
@@ -100,41 +116,85 @@ export function StaffAppointmentCreationModal({
     (slot) => slot.status === "AVAILABLE",
   );
 
+  // Determine if we have a patient (from GDT or manual selection)
+  const hasPatientFromGdt = patient?.convexPatientId !== undefined;
+  const hasSelectedPatient = selectedPatient !== null;
+  const hasAnyPatient = hasPatientFromGdt || hasSelectedPatient;
+
+  // Get display name for patient
+  const getPatientDisplayName = (): string => {
+    if (hasPatientFromGdt) {
+      if (patient.firstName && patient.lastName) {
+        return `${patient.firstName} ${patient.lastName}`;
+      }
+      return `Patient ${patient.patientId ?? ""}`;
+    }
+    if (selectedPatient) {
+      return "Temporärer Patient";
+    }
+    return "Kein Patient";
+  };
+
+  // Helper function to create appointment with a patient selection
+  const createAppointmentWithPatient = async (
+    patientSelection?: TemporaryPatientSelection,
+  ) => {
+    if (!nextAvailableSlot) {
+      return;
+    }
+
+    try {
+      // Parse as ZonedDateTime since scheduling query now returns that format
+      const startZoned = Temporal.ZonedDateTime.from(
+        nextAvailableSlot.startTime,
+      );
+      const endZoned = startZoned.add({
+        minutes: nextAvailableSlot.duration,
+      });
+
+      // Determine patient IDs based on source (GDT patient or selected patient)
+      const patientId = hasPatientFromGdt ? patient.convexPatientId : undefined;
+
+      const temporaryPatientId = patientSelection?.temporaryPatientId;
+
+      await runCreateAppointment({
+        appointmentTypeId,
+        end: endZoned.toString(),
+        locationId,
+        ...(patientId && { patientId }),
+        practiceId,
+        practitionerId: nextAvailableSlot.practitionerId,
+        start: startZoned.toString(),
+        ...(temporaryPatientId && { temporaryPatientId }),
+      });
+
+      toast.success("Termin erfolgreich erstellt");
+
+      // Reset and close after successful creation
+      onOpenChange(false, true);
+      setMode(null);
+      setSelectedPatient(null);
+      form.reset();
+    } catch (error) {
+      captureErrorGlobal(error, {
+        context: "StaffAppointmentCreationModal - createAppointmentWithPatient",
+      });
+      toast.error("Fehler beim Erstellen des Termins");
+    }
+  };
+
   const form = useForm({
     defaultValues: {},
     onSubmit: async () => {
-      try {
-        if (mode === "next" && nextAvailableSlot) {
-          // Create appointment at next available slot
-          // Parse as ZonedDateTime since scheduling query now returns that format
-          const startZoned = Temporal.ZonedDateTime.from(
-            nextAvailableSlot.startTime,
-          );
-          const endZoned = startZoned.add({
-            minutes: nextAvailableSlot.duration,
-          });
-
-          await runCreateAppointment({
-            appointmentTypeId,
-            end: endZoned.toString(),
-            locationId,
-            practiceId,
-            practitionerId: nextAvailableSlot.practitionerId,
-            start: startZoned.toString(),
-          });
-
-          toast.success("Termin erfolgreich erstellt");
+      if (mode === "next" && nextAvailableSlot) {
+        // Check if we have any patient - if not, show selection modal
+        if (!hasAnyPatient) {
+          setShowPatientSelectionModal(true);
+          return;
         }
 
-        // Reset appointment type after successful creation
-        onOpenChange(false, true);
-        setMode(null);
-        form.reset();
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "StaffAppointmentCreationModal - onSubmit",
-        });
-        toast.error("Fehler beim Erstellen des Termins");
+        // Create appointment with the selected patient
+        await createAppointmentWithPatient(selectedPatient ?? undefined);
       }
     },
   });
@@ -142,6 +202,7 @@ export function StaffAppointmentCreationModal({
   const handleClose = (shouldResetAppointmentType = true) => {
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
+    setSelectedPatient(null);
     form.reset();
   };
 
@@ -153,129 +214,227 @@ export function StaffAppointmentCreationModal({
     }
   };
 
+  const handlePatientSelection = (selection: TemporaryPatientSelection) => {
+    setSelectedPatient(selection);
+    setShowPatientSelectionModal(false);
+    // After patient selection, create the appointment directly with the selection
+    // We can't rely on state being updated, so pass the selection directly
+    void createAppointmentWithPatient(selection);
+  };
+
+  // Auto-create appointment when a patient is selected externally (via GDT) while modal is open
+  useEffect(() => {
+    const createAppointmentWithExternalPatient = async () => {
+      if (
+        !showPatientSelectionModal ||
+        !nextAvailableSlot ||
+        !patient?.convexPatientId
+      ) {
+        return;
+      }
+
+      try {
+        const startZoned = Temporal.ZonedDateTime.from(
+          nextAvailableSlot.startTime,
+        );
+        const endZoned = startZoned.add({
+          minutes: nextAvailableSlot.duration,
+        });
+
+        await runCreateAppointment({
+          appointmentTypeId,
+          end: endZoned.toString(),
+          locationId,
+          patientId: patient.convexPatientId,
+          practiceId,
+          practitionerId: nextAvailableSlot.practitionerId,
+          start: startZoned.toString(),
+        });
+
+        toast.success("Termin erfolgreich erstellt");
+        setShowPatientSelectionModal(false);
+        onOpenChange(false, true);
+        setMode(null);
+        setSelectedPatient(null);
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context:
+            "StaffAppointmentCreationModal - createAppointmentWithExternalPatient",
+        });
+        toast.error("Fehler beim Erstellen des Termins");
+      }
+    };
+
+    void createAppointmentWithExternalPatient();
+  }, [
+    appointmentTypeId,
+    locationId,
+    nextAvailableSlot,
+    onOpenChange,
+    patient?.convexPatientId,
+    practiceId,
+    runCreateAppointment,
+    showPatientSelectionModal,
+  ]);
+
   return (
-    <Dialog onOpenChange={handleDialogOpenChange} open={open}>
-      <DialogContent>
-        {mode === "next" ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void form.handleSubmit();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Nächster verfügbarer Termin</DialogTitle>
-              <DialogDescription>
-                {nextAvailableSlot && (
-                  <>
-                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
-                      .toPlainDate()
-                      .toLocaleString("de-DE", {
-                        day: "2-digit",
-                        month: "long",
-                        weekday: "long",
-                        year: "numeric",
-                      })}{" "}
-                    um{" "}
-                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
-                      .toPlainTime()
-                      .toLocaleString("de-DE", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                    Uhr
-                  </>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="grid gap-4 py-4">
-              {/* Form fields can be added here if needed in the future */}
-            </div>
-
-            <DialogFooter>
-              <Button
-                onClick={() => {
-                  setMode(null);
-                }}
-                type="button"
-                variant="outline"
-              >
-                Zurück
-              </Button>
-              <Button disabled={!form.state.canSubmit} type="submit">
-                Termin erstellen
-              </Button>
-            </DialogFooter>
-          </form>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>
-                {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
-              </DialogTitle>
-              <VisuallyHidden>
+    <>
+      <Dialog onOpenChange={handleDialogOpenChange} open={open}>
+        <DialogContent>
+          {mode === "next" ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void form.handleSubmit();
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>Nächster verfügbarer Termin</DialogTitle>
                 <DialogDescription>
-                  Wählen Sie eine Option, um einen Termin zu erstellen.
+                  {nextAvailableSlot && (
+                    <>
+                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                        .toPlainDate()
+                        .toLocaleString("de-DE", {
+                          day: "2-digit",
+                          month: "long",
+                          weekday: "long",
+                          year: "numeric",
+                        })}{" "}
+                      um{" "}
+                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                        .toPlainTime()
+                        .toLocaleString("de-DE", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                      Uhr
+                    </>
+                  )}
                 </DialogDescription>
-              </VisuallyHidden>
-            </DialogHeader>
+              </DialogHeader>
 
-            <div className="grid gap-4 py-4">
-              <Button
-                className="w-full justify-start"
-                disabled={!nextAvailableSlot}
-                onClick={() => {
-                  setMode("next");
-                }}
-                variant="outline"
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {nextAvailableSlot ? (
-                  <>
-                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
-                      .toPlainTime()
-                      .toLocaleString("de-DE", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                    Uhr am{" "}
-                    {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
-                      .toPlainDate()
-                      .toLocaleString("de-DE")}
-                  </>
-                ) : (
-                  "Nächster verfügbarer Termin"
-                )}
-              </Button>
+              <div className="grid gap-4 py-4">
+                {/* Patient info display */}
+                <div className="flex items-center gap-2 rounded-md border p-3">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">
+                    {hasAnyPatient ? (
+                      getPatientDisplayName()
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Kein Patient ausgewählt
+                      </span>
+                    )}
+                  </span>
+                  {!hasPatientFromGdt && (
+                    <Button
+                      className="ml-auto h-7 px-2 text-xs"
+                      onClick={() => {
+                        setShowPatientSelectionModal(true);
+                      }}
+                      type="button"
+                      variant="outline"
+                    >
+                      {hasSelectedPatient ? "Ändern" : "Auswählen"}
+                    </Button>
+                  )}
+                </div>
+              </div>
 
-              <Button
-                className="w-full justify-start"
-                disabled={availableSlots === undefined}
-                onClick={() => {
-                  // Close modal but keep appointment type selected for manual placement
-                  handleClose(false);
-                }}
-                variant="outline"
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                Anderer Termin
-              </Button>
-            </div>
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    setMode(null);
+                    setSelectedPatient(null);
+                  }}
+                  type="button"
+                  variant="outline"
+                >
+                  Zurück
+                </Button>
+                <Button disabled={!form.state.canSubmit} type="submit">
+                  Termin erstellen
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
+                </DialogTitle>
+                <VisuallyHidden>
+                  <DialogDescription>
+                    Wählen Sie eine Option, um einen Termin zu erstellen.
+                  </DialogDescription>
+                </VisuallyHidden>
+              </DialogHeader>
 
-            <DialogFooter>
-              <Button
-                onClick={() => {
-                  handleClose();
-                }}
-                variant="outline"
-              >
-                Abbrechen
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+              <div className="grid gap-4 py-4">
+                <Button
+                  className="w-full justify-start"
+                  disabled={!nextAvailableSlot}
+                  onClick={() => {
+                    setMode("next");
+                  }}
+                  variant="outline"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {nextAvailableSlot ? (
+                    <>
+                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                        .toPlainTime()
+                        .toLocaleString("de-DE", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                      Uhr am{" "}
+                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                        .toPlainDate()
+                        .toLocaleString("de-DE")}
+                    </>
+                  ) : (
+                    "Nächster verfügbarer Termin"
+                  )}
+                </Button>
+
+                <Button
+                  className="w-full justify-start"
+                  disabled={availableSlots === undefined}
+                  onClick={() => {
+                    // Close modal but keep appointment type selected for manual placement
+                    handleClose(false);
+                  }}
+                  variant="outline"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  Anderer Termin
+                </Button>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    handleClose();
+                  }}
+                  variant="outline"
+                >
+                  Abbrechen
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Temporary patient creation modal */}
+      <TemporaryPatientCreationModal
+        onOpenChange={setShowPatientSelectionModal}
+        onSelect={handlePatientSelection}
+        open={showPatientSelectionModal}
+        practiceId={practiceId}
+      />
+    </>
   );
 }

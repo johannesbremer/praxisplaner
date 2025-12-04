@@ -12,7 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
-import type { NewCalendarProps } from "./calendar/types";
+import type {
+  NewCalendarProps,
+  PendingAppointmentData,
+} from "./calendar/types";
 
 import {
   getPublicHolidayName,
@@ -37,6 +40,10 @@ import { BlockedSlotWarningDialog } from "./calendar/blocked-slot-warning-dialog
 import { CalendarGrid } from "./calendar/calendar-grid";
 import { SLOT_DURATION } from "./calendar/types";
 import { useCalendarLogic } from "./calendar/use-calendar-logic";
+import {
+  TemporaryPatientCreationModal,
+  type TemporaryPatientSelection,
+} from "./patient-selection-modal";
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
@@ -77,6 +84,12 @@ export function NewCalendar({
     slotData: Doc<"blockedSlots">;
     slotIsSimulation: boolean;
   }>(null);
+
+  // State for patient selection modal (shown when creating appointment without patient)
+  const [patientSelectionModalOpen, setPatientSelectionModalOpen] =
+    useState(false);
+  const [pendingAppointmentData, setPendingAppointmentData] =
+    useState<null | PendingAppointmentData>(null);
 
   const {
     addAppointment,
@@ -123,6 +136,10 @@ export function NewCalendar({
     locationSlug,
     onDateChange,
     onLocationResolved,
+    onPatientRequired: useCallback((data: PendingAppointmentData) => {
+      setPendingAppointmentData(data);
+      setPatientSelectionModalOpen(true);
+    }, []),
     onUpdateSimulatedContext,
     patient,
     practiceId: propPracticeId,
@@ -133,6 +150,62 @@ export function NewCalendar({
     simulatedContext,
     simulationDate,
   } as NewCalendarProps);
+
+  // Handle patient selection from modal
+  const handlePatientSelection = useCallback(
+    async (selection: TemporaryPatientSelection) => {
+      if (!pendingAppointmentData) {
+        return;
+      }
+
+      try {
+        await runCreateAppointment({
+          ...pendingAppointmentData,
+          temporaryPatientId: selection.temporaryPatientId,
+        });
+
+        toast.success("Termin erfolgreich erstellt");
+        setPatientSelectionModalOpen(false);
+        setPendingAppointmentData(null);
+      } catch {
+        toast.error("Fehler beim Erstellen des Termins");
+      }
+    },
+    [pendingAppointmentData, runCreateAppointment],
+  );
+
+  // Auto-create appointment when a patient is selected externally (via GDT) while modal is open
+  useEffect(() => {
+    const createAppointmentWithExternalPatient = async () => {
+      if (
+        !patientSelectionModalOpen ||
+        !pendingAppointmentData ||
+        !patient?.convexPatientId
+      ) {
+        return;
+      }
+
+      try {
+        await runCreateAppointment({
+          ...pendingAppointmentData,
+          patientId: patient.convexPatientId,
+        });
+
+        toast.success("Termin erfolgreich erstellt");
+        setPatientSelectionModalOpen(false);
+        setPendingAppointmentData(null);
+      } catch {
+        toast.error("Fehler beim Erstellen des Termins");
+      }
+    };
+
+    void createAppointmentWithExternalPatient();
+  }, [
+    patient?.convexPatientId,
+    patientSelectionModalOpen,
+    pendingAppointmentData,
+    runCreateAppointment,
+  ]);
 
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);
@@ -449,6 +522,22 @@ export function NewCalendar({
             runUpdateBlockedSlot={runUpdateBlockedSlot}
             slotData={blockedSlotEditData.slotData}
             slotIsSimulation={blockedSlotEditData.slotIsSimulation}
+          />
+        )}
+        {/* Temporary patient creation modal - shown when creating appointment without patient */}
+        {practiceId && pendingAppointmentData && (
+          <TemporaryPatientCreationModal
+            onOpenChange={(open) => {
+              setPatientSelectionModalOpen(open);
+              if (!open) {
+                setPendingAppointmentData(null);
+              }
+            }}
+            onSelect={(selection) => {
+              void handlePatientSelection(selection);
+            }}
+            open={patientSelectionModalOpen}
+            practiceId={practiceId}
           />
         )}
       </RightSidebarProvider>
