@@ -1,6 +1,6 @@
 // src/types.ts
 
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 
 // Use getSlotsForDay as the base query type since getAvailableSlots was removed
 export interface SchedulingDateRange {
@@ -17,17 +17,30 @@ export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
 type ConvexApi = typeof import("../convex/_generated/api").api;
 type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
 
+/**
+ * Patient information for calendar and sidebar components.
+ * Derives fields from the Convex patients table for e2e type safety,
+ * plus additional UI-specific fields.
+ * All fields are optional to support partial patient info in the UI.
+ */
+export interface PatientInfo
+  extends Partial<
+    Pick<
+      Doc<"patients">,
+      "city" | "dateOfBirth" | "firstName" | "lastName" | "patientId" | "street"
+    >
+  > {
+  /** Convex database ID for linking appointments */
+  convexPatientId?: Id<"patients">;
+  /** Whether this patient was just created (from GDT import) */
+  isNewPatient?: boolean;
+}
+
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";
 
 // Extended permission status for application use
 export type PermissionStatus = "error" | BrowserPermissionState | null;
-
-// Patient tab data for UI
-export interface PatientTabData {
-  patientId: Doc<"patients">["patientId"];
-  title: string;
-}
 
 // --- File System Access API Types ---
 

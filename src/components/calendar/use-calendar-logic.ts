@@ -1,5 +1,3 @@
-import type { Infer } from "convex/values";
-
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -9,7 +7,6 @@ import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
-import { simulatedContextValidator } from "../../../convex/validators";
 import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -20,11 +17,26 @@ import {
   safeParseISOToZoned,
   temporalDayToLegacy,
 } from "../../utils/time-calculations";
-import { useAppointmentDialog } from "../appointment-dialog";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
+
+/**
+ * Handler for editing blocked slots.
+ * Returns false if we just finished resizing (to prevent opening edit dialog),
+ * otherwise returns true to indicate the edit should proceed.
+ */
+function handleEditBlockedSlot(
+  blockedSlotId: string,
+  justFinishedResizingRef: React.RefObject<null | string>,
+): boolean {
+  // Prevent opening edit dialog if we just finished resizing this blocked slot
+  if (justFinishedResizingRef.current === blockedSlotId) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Deep comparison of appointment arrays.
@@ -34,8 +46,10 @@ export function useCalendarLogic({
   onDateChange,
   onLocationResolved,
   onUpdateSimulatedContext,
+  patient,
   practiceId: propPracticeId,
   ruleSetId,
+  selectedAppointmentTypeId,
   selectedLocationId: externalSelectedLocationId,
   simulatedContext,
   simulationDate,
@@ -52,6 +66,9 @@ export function useCalendarLogic({
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<Appointment | null>(null);
+  const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
+    null | string
+  >(null);
   const [dragPreview, setDragPreview] = useState<{
     column: string;
     slot: number;
@@ -66,11 +83,26 @@ export function useCalendarLogic({
     originalDuration: number;
     startY: number;
   }>(null);
+  const [resizingBlockedSlot, setResizingBlockedSlot] = useState<null | {
+    blockedSlotId: string;
+    originalDuration: number;
+    startY: number;
+  }>(null);
   const autoScrollAnimationRef = useRef<null | number>(null);
   const hasResolvedLocationRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const justFinishedResizingRef = useRef<null | string>(null);
-  const { Dialog, openDialog: openAppointmentDialog } = useAppointmentDialog();
+
+  // Warning dialog state for blocked slots
+  const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
+    canBook: boolean;
+    column: string;
+    isManualBlock?: boolean;
+    onConfirm: () => void;
+    reason?: string;
+    slot: number;
+    slotTime: string;
+  }>(null);
 
   // Devtools instrumentation
   const [mountTime] = useState(() => Date.now());
@@ -158,17 +190,69 @@ export function useCalendarLogic({
     void initPractice();
   }, [hasInitialized, initializePracticeMutation, propPracticeId]);
 
-  const appointmentScope = simulatedContext ? "simulation" : "real";
-  const appointmentsQueryArgs = useMemo(
-    () => ({ scope: appointmentScope as "all" | "real" | "simulation" }),
-    [appointmentScope],
+  // Get active rule set for entity ID remapping
+  const activeRuleSetData = useQuery(
+    api.ruleSets.getActiveRuleSet,
+    practiceId ? { practiceId } : "skip",
   );
+
+  const appointmentScope = simulatedContext ? "simulation" : "real";
+  const appointmentsQueryArgs = useMemo(() => {
+    const args: {
+      activeRuleSetId?: Id<"ruleSets">;
+      scope: "all" | "real" | "simulation";
+      selectedRuleSetId?: Id<"ruleSets">;
+    } = {
+      scope: appointmentScope as "all" | "real" | "simulation",
+    };
+    if (activeRuleSetData?._id) {
+      args.activeRuleSetId = activeRuleSetData._id;
+    }
+    if (ruleSetId) {
+      args.selectedRuleSetId = ruleSetId;
+    }
+    return args;
+  }, [appointmentScope, activeRuleSetData?._id, ruleSetId]);
 
   // Query data
   const appointmentsData = useQuery(
     api.appointments.getAppointments,
     appointmentsQueryArgs,
   );
+
+  // Query blocked slots directly with rule set IDs for entity remapping
+  const blockedSlotsQueryArgs = useMemo(() => {
+    const args: {
+      activeRuleSetId?: Id<"ruleSets">;
+      scope: "all" | "real" | "simulation";
+      selectedRuleSetId?: Id<"ruleSets">;
+    } = {
+      scope: appointmentScope as "all" | "real" | "simulation",
+    };
+    if (activeRuleSetData?._id) {
+      args.activeRuleSetId = activeRuleSetData._id;
+    }
+    if (ruleSetId) {
+      args.selectedRuleSetId = ruleSetId;
+    }
+    return args;
+  }, [appointmentScope, activeRuleSetData?._id, ruleSetId]);
+
+  const blockedSlotsData = useQuery(
+    api.appointments.getBlockedSlots,
+    blockedSlotsQueryArgs,
+  );
+
+  const blockedSlotDocMap = useMemo(() => {
+    const map = new Map<string, Doc<"blockedSlots">>();
+    if (!blockedSlotsData) {
+      return map;
+    }
+    for (const slot of blockedSlotsData) {
+      map.set(slot._id, slot);
+    }
+    return map;
+  }, [blockedSlotsData]);
 
   // Use ruleSetId if provided (simulation mode), otherwise get from active
   const practitionersData = useQuery(
@@ -188,6 +272,76 @@ export function useCalendarLogic({
     ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
   );
 
+  // Query appointment types for duration and title lookup
+  const appointmentTypesData = useQuery(
+    ruleSetId
+      ? api.entities.getAppointmentTypes
+      : api.entities.getAppointmentTypesFromActive,
+    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+  );
+
+  // Create a map for quick appointment type lookup
+  const appointmentTypeMap = useMemo(() => {
+    const map = new Map<
+      Id<"appointmentTypes">,
+      { duration: number; name: string }
+    >();
+    if (appointmentTypesData) {
+      for (const at of appointmentTypesData) {
+        map.set(at._id, { duration: at.duration, name: at.name });
+      }
+    }
+    return map;
+  }, [appointmentTypesData]);
+
+  // Query for available/blocked slots when:
+  // 1. In simulation mode with appointment type selected, OR
+  // 2. In real mode with appointment type selected via calendar sidebar
+  const slotsResult = useQuery(
+    api.scheduling.getSlotsForDay,
+    // Simulation mode: check simulatedContext
+    simulatedContext?.appointmentTypeId &&
+      simulatedContext.locationId &&
+      practiceId &&
+      ruleSetId
+      ? {
+          date: selectedDate.toString(),
+          practiceId,
+          ruleSetId,
+          simulatedContext,
+        }
+      : // Real mode: check selectedAppointmentTypeId
+        selectedAppointmentTypeId &&
+          selectedLocationId &&
+          practiceId &&
+          ruleSetId
+        ? {
+            date: selectedDate.toString(),
+            practiceId,
+            ruleSetId,
+            simulatedContext: createSimulatedContext({
+              appointmentTypeId: selectedAppointmentTypeId,
+              locationId: selectedLocationId,
+            }),
+          }
+        : "skip",
+  );
+
+  // Query for appointment-type-independent blocked slots
+  // This runs always (even without appointment type selected) to show
+  // rules that don't depend on appointment type (e.g., DATE_RANGE, DAY_OF_WEEK)
+  const blockedSlotsWithoutAppointmentTypeResult = useQuery(
+    api.scheduling.getBlockedSlotsWithoutAppointmentType,
+    practiceId && ruleSetId
+      ? {
+          date: selectedDate.toString(),
+          practiceId,
+          ruleSetId,
+          ...(selectedLocationId && { locationId: selectedLocationId }),
+        }
+      : "skip",
+  );
+
   // Mutations
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
@@ -197,6 +351,15 @@ export function useCalendarLogic({
   );
   const deleteAppointmentMutation = useMutation(
     api.appointments.deleteAppointment,
+  );
+  const createBlockedSlotMutation = useMutation(
+    api.appointments.createBlockedSlot,
+  );
+  const deleteBlockedSlotMutation = useMutation(
+    api.appointments.deleteBlockedSlot,
+  );
+  const updateBlockedSlotMutation = useMutation(
+    api.appointments.updateBlockedSlot,
   );
 
   const runCreateAppointment = useCallback(
@@ -215,6 +378,12 @@ export function useCalendarLogic({
           const now = Date.now();
           const tempId = globalThis.crypto.randomUUID() as Id<"appointments">;
 
+          // Get appointment type name for optimistic update
+          const appointmentTypeInfo = appointmentTypeMap.get(
+            optimisticArgs.appointmentTypeId,
+          );
+          const title = appointmentTypeInfo?.name ?? "Termin";
+
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
             _id: tempId,
@@ -226,7 +395,7 @@ export function useCalendarLogic({
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
-            title: optimisticArgs.title,
+            title,
           };
 
           if (optimisticArgs.practitionerId !== undefined) {
@@ -259,7 +428,121 @@ export function useCalendarLogic({
         },
       )(args);
     },
-    [createAppointmentMutation, appointmentsQueryArgs],
+    [createAppointmentMutation, appointmentsQueryArgs, appointmentTypeMap],
+  );
+
+  const runCreateBlockedSlot = useCallback(
+    async (args: Parameters<typeof createBlockedSlotMutation>[0]) => {
+      return await createBlockedSlotMutation.withOptimisticUpdate(
+        (localStore, optimisticArgs) => {
+          const existingBlockedSlots = localStore.getQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+          );
+
+          if (!existingBlockedSlots) {
+            return;
+          }
+
+          const now = Date.now();
+          const tempId = globalThis.crypto.randomUUID() as Id<"blockedSlots">;
+
+          const newBlockedSlot: Doc<"blockedSlots"> = {
+            _creationTime: now,
+            _id: tempId,
+            createdAt: BigInt(now),
+            end: optimisticArgs.end,
+            isSimulation: optimisticArgs.isSimulation ?? false,
+            lastModified: BigInt(now),
+            locationId: optimisticArgs.locationId,
+            practiceId: optimisticArgs.practiceId,
+            start: optimisticArgs.start,
+            title: optimisticArgs.title,
+          };
+
+          if (optimisticArgs.practitionerId !== undefined) {
+            newBlockedSlot.practitionerId = optimisticArgs.practitionerId;
+          }
+
+          if (optimisticArgs.replacesBlockedSlotId !== undefined) {
+            newBlockedSlot.replacesBlockedSlotId =
+              optimisticArgs.replacesBlockedSlotId;
+          }
+
+          const baseList =
+            optimisticArgs.replacesBlockedSlotId === undefined
+              ? existingBlockedSlots
+              : existingBlockedSlots.filter(
+                  (slot) => slot._id !== optimisticArgs.replacesBlockedSlotId,
+                );
+
+          localStore.setQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+            [...baseList, newBlockedSlot],
+          );
+        },
+      )(args);
+    },
+    [createBlockedSlotMutation, blockedSlotsQueryArgs],
+  );
+
+  const runUpdateBlockedSlot = useCallback(
+    async (args: Parameters<typeof updateBlockedSlotMutation>[0]) => {
+      return await updateBlockedSlotMutation.withOptimisticUpdate(
+        (localStore, optimisticArgs) => {
+          const existingBlockedSlots = localStore.getQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+          );
+
+          if (!existingBlockedSlots) {
+            return;
+          }
+
+          const now = Date.now();
+
+          const updatedBlockedSlots = existingBlockedSlots.map((slot) => {
+            if (slot._id !== optimisticArgs.id) {
+              return slot;
+            }
+
+            return {
+              ...slot,
+              ...(optimisticArgs.title !== undefined && {
+                title: optimisticArgs.title,
+              }),
+              ...(optimisticArgs.start !== undefined && {
+                start: optimisticArgs.start,
+              }),
+              ...(optimisticArgs.end !== undefined && {
+                end: optimisticArgs.end,
+              }),
+              ...(optimisticArgs.locationId !== undefined && {
+                locationId: optimisticArgs.locationId,
+              }),
+              ...(optimisticArgs.practitionerId !== undefined && {
+                practitionerId: optimisticArgs.practitionerId,
+              }),
+              ...(optimisticArgs.replacesBlockedSlotId !== undefined && {
+                replacesBlockedSlotId: optimisticArgs.replacesBlockedSlotId,
+              }),
+              ...(optimisticArgs.isSimulation !== undefined && {
+                isSimulation: optimisticArgs.isSimulation,
+              }),
+              lastModified: BigInt(now),
+            };
+          });
+
+          localStore.setQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+            updatedBlockedSlots,
+          );
+        },
+      )(args);
+    },
+    [updateBlockedSlotMutation, blockedSlotsQueryArgs],
   );
 
   // Resolve location slug from URL
@@ -492,6 +775,25 @@ export function useCalendarLogic({
     selectedLocationId,
   ]);
 
+  // Collect patient IDs from appointments for batch query
+  const appointmentPatientIds = useMemo(() => {
+    const ids = new Set<Id<"patients">>();
+    for (const appointment of locationFilteredAppointments) {
+      if (appointment.patientId) {
+        ids.add(appointment.patientId);
+      }
+    }
+    return [...ids];
+  }, [locationFilteredAppointments]);
+
+  // Query patient data for appointments
+  const patientData = useQuery(
+    api.patients.getPatientsByIds,
+    appointmentPatientIds.length > 0
+      ? { patientIds: appointmentPatientIds }
+      : "skip",
+  );
+
   // Map to Appointment type
   const combinedDerivedAppointments = useMemo(() => {
     return locationFilteredAppointments
@@ -510,6 +812,21 @@ export function useCalendarLogic({
           startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
         );
 
+        // Title is stored directly on the appointment (snapshot at booking time)
+        const title = appointment.title;
+
+        // Get patient name if available
+        let patientName: string | undefined;
+        if (appointment.patientId && patientData) {
+          const patientInfo = patientData[appointment.patientId];
+          if (patientInfo) {
+            const parts = [patientInfo.lastName, patientInfo.firstName].filter(
+              Boolean,
+            );
+            patientName = parts.join(", ");
+          }
+        }
+
         return {
           color:
             APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
@@ -519,6 +836,7 @@ export function useCalendarLogic({
           duration,
           id: appointment._id,
           isSimulation: appointment.isSimulation === true,
+          ...(patientName && { patientName }),
           replacesAppointmentId: appointment.replacesAppointmentId ?? null,
           resource: {
             appointmentTypeId: appointment.appointmentTypeId,
@@ -528,11 +846,11 @@ export function useCalendarLogic({
             practitionerId: appointment.practitionerId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
-          title: appointment.title,
+          title,
         };
       })
       .filter((apt): apt is Appointment => apt !== null);
-  }, [locationFilteredAppointments]);
+  }, [locationFilteredAppointments, patientData]);
 
   // Derive appointments directly from combinedDerivedAppointments
   // Convex handles optimistic updates, so we don't need manual state management
@@ -638,6 +956,258 @@ export function useCalendarLogic({
     },
     [businessStartHour],
   );
+
+  // Map blocked slots from query to calendar grid positions
+  const blockedSlots = useMemo(() => {
+    if (workingPractitioners.length === 0) {
+      return [];
+    }
+
+    const blocked: {
+      blockedByRuleId?: Id<"ruleConditions">;
+      column: string;
+      id?: string; // ID of the manual blocked slot, if applicable
+      isManual?: boolean; // True if blocked by a manual block (not a rule)
+      reason?: string;
+      slot: number;
+    }[] = [];
+
+    // Add blocked slots from main query (appointment-type-dependent rules)
+    if (slotsResult?.slots) {
+      for (const slotData of slotsResult.slots) {
+        if (slotData.status === "BLOCKED" && slotData.practitionerId) {
+          // Find if this practitioner has a column
+          const practitionerColumn = workingPractitioners.find(
+            (p) => p.id === slotData.practitionerId,
+          );
+
+          if (practitionerColumn) {
+            // Parse ZonedDateTime string from scheduling query
+            const startTime = Temporal.ZonedDateTime.from(
+              slotData.startTime,
+            ).toPlainTime();
+            const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
+
+            // Check if this is a manual block (has blockedByBlockedSlotId)
+            const isManualBlock = !!slotData.blockedByBlockedSlotId;
+
+            blocked.push({
+              column: practitionerColumn.id,
+              slot,
+              ...(slotData.reason && { reason: slotData.reason }),
+              ...(slotData.blockedByRuleId && {
+                blockedByRuleId: slotData.blockedByRuleId,
+              }),
+              ...(isManualBlock && {
+                id: slotData.blockedByBlockedSlotId,
+                isManual: true,
+              }),
+            });
+          }
+        }
+      }
+    }
+
+    // Add blocked slots from appointment-type-independent rules query
+    if (blockedSlotsWithoutAppointmentTypeResult?.slots) {
+      for (const slotData of blockedSlotsWithoutAppointmentTypeResult.slots) {
+        // Find if this practitioner has a column
+        const practitionerColumn = workingPractitioners.find(
+          (p) => p.id === slotData.practitionerId,
+        );
+
+        if (practitionerColumn) {
+          // Parse ZonedDateTime string from scheduling query
+          const startTime = Temporal.ZonedDateTime.from(
+            slotData.startTime,
+          ).toPlainTime();
+          const slot = timeToSlot(startTime.toString().slice(0, 5)); // "HH:MM" format
+
+          // Check if this slot is already blocked by the main query
+          // to avoid duplicates
+          const alreadyBlocked = blocked.some(
+            (b) => b.column === practitionerColumn.id && b.slot === slot,
+          );
+
+          if (!alreadyBlocked) {
+            // Check if this is a manual block (has blockedByBlockedSlotId)
+            const isManualBlock = !!slotData.blockedByBlockedSlotId;
+
+            blocked.push({
+              column: practitionerColumn.id,
+              slot,
+              ...(slotData.reason && { reason: slotData.reason }),
+              ...(slotData.blockedByRuleId && {
+                blockedByRuleId: slotData.blockedByRuleId,
+              }),
+              ...(isManualBlock && {
+                id: slotData.blockedByBlockedSlotId,
+                isManual: true,
+              }),
+            });
+          }
+        }
+      }
+    }
+
+    return blocked;
+  }, [
+    slotsResult,
+    blockedSlotsWithoutAppointmentTypeResult,
+    workingPractitioners,
+    timeToSlot,
+  ]);
+
+  // Map break times from base schedules and merge them into blocked slots
+  const breakSlots = useMemo(() => {
+    if (!baseSchedulesData || workingPractitioners.length === 0) {
+      return [];
+    }
+
+    const breaks: {
+      column: string;
+      reason?: string;
+      slot: number;
+    }[] = [];
+
+    for (const schedule of baseSchedulesData) {
+      if (!schedule.breakTimes || schedule.breakTimes.length === 0) {
+        continue;
+      }
+
+      // Find if this practitioner has a column
+      const practitionerColumn = workingPractitioners.find(
+        (p) => p.id === schedule.practitionerId,
+      );
+
+      if (!practitionerColumn) {
+        continue;
+      }
+
+      for (const breakTime of schedule.breakTimes) {
+        const startSlot = timeToSlot(breakTime.start);
+        const endSlot = timeToSlot(breakTime.end);
+
+        // Add each individual slot from the break as a blocked slot
+        for (let slot = startSlot; slot < endSlot; slot++) {
+          breaks.push({
+            column: practitionerColumn.id,
+            reason: "Pause",
+            slot,
+          });
+        }
+      }
+    }
+
+    return breaks;
+  }, [baseSchedulesData, workingPractitioners, timeToSlot]);
+
+  // Map manually created blocked slots from database
+  const manualBlockedSlots = useMemo(() => {
+    if (!blockedSlotsData || workingPractitioners.length === 0) {
+      return [];
+    }
+
+    const manual: {
+      column: string;
+      duration?: number;
+      id?: string;
+      isManual?: boolean;
+      reason?: string;
+      slot: number;
+      startSlot?: number;
+      title?: string;
+    }[] = [];
+
+    // Filter blocked slots by selected date
+    const dateFilteredBlocks = blockedSlotsData.filter((blockedSlot) => {
+      const slotDate = Temporal.ZonedDateTime.from(
+        blockedSlot.start,
+      ).toPlainDate();
+      return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
+    });
+
+    for (const blockedSlot of dateFilteredBlocks) {
+      // Find if this practitioner has a column
+      const practitionerColumn = blockedSlot.practitionerId
+        ? workingPractitioners.find((p) => p.id === blockedSlot.practitionerId)
+        : undefined;
+
+      // DEV: Log when a blocked slot doesn't match any practitioner column
+      if (
+        import.meta.env.DEV &&
+        !practitionerColumn &&
+        blockedSlot.practitionerId
+      ) {
+        console.warn(
+          "[ManualBlockedSlots] Block practitioner not in columns:",
+          {
+            blockId: blockedSlot._id,
+            blockPractitionerId: blockedSlot.practitionerId,
+            blockTitle: blockedSlot.title,
+            workingPractitionerIds: workingPractitioners.map((p) => p.id),
+          },
+        );
+      }
+
+      if (practitionerColumn) {
+        const startTime = Temporal.ZonedDateTime.from(
+          blockedSlot.start,
+        ).toPlainTime();
+        const endTime = Temporal.ZonedDateTime.from(
+          blockedSlot.end,
+        ).toPlainTime();
+
+        const startSlot = timeToSlot(startTime.toString().slice(0, 5));
+        const endSlot = timeToSlot(endTime.toString().slice(0, 5));
+
+        // Calculate duration in minutes
+        const durationMinutes =
+          Temporal.PlainTime.compare(endTime, startTime) >= 0
+            ? endTime.since(startTime).total("minutes")
+            : 0;
+
+        // Add each individual slot from the blocked time range
+        // All slots from the same blocked slot share the same id so they can be grouped
+        for (let slot = startSlot; slot < endSlot; slot++) {
+          manual.push({
+            column: practitionerColumn.id,
+            duration: durationMinutes,
+            id: blockedSlot._id,
+            isManual: true,
+            reason: blockedSlot.title,
+            slot,
+            startSlot,
+            title: blockedSlot.title,
+          });
+        }
+      }
+    }
+
+    return manual;
+  }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
+
+  // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
+  const allBlockedSlots = useMemo(() => {
+    const combined = [...blockedSlots, ...breakSlots, ...manualBlockedSlots];
+
+    // Deduplicate by column and slot, prioritizing manual blocked slots
+    const uniqueSlots = new Map<string, (typeof combined)[0]>();
+    for (const slot of combined) {
+      const key = `${slot.column}-${slot.slot}`;
+      const existing = uniqueSlots.get(key);
+
+      const existingIsManual =
+        existing && "isManual" in existing ? existing.isManual === true : false;
+      const slotIsManual = "isManual" in slot ? slot.isManual === true : false;
+
+      if (!existing || (!existingIsManual && slotIsManual)) {
+        uniqueSlots.set(key, slot);
+      }
+    }
+
+    return [...uniqueSlots.values()];
+  }, [blockedSlots, breakSlots, manualBlockedSlots]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {
@@ -770,12 +1340,16 @@ export function useCalendarLogic({
     [appointments, timeToSlot, totalSlots],
   );
 
-  // Use Convex-inferred type for simulatedContext
-  type ValidatedSimulatedContext = Infer<typeof simulatedContextValidator>;
-
   interface SimulationConversionOptions {
     columnOverride?: string;
     durationMinutes?: number;
+    endISO?: string;
+    locationId?: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+    startISO?: string;
+  }
+
+  interface BlockedSlotConversionOptions {
     endISO?: string;
     locationId?: Id<"locations">;
     practitionerId?: Id<"practitioners">;
@@ -811,28 +1385,6 @@ export function useCalendarLogic({
       appointment: Appointment,
       options: SimulationConversionOptions = {},
     ): Promise<Appointment | null> => {
-      /**
-       * Type guard for validating simulatedContext structure.
-       * Ensures the context matches the expected structure from Convex validators.
-       * @param context The context to validate
-       * @returns true if context matches ValidatedSimulatedContext structure
-       */
-      const isValidSimulatedContext = (
-        context: unknown,
-      ): context is ValidatedSimulatedContext => {
-        if (!context || typeof context !== "object") {
-          return false;
-        }
-        const ctx = context as Record<string, unknown>;
-        return (
-          typeof ctx["appointmentType"] === "string" &&
-          typeof ctx["patient"] === "object" &&
-          ctx["patient"] !== null &&
-          typeof (ctx["patient"] as Record<string, unknown>)["isNew"] ===
-            "boolean"
-        );
-      };
-
       // Early validation checks with specific error messages
       if (appointment.isSimulation) {
         return appointment;
@@ -843,8 +1395,10 @@ export function useCalendarLogic({
         return null;
       }
 
-      if (!isValidSimulatedContext(simulatedContext)) {
-        // No simulated context - return original appointment
+      if (!simulatedContext) {
+        toast.error(
+          "Simulation ist nicht aktiv. Termin kann nicht kopiert werden.",
+        );
         return appointment;
       }
 
@@ -925,8 +1479,6 @@ export function useCalendarLogic({
         return null;
       }
 
-      const title = options.title ?? appointment.title;
-
       if (!practiceId) {
         toast.error("Praxis-ID fehlt");
         return null;
@@ -948,7 +1500,6 @@ export function useCalendarLogic({
           practiceId,
           replacesAppointmentId: appointment.convexId,
           start: startISO,
-          title,
         };
 
         // Add optional fields only if they exist
@@ -987,7 +1538,6 @@ export function useCalendarLogic({
               practitionerId ?? appointment.resource.practitionerId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
-          title,
         };
 
         // Convex optimistic updates will handle the UI update
@@ -1000,10 +1550,10 @@ export function useCalendarLogic({
           appointmentId: appointment.convexId,
           context: "NewCalendar - Failed to create simulated replacement",
           errorMessage,
+          hasSimulatedContext: Boolean(simulatedContext),
           locationId,
           options,
           practitionerId,
-          simulatedContextValid: isValidSimulatedContext(simulatedContext),
         });
 
         toast.error(
@@ -1019,6 +1569,63 @@ export function useCalendarLogic({
       selectedLocationId,
       practiceId,
     ],
+  );
+
+  const convertRealBlockedSlotToSimulation = useCallback(
+    async (
+      blockedSlotId: string,
+      options: BlockedSlotConversionOptions = {},
+    ): Promise<Id<"blockedSlots"> | null> => {
+      if (!simulatedContext) {
+        return null;
+      }
+
+      const original = blockedSlotDocMap.get(blockedSlotId);
+      if (!original) {
+        toast.error("Gesperrter Zeitraum wurde nicht gefunden.");
+        return null;
+      }
+
+      if (original.isSimulation) {
+        return original._id;
+      }
+
+      const locationId = options.locationId ?? original.locationId;
+      if (!locationId) {
+        toast.error("Standort für den gesperrten Zeitraum fehlt.");
+        return null;
+      }
+
+      const practitionerId = options.practitionerId ?? original.practitionerId;
+      const startISO = options.startISO ?? original.start;
+      const endISO = options.endISO ?? original.end;
+      const title = options.title || original.title || "Gesperrter Zeitraum";
+
+      try {
+        const newId = await runCreateBlockedSlot({
+          end: endISO,
+          isSimulation: true,
+          locationId,
+          practiceId: original.practiceId,
+          replacesBlockedSlotId: original._id,
+          start: startISO,
+          title,
+          ...(practitionerId ? { practitionerId } : {}),
+        });
+
+        return newId;
+      } catch (error) {
+        captureErrorGlobal(error, {
+          blockedSlotId,
+          context: "NewCalendar - Failed to convert blocked slot",
+        });
+        toast.error(
+          "Simulierter gesperrter Zeitraum konnte nicht erstellt werden.",
+        );
+        return null;
+      }
+    },
+    [blockedSlotDocMap, runCreateBlockedSlot, simulatedContext],
   );
 
   // Drag and drop handlers
@@ -1059,6 +1666,39 @@ export function useCalendarLogic({
       });
 
       handleAutoScroll(e);
+    } else if (draggedBlockedSlotId) {
+      // Handle blocked slot dragging
+      const blockedSlot = manualBlockedSlots.find(
+        (bs) => bs.id === draggedBlockedSlotId,
+      );
+      if (blockedSlot) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const targetSlot = Math.max(
+          0,
+          Math.min(totalSlots - 1, Math.floor(y / 16)),
+        );
+
+        const availableSlot = findNearestAvailableSlot(
+          column,
+          targetSlot,
+          blockedSlot.duration ?? 30,
+          draggedBlockedSlotId,
+        );
+
+        setDragPreview((prev) => {
+          if (
+            prev.visible &&
+            prev.column === column &&
+            prev.slot === availableSlot
+          ) {
+            return prev;
+          }
+          return { column, slot: availableSlot, visible: true };
+        });
+
+        handleAutoScroll(e);
+      }
     }
   };
 
@@ -1128,6 +1768,89 @@ export function useCalendarLogic({
     if (autoScrollAnimationRef.current) {
       cancelAnimationFrame(autoScrollAnimationRef.current);
       autoScrollAnimationRef.current = null;
+    }
+
+    if (draggedBlockedSlotId) {
+      // Handle blocked slot drop
+      const blockedSlot = manualBlockedSlots.find(
+        (bs) => bs.id === draggedBlockedSlotId,
+      );
+      if (!blockedSlot) {
+        return;
+      }
+
+      const blockedSlotDoc =
+        blockedSlot.id === undefined
+          ? undefined
+          : blockedSlotDocMap.get(blockedSlot.id);
+
+      const finalSlot = dragPreview.slot;
+      const newTime = slotToTime(finalSlot);
+
+      try {
+        const plainTime = Temporal.PlainTime.from(newTime);
+        const startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+
+        const endZoned = startZoned.add({
+          minutes: blockedSlot.duration ?? 30,
+        });
+
+        const newPractitionerId =
+          column !== "ekg" && column !== "labor"
+            ? (column as Id<"practitioners">)
+            : undefined;
+
+        if (simulatedContext) {
+          if (!blockedSlot.id || !blockedSlotDoc) {
+            toast.error(
+              "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
+            );
+          } else if (blockedSlotDoc.isSimulation) {
+            await updateBlockedSlotMutation({
+              end: endZoned.toString(),
+              id: blockedSlotDoc._id,
+              ...(newPractitionerId && { practitionerId: newPractitionerId }),
+              start: startZoned.toString(),
+            });
+          } else {
+            await convertRealBlockedSlotToSimulation(blockedSlot.id, {
+              endISO: endZoned.toString(),
+              locationId: blockedSlotDoc.locationId,
+              startISO: startZoned.toString(),
+              title:
+                blockedSlotDoc.title ||
+                blockedSlot.title ||
+                "Gesperrter Zeitraum",
+              ...(newPractitionerId || blockedSlotDoc.practitionerId
+                ? {
+                    practitionerId:
+                      newPractitionerId || blockedSlotDoc.practitionerId,
+                  }
+                : {}),
+            });
+          }
+        } else if (blockedSlot.id) {
+          await updateBlockedSlotMutation({
+            end: endZoned.toString(),
+            id: blockedSlot.id as Id<"blockedSlots">,
+            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            start: startZoned.toString(),
+          });
+        }
+      } catch (error) {
+        captureErrorGlobal(error, {
+          blockedSlotId: draggedBlockedSlotId,
+          context: "Failed to update blocked slot position",
+        });
+        toast.error("Gesperrter Zeitraum konnte nicht verschoben werden");
+      } finally {
+        setDraggedBlockedSlotId(null);
+        setDragPreview({ column: "", slot: 0, visible: false });
+      }
+      return;
     }
 
     if (!draggedAppointment) {
@@ -1290,30 +2013,55 @@ export function useCalendarLogic({
   };
 
   const addAppointment = (column: string, slot: number) => {
-    const defaultDuration = 30;
+    // Check if this slot is blocked (including breaks and rules)
+    const blockedSlotData = allBlockedSlots.find(
+      (blocked) => blocked.column === column && blocked.slot === slot,
+    );
+
+    if (blockedSlotData) {
+      // Show blocked slot warning dialog
+      const slotTime = slotToTime(slot);
+      // Check if this is a manual block (from blockedSlots memo, has isManual flag)
+      const isManualBlock =
+        "isManual" in blockedSlotData && blockedSlotData.isManual === true;
+      // Only allow booking if an appointment type is selected
+      const canBook = selectedAppointmentTypeId !== undefined;
+      setBlockedSlotWarning({
+        canBook,
+        column,
+        isManualBlock,
+        onConfirm: () => {
+          // User confirmed, proceed with appointment creation despite block
+          createAppointmentInSlot(column, slot);
+        },
+        reason:
+          blockedSlotData.reason ||
+          "Dieser Zeitfenster ist blockiert. Möchten Sie trotzdem einen Termin erstellen?",
+        slot,
+        slotTime,
+      });
+      return;
+    }
+
+    // No blocked slot, proceed normally
+    createAppointmentInSlot(column, slot);
+  };
+
+  const createAppointmentInSlot = (column: string, slot: number) => {
+    // Get the appointment type ID to determine duration
+    const appointmentTypeId = simulatedContext
+      ? simulatedContext.appointmentTypeId
+      : selectedAppointmentTypeId;
+
+    // Get duration from appointment type, fallback to 30 if not found
+    const appointmentTypeDuration = appointmentTypeId
+      ? (appointmentTypeMap.get(appointmentTypeId)?.duration ?? 30)
+      : 30;
+
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-    const duration = Math.min(defaultDuration, maxAvailableDuration);
+    const duration = Math.min(appointmentTypeDuration, maxAvailableDuration);
 
     if (duration >= SLOT_DURATION) {
-      const startTime = slotToTime(slot);
-
-      let startZoned: Temporal.ZonedDateTime;
-      let endZoned: Temporal.ZonedDateTime;
-      try {
-        const plainTime = Temporal.PlainTime.from(startTime);
-        startZoned = selectedDate.toZonedDateTime({
-          plainTime,
-          timeZone: TIMEZONE,
-        });
-        endZoned = startZoned.add({ minutes: duration });
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse time in addAppointment",
-          startTime,
-        });
-        return;
-      }
-
       if (simulatedContext) {
         if (!simulatedContext.locationId) {
           alert("Bitte wählen Sie zuerst einen Standort aus.");
@@ -1325,151 +2073,96 @@ export function useCalendarLogic({
           return;
         }
 
-        openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Simulationstermin für ${formatTime(startZoned.toPlainTime())}.`,
-          onSubmit: async (title) => {
-            let practitionerId: Id<"practitioners"> | undefined;
+        // Create simulation appointment
+        const practitioner = workingPractitioners.find((p) => p.id === column);
+        if (!practiceId) {
+          toast.error("Praxis nicht gefunden");
+          return;
+        }
 
-            if (column !== "ekg" && column !== "labor") {
-              practitionerId = column as Id<"practitioners">;
-            } else {
-              const practitioner = workingPractitioners[0];
-              practitionerId = practitioner?.id;
-            }
+        // Handle special columns (non-practitioner resources)
+        if (!practitioner && column !== "ekg" && column !== "labor") {
+          toast.error("Ungültige Ressource");
+          return;
+        }
 
-            if (practitionerId && simulatedContext.locationId && practiceId) {
-              try {
-                // At this point we know appointmentTypeId exists due to the guard above
-                const appointmentTypeId =
-                  simulatedContext.appointmentTypeId as Id<"appointmentTypes">;
+        // Calculate start and end times
+        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+        const hours = Math.floor(minutesFromStart / 60);
+        const minutes = minutesFromStart % 60;
+        const plainTime = new Temporal.PlainTime(hours, minutes);
 
-                await createAppointmentMutation.withOptimisticUpdate(
-                  (localStore, args) => {
-                    const existingAppointments = localStore.getQuery(
-                      api.appointments.getAppointments,
-                      appointmentsQueryArgs,
-                    );
-                    if (existingAppointments) {
-                      const now = Date.now();
-                      const tempId =
-                        globalThis.crypto.randomUUID() as Id<"appointments">;
-                      const newAppointment: Doc<"appointments"> = {
-                        _creationTime: now,
-                        _id: tempId,
-                        appointmentTypeId: args.appointmentTypeId,
-                        createdAt: BigInt(now),
-                        end: args.end,
-                        isSimulation: true,
-                        lastModified: BigInt(now),
-                        locationId: args.locationId,
-                        practiceId: args.practiceId,
-                        start: args.start,
-                        title: args.title,
-                        ...(args.practitionerId !== undefined && {
-                          practitionerId: args.practitionerId,
-                        }),
-                        ...(args.patientId !== undefined && {
-                          patientId: args.patientId,
-                        }),
-                      };
-                      localStore.setQuery(
-                        api.appointments.getAppointments,
-                        appointmentsQueryArgs,
-                        [...existingAppointments, newAppointment],
-                      );
-                    }
-                  },
-                )({
-                  appointmentTypeId,
-                  end: endZoned.toString(),
-                  isSimulation: true,
-                  locationId: simulatedContext.locationId,
-                  practiceId,
-                  practitionerId,
-                  start: startZoned.toString(),
-                  title,
-                });
-                toast.success("Simulationstermin erstellt");
-              } catch (error) {
-                captureErrorGlobal(error, {
-                  context:
-                    "NewCalendar - Failed to create simulation appointment",
-                  title,
-                });
-                toast.error("Simulationstermin konnte nicht erstellt werden");
-              }
-            }
-          },
-          title: "Neuer Simulationstermin",
-          type: "create",
+        const startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        const endZoned = startZoned.add({ minutes: duration });
+
+        const startISO = startZoned.toString();
+        const endISO = endZoned.toString();
+
+        void runCreateAppointment({
+          appointmentTypeId: simulatedContext.appointmentTypeId,
+          end: endISO,
+          isSimulation: true,
+          locationId: simulatedContext.locationId,
+          ...(patient?.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
+          practiceId,
+          ...(practitioner && { practitionerId: practitioner.id }),
+          start: startISO,
         });
       } else {
-        openAppointmentDialog({
-          description: `Erstellen Sie einen neuen Termin für ${formatTime(startZoned.toPlainTime())}.`,
-          onSubmit: async (title) => {
-            let practitionerId: Id<"practitioners"> | undefined;
+        // Create real appointment - require appointment type to be selected
+        if (!selectedAppointmentTypeId) {
+          toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
+          return;
+        }
 
-            if (column !== "ekg" && column !== "labor") {
-              practitionerId = column as Id<"practitioners">;
-            } else {
-              const practitioner = workingPractitioners[0];
-              practitionerId = practitioner?.id;
-            }
+        if (!selectedLocationId) {
+          toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+          return;
+        }
 
-            try {
-              const targetLocationId =
-                (
-                  simulatedContext as
-                    | undefined
-                    | {
-                        appointmentTypeId?: Id<"appointmentTypes">;
-                        locationId?: Id<"locations">;
-                      }
-                )?.locationId ?? selectedLocationId;
+        const practitioner = workingPractitioners.find((p) => p.id === column);
+        if (!practiceId) {
+          toast.error("Praxis nicht gefunden");
+          return;
+        }
 
-              if (!targetLocationId) {
-                toast.error("Bitte wählen Sie zuerst einen Standort aus.");
-                return;
-              }
-              if (!practiceId) {
-                toast.error("Praxis-ID fehlt");
-                return;
-              }
+        // Handle special columns (non-practitioner resources)
+        if (!practitioner && column !== "ekg" && column !== "labor") {
+          toast.error("Ungültige Ressource");
+          return;
+        }
 
-              const appointmentTypeId = (
-                simulatedContext as
-                  | undefined
-                  | {
-                      appointmentTypeId?: Id<"appointmentTypes">;
-                      locationId?: Id<"locations">;
-                    }
-              )?.appointmentTypeId;
-              if (!appointmentTypeId) {
-                toast.error("Bitte wählen Sie zuerst eine Terminart aus.");
-                return;
-              }
+        // Calculate start and end times
+        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+        const hours = Math.floor(minutesFromStart / 60);
+        const minutes = minutesFromStart % 60;
+        const plainTime = new Temporal.PlainTime(hours, minutes);
 
-              await runCreateAppointment({
-                appointmentTypeId,
-                end: endZoned.toString(),
-                isSimulation: false,
-                locationId: targetLocationId,
-                practiceId,
-                start: startZoned.toString(),
-                title,
-                ...(practitionerId && { practitionerId }),
-              });
-              toast.success("Termin erstellt");
-            } catch (error) {
-              captureErrorGlobal(error, {
-                context: "NewCalendar - Failed to create appointment",
-                title,
-              });
-              toast.error("Termin konnte nicht erstellt werden");
-            }
-          },
-          title: "Neuer Termin",
-          type: "create",
+        const startZoned = selectedDate.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        const endZoned = startZoned.add({ minutes: duration });
+
+        const startISO = startZoned.toString();
+        const endISO = endZoned.toString();
+
+        void runCreateAppointment({
+          appointmentTypeId: selectedAppointmentTypeId,
+          end: endISO,
+          isSimulation: false,
+          locationId: selectedLocationId,
+          ...(patient?.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
+          practiceId,
+          ...(practitioner && { practitionerId: practitioner.id }),
+          start: startISO,
         });
       }
     }
@@ -1481,97 +2174,8 @@ export function useCalendarLogic({
       return;
     }
 
-    const openEditDialog = (target: Appointment) => {
-      openAppointmentDialog({
-        defaultTitle: target.title,
-        description: `Bearbeiten Sie den Termin "${target.title}".`,
-        onSubmit: async (newTitle) => {
-          if (newTitle === target.title) {
-            return;
-          }
-
-          const convexId = target.convexId;
-          if (convexId === undefined) {
-            return;
-          }
-
-          try {
-            await updateAppointmentMutation.withOptimisticUpdate(
-              (localStore, args) => {
-                const existingAppointments = localStore.getQuery(
-                  api.appointments.getAppointments,
-                  appointmentsQueryArgs,
-                );
-                if (existingAppointments) {
-                  const updatedAppointments = existingAppointments.map((apt) =>
-                    apt._id === args.id && args.title
-                      ? { ...apt, title: args.title }
-                      : apt,
-                  );
-                  localStore.setQuery(
-                    api.appointments.getAppointments,
-                    appointmentsQueryArgs,
-                    updatedAppointments,
-                  );
-                }
-              },
-            )({
-              id: convexId,
-              title: newTitle,
-            });
-            toast.success("Termin aktualisiert");
-          } catch (error) {
-            captureErrorGlobal(error, {
-              appointmentId: convexId,
-              context: "NewCalendar - Failed to update appointment title",
-            });
-            toast.error("Termin konnte nicht aktualisiert werden");
-          }
-        },
-        title: "Termin bearbeiten",
-        type: "edit",
-      });
-    };
-
-    if (simulatedContext && !appointment.isSimulation) {
-      if (appointment.convexId === undefined) {
-        openEditDialog(appointment);
-        return;
-      }
-
-      void (async () => {
-        try {
-          const plainTime = Temporal.PlainTime.from(appointment.startTime);
-          const startZoned = selectedDate.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-          const endZoned = startZoned.add({ minutes: appointment.duration });
-
-          const converted = await convertRealAppointmentToSimulation(
-            appointment,
-            {
-              endISO: endZoned.toString(),
-              startISO: startZoned.toString(),
-              title: appointment.title,
-            },
-          );
-
-          if (converted) {
-            openEditDialog(converted);
-          }
-        } catch (error) {
-          captureErrorGlobal(error, {
-            context: "Failed to parse time in edit appointment",
-            startTime: appointment.startTime,
-          });
-          toast.error("Startzeit konnte nicht ermittelt werden");
-        }
-      })();
-      return;
-    }
-
-    openEditDialog(appointment);
+    // Editing appointments is now done via the new appointment flow dialog
+    toast.info("Bearbeiten von Terminen ist über den neuen Dialog möglich.");
   };
 
   const handleDeleteAppointment = (appointment: Appointment) => {
@@ -1599,6 +2203,76 @@ export function useCalendarLogic({
     }
   };
 
+  // Blocked slot handlers
+  const handleBlockedSlotDragStart = (
+    e: React.DragEvent,
+    blockedSlotId: string,
+  ) => {
+    setDraggedBlockedSlotId(blockedSlotId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setDragImage(new Image(), 0, 0);
+  };
+
+  const handleBlockedSlotDragEnd = () => {
+    setDraggedBlockedSlotId(null);
+    setDragPreview({ column: "", slot: 0, visible: false });
+  };
+
+  const handleDeleteBlockedSlot = (blockedSlotId: string) => {
+    if (confirm("Gesperrten Zeitraum löschen?")) {
+      void deleteBlockedSlotMutation({
+        id: blockedSlotId as Id<"blockedSlots">,
+      });
+    }
+  };
+
+  const handleBlockedSlotResizeStart = (
+    e: React.MouseEvent,
+    blockedSlotId: string,
+    currentDuration: number,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startResizing = (id: string) => {
+      setResizingBlockedSlot({
+        blockedSlotId: id,
+        originalDuration: currentDuration,
+        startY: e.clientY,
+      });
+    };
+
+    if (simulatedContext) {
+      const blockedSlotDoc = blockedSlotDocMap.get(blockedSlotId);
+      if (blockedSlotDoc && !blockedSlotDoc.isSimulation) {
+        void (async () => {
+          const convertedId = await convertRealBlockedSlotToSimulation(
+            blockedSlotId,
+            {
+              endISO: blockedSlotDoc.end,
+              locationId: blockedSlotDoc.locationId,
+              ...(blockedSlotDoc.practitionerId
+                ? { practitionerId: blockedSlotDoc.practitionerId }
+                : {}),
+              startISO: blockedSlotDoc.start,
+              title:
+                blockedSlotDoc.title ||
+                manualBlockedSlots.find((slot) => slot.id === blockedSlotId)
+                  ?.title ||
+                "Gesperrter Zeitraum",
+            },
+          );
+          if (convertedId) {
+            startResizing(convertedId);
+          }
+        })();
+        return;
+      }
+    }
+
+    startResizing(blockedSlotId);
+  };
+
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1614,101 +2288,156 @@ export function useCalendarLogic({
     let mounted = true;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!resizing || !mounted) {
+      if (!mounted) {
         return;
       }
 
-      const deltaY = e.clientY - resizing.startY;
-      const deltaSlots = Math.round(deltaY / 16);
-      const newDuration = Math.max(
-        SLOT_DURATION,
-        resizing.originalDuration + deltaSlots * SLOT_DURATION,
-      );
+      // Handle appointment resizing
+      if (resizing) {
+        const deltaY = e.clientY - resizing.startY;
+        const deltaSlots = Math.round(deltaY / 16);
+        const newDuration = Math.max(
+          SLOT_DURATION,
+          resizing.originalDuration + deltaSlots * SLOT_DURATION,
+        );
 
-      const appointment = appointments.find(
-        (apt) => apt.id === resizing.appointmentId,
-      );
-      if (appointment) {
-        const startSlot = timeToSlot(appointment.startTime);
-        if (
-          !checkCollision(
-            appointment.column,
-            startSlot,
-            newDuration,
-            appointment.id,
-          )
-        ) {
-          // Convex optimistic updates will handle the UI update
-          const convexId = appointment.convexId;
-          if (convexId !== undefined) {
-            if (simulatedContext && !appointment.isSimulation) {
-              return;
-            }
-
-            let startZoned: Temporal.ZonedDateTime;
-            let endZoned: Temporal.ZonedDateTime;
-            try {
-              const plainTime = Temporal.PlainTime.from(appointment.startTime);
-              startZoned = selectedDate.toZonedDateTime({
-                plainTime,
-                timeZone: TIMEZONE,
-              });
-              endZoned = startZoned.add({ minutes: newDuration });
-            } catch (error) {
-              captureErrorGlobal(error, {
-                context: "Failed to parse time in resize",
-                startTime: appointment.startTime,
-              });
-              return;
-            }
-
-            void (async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-              if (!mounted) {
+        const appointment = appointments.find(
+          (apt) => apt.id === resizing.appointmentId,
+        );
+        if (appointment) {
+          const startSlot = timeToSlot(appointment.startTime);
+          if (
+            !checkCollision(
+              appointment.column,
+              startSlot,
+              newDuration,
+              appointment.id,
+            )
+          ) {
+            // Convex optimistic updates will handle the UI update
+            const convexId = appointment.convexId;
+            if (convexId !== undefined) {
+              if (simulatedContext && !appointment.isSimulation) {
                 return;
               }
 
+              let startZoned: Temporal.ZonedDateTime;
+              let endZoned: Temporal.ZonedDateTime;
               try {
-                await updateAppointmentMutation.withOptimisticUpdate(
-                  (localStore, args) => {
-                    const existingAppointments = localStore.getQuery(
-                      api.appointments.getAppointments,
-                      appointmentsQueryArgs,
-                    );
-                    if (existingAppointments) {
-                      const updatedAppointments = existingAppointments.map(
-                        (apt) =>
-                          apt._id === args.id && args.end
-                            ? { ...apt, end: args.end }
-                            : apt,
-                      );
-                      localStore.setQuery(
-                        api.appointments.getAppointments,
-                        appointmentsQueryArgs,
-                        updatedAppointments,
-                      );
-                    }
-                  },
-                )({
-                  end: endZoned.toString(),
-                  id: convexId,
+                const plainTime = Temporal.PlainTime.from(
+                  appointment.startTime,
+                );
+                startZoned = selectedDate.toZonedDateTime({
+                  plainTime,
+                  timeZone: TIMEZONE,
                 });
+                endZoned = startZoned.add({ minutes: newDuration });
               } catch (error) {
+                captureErrorGlobal(error, {
+                  context: "Failed to parse time in resize",
+                  startTime: appointment.startTime,
+                });
+                return;
+              }
+
+              void (async () => {
                 // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
                 if (!mounted) {
                   return;
                 }
 
-                captureErrorGlobal(error, {
-                  appointmentId: convexId,
-                  context:
-                    "NewCalendar - Failed to update appointment duration",
-                });
-                toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-                // Convex will revert the optimistic update on error
-              }
-            })();
+                try {
+                  await updateAppointmentMutation.withOptimisticUpdate(
+                    (localStore, args) => {
+                      const existingAppointments = localStore.getQuery(
+                        api.appointments.getAppointments,
+                        appointmentsQueryArgs,
+                      );
+                      if (existingAppointments) {
+                        const updatedAppointments = existingAppointments.map(
+                          (apt) =>
+                            apt._id === args.id && args.end
+                              ? { ...apt, end: args.end }
+                              : apt,
+                        );
+                        localStore.setQuery(
+                          api.appointments.getAppointments,
+                          appointmentsQueryArgs,
+                          updatedAppointments,
+                        );
+                      }
+                    },
+                  )({
+                    end: endZoned.toString(),
+                    id: convexId,
+                  });
+                } catch (error) {
+                  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+                  if (!mounted) {
+                    return;
+                  }
+
+                  captureErrorGlobal(error, {
+                    appointmentId: convexId,
+                    context:
+                      "NewCalendar - Failed to update appointment duration",
+                  });
+                  toast.error("Termin-Dauer konnte nicht aktualisiert werden");
+                  // Convex will revert the optimistic update on error
+                }
+              })();
+            }
           }
+        }
+      }
+
+      // Handle blocked slot resizing
+      if (resizingBlockedSlot) {
+        const deltaY = e.clientY - resizingBlockedSlot.startY;
+        const deltaSlots = Math.round(deltaY / 16);
+        const newDuration = Math.max(
+          SLOT_DURATION,
+          resizingBlockedSlot.originalDuration + deltaSlots * SLOT_DURATION,
+        );
+
+        const blockedSlot = manualBlockedSlots.find(
+          (bs) => bs.id === resizingBlockedSlot.blockedSlotId,
+        );
+        if (
+          blockedSlot?.startSlot !== undefined &&
+          !checkCollision(
+            blockedSlot.column,
+            blockedSlot.startSlot,
+            newDuration,
+            resizingBlockedSlot.blockedSlotId,
+          )
+        ) {
+          const startSlot = blockedSlot.startSlot;
+          void (async () => {
+            try {
+              const startTime = slotToTime(startSlot);
+              const plainTime = Temporal.PlainTime.from(startTime);
+              const startZoned = selectedDate.toZonedDateTime({
+                plainTime,
+                timeZone: TIMEZONE,
+              });
+              const endZoned = startZoned.add({ minutes: newDuration });
+
+              await updateBlockedSlotMutation({
+                end: endZoned.toString(),
+                id: resizingBlockedSlot.blockedSlotId as Id<"blockedSlots">,
+                ...(simulatedContext && { isSimulation: true }),
+              });
+            } catch (error) {
+              captureErrorGlobal(error, {
+                blockedSlotId: resizingBlockedSlot.blockedSlotId,
+                context: "Failed to update blocked slot duration",
+              });
+              toast.error(
+                "Dauer des gesperrten Zeitraums konnte nicht aktualisiert werden",
+              );
+            }
+          })();
         }
       }
     };
@@ -1722,10 +2451,18 @@ export function useCalendarLogic({
           justFinishedResizingRef.current = null;
         }, 100);
       }
+      if (resizingBlockedSlot) {
+        // Mark this blocked slot as just resized to prevent immediate edit dialog
+        justFinishedResizingRef.current = resizingBlockedSlot.blockedSlotId;
+        setTimeout(() => {
+          justFinishedResizingRef.current = null;
+        }, 100);
+      }
       setResizing(null);
+      setResizingBlockedSlot(null);
     };
 
-    if (resizing) {
+    if (resizing || resizingBlockedSlot) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     }
@@ -1737,11 +2474,15 @@ export function useCalendarLogic({
     };
   }, [
     resizing,
+    resizingBlockedSlot,
     appointments,
+    manualBlockedSlots,
     timeToSlot,
+    slotToTime,
     checkCollision,
     appointmentsQueryArgs,
     updateAppointmentMutation,
+    updateBlockedSlotMutation,
     selectedDate,
     simulatedContext,
   ]);
@@ -1775,28 +2516,42 @@ export function useCalendarLogic({
   return {
     addAppointment,
     appointments,
+    blockedSlots: allBlockedSlots,
+    blockedSlotsData,
+    blockedSlotWarning,
     businessEndHour,
     businessStartHour,
     calendarRef,
     columns,
     currentTime,
     currentTimeSlot: getCurrentTimeSlot(),
-    Dialog,
     draggedAppointment,
+    draggedBlockedSlotId,
     dragPreview,
+    handleBlockedSlotDragEnd,
+    handleBlockedSlotDragStart,
+    handleBlockedSlotResizeStart,
     handleDateChange,
     handleDeleteAppointment,
+    handleDeleteBlockedSlot,
     handleDragEnd,
     handleDragOver,
     handleDragStart,
     handleDrop,
     handleEditAppointment,
+    handleEditBlockedSlot: (blockedSlotId: string) => {
+      return handleEditBlockedSlot(blockedSlotId, justFinishedResizingRef);
+    },
     handleLocationSelect,
     handleResizeStart,
     locationsData,
     practiceId,
+    runCreateAppointment,
+    runCreateBlockedSlot,
+    runUpdateBlockedSlot,
     selectedDate,
     selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+    setBlockedSlotWarning,
     slotToTime,
     timeToSlot,
     totalSlots,

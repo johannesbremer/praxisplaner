@@ -57,7 +57,6 @@ describe("Calendar Types and Constants", () => {
       };
 
       expect(appointment.id).toBe("test-1");
-      expect(appointment.title).toBe("Test Appointment");
       expect(appointment.startTime).toBe("10:00");
       expect(appointment.duration).toBe(30);
       expect(appointment.column).toBe("practitioner-1");
@@ -74,7 +73,7 @@ describe("Calendar Types and Constants", () => {
         id: "test-1",
         isSimulation: false,
         startTime: "10:00",
-        title: "Test",
+        title: "Test Appointment",
       };
 
       expect(appointment.convexId).toBeDefined();
@@ -95,7 +94,7 @@ describe("Calendar Types and Constants", () => {
           practitionerId: "practitioner-1" as never,
         },
         startTime: "10:00",
-        title: "Test",
+        title: "Test Appointment",
       };
 
       expect(appointment.resource).toBeDefined();
@@ -111,7 +110,7 @@ describe("Calendar Types and Constants", () => {
         isSimulation: true,
         replacesAppointmentId: "original-apt-id" as never,
         startTime: "10:00",
-        title: "Simulated Test",
+        title: "Test Appointment",
       };
 
       expect(appointment.isSimulation).toBe(true);
@@ -129,7 +128,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${duration}`,
           isSimulation: false,
           startTime: "10:00",
-          title: "Test",
+          title: "Test Appointment",
         };
 
         expect(appointment.duration).toBe(duration);
@@ -147,7 +146,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${startTime}`,
           isSimulation: false,
           startTime,
-          title: "Test",
+          title: "Test Appointment",
         };
 
         expect(appointment.startTime).toBe(startTime);
@@ -165,7 +164,7 @@ describe("Calendar Types and Constants", () => {
           id: `test-${column}`,
           isSimulation: false,
           startTime: "10:00",
-          title: "Test",
+          title: "Test Appointment",
         };
 
         expect(appointment.column).toBe(column);

@@ -4,7 +4,7 @@ import { useConvexMutation } from "@convex-dev/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import { Calendar as CalendarIcon, Settings, User, X } from "lucide-react";
+import { Calendar as CalendarIcon, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
@@ -23,18 +23,17 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { PatientInfo } from "../types";
 import type {
   BrowserPermissionState,
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
-  PatientTabData,
   PermissionStatus,
 } from "../types";
 
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
-import { PatientTab } from "../components/patient-tab";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import {
   isDOMException,
@@ -52,7 +51,6 @@ import { slugify } from "../utils/slug";
 
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
-const PATIENT_TAB_PREFIX = "patient-";
 
 const parseYmd = (ymd?: string): Temporal.PlainDate | undefined => {
   if (!ymd || !DATE_REGEX.test(ymd)) {
@@ -104,9 +102,6 @@ const buildSearchFromState = (
   return result;
 };
 
-const getPatientTabId = (patientId: Doc<"patients">["patientId"]) =>
-  `${PATIENT_TAB_PREFIX}${patientId}`;
-
 export const Route = createFileRoute("/praxisplaner")({
   component: PraxisPlanerComponent,
   validateSearch: normalizePraxisplanerSearch,
@@ -135,6 +130,12 @@ function PraxisPlanerComponent() {
   // Query practices to get practiceId for patient mutations
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const currentPractice = practicesQuery?.[0];
+
+  // Query active rule set for the practice
+  const activeRuleSet = useQuery(
+    api.ruleSets.getActiveRuleSet,
+    currentPractice ? { practiceId: currentPractice._id } : "skip",
+  );
 
   // Query locations to map standortParam to locationId
   const locationsData = useQuery(
@@ -172,7 +173,11 @@ function PraxisPlanerComponent() {
   const [activeTab, setActiveTab] = useState<string>(() =>
     tabFromSearch(tabParam),
   );
-  const [patientTabs, setPatientTabs] = useState<PatientTabData[]>([]);
+
+  // Current patient from GDT
+  const [currentPatient, setCurrentPatient] = useState<null | PatientInfo>(
+    null,
+  );
 
   // Check if GDT connection has issues for showing alert
   const hasGdtConnectionIssue =
@@ -198,51 +203,13 @@ function PraxisPlanerComponent() {
     ]);
   }, []);
 
-  // Tab management functions
-  const openPatientTab = useCallback(
-    (patientId: Doc<"patients">["patientId"], patientName?: string) => {
-      const tabId = getPatientTabId(patientId);
-      const title = patientName || `Patient ${patientId}`;
-
-      // Check if tab already exists
-      const existingTab = patientTabs.find(
-        (tab) => tab.patientId === patientId,
-      );
-      if (existingTab) {
-        // Tab exists, just switch to it
-        setActiveTab(tabId);
-        addGdtLog(`🔄 Switched to existing tab for Patient ${patientId}.`);
-        return;
-      }
-
-      // Create new tab
-      const newTab: PatientTabData = {
-        patientId,
-        title,
-      };
-
-      setPatientTabs((prev) => [...prev, newTab]);
-      setActiveTab(tabId);
-      addGdtLog(`📋 Opened new tab for Patient ${patientId}.`);
+  // Function to update current patient from GDT data
+  const updateCurrentPatient = useCallback(
+    (patientData: PatientInfo) => {
+      setCurrentPatient(patientData);
+      addGdtLog(`📋 Patient ${patientData.patientId} loaded from GDT.`);
     },
-    [patientTabs, addGdtLog],
-  );
-
-  const closePatientTab = useCallback(
-    (patientId: Doc<"patients">["patientId"]) => {
-      const tabId = getPatientTabId(patientId);
-      setPatientTabs((prev) =>
-        prev.filter((tab) => tab.patientId !== patientId),
-      );
-
-      // If we're closing the active tab, switch to calendar
-      if (activeTab === tabId) {
-        setActiveTab(CALENDAR_TAB);
-      }
-
-      addGdtLog(`❌ Closed tab for Patient ${patientId}.`);
-    },
-    [activeTab, addGdtLog],
+    [addGdtLog],
   );
 
   useEffect(() => {
@@ -673,12 +640,29 @@ function PraxisPlanerComponent() {
               `✅ Parsed "${fileName}" - Patient ${patientId} ${result.isNewPatient ? "created" : "updated"}.`,
             );
 
-            // Open patient tab with name if available
-            const patientName =
-              patientData.firstName && patientData.lastName
-                ? `${patientData.firstName} ${patientData.lastName}`
-                : undefined;
-            openPatientTab(patientData.patientId, patientName);
+            // Update current patient in sidebar
+            const patientInfo: PatientInfo = {
+              convexPatientId: result.convexPatientId,
+              isNewPatient: result.isNewPatient,
+              patientId: patientData.patientId,
+            };
+            if (patientData.city) {
+              patientInfo.city = patientData.city;
+            }
+            if (patientData.dateOfBirth) {
+              patientInfo.dateOfBirth = patientData.dateOfBirth;
+            }
+            if (patientData.firstName) {
+              patientInfo.firstName = patientData.firstName;
+            }
+            if (patientData.lastName) {
+              patientInfo.lastName = patientData.lastName;
+            }
+            if (patientData.street) {
+              patientInfo.street = patientData.street;
+            }
+
+            updateCurrentPatient(patientInfo);
           } else {
             procerrorMsg = `File "${fileName}" missing valid patient ID.`;
             addGdtLog(`⚠️ ${procerrorMsg}`);
@@ -771,7 +755,7 @@ function PraxisPlanerComponent() {
       addGdtLog,
       verifyAndSetPermission,
       upsertPatientMutation,
-      openPatientTab,
+      updateCurrentPatient,
       captureError,
       currentPractice,
     ],
@@ -1163,30 +1147,6 @@ function PraxisPlanerComponent() {
               <Settings className="h-4 w-4" />
               Für Nerds
             </TabsTrigger>
-            {patientTabs.map((tab) => {
-              const tabId = getPatientTabId(tab.patientId);
-              return (
-                <TabsTrigger
-                  className="flex items-center gap-2 group relative"
-                  key={tabId}
-                  value={tabId}
-                >
-                  <User className="h-4 w-4" />
-                  {tab.title}
-                  <Button
-                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 ml-2"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      closePatientTab(tab.patientId);
-                    }}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </TabsTrigger>
-              );
-            })}
           </TabsList>
         </div>
 
@@ -1197,6 +1157,8 @@ function PraxisPlanerComponent() {
               <PraxisCalendar
                 onDateChange={handleDateChange}
                 onLocationResolved={handleLocationResolved}
+                patient={currentPatient ?? undefined}
+                ruleSetId={activeRuleSet?._id}
                 selectedLocationId={selectedLocation?._id}
                 showGdtAlert={hasGdtConnectionIssue}
                 simulationDate={selectedDate}
@@ -1207,19 +1169,6 @@ function PraxisPlanerComponent() {
           <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>
             {settingsContent}
           </TabsContent>
-
-          {patientTabs.map((tab) => {
-            const tabId = getPatientTabId(tab.patientId);
-            return (
-              <TabsContent
-                className="h-full overflow-auto"
-                key={tabId}
-                value={tabId}
-              >
-                <PatientTab patientId={tab.patientId} />
-              </TabsContent>
-            );
-          })}
         </div>
       </Tabs>
     </div>

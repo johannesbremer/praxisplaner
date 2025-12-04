@@ -6,25 +6,28 @@ import type {
   SchedulingSimulatedContext,
   SchedulingSlot,
 } from "../types";
+import type { PatientInfo } from "../types";
 
 import { NewCalendar } from "./new-calendar";
 
 interface PraxisCalendarProps {
   // Notify parent when the current date changes
   locationSlug?: string | undefined;
-  onDateChange?: (date: Temporal.PlainDate) => void;
-  onLocationResolved?: (
-    locationId: Id<"locations">,
-    locationName: string,
-  ) => void;
-  onSlotClick?: (slot: SchedulingSlot) => void;
-  onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
-  practiceId?: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
+  onLocationResolved?:
+    | ((locationId: Id<"locations">, locationName: string) => void)
+    | undefined;
+  onSlotClick?: ((slot: SchedulingSlot) => void) | undefined;
+  onUpdateSimulatedContext?:
+    | ((context: SchedulingSimulatedContext) => void)
+    | undefined;
+  patient?: PatientInfo | undefined;
+  practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: SchedulingRuleSetId | undefined;
   selectedLocationId?: Id<"locations"> | undefined;
-  showGdtAlert?: boolean;
-  simulatedContext?: SchedulingSimulatedContext;
-  simulationDate?: Temporal.PlainDate;
+  showGdtAlert?: boolean | undefined;
+  simulatedContext?: SchedulingSimulatedContext | undefined;
+  simulationDate?: Temporal.PlainDate | undefined;
 }
 
 export function PraxisCalendar(props: PraxisCalendarProps) {

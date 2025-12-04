@@ -6,7 +6,7 @@ export default defineSchema({
     // Core appointment fields
     end: v.string(), // ISO datetime string
     start: v.string(), // ISO datetime string
-    title: v.string(),
+    title: v.string(), // Snapshot of appointment type name at booking time
 
     // Additional fields
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
@@ -27,6 +27,7 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"]),
 
   appointmentTypes: defineTable({
@@ -70,6 +71,28 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_parentId", ["parentId"])
     .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+
+  blockedSlots: defineTable({
+    // Core blocked slot fields
+    end: v.string(), // ISO datetime string
+    start: v.string(), // ISO datetime string
+    title: v.string(), // Required title for the blocked slot
+
+    // Additional fields
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    practiceId: v.id("practices"), // Multi-tenancy support
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+
+    // Metadata
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+  })
+    .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_start", ["start"])
+    .index("by_isSimulation", ["isSimulation"])
+    .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
 
   locations: defineTable({
     name: v.string(),

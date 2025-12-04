@@ -46,6 +46,7 @@ export const practitionerUpdateValidator = v.object({
 
 // Patient upsert result
 export const patientUpsertResultValidator = v.object({
+  convexPatientId: v.id("patients"), // Convex database ID for linking appointments
   isNewPatient: v.boolean(),
   patientId: v.number(),
   success: v.boolean(),
@@ -56,11 +57,13 @@ export const availableSlotsResultValidator = v.object({
   log: v.array(v.string()),
   slots: v.array(
     v.object({
+      blockedByBlockedSlotId: v.optional(v.id("blockedSlots")), // ID of manual blocked slot that caused this
       blockedByRuleId: v.optional(v.id("ruleConditions")), // Changed from "rules" to "ruleConditions"
       duration: v.number(),
       locationId: v.optional(v.id("locations")),
       practitionerId: v.id("practitioners"),
       practitionerName: v.string(),
+      reason: v.optional(v.string()), // Natural language explanation for blocked slots
       startTime: v.string(),
       status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
     }),
