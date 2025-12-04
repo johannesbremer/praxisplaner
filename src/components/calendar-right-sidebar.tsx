@@ -62,6 +62,10 @@ export function CalendarRightSidebar({
       dispatchCustomEvent("praxisplaner:openInPvs", {
         patientId: patient.patientId,
       });
+      // Close mobile sidebar when opening patient in PVS
+      if (isMobile) {
+        setOpenMobile(false);
+      }
     }
   };
 

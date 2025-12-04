@@ -14,6 +14,7 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 import { createSimulatedContext } from "../../lib/utils";
@@ -52,6 +53,8 @@ export function CalendarSidebar() {
     simulatedContext,
   } = useCalendarContext();
 
+  const { isMobile, setOpenMobile } = useSidebar();
+
   const [showCreationModal, setShowCreationModal] = useState(false);
 
   // Stable callback to prevent re-renders
@@ -60,9 +63,13 @@ export function CalendarSidebar() {
       if (onAppointmentTypeSelect) {
         onAppointmentTypeSelect(typeId);
         setShowCreationModal(true);
+        // Close mobile sidebar when appointment type is selected
+        if (isMobile) {
+          setOpenMobile(false);
+        }
       }
     },
-    [onAppointmentTypeSelect],
+    [onAppointmentTypeSelect, isMobile, setOpenMobile],
   );
 
   // Handle deselection of appointment type
@@ -71,6 +78,20 @@ export function CalendarSidebar() {
       onAppointmentTypeSelect();
     }
   }, [onAppointmentTypeSelect]);
+
+  // Handle blocking mode change and close mobile sidebar
+  const handleBlockingModeChange = useCallback(
+    (active: boolean) => {
+      if (onBlockingModeChange) {
+        onBlockingModeChange(active);
+        // Close mobile sidebar when blocking mode is activated
+        if (active && isMobile) {
+          setOpenMobile(false);
+        }
+      }
+    },
+    [onBlockingModeChange, isMobile, setOpenMobile],
+  );
 
   // Handle modal close - optionally reset appointment type selection
   const handleModalClose = useCallback(
@@ -128,6 +149,11 @@ export function CalendarSidebar() {
         onLocationResolved(locationId, found.name);
       }
     }
+
+    // Close mobile sidebar when location is selected
+    if (isMobile) {
+      setOpenMobile(false);
+    }
   };
 
   // Convert Temporal to Date for the Calendar component
@@ -168,6 +194,10 @@ export function CalendarSidebar() {
                     onSelect={(date) => {
                       if (date) {
                         onDateChange(dateToTemporal(date));
+                        // Close mobile sidebar when date is selected
+                        if (isMobile) {
+                          setOpenMobile(false);
+                        }
                       }
                     }}
                     selected={selectedDateAsDate}
@@ -193,7 +223,7 @@ export function CalendarSidebar() {
                   <SidebarGroupContent>
                     <AppointmentTypeSelector
                       isBlockingModeActive={isBlockingModeActive}
-                      onBlockingModeChange={onBlockingModeChange}
+                      onBlockingModeChange={handleBlockingModeChange}
                       onTypeDeselect={handleTypeDeselect}
                       onTypeSelect={handleTypeSelect}
                       ruleSetId={ruleSetId}
