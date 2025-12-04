@@ -6,7 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/prepare
-      - run: pnpm test-build
+      - run: pnpm build
   lint:
     name: Lint
     runs-on: ubuntu-latest
