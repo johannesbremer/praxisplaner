@@ -428,6 +428,64 @@ export const deleteAppointment = mutation({
   returns: v.null(),
 });
 
+// Query to get all appointments for a patient (past, present, and future)
+export const getAppointmentsForPatient = query({
+  args: {
+    patientId: v.optional(v.id("patients")),
+    temporaryPatientId: v.optional(v.id("temporaryPatients")),
+  },
+  handler: async (ctx, args) => {
+    // Need at least one patient ID
+    if (!args.patientId && !args.temporaryPatientId) {
+      return [];
+    }
+
+    const appointments: AppointmentDoc[] = [];
+
+    // Query by patient ID if provided
+    if (args.patientId) {
+      const patientAppointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+        .collect();
+      appointments.push(...patientAppointments);
+    }
+
+    // Query by temporary patient ID if provided
+    if (args.temporaryPatientId) {
+      const tempPatientAppointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_temporaryPatientId", (q) =>
+          q.eq("temporaryPatientId", args.temporaryPatientId),
+        )
+        .collect();
+      appointments.push(...tempPatientAppointments);
+    }
+
+    // Sort by start time (ascending)
+    return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("appointments"),
+      appointmentTypeId: v.id("appointmentTypes"),
+      createdAt: v.int64(),
+      end: v.string(),
+      isSimulation: v.optional(v.boolean()),
+      lastModified: v.int64(),
+      locationId: v.id("locations"),
+      patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
+      practitionerId: v.optional(v.id("practitioners")),
+      replacesAppointmentId: v.optional(v.id("appointments")),
+      start: v.string(),
+      temporaryPatientId: v.optional(v.id("temporaryPatients")),
+      title: v.string(),
+    }),
+  ),
+});
+
 // Internal mutation to delete all simulated appointments
 export const deleteAllSimulatedAppointments = internalMutation({
   args: {},

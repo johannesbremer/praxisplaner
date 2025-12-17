@@ -50,6 +50,7 @@ export function useCalendarLogic({
   patient,
   practiceId: propPracticeId,
   ruleSetId,
+  scrollContainerRef,
   selectedAppointmentTypeId,
   selectedLocationId: externalSelectedLocationId,
   simulatedContext,
@@ -91,7 +92,6 @@ export function useCalendarLogic({
   }>(null);
   const autoScrollAnimationRef = useRef<null | number>(null);
   const hasResolvedLocationRef = useRef(false);
-  const calendarRef = useRef<HTMLDivElement>(null);
   const justFinishedResizingRef = useRef<null | string>(null);
 
   // Warning dialog state for blocked slots
@@ -870,6 +870,7 @@ export function useCalendarLogic({
             locationId: appointment.locationId,
             patientId: appointment.patientId,
             practitionerId: appointment.practitionerId,
+            temporaryPatientId: appointment.temporaryPatientId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
           title,
@@ -1729,25 +1730,29 @@ export function useCalendarLogic({
   };
 
   const handleAutoScroll = (e: React.DragEvent) => {
-    const scrollContainer = calendarRef.current?.parentElement;
+    const scrollContainer = scrollContainerRef?.current;
     if (!scrollContainer) {
       return;
     }
 
     const containerRect = scrollContainer.getBoundingClientRect();
     const mouseY = e.clientY;
-    const scrollThreshold = 50;
-    const scrollSpeed = 10;
+    const scrollThreshold = 80; // Increased from 50 for easier triggering
+    const scrollSpeed = 15; // Increased from 10 for more visible scrolling
 
     if (autoScrollAnimationRef.current) {
       cancelAnimationFrame(autoScrollAnimationRef.current);
       autoScrollAnimationRef.current = null;
     }
 
-    if (
-      mouseY - containerRect.top < scrollThreshold &&
-      scrollContainer.scrollTop > 0
-    ) {
+    const distanceFromTop = mouseY - containerRect.top;
+    const distanceFromBottom = containerRect.bottom - mouseY;
+    const currentScrollTop = scrollContainer.scrollTop;
+    const maxScroll =
+      scrollContainer.scrollHeight - scrollContainer.clientHeight;
+
+    // Scroll up when near the top
+    if (distanceFromTop < scrollThreshold && currentScrollTop > 0) {
       const animateScrollUp = () => {
         const newScrollTop = Math.max(
           0,
@@ -1755,7 +1760,7 @@ export function useCalendarLogic({
         );
         scrollContainer.scrollTop = newScrollTop;
 
-        if (newScrollTop > 0) {
+        if (newScrollTop > 0 && autoScrollAnimationRef.current) {
           autoScrollAnimationRef.current =
             requestAnimationFrame(animateScrollUp);
         } else {
@@ -1763,21 +1768,22 @@ export function useCalendarLogic({
         }
       };
       autoScrollAnimationRef.current = requestAnimationFrame(animateScrollUp);
-    } else if (
-      containerRect.bottom - mouseY < scrollThreshold &&
-      scrollContainer.scrollTop <
-        scrollContainer.scrollHeight - scrollContainer.clientHeight
+    }
+    // Scroll down when near the bottom
+    else if (
+      distanceFromBottom < scrollThreshold &&
+      currentScrollTop < maxScroll
     ) {
-      const maxScroll =
-        scrollContainer.scrollHeight - scrollContainer.clientHeight;
       const animateScrollDown = () => {
+        const currentMax =
+          scrollContainer.scrollHeight - scrollContainer.clientHeight;
         const newScrollTop = Math.min(
-          maxScroll,
+          currentMax,
           scrollContainer.scrollTop + scrollSpeed,
         );
         scrollContainer.scrollTop = newScrollTop;
 
-        if (newScrollTop < maxScroll) {
+        if (newScrollTop < currentMax && autoScrollAnimationRef.current) {
           autoScrollAnimationRef.current =
             requestAnimationFrame(animateScrollDown);
         } else {
@@ -2567,7 +2573,6 @@ export function useCalendarLogic({
     blockedSlotWarning,
     businessEndHour,
     businessStartHour,
-    calendarRef,
     columns,
     currentTime,
     currentTimeSlot: getCurrentTimeSlot(),

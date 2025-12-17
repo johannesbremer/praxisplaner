@@ -38,6 +38,7 @@ export function CalendarSidebar() {
     currentTime,
     isBlockingModeActive,
     locationsData,
+    onAppointmentCreated,
     onAppointmentTypeSelect,
     onBlockingModeChange,
     onDateChange,
@@ -260,6 +261,7 @@ export function CalendarSidebar() {
             open={showCreationModal}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
+            {...(onAppointmentCreated && { onAppointmentCreated })}
             {...(runCreateAppointment && { runCreateAppointment })}
           />
         )}

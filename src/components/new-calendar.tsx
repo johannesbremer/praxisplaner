@@ -1,18 +1,22 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import { AlertCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { PatientInfo } from "@/src/types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { api } from "@/convex/_generated/api";
 
 import type {
+  Appointment,
   NewCalendarProps,
   PendingAppointmentData,
 } from "./calendar/types";
@@ -34,6 +38,7 @@ import {
   CalendarRightSidebar,
   RightSidebarProvider,
   RightSidebarTrigger,
+  useRightSidebar,
 } from "./calendar-right-sidebar";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { BlockedSlotWarningDialog } from "./calendar/blocked-slot-warning-dialog";
@@ -47,6 +52,35 @@ import {
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
+
+// Wrapper component that enhances appointment selection with sidebar opening
+// Must be rendered inside RightSidebarProvider
+function CalendarGridWithSidebarOpening({
+  onSelectAppointment,
+  ...gridProps
+}: React.ComponentProps<typeof CalendarGrid>) {
+  const { isMobile, setOpen, setOpenMobile } = useRightSidebar();
+
+  const handleSelectWithSidebar = useCallback(
+    (appointment: Appointment) => {
+      onSelectAppointment?.(appointment);
+      // Open the sidebar to show appointment details
+      if (isMobile) {
+        setOpenMobile(true);
+      } else {
+        setOpen(true);
+      }
+    },
+    [onSelectAppointment, isMobile, setOpen, setOpenMobile],
+  );
+
+  return (
+    <CalendarGrid
+      {...gridProps}
+      onSelectAppointment={handleSelectWithSidebar}
+    />
+  );
+}
 
 // Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
@@ -62,9 +96,23 @@ export function NewCalendar({
   simulatedContext,
   simulationDate,
 }: NewCalendarProps) {
+  // Ref for scrolling to appointments
+  const calendarScrollContainerRef = useRef<HTMLDivElement>(null);
+
   // State for appointment type selection - must be defined before useCalendarLogic
   const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
     Id<"appointmentTypes"> | undefined
+  >();
+
+  // State for selected appointment (shown with blue border)
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<
+    Id<"appointments"> | undefined
+  >();
+  // Track patient selection with explicit type to avoid ID prefix guessing
+  const [selectedPatient, setSelectedPatient] = useState<
+    | undefined
+    | { id: Id<"patients">; type: "patient" }
+    | { id: Id<"temporaryPatients">; type: "temporaryPatient" }
   >();
 
   // State for blocking mode
@@ -98,8 +146,7 @@ export function NewCalendar({
     blockedSlotsData,
     blockedSlotWarning,
     // businessEndHour,
-    // businessStartHour,
-    // calendarRef,
+    businessStartHour,
     columns,
     currentTime,
     currentTimeSlot,
@@ -144,12 +191,111 @@ export function NewCalendar({
     patient,
     practiceId: propPracticeId,
     ruleSetId,
+    scrollContainerRef: calendarScrollContainerRef,
     selectedAppointmentTypeId,
     selectedLocationId: externalSelectedLocationId,
     showGdtAlert,
     simulatedContext,
     simulationDate,
-  } as NewCalendarProps);
+  });
+
+  // Query for patient appointments when a patient is selected
+  // Note: The query handles both regular patients and temporary patients
+  // Also queries for GDT patient when no specific appointment is selected
+  const patientAppointments = useQuery(
+    api.appointments.getAppointmentsForPatient,
+    selectedPatient
+      ? selectedPatient.type === "patient"
+        ? { patientId: selectedPatient.id }
+        : { temporaryPatientId: selectedPatient.id }
+      : patient?.convexPatientId
+        ? { patientId: patient.convexPatientId }
+        : "skip",
+  );
+
+  // Query for selected patient data (regular patient)
+  const selectedPatientData = useQuery(
+    api.patients.getPatientById,
+    selectedPatient?.type === "patient" ? { id: selectedPatient.id } : "skip",
+  );
+
+  // Query for selected temporary patient data
+  const selectedTemporaryPatientData = useQuery(
+    api.temporaryPatients.getTemporaryPatient,
+    selectedPatient?.type === "temporaryPatient"
+      ? { temporaryPatientId: selectedPatient.id }
+      : "skip",
+  );
+
+  // Convert selected patient data to PatientInfo format for the sidebar
+  const selectedPatientInfo: PatientInfo | undefined = (() => {
+    if (selectedPatient?.type === "patient" && selectedPatientData) {
+      const info: PatientInfo = {
+        convexPatientId: selectedPatientData._id,
+        isNewPatient: false,
+        patientId: selectedPatientData.patientId,
+      };
+      if (selectedPatientData.firstName !== undefined) {
+        info.firstName = selectedPatientData.firstName;
+      }
+      if (selectedPatientData.lastName !== undefined) {
+        info.lastName = selectedPatientData.lastName;
+      }
+      if (selectedPatientData.dateOfBirth !== undefined) {
+        info.dateOfBirth = selectedPatientData.dateOfBirth;
+      }
+      if (selectedPatientData.street !== undefined) {
+        info.street = selectedPatientData.street;
+      }
+      if (selectedPatientData.city !== undefined) {
+        info.city = selectedPatientData.city;
+      }
+      return info;
+    } else if (
+      selectedPatient?.type === "temporaryPatient" &&
+      selectedTemporaryPatientData
+    ) {
+      return {
+        firstName: selectedTemporaryPatientData.firstName,
+        isNewPatient: true,
+        lastName: selectedTemporaryPatientData.lastName,
+      };
+    }
+    return;
+  })();
+
+  // Handler for selecting an appointment
+  const handleSelectAppointment = useCallback((appointment: Appointment) => {
+    setSelectedAppointmentId(appointment.convexId);
+    // Set the patient - could be patientId or temporaryPatientId
+    if (appointment.resource?.patientId) {
+      setSelectedPatient({
+        id: appointment.resource.patientId,
+        type: "patient",
+      });
+    } else if (appointment.resource?.temporaryPatientId) {
+      setSelectedPatient({
+        id: appointment.resource.temporaryPatientId,
+        type: "temporaryPatient",
+      });
+    }
+  }, []);
+
+  // Handler for selecting an appointment by ID (used after creation)
+  const handleAppointmentSelection = useCallback(
+    (
+      appointmentId: Id<"appointments">,
+      patient?:
+        | { id: Id<"patients">; type: "patient" }
+        | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
+    ) => {
+      setSelectedAppointmentId(appointmentId);
+      if (patient) {
+        setSelectedPatient(patient);
+      }
+    },
+    [],
+  );
 
   // Handle patient selection from modal
   const handlePatientSelection = useCallback(
@@ -159,10 +305,19 @@ export function NewCalendar({
       }
 
       try {
-        await runCreateAppointment({
+        const newAppointmentId = await runCreateAppointment({
           ...pendingAppointmentData,
           temporaryPatientId: selection.temporaryPatientId,
         });
+
+        // Select the newly created appointment
+        if (newAppointmentId) {
+          setSelectedAppointmentId(newAppointmentId);
+          setSelectedPatient({
+            id: selection.temporaryPatientId,
+            type: "temporaryPatient",
+          });
+        }
 
         toast.success("Termin erfolgreich erstellt");
         setPatientSelectionModalOpen(false);
@@ -186,10 +341,19 @@ export function NewCalendar({
       }
 
       try {
-        await runCreateAppointment({
+        const newAppointmentId = await runCreateAppointment({
           ...pendingAppointmentData,
           patientId: patient.convexPatientId,
         });
+
+        // Select the newly created appointment
+        if (newAppointmentId) {
+          setSelectedAppointmentId(newAppointmentId);
+          setSelectedPatient({
+            id: patient.convexPatientId,
+            type: "patient",
+          });
+        }
 
         toast.success("Termin erfolgreich erstellt");
         setPatientSelectionModalOpen(false);
@@ -321,6 +485,7 @@ export function NewCalendar({
         currentTime,
         isBlockingModeActive,
         locationsData,
+        onAppointmentCreated: handleAppointmentSelection,
         onAppointmentTypeSelect: handleAppointmentTypeSelect,
         onBlockingModeChange: setIsBlockingModeActive,
         onDateChange: handleDateChange,
@@ -386,7 +551,10 @@ export function NewCalendar({
             <CalendarSidebar />
 
             {/* Main Content */}
-            <div className="flex-1 overflow-auto">
+            <div
+              className="flex-1 overflow-auto"
+              ref={calendarScrollContainerRef}
+            >
               {practiceId ? (
                 selectedLocationId ? (
                   holidayName || workingPractitioners.length === 0 ? (
@@ -414,7 +582,7 @@ export function NewCalendar({
                       </CardContent>
                     </Card>
                   ) : (
-                    <CalendarGrid
+                    <CalendarGridWithSidebarOpening
                       appointments={appointments}
                       blockedSlots={blockedSlots}
                       columns={columns}
@@ -437,6 +605,9 @@ export function NewCalendar({
                       onEditBlockedSlot={handleEditBlockedSlot}
                       onResizeStart={handleResizeStart}
                       onResizeStartBlockedSlot={handleBlockedSlotResizeStart}
+                      onSelectAppointment={handleSelectAppointment}
+                      selectedAppointmentId={selectedAppointmentId ?? null}
+                      selectedPatientId={selectedPatient?.id ?? null}
                       slotDuration={SLOT_DURATION}
                       slotToTime={slotToTime}
                       timeToSlot={timeToSlot}
@@ -465,7 +636,78 @@ export function NewCalendar({
               )}
             </div>
             <CalendarRightSidebar
-              patient={patient}
+              onSelectAppointment={(appointment) => {
+                // Convert from SidebarAppointment (Doc<"appointments">) to Appointment format
+                // and select it
+                setSelectedAppointmentId(appointment._id);
+                if (appointment.patientId) {
+                  setSelectedPatient({
+                    id: appointment.patientId,
+                    type: "patient",
+                  });
+                } else if (appointment.temporaryPatientId) {
+                  setSelectedPatient({
+                    id: appointment.temporaryPatientId,
+                    type: "temporaryPatient",
+                  });
+                }
+
+                // Navigate to the appointment's date
+                const appointmentDateTime = Temporal.Instant.from(
+                  appointment.start,
+                ).toZonedDateTimeISO(TIMEZONE);
+                const appointmentDate = appointmentDateTime.toPlainDate();
+                handleDateChange(appointmentDate);
+
+                // Scroll to the appointment's time after content has rendered
+                // Calculate scroll position based on the appointment's time slot
+                // Each slot is 16px high, 12 slots per hour (5-minute slots)
+                // IMPORTANT: The calendar grid starts at businessStartHour, not midnight!
+                const hour = appointmentDateTime.hour;
+                const minute = appointmentDateTime.minute;
+                // Calculate slot relative to business start hour
+                const slotFromBusinessStart =
+                  (hour - businessStartHour) * 12 + Math.floor(minute / 5);
+                const scrollTop = Math.max(0, slotFromBusinessStart * 16);
+                const headerOffset = 48 + 32; // header + some padding
+                const targetScrollTop = Math.max(0, scrollTop - headerOffset);
+
+                // Use requestAnimationFrame to wait for the DOM to update after date change
+                // We need to wait for React to re-render with the new date's data
+                const attemptScroll = (attempts = 0) => {
+                  const container = calendarScrollContainerRef.current;
+                  if (!container) {
+                    return;
+                  }
+
+                  // Check if content is ready (scrollHeight should be >= expected for full calendar)
+                  const expectedMinHeight = totalSlots * 16;
+                  const isContentReady =
+                    container.scrollHeight >= expectedMinHeight;
+
+                  if (isContentReady || attempts >= 10) {
+                    container.scrollTo({
+                      behavior: "smooth",
+                      top: targetScrollTop,
+                    });
+                  } else {
+                    // Content not ready, try again on next frame
+                    requestAnimationFrame(() => {
+                      attemptScroll(attempts + 1);
+                    });
+                  }
+                };
+
+                // Start attempting after a short delay to let React begin re-rendering
+                setTimeout(() => {
+                  requestAnimationFrame(() => {
+                    attemptScroll(0);
+                  });
+                }, 50);
+              }}
+              patient={selectedPatientInfo ?? patient}
+              patientAppointments={patientAppointments}
+              selectedAppointmentId={selectedAppointmentId}
               showGdtAlert={showGdtAlert}
             />
           </div>

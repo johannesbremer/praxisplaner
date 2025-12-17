@@ -2,6 +2,7 @@ import type React from "react";
 
 import { Plus } from "lucide-react";
 
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { Appointment } from "./types";
 
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
@@ -55,6 +56,9 @@ interface CalendarGridProps {
     id: string,
     currentDuration: number,
   ) => void;
+  onSelectAppointment?: (appointment: Appointment) => void;
+  selectedAppointmentId?: Id<"appointments"> | null;
+  selectedPatientId?: Id<"patients"> | Id<"temporaryPatients"> | null;
   slotDuration: number;
   slotToTime: (slot: number) => string;
   timeToSlot: (time: string) => number;
@@ -84,6 +88,9 @@ export function CalendarGrid({
   onEditBlockedSlot,
   onResizeStart,
   onResizeStartBlockedSlot,
+  onSelectAppointment,
+  selectedAppointmentId,
+  selectedPatientId,
   slotDuration,
   slotToTime,
   timeToSlot,
@@ -94,17 +101,30 @@ export function CalendarGrid({
       .filter((apt) => apt.column === column)
       .map((appointment) => {
         const isDragging = draggedAppointment?.id === appointment.id;
+        const isSelected = selectedAppointmentId === appointment.convexId;
+        // Check if this appointment belongs to the selected patient
+        // Supports both regular patients and temporary patients
+        const appointmentPatientId =
+          appointment.resource?.patientId ??
+          appointment.resource?.temporaryPatientId;
+        const isRelatedToSelectedPatient =
+          selectedPatientId !== null &&
+          selectedPatientId !== undefined &&
+          appointmentPatientId === selectedPatientId;
 
         return (
           <CalendarAppointment
             appointment={appointment}
             isDragging={isDragging}
+            isRelatedToSelectedPatient={isRelatedToSelectedPatient}
+            isSelected={isSelected}
             key={appointment.id}
             onDelete={onDeleteAppointment}
             onDragEnd={onDragEnd}
             onDragStart={onDragStart}
             onEdit={onEditAppointment}
             onResizeStart={onResizeStart}
+            onSelect={onSelectAppointment}
             slotDuration={slotDuration}
             timeToSlot={timeToSlot}
           />
