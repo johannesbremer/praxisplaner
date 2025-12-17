@@ -32,6 +32,12 @@ import {
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
   locationId: Id<"locations">;
+  onAppointmentCreated?: (
+    appointmentId: Id<"appointments">,
+    patient?:
+      | { id: Id<"patients">; type: "patient" }
+      | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
+  ) => void;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
   open: boolean;
   patient?: PatientInfo | undefined;
@@ -54,6 +60,7 @@ interface StaffAppointmentCreationModalProps {
 export function StaffAppointmentCreationModal({
   appointmentTypeId,
   locationId,
+  onAppointmentCreated,
   onOpenChange,
   open,
   patient,
@@ -157,7 +164,7 @@ export function StaffAppointmentCreationModal({
 
       const temporaryPatientId = patientSelection?.temporaryPatientId;
 
-      await runCreateAppointment({
+      const newAppointmentId = await runCreateAppointment({
         appointmentTypeId,
         end: endZoned.toString(),
         locationId,
@@ -167,6 +174,21 @@ export function StaffAppointmentCreationModal({
         start: startZoned.toString(),
         ...(temporaryPatientId && { temporaryPatientId }),
       });
+
+      // Notify about the created appointment for selection
+      if (newAppointmentId) {
+        if (patientId) {
+          onAppointmentCreated?.(newAppointmentId, {
+            id: patientId,
+            type: "patient",
+          });
+        } else if (temporaryPatientId) {
+          onAppointmentCreated?.(newAppointmentId, {
+            id: temporaryPatientId,
+            type: "temporaryPatient",
+          });
+        }
+      }
 
       toast.success("Termin erfolgreich erstellt");
 
@@ -241,7 +263,7 @@ export function StaffAppointmentCreationModal({
           minutes: nextAvailableSlot.duration,
         });
 
-        await runCreateAppointment({
+        const newAppointmentId = await runCreateAppointment({
           appointmentTypeId,
           end: endZoned.toString(),
           locationId,
@@ -250,6 +272,14 @@ export function StaffAppointmentCreationModal({
           practitionerId: nextAvailableSlot.practitionerId,
           start: startZoned.toString(),
         });
+
+        // Notify about the created appointment for selection
+        if (newAppointmentId) {
+          onAppointmentCreated?.(newAppointmentId, {
+            id: patient.convexPatientId,
+            type: "patient",
+          });
+        }
 
         toast.success("Termin erfolgreich erstellt");
         setShowPatientSelectionModal(false);
@@ -270,6 +300,7 @@ export function StaffAppointmentCreationModal({
     appointmentTypeId,
     locationId,
     nextAvailableSlot,
+    onAppointmentCreated,
     onOpenChange,
     patient?.convexPatientId,
     practiceId,

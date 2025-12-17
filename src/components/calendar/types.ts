@@ -22,6 +22,7 @@ export interface Appointment {
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
+    temporaryPatientId?: Doc<"appointments">["temporaryPatientId"];
   };
   startTime: string;
   title: string;
@@ -37,6 +38,12 @@ export interface NewCalendarProps {
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
+
+  /**
+   * Optional ref to the scroll container for auto-scroll during drag operations
+   * and scrolling to appointments when selected from the sidebar.
+   */
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null> | undefined;
 
   /**
    * Called when an appointment creation is attempted without a patient selected.

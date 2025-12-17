@@ -49,6 +49,14 @@ interface CalendarContextValue {
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
 
+  // Appointment selection callback
+  onAppointmentCreated?: (
+    appointmentId: Id<"appointments">,
+    patient?:
+      | { id: Id<"patients">; type: "patient" }
+      | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
+  ) => void;
+
   // Optimistic mutations
   runCreateAppointment?: (args: {
     appointmentTypeId: Id<"appointmentTypes">;

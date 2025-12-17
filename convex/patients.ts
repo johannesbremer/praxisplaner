@@ -90,6 +90,15 @@ export const listPatients = query({
   returns: v.array(v.any()), // Patient documents from schema
 });
 
+/** Get a patient by Convex ID */
+export const getPatientById = query({
+  args: { id: v.id("patients") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+  returns: v.union(v.any(), v.null()), // Patient document or null
+});
+
 /** Get a patient by patientId */
 export const getPatient = query({
   args: { patientId: v.number() },

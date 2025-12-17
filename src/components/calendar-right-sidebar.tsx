@@ -1,9 +1,15 @@
 "use client";
 
-import { AlertCircle, ExternalLink, PanelRightIcon } from "lucide-react";
+import {
+  AlertCircle,
+  Calendar,
+  ExternalLink,
+  PanelRightIcon,
+} from "lucide-react";
 import * as React from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -17,12 +23,19 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { PatientInfo } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
 
+// Appointment type for the sidebar list
+export type SidebarAppointment = Doc<"appointments">;
+
 interface CalendarRightSidebarProps {
+  onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
   patient?: PatientInfo | undefined;
+  patientAppointments?: SidebarAppointment[] | undefined;
+  selectedAppointmentId?: Id<"appointments"> | undefined;
   showGdtAlert?: boolean | undefined;
 }
 
@@ -44,7 +57,10 @@ const RightSidebarContext =
 
 // Extracted sidebar content to avoid duplication
 export function CalendarRightSidebar({
+  onSelectAppointment,
   patient,
+  patientAppointments,
+  selectedAppointmentId,
   showGdtAlert,
 }: CalendarRightSidebarProps) {
   const { isMobile, open, openMobile, setOpenMobile } = useRightSidebar();
@@ -91,8 +107,11 @@ export function CalendarRightSidebar({
           <div className="flex h-full w-full flex-col">
             <RightSidebarContent
               handleOpenInPvs={handleOpenInPvs}
+              onSelectAppointment={onSelectAppointment}
               patient={patient}
+              patientAppointments={patientAppointments}
               patientDisplayName={patientDisplayName}
+              selectedAppointmentId={selectedAppointmentId}
               showGdtAlert={showGdtAlert}
             />
           </div>
@@ -126,8 +145,11 @@ export function CalendarRightSidebar({
         <div className="bg-background flex h-full w-full flex-col">
           <RightSidebarContent
             handleOpenInPvs={handleOpenInPvs}
+            onSelectAppointment={onSelectAppointment}
             patient={patient}
+            patientAppointments={patientAppointments}
             patientDisplayName={patientDisplayName}
+            selectedAppointmentId={selectedAppointmentId}
             showGdtAlert={showGdtAlert}
           />
         </div>
@@ -203,18 +225,24 @@ export function useRightSidebar() {
 
 function RightSidebarContent({
   handleOpenInPvs,
+  onSelectAppointment,
   patient,
+  patientAppointments,
   patientDisplayName,
+  selectedAppointmentId,
   showGdtAlert,
 }: {
   handleOpenInPvs: () => void;
+  onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
   patient: PatientInfo | undefined;
+  patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
+  selectedAppointmentId: Id<"appointments"> | undefined;
   showGdtAlert: boolean | undefined;
 }) {
   return (
     <ScrollArea className="flex-1">
-      <div className="p-4">
+      <div className="p-4 pb-[100%]">
         {showGdtAlert && (
           <div className="mb-4">
             <Alert variant="destructive">
@@ -272,6 +300,48 @@ function RightSidebarContent({
                 {patient.patientId}
               </p>
             )}
+
+            {/* Patient Appointments List */}
+            {patientAppointments !== undefined &&
+              patientAppointments.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-medium">Termine</p>
+                      <Badge className="ml-auto text-xs" variant="secondary">
+                        {patientAppointments.length}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1">
+                      {patientAppointments.toReversed().map((appointment) => {
+                        const isSelected =
+                          selectedAppointmentId === appointment._id;
+                        return (
+                          <button
+                            className={cn(
+                              "w-full text-left p-2 rounded-md text-sm transition-colors",
+                              "hover:bg-muted/50",
+                              isSelected &&
+                                "bg-blue-50 ring-2 ring-blue-400 dark:bg-blue-950/30",
+                            )}
+                            key={appointment._id}
+                            onClick={() => onSelectAppointment?.(appointment)}
+                          >
+                            <p className="font-medium truncate">
+                              {appointment.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatAppointmentDateTime(appointment.start)}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
           </div>
         ) : (
           <div className="space-y-2">
@@ -310,4 +380,30 @@ function formatGermanDate(dateString: string) {
   }
 
   return dateString;
+}
+
+// Helper to format appointment date/time for the list in German
+// Handles both ISO strings and Temporal strings with timezone suffix
+function formatAppointmentDateTime(dateTimeString: string) {
+  // Remove Temporal timezone suffix like [Europe/Berlin] if present
+  const cleanedString = dateTimeString.replace(/\[.*\]$/, "");
+  const date = new Date(cleanedString);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateTimeString;
+  }
+
+  const dateStr = date.toLocaleDateString("de-DE", {
+    day: "numeric",
+    month: "short",
+    weekday: "short",
+    year: "numeric",
+  });
+
+  const timeStr = date.toLocaleTimeString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return `${dateStr}, ${timeStr} Uhr`;
 }
