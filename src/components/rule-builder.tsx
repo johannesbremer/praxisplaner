@@ -377,7 +377,7 @@ function RuleEditDialog({
   const form = useForm({
     defaultValues: {
       conditions: initialConditions,
-    },
+    } satisfies { conditions: Condition[] },
     onSubmit: async ({ value }) => {
       const conditionTree = conditionsToConditionTree(value.conditions);
       await onCreate(conditionTree);
@@ -465,32 +465,44 @@ function RuleEditDialog({
                       const fieldErrors = conditionErrors.get(index);
 
                       return (
-                        <div key={condition.id}>
-                          <ConditionEditor
-                            appointmentTypes={appointmentTypes}
-                            condition={condition}
-                            invalidFields={fieldErrors}
-                            locations={locations}
-                            onRemove={() => {
-                              field.removeValue(index);
-                            }}
-                            onUpdate={(updates) => {
-                              field.replaceValue(index, {
-                                ...condition,
-                                ...updates,
-                              });
-                            }}
-                            practitioners={practitioners}
-                            showRemove={field.state.value.length > 1}
-                          />
-                          {fieldErrors && fieldErrors.size > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {[...fieldErrors.values()].map((message, i) => (
-                                <FieldError errors={[{ message }]} key={i} />
-                              ))}
+                        <form.Field
+                          key={condition.id}
+                          name={`conditions[${index}]` as const}
+                        >
+                          {(itemField) => (
+                            <div>
+                              <ConditionEditor
+                                appointmentTypes={appointmentTypes}
+                                condition={itemField.state.value}
+                                invalidFields={fieldErrors}
+                                locations={locations}
+                                onRemove={() => {
+                                  field.removeValue(index);
+                                }}
+                                onUpdate={(updates) => {
+                                  itemField.handleChange({
+                                    ...itemField.state.value,
+                                    ...updates,
+                                  });
+                                }}
+                                practitioners={practitioners}
+                                showRemove={field.state.value.length > 1}
+                              />
+                              {fieldErrors && fieldErrors.size > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {[...fieldErrors.values()].map(
+                                    (message, i) => (
+                                      <FieldError
+                                        errors={[{ message }]}
+                                        key={i}
+                                      />
+                                    ),
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
-                        </div>
+                        </form.Field>
                       );
                     })}
 
