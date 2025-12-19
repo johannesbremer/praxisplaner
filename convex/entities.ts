@@ -26,7 +26,9 @@ import { mutation, query } from "./_generated/server";
 import {
   type EntityType,
   getOrCreateUnsavedRuleSet,
-  validateEntityIdsInRuleSet,
+  validateAppointmentTypeIdsInRuleSet,
+  validateLocationIdsInRuleSet,
+  validatePractitionerIdsInRuleSet,
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
 import {
@@ -107,7 +109,7 @@ async function resolvePractitionerIds(
   const resolved: Id<"practitioners">[] = [];
 
   for (const practitionerId of practitionerIds) {
-    const practitionerEntity = await db.get(practitionerId);
+    const practitionerEntity = await db.get("practitioners", practitionerId);
     if (!practitionerEntity) {
       throw new Error("Practitioner not found");
     }
@@ -225,7 +227,7 @@ export const updateAppointmentType = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.appointmentTypeId);
+    const entity = await ctx.db.get("appointmentTypes", args.appointmentTypeId);
     if (!entity) {
       throw new Error("Appointment type not found");
     }
@@ -302,7 +304,7 @@ export const updateAppointmentType = mutation({
       "appointment type",
     );
 
-    await ctx.db.patch(appointmentType._id, updates);
+    await ctx.db.patch("appointmentTypes", appointmentType._id, updates);
 
     return { entityId: appointmentType._id, ruleSetId };
   },
@@ -327,7 +329,7 @@ export const deleteAppointmentType = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.appointmentTypeId);
+    const entity = await ctx.db.get("appointmentTypes", args.appointmentTypeId);
     if (!entity) {
       throw new Error("Appointment type not found");
     }
@@ -359,7 +361,7 @@ export const deleteAppointmentType = mutation({
       "appointment type",
     );
 
-    await ctx.db.delete(appointmentType._id);
+    await ctx.db.delete("appointmentTypes", appointmentType._id);
 
     return { entityId: appointmentType._id, ruleSetId };
   },
@@ -451,7 +453,7 @@ export const updatePractitioner = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.practitionerId);
+    const entity = await ctx.db.get("practitioners", args.practitionerId);
     if (!entity) {
       throw new Error("Practitioner not found");
     }
@@ -510,7 +512,7 @@ export const updatePractitioner = mutation({
       "practitioner",
     );
 
-    await ctx.db.patch(practitioner._id, updates);
+    await ctx.db.patch("practitioners", practitioner._id, updates);
 
     return { entityId: practitioner._id, ruleSetId };
   },
@@ -535,7 +537,7 @@ export const deletePractitioner = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.practitionerId);
+    const entity = await ctx.db.get("practitioners", args.practitionerId);
     if (!entity) {
       throw new Error("Practitioner not found");
     }
@@ -575,7 +577,7 @@ export const deletePractitioner = mutation({
         schedule.ruleSetId,
         "base schedule",
       );
-      await ctx.db.delete(schedule._id);
+      await ctx.db.delete("baseSchedules", schedule._id);
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
@@ -585,7 +587,7 @@ export const deletePractitioner = mutation({
       "practitioner",
     );
 
-    await ctx.db.delete(practitioner._id);
+    await ctx.db.delete("practitioners", practitioner._id);
 
     return { entityId: practitioner._id, ruleSetId };
   },
@@ -674,7 +676,7 @@ export const updateLocation = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.locationId);
+    const entity = await ctx.db.get("locations", args.locationId);
     if (!entity) {
       throw new Error("Location not found");
     }
@@ -719,7 +721,7 @@ export const updateLocation = mutation({
     await verifyEntityInUnsavedRuleSet(ctx.db, location.ruleSetId, "location");
 
     // Update the location (use the entity in the unsaved rule set)
-    await ctx.db.patch(location._id, { name: args.name });
+    await ctx.db.patch("locations", location._id, { name: args.name });
 
     return { entityId: location._id, ruleSetId };
   },
@@ -744,7 +746,7 @@ export const deleteLocation = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.locationId);
+    const entity = await ctx.db.get("locations", args.locationId);
     if (!entity) {
       throw new Error("Location not found");
     }
@@ -782,13 +784,13 @@ export const deleteLocation = mutation({
         schedule.ruleSetId,
         "base schedule",
       );
-      await ctx.db.delete(schedule._id);
+      await ctx.db.delete("baseSchedules", schedule._id);
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
     await verifyEntityInUnsavedRuleSet(ctx.db, location.ruleSetId, "location");
 
-    await ctx.db.delete(location._id);
+    await ctx.db.delete("locations", location._id);
 
     return { entityId: location._id, ruleSetId };
   },
@@ -845,7 +847,10 @@ export const createBaseSchedule = mutation({
     );
 
     // Get practitioner - might be from active/source rule set
-    const practitionerEntity = await ctx.db.get(args.practitionerId);
+    const practitionerEntity = await ctx.db.get(
+      "practitioners",
+      args.practitionerId,
+    );
     if (!practitionerEntity) {
       throw new Error("Practitioner not found");
     }
@@ -870,7 +875,7 @@ export const createBaseSchedule = mutation({
     }
 
     // Get location - might be from active/source rule set
-    const locationEntity = await ctx.db.get(args.locationId);
+    const locationEntity = await ctx.db.get("locations", args.locationId);
     if (!locationEntity) {
       throw new Error("Location not found");
     }
@@ -942,7 +947,7 @@ export const updateBaseSchedule = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.baseScheduleId);
+    const entity = await ctx.db.get("baseSchedules", args.baseScheduleId);
     if (!entity) {
       throw new Error("Base schedule not found");
     }
@@ -969,7 +974,10 @@ export const updateBaseSchedule = mutation({
 
     // Verify new practitioner if provided
     if (args.practitionerId) {
-      const practitioner = await ctx.db.get(args.practitionerId);
+      const practitioner = await ctx.db.get(
+        "practitioners",
+        args.practitionerId,
+      );
       if (practitioner?.ruleSetId !== ruleSetId) {
         throw new Error("Practitioner does not belong to the unsaved rule set");
       }
@@ -977,7 +985,7 @@ export const updateBaseSchedule = mutation({
 
     // Verify new location if provided
     if (args.locationId) {
-      const location = await ctx.db.get(args.locationId);
+      const location = await ctx.db.get("locations", args.locationId);
       if (location?.ruleSetId !== ruleSetId) {
         throw new Error("Location does not belong to the unsaved rule set");
       }
@@ -1019,7 +1027,7 @@ export const updateBaseSchedule = mutation({
       "base schedule",
     );
 
-    await ctx.db.patch(schedule._id, updates);
+    await ctx.db.patch("baseSchedules", schedule._id, updates);
 
     return { entityId: schedule._id, ruleSetId };
   },
@@ -1044,7 +1052,7 @@ export const deleteBaseSchedule = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.baseScheduleId);
+    const entity = await ctx.db.get("baseSchedules", args.baseScheduleId);
     if (!entity) {
       throw new Error("Base schedule not found");
     }
@@ -1076,7 +1084,7 @@ export const deleteBaseSchedule = mutation({
       "base schedule",
     );
 
-    await ctx.db.delete(schedule._id);
+    await ctx.db.delete("baseSchedules", schedule._id);
 
     return { entityId: schedule._id, ruleSetId };
   },
@@ -1153,7 +1161,10 @@ async function remapConditionTreeEntityIds(
         const remappedIds: string[] = [];
 
         for (const oldId of node.valueIds) {
-          const oldEntity = await db.get(oldId as Id<"appointmentTypes">);
+          const oldEntity = await db.get(
+            "appointmentTypes",
+            oldId as Id<"appointmentTypes">,
+          );
 
           if (!oldEntity) {
             throw new Error(
@@ -1187,39 +1198,22 @@ async function remapConditionTreeEntityIds(
       }
 
       // Handle standard conditions (PRACTITIONER, LOCATION, APPOINTMENT_TYPE)
-      if (
-        node.conditionType === "PRACTITIONER" ||
-        node.conditionType === "LOCATION" ||
-        node.conditionType === "APPOINTMENT_TYPE"
-      ) {
-        const tableName =
-          node.conditionType === "PRACTITIONER"
-            ? "practitioners"
-            : node.conditionType === "LOCATION"
-              ? "locations"
-              : "appointmentTypes";
-
-        // Remap each entity ID
+      if (node.conditionType === "PRACTITIONER") {
         const remappedIds: string[] = [];
         for (const oldId of node.valueIds) {
-          // Get the old entity
           const oldEntity = await db.get(
-            oldId as
-              | Id<"appointmentTypes">
-              | Id<"locations">
-              | Id<"practitioners">,
+            "practitioners",
+            oldId as Id<"practitioners">,
           );
 
           if (!oldEntity) {
             throw new Error(
-              `Entity ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+              `Practitioner ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
             );
           }
 
-          // Find the corresponding entity in the target rule set by name
-          // (entities are copied with the same name)
           const newEntity = await db
-            .query(tableName)
+            .query("practitioners")
             .withIndex("by_ruleSetId", (q) =>
               q.eq("ruleSetId", targetRuleSetId),
             )
@@ -1228,7 +1222,80 @@ async function remapConditionTreeEntityIds(
 
           if (!newEntity) {
             throw new Error(
-              `Could not find ${tableName} with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+              `Could not find practitioner with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+                `This may indicate the entity was not copied during copy-on-write.`,
+            );
+          }
+
+          remappedIds.push(newEntity._id);
+        }
+
+        return {
+          ...node,
+          valueIds: remappedIds,
+        };
+      }
+
+      if (node.conditionType === "LOCATION") {
+        const remappedIds: string[] = [];
+        for (const oldId of node.valueIds) {
+          const oldEntity = await db.get("locations", oldId as Id<"locations">);
+
+          if (!oldEntity) {
+            throw new Error(
+              `Location ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+            );
+          }
+
+          const newEntity = await db
+            .query("locations")
+            .withIndex("by_ruleSetId", (q) =>
+              q.eq("ruleSetId", targetRuleSetId),
+            )
+            .filter((q) => q.eq(q.field("name"), oldEntity.name))
+            .first();
+
+          if (!newEntity) {
+            throw new Error(
+              `Could not find location with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
+                `This may indicate the entity was not copied during copy-on-write.`,
+            );
+          }
+
+          remappedIds.push(newEntity._id);
+        }
+
+        return {
+          ...node,
+          valueIds: remappedIds,
+        };
+      }
+
+      if (node.conditionType === "APPOINTMENT_TYPE") {
+        const remappedIds: string[] = [];
+        for (const oldId of node.valueIds) {
+          const oldEntity = await db.get(
+            "appointmentTypes",
+            oldId as Id<"appointmentTypes">,
+          );
+
+          if (!oldEntity) {
+            throw new Error(
+              `AppointmentType ${oldId} not found when remapping from rule set ${sourceRuleSetId} to ${targetRuleSetId}`,
+            );
+          }
+
+          const newEntity = await db
+            .query("appointmentTypes")
+            .withIndex("by_ruleSetId", (q) =>
+              q.eq("ruleSetId", targetRuleSetId),
+            )
+            .filter((q) => q.eq(q.field("name"), oldEntity.name))
+            .first();
+
+          if (!newEntity) {
+            throw new Error(
+              `Could not find appointmentType with name "${oldEntity.name}" in target rule set ${targetRuleSetId}. ` +
                 `This may indicate the entity was not copied during copy-on-write.`,
             );
           }
@@ -1289,11 +1356,10 @@ async function insertConditionTreeNode(
     if (node.valueIds && node.valueIds.length > 0) {
       switch (node.conditionType) {
         case "APPOINTMENT_TYPE": {
-          await validateEntityIdsInRuleSet(
+          await validateAppointmentTypeIdsInRuleSet(
             db,
             node.valueIds,
             ruleSetId,
-            "appointmentTypes",
           );
 
           break;
@@ -1303,33 +1369,22 @@ async function insertConditionTreeNode(
           // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds contains appointment type IDs
           // (scope is now a separate field)
           if (node.valueIds.length > 0) {
-            await validateEntityIdsInRuleSet(
+            await validateAppointmentTypeIdsInRuleSet(
               db,
               node.valueIds,
               ruleSetId,
-              "appointmentTypes",
             );
           }
 
           break;
         }
         case "LOCATION": {
-          await validateEntityIdsInRuleSet(
-            db,
-            node.valueIds,
-            ruleSetId,
-            "locations",
-          );
+          await validateLocationIdsInRuleSet(db, node.valueIds, ruleSetId);
 
           break;
         }
         case "PRACTITIONER": {
-          await validateEntityIdsInRuleSet(
-            db,
-            node.valueIds,
-            ruleSetId,
-            "practitioners",
-          );
+          await validatePractitionerIdsInRuleSet(db, node.valueIds, ruleSetId);
 
           break;
         }
@@ -1461,7 +1516,7 @@ async function deleteConditionTreeNode(
   }
 
   // Delete this node
-  await db.delete(nodeId);
+  await db.delete("ruleConditions", nodeId);
 }
 
 /**
@@ -1482,7 +1537,7 @@ export const deleteRule = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.ruleId);
+    const entity = await ctx.db.get("ruleConditions", args.ruleId);
     if (!entity) {
       throw new Error("Rule not found");
     }
@@ -1549,7 +1604,7 @@ export const updateRule = mutation({
     );
 
     // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get(args.ruleId);
+    const entity = await ctx.db.get("ruleConditions", args.ruleId);
     if (!entity) {
       throw new Error("Rule not found");
     }
@@ -1600,7 +1655,7 @@ export const updateRule = mutation({
       "rule" as EntityType,
     );
 
-    await ctx.db.patch(rule._id, updates);
+    await ctx.db.patch("ruleConditions", rule._id, updates);
 
     return { entityId: rule._id, ruleSetId };
   },
@@ -1614,7 +1669,7 @@ async function fetchConditionTreeNode(
   db: DatabaseReader,
   nodeId: Id<"ruleConditions">,
 ): Promise<ConditionTreeNode> {
-  const node = await db.get(nodeId);
+  const node = await db.get("ruleConditions", nodeId);
   if (!node) {
     throw new Error("Condition node not found");
   }
@@ -1723,7 +1778,7 @@ export const getPractitionersFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    const practice = await ctx.db.get(args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
     }
@@ -1743,7 +1798,7 @@ export const getLocationsFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    const practice = await ctx.db.get(args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
     }
@@ -1763,7 +1818,7 @@ export const getBaseSchedulesFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    const practice = await ctx.db.get(args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
     }
@@ -1783,7 +1838,7 @@ export const getAppointmentTypesFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    const practice = await ctx.db.get(args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
     }

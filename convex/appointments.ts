@@ -345,7 +345,10 @@ export const createAppointment = mutation({
 
     // If a temporaryPatientId is provided, verify it exists
     if (temporaryPatientId) {
-      const temporaryPatient = await ctx.db.get(temporaryPatientId);
+      const temporaryPatient = await ctx.db.get(
+        "temporaryPatients",
+        temporaryPatientId,
+      );
       if (!temporaryPatient) {
         throw new Error(
           `Temporary patient with ID ${temporaryPatientId} not found`,
@@ -355,14 +358,17 @@ export const createAppointment = mutation({
 
     // If a patientId is provided, verify it exists
     if (patientId) {
-      const patient = await ctx.db.get(patientId);
+      const patient = await ctx.db.get("patients", patientId);
       if (!patient) {
         throw new Error(`Patient with ID ${patientId} not found`);
       }
     }
 
     // Look up the appointment type to get its name at booking time
-    const appointmentType = await ctx.db.get(args.appointmentTypeId);
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
     if (!appointmentType) {
       throw new Error(
         `Appointment type with ID ${args.appointmentTypeId} not found`,
@@ -411,7 +417,7 @@ export const updateAppointment = mutation({
       Object.entries(updateData).filter(([, value]) => value !== undefined),
     );
 
-    await ctx.db.patch(id, {
+    await ctx.db.patch("appointments", id, {
       ...filteredUpdateData,
       lastModified: BigInt(Date.now()),
     });
@@ -427,7 +433,7 @@ export const deleteAppointment = mutation({
     id: v.id("appointments"),
   },
   handler: async (ctx, args) => {
-    await ctx.db.delete(args.id);
+    await ctx.db.delete("appointments", args.id);
     return null;
   },
   returns: v.null(),
@@ -502,7 +508,7 @@ export const deleteAllSimulatedAppointments = internalMutation({
       .collect();
 
     for (const appointment of simulatedAppointments) {
-      await ctx.db.delete(appointment._id);
+      await ctx.db.delete("appointments", appointment._id);
     }
 
     return simulatedAppointments.length;
@@ -633,7 +639,7 @@ export const updateBlockedSlot = mutation({
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
 
-    await ctx.db.patch(id, {
+    await ctx.db.patch("blockedSlots", id, {
       ...updates,
       lastModified: BigInt(Date.now()),
     });
@@ -649,7 +655,7 @@ export const deleteBlockedSlot = mutation({
     id: v.id("blockedSlots"),
   },
   handler: async (ctx, args) => {
-    await ctx.db.delete(args.id);
+    await ctx.db.delete("blockedSlots", args.id);
     return null;
   },
   returns: v.null(),
@@ -665,7 +671,7 @@ export const deleteAllSimulatedBlockedSlots = internalMutation({
       .collect();
 
     for (const blockedSlot of simulatedBlockedSlots) {
-      await ctx.db.delete(blockedSlot._id);
+      await ctx.db.delete("blockedSlots", blockedSlot._id);
     }
 
     return simulatedBlockedSlots.length;

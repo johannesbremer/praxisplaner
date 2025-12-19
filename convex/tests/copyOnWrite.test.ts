@@ -10,8 +10,8 @@ import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
 import schema from "../schema";
-import { assertDefined } from "./test-utils";
 import { modules } from "./test.setup";
+import { assertDefined } from "./test_utils";
 
 describe("Copy-on-Write Entity Reference Validation", () => {
   test("should throw error when rule references appointment type from wrong rule set", async () => {
@@ -24,7 +24,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Get initial rule set (created by practice setup)
     const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get(practiceId);
+      const practice = await ctx.db.get("practices", practiceId);
       if (!practice) {
         throw new Error("Practice not found");
       }
@@ -149,7 +149,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get(practiceId);
+      const practice = await ctx.db.get("practices", practiceId);
       if (!practice) {
         throw new Error("Practice not found");
       }
@@ -231,7 +231,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get(practiceId);
+      const practice = await ctx.db.get("practices", practiceId);
       if (!practice) {
         throw new Error("Practice not found");
       }
@@ -383,7 +383,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       assertDefined(node.valueIds, "valueIds should be defined by filter");
       for (const id of node.valueIds) {
         const appointmentType = await t.run(async (ctx) => {
-          return await ctx.db.get(id as Id<"appointmentTypes">);
+          return await ctx.db.get(
+            "appointmentTypes",
+            id as Id<"appointmentTypes">,
+          );
         });
 
         assertDefined(appointmentType, `Appointment type ${id} should exist`);
@@ -403,7 +406,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get(practiceId);
+      const practice = await ctx.db.get("practices", practiceId);
       if (!practice) {
         throw new Error("Practice not found");
       }

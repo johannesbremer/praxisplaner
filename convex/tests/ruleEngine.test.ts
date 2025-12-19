@@ -228,6 +228,7 @@ async function createAppointment(
     const endZoned = startZoned.add({ minutes: duration });
 
     const appointmentType = (await ctx.db.get(
+      "appointmentTypes",
       appointmentTypeId,
     )) as Doc<"appointmentTypes"> | null;
     if (!appointmentType) {

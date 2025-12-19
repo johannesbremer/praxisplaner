@@ -300,7 +300,7 @@ export const getSlotsForDay = query({
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
     if (!ruleSetId) {
-      const practice = await ctx.db.get(args.practiceId);
+      const practice = await ctx.db.get("practices", args.practiceId);
       if (practice?.currentActiveRuleSetId) {
         ruleSetId = practice.currentActiveRuleSetId;
       } else {
@@ -648,7 +648,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
     if (!ruleSetId) {
-      const practice = await ctx.db.get(args.practiceId);
+      const practice = await ctx.db.get("practices", args.practiceId);
       if (practice?.currentActiveRuleSetId) {
         ruleSetId = practice.currentActiveRuleSetId;
       }

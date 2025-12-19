@@ -44,7 +44,7 @@ export async function validateRuleSet(
   ruleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
 ): Promise<Doc<"ruleSets">> {
-  const ruleSet = await db.get(ruleSetId);
+  const ruleSet = await db.get("ruleSets", ruleSetId);
 
   if (!ruleSet) {
     throw new Error("Rule set not found");
@@ -64,7 +64,7 @@ export async function ensureUnsavedRuleSet(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
 ): Promise<Doc<"ruleSets">> {
-  const ruleSet = await db.get(ruleSetId);
+  const ruleSet = await db.get("ruleSets", ruleSetId);
 
   if (!ruleSet) {
     throw new Error("Rule set not found");
@@ -88,7 +88,7 @@ export async function verifyEntityInUnsavedRuleSet(
   entityRuleSetId: Id<"ruleSets">,
   entityType: EntityType,
 ): Promise<void> {
-  const ruleSet = await db.get(entityRuleSetId);
+  const ruleSet = await db.get("ruleSets", entityRuleSetId);
 
   if (!ruleSet) {
     throw new Error(
@@ -144,7 +144,7 @@ export async function createInitialRuleSet(
   });
 
   // Set it as the active rule set
-  await db.patch(practiceId, {
+  await db.patch("practices", practiceId, {
     currentActiveRuleSetId: ruleSetId,
   });
 
@@ -169,7 +169,7 @@ export async function getOrCreateUnsavedRuleSet(
   }
 
   // Get source rule set to copy from
-  const sourceRuleSet = await db.get(sourceRuleSetId);
+  const sourceRuleSet = await db.get("ruleSets", sourceRuleSetId);
   if (!sourceRuleSet) {
     throw new Error("Source rule set not found");
   }
@@ -621,34 +621,109 @@ export async function copyAllEntities(
 // ================================
 
 /**
- * Validates that a list of entity IDs all belong to the specified rule set.
- * This is a critical safety check to prevent bugs where entity IDs from an old
- * rule set are accidentally used when creating/updating entities in a new rule set.
- * @throws Error if any entity ID doesn't belong to the expected rule set
+ * Validates that an entity ID belongs to the specified rule set.
+ * @throws Error if the entity doesn't exist or doesn't belong to the expected rule set
  */
-export async function validateEntityIdsInRuleSet(
+function validateEntityInRuleSetError(
+  entityType: string,
+  id: string,
+  actualRuleSetId: Id<"ruleSets">,
+  expectedRuleSetId: Id<"ruleSets">,
+): Error {
+  return new Error(
+    `${entityType} with ID ${id} belongs to rule set ${actualRuleSetId}, ` +
+      `but expected rule set ${expectedRuleSetId}. ` +
+      `This is a copy-on-write safety violation - when creating or updating entities ` +
+      `in a new rule set, all referenced entities must also belong to that rule set. ` +
+      `This bug typically occurs when IDs are not properly remapped during copy-on-write operations.`,
+  );
+}
+
+/**
+ * Validates that a list of appointment type IDs all belong to the specified rule set.
+ */
+export async function validateAppointmentTypeIdsInRuleSet(
   db: DatabaseReader,
   entityIds: string[],
   expectedRuleSetId: Id<"ruleSets">,
-  entityType: "appointmentTypes" | "locations" | "practitioners",
 ): Promise<void> {
   for (const id of entityIds) {
-    const entity = await db.get(id as Id<typeof entityType>);
+    const entity = await db.get(
+      "appointmentTypes",
+      id as Id<"appointmentTypes">,
+    );
 
     if (!entity) {
       throw new Error(
-        `${entityType} with ID ${id} not found. ` +
+        `appointmentTypes with ID ${id} not found. ` +
           `This indicates the entity was deleted or the ID is invalid.`,
       );
     }
 
     if (entity.ruleSetId !== expectedRuleSetId) {
+      throw validateEntityInRuleSetError(
+        "appointmentTypes",
+        id,
+        entity.ruleSetId,
+        expectedRuleSetId,
+      );
+    }
+  }
+}
+
+/**
+ * Validates that a list of location IDs all belong to the specified rule set.
+ */
+export async function validateLocationIdsInRuleSet(
+  db: DatabaseReader,
+  entityIds: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+): Promise<void> {
+  for (const id of entityIds) {
+    const entity = await db.get("locations", id as Id<"locations">);
+
+    if (!entity) {
       throw new Error(
-        `${entityType} with ID ${id} belongs to rule set ${entity.ruleSetId}, ` +
-          `but expected rule set ${expectedRuleSetId}. ` +
-          `This is a copy-on-write safety violation - when creating or updating entities ` +
-          `in a new rule set, all referenced entities must also belong to that rule set. ` +
-          `This bug typically occurs when IDs are not properly remapped during copy-on-write operations.`,
+        `locations with ID ${id} not found. ` +
+          `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+
+    if (entity.ruleSetId !== expectedRuleSetId) {
+      throw validateEntityInRuleSetError(
+        "locations",
+        id,
+        entity.ruleSetId,
+        expectedRuleSetId,
+      );
+    }
+  }
+}
+
+/**
+ * Validates that a list of practitioner IDs all belong to the specified rule set.
+ */
+export async function validatePractitionerIdsInRuleSet(
+  db: DatabaseReader,
+  entityIds: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+): Promise<void> {
+  for (const id of entityIds) {
+    const entity = await db.get("practitioners", id as Id<"practitioners">);
+
+    if (!entity) {
+      throw new Error(
+        `practitioners with ID ${id} not found. ` +
+          `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+
+    if (entity.ruleSetId !== expectedRuleSetId) {
+      throw validateEntityInRuleSetError(
+        "practitioners",
+        id,
+        entity.ruleSetId,
+        expectedRuleSetId,
       );
     }
   }
@@ -866,7 +941,7 @@ async function findCorrespondingAppointmentType(
 
   // Check if source entity has a parent that might lead to target rule set
   if (sourceEntity.parentId) {
-    const parent = await db.get(sourceEntity.parentId);
+    const parent = await db.get("appointmentTypes", sourceEntity.parentId);
     if (parent) {
       if (parent.ruleSetId === targetRuleSetId) {
         return parent;
@@ -902,7 +977,7 @@ async function findCorrespondingLocation(
   }
 
   if (sourceEntity.parentId) {
-    const parent = await db.get(sourceEntity.parentId);
+    const parent = await db.get("locations", sourceEntity.parentId);
     if (parent) {
       if (parent.ruleSetId === targetRuleSetId) {
         return parent;
@@ -934,7 +1009,7 @@ async function findCorrespondingPractitioner(
   }
 
   if (sourceEntity.parentId) {
-    const parent = await db.get(sourceEntity.parentId);
+    const parent = await db.get("practitioners", sourceEntity.parentId);
     if (parent) {
       if (parent.ruleSetId === targetRuleSetId) {
         return parent;
@@ -966,7 +1041,7 @@ async function findCorrespondingBaseSchedule(
   }
 
   if (sourceEntity.parentId) {
-    const parent = await db.get(sourceEntity.parentId);
+    const parent = await db.get("baseSchedules", sourceEntity.parentId);
     if (parent) {
       if (parent.ruleSetId === targetRuleSetId) {
         return parent;

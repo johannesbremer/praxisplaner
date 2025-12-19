@@ -9,7 +9,7 @@ export const getTemporaryPatient = query({
     temporaryPatientId: v.id("temporaryPatients"),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.temporaryPatientId);
+    return await ctx.db.get("temporaryPatients", args.temporaryPatientId);
   },
   returns: v.union(
     v.object({
@@ -35,7 +35,7 @@ export const createTemporaryPatient = mutation({
   },
   handler: async (ctx, args) => {
     // Verify practice exists
-    const practice = await ctx.db.get(args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice) {
       throw new Error("Practice not found");
     }
@@ -94,7 +94,7 @@ export const getTemporaryPatientsByIds = query({
   args: { temporaryPatientIds: v.array(v.id("temporaryPatients")) },
   handler: async (ctx, args) => {
     const patients = await Promise.all(
-      args.temporaryPatientIds.map((id) => ctx.db.get(id)),
+      args.temporaryPatientIds.map((id) => ctx.db.get("temporaryPatients", id)),
     );
     // Filter out nulls and return patient map for easy lookup
     const patientMap: Record<string, { firstName: string; lastName: string }> =

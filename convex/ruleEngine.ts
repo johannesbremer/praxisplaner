@@ -794,7 +794,7 @@ export const getRuleDescription = internalQuery({
     ruleId: v.id("ruleConditions"),
   },
   handler: async (ctx, args) => {
-    const rule = await ctx.db.get(args.ruleId);
+    const rule = await ctx.db.get("ruleConditions", args.ruleId);
     if (!rule?.isRoot) {
       return {
         description: "Rule not found or not a root node",
@@ -806,7 +806,7 @@ export const getRuleDescription = internalQuery({
     const buildConditionTree = async (
       nodeId: Id<"ruleConditions">,
     ): Promise<ConditionTreeNode | null> => {
-      const node = await ctx.db.get(nodeId);
+      const node = await ctx.db.get("ruleConditions", nodeId);
       if (!node) {
         return null;
       }

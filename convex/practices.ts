@@ -51,7 +51,7 @@ export const getPractice = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.practiceId);
+    return await ctx.db.get("practices", args.practiceId);
   },
   returns: v.union(
     v.object({

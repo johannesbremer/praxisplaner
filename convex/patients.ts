@@ -53,7 +53,7 @@ export const createOrUpdatePatient = mutation({
       }),
     };
 
-    await ctx.db.patch(existingPatient._id, updates);
+    await ctx.db.patch("patients", existingPatient._id, updates);
 
     return {
       convexPatientId: existingPatient._id,
@@ -94,7 +94,7 @@ export const listPatients = query({
 export const getPatientById = query({
   args: { id: v.id("patients") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    return await ctx.db.get("patients", args.id);
   },
   returns: v.union(v.any(), v.null()), // Patient document or null
 });
@@ -116,7 +116,7 @@ export const getPatientsByIds = query({
   args: { patientIds: v.array(v.id("patients")) },
   handler: async (ctx, args) => {
     const patients = await Promise.all(
-      args.patientIds.map((id) => ctx.db.get(id)),
+      args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
     // Filter out nulls and return patient map for easy lookup
     const patientMap: Record<
