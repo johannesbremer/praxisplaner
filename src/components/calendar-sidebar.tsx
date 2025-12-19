@@ -44,6 +44,7 @@ export function CalendarSidebar() {
     onDateChange,
     onLocationResolved,
     onLocationSelect,
+    onPendingTitleChange,
     onUpdateSimulatedContext,
     practiceId,
     ruleSetId,
@@ -258,6 +259,7 @@ export function CalendarSidebar() {
             appointmentTypeId={selectedAppointmentTypeId}
             locationId={selectedLocationId}
             onOpenChange={handleModalClose}
+            onPendingTitleChange={onPendingTitleChange}
             open={showCreationModal}
             practiceId={practiceId}
             ruleSetId={ruleSetId}

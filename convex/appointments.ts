@@ -215,6 +215,7 @@ export const getAppointments = query({
       _creationTime: v.number(),
       _id: v.id("appointments"),
       appointmentTypeId: v.id("appointmentTypes"),
+      appointmentTypeTitle: v.string(),
       createdAt: v.int64(),
       end: v.string(),
       isSimulation: v.optional(v.boolean()),
@@ -273,6 +274,7 @@ export const getAppointmentsInRange = query({
       _creationTime: v.number(),
       _id: v.id("appointments"),
       appointmentTypeId: v.id("appointmentTypes"),
+      appointmentTypeTitle: v.string(),
       createdAt: v.int64(),
       end: v.string(),
       isSimulation: v.optional(v.boolean()),
@@ -302,6 +304,7 @@ export const createAppointment = mutation({
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
     temporaryPatientId: v.optional(v.id("temporaryPatients")),
+    title: v.string(),
   },
   handler: async (ctx, args) => {
     const now = BigInt(Date.now());
@@ -366,18 +369,19 @@ export const createAppointment = mutation({
       );
     }
 
-    return await ctx.db.insert("appointments", {
+    const insertData = {
       ...rest,
+      appointmentTypeTitle: appointmentType.name, // Store appointment type name at booking time
       createdAt: now,
       isSimulation: isSimulation ?? false,
       lastModified: now,
-      title: appointmentType.name, // Store appointment type name at booking time
       ...(patientId && { patientId }),
       ...(temporaryPatientId && { temporaryPatientId }),
       ...(replacesAppointmentId !== undefined && {
         replacesAppointmentId,
       }),
-    });
+    };
+    return await ctx.db.insert("appointments", insertData);
   },
   returns: v.id("appointments"),
 });
@@ -395,6 +399,7 @@ export const updateAppointment = mutation({
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.optional(v.string()),
     temporaryPatientId: v.optional(v.id("temporaryPatients")),
+    title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updateData } = args;
@@ -470,6 +475,7 @@ export const getAppointmentsForPatient = query({
       _creationTime: v.number(),
       _id: v.id("appointments"),
       appointmentTypeId: v.id("appointmentTypes"),
+      appointmentTypeTitle: v.string(),
       createdAt: v.int64(),
       end: v.string(),
       isSimulation: v.optional(v.boolean()),

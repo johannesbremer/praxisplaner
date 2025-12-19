@@ -8,6 +8,7 @@ import type {
 } from "../../types";
 
 export interface Appointment {
+  appointmentTypeTitle?: string; // Appointment type title for display
   color: string;
   column: string; // Resource ID (practitioner ID or "ekg" / "labor")
   convexId?: Id<"appointments">; // Original Convex ID for real appointments
@@ -18,11 +19,13 @@ export interface Appointment {
   replacesAppointmentId?: Id<"appointments"> | null;
   resource?: {
     appointmentTypeId?: Doc<"appointments">["appointmentTypeId"];
+    appointmentTypeTitle?: string;
     isSimulation?: boolean;
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
     temporaryPatientId?: Doc<"appointments">["temporaryPatientId"];
+    title?: string;
   };
   startTime: string;
   title: string;
@@ -38,6 +41,12 @@ export interface NewCalendarProps {
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
+
+  /**
+   * Pending appointment title set by the sidebar modal before manual placement.
+   * Used when creating appointments via calendar click.
+   */
+  pendingAppointmentTitle?: string | undefined;
 
   /**
    * Optional ref to the scroll container for auto-scroll during drag operations
@@ -74,6 +83,7 @@ export interface PendingAppointmentData {
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
   start: string;
+  title: string;
 }
 
 export const SLOT_DURATION = 5; // minutes
