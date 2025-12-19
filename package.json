@@ -116,10 +116,5 @@
   "packageManager": "pnpm@10.11.0",
   "engines": {
     "node": "22.x"
-  },
-  "pnpm": {
-    "overrides": {
-      "typescript": "5.9.3"
-    }
   }
 }
