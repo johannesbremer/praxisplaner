@@ -185,7 +185,7 @@ function LogicView() {
   }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
 
   const performClearSimulatedAppointments = useCallback(
-    async (options: { silent?: boolean } = {}) => {
+    async (options: { silent?: boolean }) => {
       const { silent = false } = options;
       try {
         const result = await deleteAllSimulatedDataMutation({});
@@ -231,7 +231,7 @@ function LogicView() {
   const handleClearSimulatedAppointments = useCallback(async () => {
     try {
       setIsClearingSimulatedAppointments(true);
-      await performClearSimulatedAppointments();
+      await performClearSimulatedAppointments({});
     } finally {
       setIsClearingSimulatedAppointments(false);
     }

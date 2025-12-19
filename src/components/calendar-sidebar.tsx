@@ -97,7 +97,7 @@ export function CalendarSidebar() {
 
   // Handle modal close - optionally reset appointment type selection
   const handleModalClose = useCallback(
-    (open: boolean, shouldResetAppointmentType = true) => {
+    (open: boolean, shouldResetAppointmentType?: boolean) => {
       setShowCreationModal(open);
       if (!open && shouldResetAppointmentType && onAppointmentTypeSelect) {
         // Reset appointment type selection when modal closes (unless manual placement was chosen)

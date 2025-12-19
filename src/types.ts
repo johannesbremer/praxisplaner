@@ -23,13 +23,12 @@ type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
  * plus additional UI-specific fields.
  * All fields are optional to support partial patient info in the UI.
  */
-export interface PatientInfo
-  extends Partial<
-    Pick<
-      Doc<"patients">,
-      "city" | "dateOfBirth" | "firstName" | "lastName" | "patientId" | "street"
-    >
-  > {
+export interface PatientInfo extends Partial<
+  Pick<
+    Doc<"patients">,
+    "city" | "dateOfBirth" | "firstName" | "lastName" | "patientId" | "street"
+  >
+> {
   /** Convex database ID for linking appointments */
   convexPatientId?: Id<"patients">;
   /** Whether this patient was just created (from GDT import) */
@@ -108,8 +107,9 @@ export interface FileSystemHandle {
 }
 
 // Represents a stream to write to a file
-export interface FileSystemWritableFileStream
-  extends WritableStream<Blob | BufferSource | string> {
+export interface FileSystemWritableFileStream extends WritableStream<
+  Blob | BufferSource | string
+> {
   close(): Promise<void>;
   write(data: Blob | BufferSource | string): Promise<void>;
 }
@@ -149,7 +149,7 @@ export interface DirectoryPickerOptions {
   id?: string; // A string to identify the picker and remember the last-picked directory
   mode?: "read" | "readwrite"; // Permission mode to request
   startIn?: // A well-known directory or a FileSystemHandle to start picking from
-  | "desktop"
+    | "desktop"
     | "documents"
     | "downloads"
     | "music"

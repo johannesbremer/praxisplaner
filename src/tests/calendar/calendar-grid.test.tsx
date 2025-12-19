@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Appointment } from "../../../src/components/calendar/types";
 
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
+import { assertElement } from "../test-utils";
 
 describe("CalendarGrid", () => {
   const mockAppointments: Appointment[] = [
@@ -165,10 +166,11 @@ describe("CalendarGrid", () => {
       const slots = container.querySelectorAll(
         String.raw`.hover\:bg-muted\/50`,
       );
-      if (slots.length > 0 && slots[0]) {
-        fireEvent.click(slots[0]);
-        expect(mockHandlers.onAddAppointment).toHaveBeenCalled();
-      }
+      expect(slots.length).toBeGreaterThan(0);
+      const firstSlot = slots[0];
+      assertElement(firstSlot);
+      fireEvent.click(firstSlot);
+      expect(mockHandlers.onAddAppointment).toHaveBeenCalled();
     });
 
     test("shows plus icon on hover", () => {
@@ -186,24 +188,22 @@ describe("CalendarGrid", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const appointment = container.querySelector("[draggable=true]");
-      if (appointment) {
-        fireEvent.click(appointment);
-        expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
-          mockAppointments[0],
-        );
-      }
+      assertElement(appointment);
+      fireEvent.click(appointment);
+      expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
+        mockAppointments[0],
+      );
     });
 
     test("calls onDeleteAppointment on appointment right-click", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const appointment = container.querySelector("[draggable=true]");
-      if (appointment) {
-        fireEvent.contextMenu(appointment);
-        expect(
-          mockHandlers.onDeleteAppointment,
-        ).toHaveBeenCalledExactlyOnceWith(mockAppointments[0]);
-      }
+      assertElement(appointment);
+      fireEvent.contextMenu(appointment);
+      expect(mockHandlers.onDeleteAppointment).toHaveBeenCalledExactlyOnceWith(
+        mockAppointments[0],
+      );
     });
   });
 
@@ -212,33 +212,30 @@ describe("CalendarGrid", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const appointment = container.querySelector("[draggable=true]");
-      if (appointment) {
-        fireEvent.dragStart(appointment);
-        expect(mockHandlers.onDragStart).toHaveBeenCalled();
-      }
+      assertElement(appointment);
+      fireEvent.dragStart(appointment);
+      expect(mockHandlers.onDragStart).toHaveBeenCalled();
     });
 
     test("calls onDragOver when dragging over column", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const column = container.querySelector(".relative.min-h-full");
-      if (column) {
-        fireEvent.dragOver(column);
-        expect(mockHandlers.onDragOver).toHaveBeenCalled();
-      }
+      assertElement(column);
+      fireEvent.dragOver(column);
+      expect(mockHandlers.onDragOver).toHaveBeenCalled();
     });
 
     test("calls onDrop when appointment is dropped", async () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const column = container.querySelector(".relative.min-h-full");
-      if (column) {
-        fireEvent.drop(column);
+      assertElement(column);
+      fireEvent.drop(column);
 
-        await waitFor(() => {
-          expect(mockHandlers.onDrop).toHaveBeenCalled();
-        });
-      }
+      await waitFor(() => {
+        expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
     });
 
     test("renders drag preview when dragging", () => {
@@ -375,10 +372,9 @@ describe("CalendarGrid", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const resizeHandle = container.querySelector(".cursor-ns-resize");
-      if (resizeHandle) {
-        fireEvent.mouseDown(resizeHandle);
-        expect(mockHandlers.onResizeStart).toHaveBeenCalled();
-      }
+      assertElement(resizeHandle);
+      fireEvent.mouseDown(resizeHandle);
+      expect(mockHandlers.onResizeStart).toHaveBeenCalled();
     });
 
     test("renders resize handle for each appointment", () => {

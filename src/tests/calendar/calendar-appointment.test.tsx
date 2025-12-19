@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Appointment } from "../../../src/components/calendar/types";
 
 import { CalendarAppointment } from "../../../src/components/calendar/calendar-appointment";
+import { assertElement } from "../test-utils";
 
 describe("CalendarAppointment", () => {
   const mockAppointment: Appointment = {
@@ -61,24 +62,22 @@ describe("CalendarAppointment", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector(".cursor-move");
 
-    if (appointmentElement) {
-      fireEvent.click(appointmentElement);
-      expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(
-        mockAppointment,
-      );
-    }
+    assertElement(appointmentElement);
+    fireEvent.click(appointmentElement);
+    expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(
+      mockAppointment,
+    );
   });
 
   test("calls onDelete on right-click", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector(".cursor-move");
 
-    if (appointmentElement) {
-      fireEvent.contextMenu(appointmentElement);
-      expect(mockHandlers.onDelete).toHaveBeenCalledExactlyOnceWith(
-        mockAppointment,
-      );
-    }
+    assertElement(appointmentElement);
+    fireEvent.contextMenu(appointmentElement);
+    expect(mockHandlers.onDelete).toHaveBeenCalledExactlyOnceWith(
+      mockAppointment,
+    );
   });
 
   test("is draggable", () => {
@@ -92,20 +91,18 @@ describe("CalendarAppointment", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector("[draggable]");
 
-    if (appointmentElement) {
-      fireEvent.dragStart(appointmentElement);
-      expect(mockHandlers.onDragStart).toHaveBeenCalled();
-    }
+    assertElement(appointmentElement);
+    fireEvent.dragStart(appointmentElement);
+    expect(mockHandlers.onDragStart).toHaveBeenCalled();
   });
 
   test("calls onDragEnd when drag ends", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector("[draggable]");
 
-    if (appointmentElement) {
-      fireEvent.dragEnd(appointmentElement);
-      expect(mockHandlers.onDragEnd).toHaveBeenCalled();
-    }
+    assertElement(appointmentElement);
+    fireEvent.dragEnd(appointmentElement);
+    expect(mockHandlers.onDragEnd).toHaveBeenCalled();
   });
 
   test("applies opacity when dragging", () => {
@@ -160,38 +157,35 @@ describe("CalendarAppointment", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const resizeHandle = container.querySelector(".cursor-ns-resize");
 
-    if (resizeHandle) {
-      fireEvent.mouseDown(resizeHandle);
-      expect(mockHandlers.onResizeStart).toHaveBeenCalledExactlyOnceWith(
-        expect.any(Object),
-        mockAppointment.id,
-        mockAppointment.duration,
-      );
-    }
+    assertElement(resizeHandle);
+    fireEvent.mouseDown(resizeHandle);
+    expect(mockHandlers.onResizeStart).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      mockAppointment.id,
+      mockAppointment.duration,
+    );
   });
 
   test("prevents context menu default behavior", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector(".cursor-move");
 
-    if (appointmentElement) {
-      const event = new MouseEvent("contextmenu", { bubbles: true });
-      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
-      fireEvent(appointmentElement, event);
-      expect(preventDefaultSpy).toHaveBeenCalled();
-    }
+    assertElement(appointmentElement);
+    const event = new MouseEvent("contextmenu", { bubbles: true });
+    const preventDefaultSpy = vi.spyOn(event, "preventDefault");
+    fireEvent(appointmentElement, event);
+    expect(preventDefaultSpy).toHaveBeenCalled();
   });
 
   test("stops propagation on resize handle mousedown", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const resizeHandle = container.querySelector(".cursor-ns-resize");
 
-    if (resizeHandle) {
-      const event = new MouseEvent("mousedown", { bubbles: true });
-      const stopPropagationSpy = vi.spyOn(event, "stopPropagation");
-      fireEvent(resizeHandle, event);
-      expect(stopPropagationSpy).toHaveBeenCalled();
-    }
+    assertElement(resizeHandle);
+    const event = new MouseEvent("mousedown", { bubbles: true });
+    const stopPropagationSpy = vi.spyOn(event, "stopPropagation");
+    fireEvent(resizeHandle, event);
+    expect(stopPropagationSpy).toHaveBeenCalled();
   });
 
   test("handles short appointments with minimum height", () => {

@@ -285,8 +285,8 @@ function PraxisPlanerComponent() {
   const verifyAndSetPermission = useCallback(
     async (
       handle: FileSystemDirectoryHandle | null,
-      withRequest = false,
-      loggingContext = "general",
+      withRequest: boolean,
+      loggingContext: string,
     ): Promise<boolean> => {
       if (!handle) {
         setGdtDirPermission(null);

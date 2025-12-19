@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { CalendarTimeSlots } from "../../../src/components/calendar/calendar-time-slots";
+import { assertElement } from "../test-utils";
 
 describe("CalendarTimeSlots", () => {
   const mockSlotToTime = vi.fn((slot: number) => {
@@ -96,16 +97,14 @@ describe("CalendarTimeSlots", () => {
     );
 
     const indicator = container.querySelector(".border-red-500");
-    expect(indicator).toBeInTheDocument();
+    assertElement(indicator);
 
     // Check CSS custom property
-    if (indicator) {
-      const computedStyle = globalThis.getComputedStyle(indicator);
-      const expectedTop = `${currentTimeSlot * 16}px`;
-      expect(
-        computedStyle.getPropertyValue("--calendar-current-time-top"),
-      ).toBe(expectedTop);
-    }
+    const computedStyle = globalThis.getComputedStyle(indicator);
+    const expectedTop = `${currentTimeSlot * 16}px`;
+    expect(computedStyle.getPropertyValue("--calendar-current-time-top")).toBe(
+      expectedTop,
+    );
   });
 
   test("renders red dot on current time indicator", () => {

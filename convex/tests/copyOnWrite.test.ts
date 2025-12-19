@@ -10,6 +10,7 @@ import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
 import schema from "../schema";
+import { assertDefined } from "./test-utils";
 import { modules } from "./test.setup";
 
 describe("Copy-on-Write Entity Reference Validation", () => {
@@ -378,19 +379,16 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     // Verify that the appointment type IDs in the rule now point to
     // appointment types in the NEW rule set, not the old one
     for (const node of conditionNodes) {
-      if (node.valueIds) {
-        for (const id of node.valueIds) {
-          const appointmentType = await t.run(async (ctx) => {
-            return await ctx.db.get(id as Id<"appointmentTypes">);
-          });
+      // Filter already ensures valueIds exists, but assert for type safety
+      assertDefined(node.valueIds, "valueIds should be defined by filter");
+      for (const id of node.valueIds) {
+        const appointmentType = await t.run(async (ctx) => {
+          return await ctx.db.get(id as Id<"appointmentTypes">);
+        });
 
-          expect(appointmentType).toBeDefined();
-          if (!appointmentType) {
-            throw new Error(`Appointment type ${id} not found`);
-          }
-          expect(appointmentType.ruleSetId).toEqual(unsavedRuleSet._id);
-          // This is the key assertion - the referenced entity belongs to the same rule set
-        }
+        assertDefined(appointmentType, `Appointment type ${id} should exist`);
+        // This is the key assertion - the referenced entity belongs to the same rule set
+        expect(appointmentType.ruleSetId).toEqual(unsavedRuleSet._id);
       }
     }
   });

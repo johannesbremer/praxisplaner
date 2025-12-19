@@ -1413,7 +1413,7 @@ export function useCalendarLogic({
   const convertRealAppointmentToSimulation = useCallback(
     async (
       appointment: Appointment,
-      options: SimulationConversionOptions = {},
+      options: SimulationConversionOptions,
     ): Promise<Appointment | null> => {
       // Early validation checks with specific error messages
       if (appointment.isSimulation) {
@@ -1605,7 +1605,7 @@ export function useCalendarLogic({
   const convertRealBlockedSlotToSimulation = useCallback(
     async (
       blockedSlotId: string,
-      options: BlockedSlotConversionOptions = {},
+      options: BlockedSlotConversionOptions,
     ): Promise<Id<"blockedSlots"> | null> => {
       if (!simulatedContext) {
         return null;

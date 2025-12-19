@@ -9,6 +9,7 @@ import {
   parseGdtLine,
   validateGdtContent,
 } from "../../convex/gdt/validation";
+import { assertInvalidResult } from "./test-utils";
 
 // TODO: extractPatientData logic is now inline in praxisplaner.tsx
 // This is a temporary stub so tests still compile
@@ -643,24 +644,16 @@ toolshort`;
         "abc80006310\n014300012345\n0158402BDM_01\n014921802.10";
 
       const validation = validateGdtContent(corruptedGdt);
-      expect(validation.isValid).toBe(false);
-      if (!validation.isValid) {
-        expect((validation as { error: { type: string } }).error.type).toBe(
-          GDT_ERROR_TYPES.PARSE_ERROR,
-        );
-      }
+      assertInvalidResult(validation);
+      expect(validation.error.type).toBe(GDT_ERROR_TYPES.PARSE_ERROR);
     });
 
     test("should handle GDT file with line too short", () => {
       const corruptedGdt = "0138000\n014300012345\n0158402BDM_01\n014921802.10";
 
       const validation = validateGdtContent(corruptedGdt);
-      expect(validation.isValid).toBe(false);
-      if (!validation.isValid) {
-        expect((validation as { error: { type: string } }).error.type).toBe(
-          GDT_ERROR_TYPES.PARSE_ERROR,
-        );
-      }
+      assertInvalidResult(validation);
+      expect(validation.error.type).toBe(GDT_ERROR_TYPES.PARSE_ERROR);
     });
 
     test("should handle GDT file with wrong field order", () => {
@@ -669,12 +662,8 @@ toolshort`;
         "0158402BDM_01\n01380006310\n014300012345\n014921802.10";
 
       const validation = validateGdtContent(wrongOrderGdt);
-      expect(validation.isValid).toBe(false);
-      if (!validation.isValid) {
-        expect((validation as { error: { field: string } }).error.field).toBe(
-          "SATZ_START",
-        );
-      }
+      assertInvalidResult(validation);
+      expect(validation.error.field).toBe("SATZ_START");
     });
 
     test("should handle GDT file with special characters in patient names", () => {
@@ -722,12 +711,9 @@ toolshort`;
       const zeroIdGdt = "01380006310\n01030001\n0158402BDM_01\n014921802.10";
 
       const validation = validateGdtContent(zeroIdGdt);
-      expect(validation.isValid).toBe(false);
-      if (!validation.isValid) {
-        expect((validation as { error: { field: string } }).error.field).toBe(
-          "PATIENT_ID",
-        ); // Should fail because patient ID field is missing (wrong field ID)
-      }
+      assertInvalidResult(validation);
+      // Should fail because patient ID field is missing (wrong field ID)
+      expect(validation.error.field).toBe("PATIENT_ID");
     });
 
     test("should handle GDT file with valid zero patient ID", () => {
@@ -754,12 +740,9 @@ toolshort`;
       const invalidLinesGdt = "01380006310\ninvalid\ntoo_short\nabc123def";
 
       const validation = validateGdtContent(invalidLinesGdt);
-      expect(validation.isValid).toBe(false);
-      if (!validation.isValid) {
-        expect((validation as { error: { field: string } }).error.field).toBe(
-          "PATIENT_ID",
-        ); // Should fail on missing required fields
-      }
+      assertInvalidResult(validation);
+      // Should fail on missing required fields
+      expect(validation.error.field).toBe("PATIENT_ID");
     });
   });
 });
