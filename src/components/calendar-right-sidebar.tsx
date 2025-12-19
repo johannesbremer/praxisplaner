@@ -332,6 +332,9 @@ function RightSidebarContent({
                             <p className="font-medium truncate">
                               {appointment.title}
                             </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {appointment.appointmentTypeTitle}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {formatAppointmentDateTime(appointment.start)}
                             </p>

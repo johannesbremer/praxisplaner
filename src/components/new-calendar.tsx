@@ -104,6 +104,11 @@ export function NewCalendar({
     Id<"appointmentTypes"> | undefined
   >();
 
+  // State for pending appointment title (set by sidebar modal before manual placement)
+  const [pendingAppointmentTitle, setPendingAppointmentTitle] = useState<
+    string | undefined
+  >();
+
   // State for selected appointment (shown with blue border)
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<
     Id<"appointments"> | undefined
@@ -189,6 +194,7 @@ export function NewCalendar({
     }, []),
     onUpdateSimulatedContext,
     patient,
+    pendingAppointmentTitle,
     practiceId: propPracticeId,
     ruleSetId,
     scrollContainerRef: calendarScrollContainerRef,
@@ -322,6 +328,8 @@ export function NewCalendar({
         toast.success("Termin erfolgreich erstellt");
         setPatientSelectionModalOpen(false);
         setPendingAppointmentData(null);
+        // Clear the pending title after successful appointment creation
+        setPendingAppointmentTitle(undefined);
       } catch {
         toast.error("Fehler beim Erstellen des Termins");
       }
@@ -358,6 +366,8 @@ export function NewCalendar({
         toast.success("Termin erfolgreich erstellt");
         setPatientSelectionModalOpen(false);
         setPendingAppointmentData(null);
+        // Clear the pending title after successful appointment creation
+        setPendingAppointmentTitle(undefined);
       } catch {
         toast.error("Fehler beim Erstellen des Termins");
       }
@@ -491,6 +501,7 @@ export function NewCalendar({
         onDateChange: handleDateChange,
         onLocationResolved,
         onLocationSelect: handleLocationSelect,
+        onPendingTitleChange: setPendingAppointmentTitle,
         onUpdateSimulatedContext,
         practiceId: practiceId ?? undefined,
         ruleSetId,

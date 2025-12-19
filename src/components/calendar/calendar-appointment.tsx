@@ -75,6 +75,7 @@ export function CalendarAppointment({
       }
     >
       <CalendarItemContent
+        appointmentTypeTitle={appointment.appointmentTypeTitle}
         patientName={appointment.patientName}
         slotCount={slotCount}
         startTime={appointment.startTime}

@@ -48,6 +48,7 @@ export function useCalendarLogic({
   onPatientRequired,
   onUpdateSimulatedContext,
   patient,
+  pendingAppointmentTitle,
   practiceId: propPracticeId,
   ruleSetId,
   scrollContainerRef,
@@ -383,12 +384,13 @@ export function useCalendarLogic({
           const appointmentTypeInfo = appointmentTypeMap.get(
             optimisticArgs.appointmentTypeId,
           );
-          const title = appointmentTypeInfo?.name ?? "Termin";
+          const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
 
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
             _id: tempId,
             appointmentTypeId: optimisticArgs.appointmentTypeId,
+            appointmentTypeTitle,
             createdAt: BigInt(now),
             end: optimisticArgs.end,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -396,7 +398,7 @@ export function useCalendarLogic({
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
-            title,
+            title: optimisticArgs.title,
           };
 
           if (optimisticArgs.practitionerId !== undefined) {
@@ -854,6 +856,7 @@ export function useCalendarLogic({
         }
 
         return {
+          appointmentTypeTitle: appointment.appointmentTypeTitle,
           color:
             APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
             "bg-gray-500",
@@ -1527,6 +1530,7 @@ export function useCalendarLogic({
           practiceId,
           replacesAppointmentId: appointment.convexId,
           start: startISO,
+          title: appointment.resource.title ?? appointment.title,
         };
 
         // Add optional fields only if they exist
@@ -2133,6 +2137,14 @@ export function useCalendarLogic({
         const startISO = startZoned.toString();
         const endISO = endZoned.toString();
 
+        // Get appointment type name for fallback title
+        const appointmentTypeInfo = appointmentTypeMap.get(
+          simulatedContext.appointmentTypeId,
+        );
+        const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
+        // Use pending title from sidebar if available, otherwise fall back to appointment type name
+        const title = pendingAppointmentTitle || appointmentTypeTitle;
+
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
           end: endISO,
@@ -2144,6 +2156,7 @@ export function useCalendarLogic({
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
+          title,
         });
       } else {
         // Create real appointment - require appointment type to be selected
@@ -2184,6 +2197,14 @@ export function useCalendarLogic({
         const startISO = startZoned.toString();
         const endISO = endZoned.toString();
 
+        // Get appointment type name for fallback title
+        const appointmentTypeInfo = appointmentTypeMap.get(
+          selectedAppointmentTypeId,
+        );
+        const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
+        // Use pending title from sidebar if available, otherwise fall back to appointment type name
+        const title = pendingAppointmentTitle || appointmentTypeTitle;
+
         // Check if we have a patient - if not, ask for patient selection
         if (!patient?.convexPatientId) {
           if (onPatientRequired) {
@@ -2195,6 +2216,7 @@ export function useCalendarLogic({
               practiceId,
               ...(practitioner && { practitionerId: practitioner.id }),
               start: startISO,
+              title,
             });
             return;
           } else {
@@ -2215,6 +2237,7 @@ export function useCalendarLogic({
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
+          title,
         });
       }
     }

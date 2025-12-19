@@ -8,13 +8,14 @@ const baseAppointment: Doc<"appointments"> = {
   _creationTime: 0,
   _id: "appointment-base" as Id<"appointments">,
   appointmentTypeId: "appointmentType1" as Id<"appointmentTypes">,
+  appointmentTypeTitle: "Erstgespräch",
   createdAt: 0n,
   end: "2024-01-15T11:00:00Z",
   lastModified: 0n,
   locationId: "location1" as Id<"locations">,
   practiceId: "practice1" as Id<"practices">,
   start: "2024-01-15T10:00:00Z",
-  title: "Initial Consultation", // Snapshot of appointment type name at booking time
+  title: "Initial Consultation",
 };
 
 const createAppointment = (

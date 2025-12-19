@@ -19,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
 import type { PatientInfo } from "../types";
@@ -39,6 +41,7 @@ interface StaffAppointmentCreationModalProps {
       | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
   ) => void;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
+  onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   open: boolean;
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
@@ -54,6 +57,7 @@ interface StaffAppointmentCreationModalProps {
     replacesAppointmentId?: Id<"appointments">;
     start: string;
     temporaryPatientId?: Id<"temporaryPatients">;
+    title: string;
   }) => Promise<Id<"appointments"> | undefined>;
 }
 
@@ -62,6 +66,7 @@ export function StaffAppointmentCreationModal({
   locationId,
   onAppointmentCreated,
   onOpenChange,
+  onPendingTitleChange,
   open,
   patient,
   practiceId,
@@ -69,6 +74,7 @@ export function StaffAppointmentCreationModal({
   runCreateAppointment: runCreateAppointmentProp,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
+  const [title, setTitle] = useState("");
   const [showPatientSelectionModal, setShowPatientSelectionModal] =
     useState(false);
   const [selectedPatient, setSelectedPatient] =
@@ -173,6 +179,7 @@ export function StaffAppointmentCreationModal({
         practitionerId: nextAvailableSlot.practitionerId,
         start: startZoned.toString(),
         ...(temporaryPatientId && { temporaryPatientId }),
+        title,
       });
 
       // Notify about the created appointment for selection
@@ -196,6 +203,7 @@ export function StaffAppointmentCreationModal({
       onOpenChange(false, true);
       setMode(null);
       setSelectedPatient(null);
+      setTitle("");
       form.reset();
     } catch (error) {
       captureErrorGlobal(error, {
@@ -225,6 +233,7 @@ export function StaffAppointmentCreationModal({
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
     setSelectedPatient(null);
+    setTitle("");
     form.reset();
   };
 
@@ -271,6 +280,7 @@ export function StaffAppointmentCreationModal({
           practiceId,
           practitionerId: nextAvailableSlot.practitionerId,
           start: startZoned.toString(),
+          title,
         });
 
         // Notify about the created appointment for selection
@@ -306,6 +316,7 @@ export function StaffAppointmentCreationModal({
     practiceId,
     runCreateAppointment,
     showPatientSelectionModal,
+    title,
   ]);
 
   return (
@@ -403,9 +414,21 @@ export function StaffAppointmentCreationModal({
               </DialogHeader>
 
               <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-title">Titel</Label>
+                  <Input
+                    id="appointment-title"
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                    }}
+                    placeholder="z.B. Kontrolluntersuchung"
+                    value={title}
+                  />
+                </div>
+
                 <Button
                   className="w-full justify-start"
-                  disabled={!nextAvailableSlot}
+                  disabled={!nextAvailableSlot || !title.trim()}
                   onClick={() => {
                     setMode("next");
                   }}
@@ -432,8 +455,10 @@ export function StaffAppointmentCreationModal({
 
                 <Button
                   className="w-full justify-start"
-                  disabled={availableSlots === undefined}
+                  disabled={availableSlots === undefined || !title.trim()}
                   onClick={() => {
+                    // Pass the title to the calendar for manual placement
+                    onPendingTitleChange?.(title.trim());
                     // Close modal but keep appointment type selected for manual placement
                     handleClose(false);
                   }}

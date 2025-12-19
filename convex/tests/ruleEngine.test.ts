@@ -236,6 +236,7 @@ async function createAppointment(
 
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeId,
+      appointmentTypeTitle: appointmentType.name,
       createdAt: BigInt(Date.now()),
       end: endZoned.toString(),
       lastModified: BigInt(Date.now()),
@@ -243,7 +244,7 @@ async function createAppointment(
       practiceId,
       practitionerId,
       start: startZoned.toString(),
-      title: appointmentType.name, // Store appointment type name at booking time
+      title: appointmentType.name, // Default title is the appointment type name
     });
     return appointmentId;
   });

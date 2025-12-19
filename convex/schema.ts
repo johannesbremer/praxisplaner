@@ -6,10 +6,11 @@ export default defineSchema({
     // Core appointment fields
     end: v.string(), // ISO datetime string
     start: v.string(), // ISO datetime string
-    title: v.string(), // Snapshot of appointment type name at booking time
+    title: v.string(), // User-provided title for the appointment
 
     // Additional fields
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
+    appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")), // Real patient from PVS
