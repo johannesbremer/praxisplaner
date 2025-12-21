@@ -199,7 +199,7 @@ Note: `paginationOpts` is an object with the following properties:
 ## Schema guidelines
 
 - Always define your schema in `convex/schema.ts`.
-- Always import the schema definition functions from `convex/server`:
+- Always import the schema definition functions from `convex/server`.
 - System fields are automatically added to all documents and are prefixed with an underscore. The two system fields that are automatically added to all documents are `_creationTime` which has the validator `v.number()` and `_id` which has the validator `v.id(tableName)`.
 - Always include all index fields in the index name. For example, if an index is defined as `["field1", "field2"]`, the index name should be "by_field1_and_field2".
 - Index fields must be queried in the same order they are defined. If you want to be able to query by "field1" then "field2" and by "field2" then "field1", you must create separate indexes.
@@ -219,7 +219,7 @@ export const exampleQuery = query({
   handler: async (ctx, args) => {
     const idToUsername: Record<Id<"users">, string> = {};
     for (const userId of args.userIds) {
-      const user = await ctx.db.get(userId);
+      const user = await ctx.db.get("users", userId);
       if (user) {
         idToUsername[user._id] = user.username;
       }
@@ -262,8 +262,8 @@ q.search("body", "hello hi").eq("channel", "#general"),
 
 ## Mutation guidelines
 
-- Use `ctx.db.replace` to fully replace an existing document. This method will throw an error if the document does not exist.
-- Use `ctx.db.patch` to shallow merge updates into an existing document. This method will throw an error if the document does not exist.
+- Use `ctx.db.replace` to fully replace an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.replace('tasks', taskId, { name: 'Buy milk', completed: false })`
+- Use `ctx.db.patch` to shallow merge updates into an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.patch('tasks', taskId, { completed: true })`
 
 ## Action guidelines
 
@@ -340,7 +340,7 @@ export const exampleQuery = query({
     args: { fileId: v.id("_storage") },
     returns: v.null(),
     handler: async (ctx, args) => {
-        const metadata: FileMetadata | null = await ctx.db.system.get(args.fileId);
+        const metadata: FileMetadata | null = await ctx.db.system.get("_storage", args.fileId);
         console.log(metadata);
         return null;
     },
@@ -477,7 +477,7 @@ Internal Functions:
   "description": "This example shows how to build a chat app without authentication.",
   "version": "1.0.0",
   "dependencies": {
-    "convex": "^1.17.4",
+    "convex": "^1.31.2",
     "openai": "^4.79.0"
   },
   "devDependencies": {
@@ -587,11 +587,11 @@ export const sendMessage = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const channel = await ctx.db.get(args.channelId);
+    const channel = await ctx.db.get("channels", args.channelId);
     if (!channel) {
       throw new Error("Channel not found");
     }
-    const user = await ctx.db.get(args.authorId);
+    const user = await ctx.db.get("users", args.authorId);
     if (!user) {
       throw new Error("User not found");
     }
@@ -645,7 +645,7 @@ export const loadContext = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const channel = await ctx.db.get(args.channelId);
+    const channel = await ctx.db.get("channels", args.channelId);
     if (!channel) {
       throw new Error("Channel not found");
     }
@@ -658,7 +658,7 @@ export const loadContext = internalQuery({
     const result = [];
     for (const message of messages) {
       if (message.authorId) {
-        const user = await ctx.db.get(message.authorId);
+        const user = await ctx.db.get("users", message.authorId);
         if (!user) {
           throw new Error("User not found");
         }
