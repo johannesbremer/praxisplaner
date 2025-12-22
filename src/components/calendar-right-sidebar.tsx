@@ -27,6 +27,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { PatientInfo } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
+import { formatZonedDateTimeDE } from "../utils/date-utils";
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = Doc<"appointments">;
@@ -386,27 +387,4 @@ function formatGermanDate(dateString: string) {
 }
 
 // Helper to format appointment date/time for the list in German
-// Handles both ISO strings and Temporal strings with timezone suffix
-function formatAppointmentDateTime(dateTimeString: string) {
-  // Remove Temporal timezone suffix like [Europe/Berlin] if present
-  const cleanedString = dateTimeString.replace(/\[.*\]$/, "");
-  const date = new Date(cleanedString);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateTimeString;
-  }
-
-  const dateStr = date.toLocaleDateString("de-DE", {
-    day: "numeric",
-    month: "short",
-    weekday: "short",
-    year: "numeric",
-  });
-
-  const timeStr = date.toLocaleTimeString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  return `${dateStr}, ${timeStr} Uhr`;
-}
+const formatAppointmentDateTime = formatZonedDateTimeDE;

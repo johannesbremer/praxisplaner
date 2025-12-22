@@ -12,7 +12,7 @@ import { NewCalendar } from "./new-calendar";
 
 interface PraxisCalendarProps {
   // Notify parent when the current date changes
-  locationSlug?: string | undefined;
+  locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)

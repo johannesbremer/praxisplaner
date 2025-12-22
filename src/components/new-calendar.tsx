@@ -84,7 +84,7 @@ function CalendarGridWithSidebarOpening({
 
 // Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
-  locationSlug,
+  locationName,
   onDateChange,
   onLocationResolved,
   onUpdateSimulatedContext,
@@ -185,7 +185,7 @@ export function NewCalendar({
     totalSlots,
     workingPractitioners,
   } = useCalendarLogic({
-    locationSlug,
+    locationName,
     onDateChange,
     onLocationResolved,
     onPatientRequired: useCallback((data: PendingAppointmentData) => {

@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { slugify } from "./slug";
+import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
 
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
@@ -25,13 +25,13 @@ interface LocationSummary {
 }
 
 interface RegelnNavigationState {
-  dateYmd?: string | undefined;
-  locationSlug?: string | undefined;
+  dateDE?: string | undefined;
+  locationName?: string | undefined;
   patientTypeSegment?:
     | typeof EXISTING_PATIENT_SEGMENT
     | typeof NEW_PATIENT_SEGMENT
     | undefined;
-  ruleSetSlug?: string | undefined;
+  ruleSetId?: string | undefined;
   tabParam?: RegelnTabParam | undefined;
 }
 
@@ -49,26 +49,19 @@ export function buildRegelnSearchFromState(
   if (state.tabParam) {
     search.tab = state.tabParam;
   }
-  if (state.locationSlug) {
-    search.standort = state.locationSlug;
+  if (state.locationName) {
+    search.standort = state.locationName;
   }
-  if (state.dateYmd) {
-    search.datum = state.dateYmd;
+  if (state.dateDE) {
+    search.datum = state.dateDE;
   }
   if (state.patientTypeSegment) {
     search.patientType = state.patientTypeSegment;
   }
-  if (state.ruleSetSlug) {
-    search.regelwerk = state.ruleSetSlug;
+  if (state.ruleSetId) {
+    search.regelwerk = state.ruleSetId;
   }
   return search;
-}
-
-export function formatYmd(dt: Date): string {
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const d = String(dt.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 export function internalTabToParam(tab: RegelnTab): RegelnTabParam {
@@ -76,33 +69,6 @@ export function internalTabToParam(tab: RegelnTab): RegelnTabParam {
     return "mitarbeiter";
   }
   return undefined;
-}
-
-export function isToday(dt?: Date): boolean {
-  if (!dt) {
-    return true;
-  }
-  const now = new Date();
-  return (
-    dt.getFullYear() === now.getFullYear() &&
-    dt.getMonth() === now.getMonth() &&
-    dt.getDate() === now.getDate()
-  );
-}
-
-export function parseYmd(ymd?: string): Date | undefined {
-  if (!ymd) {
-    return undefined;
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-    return undefined;
-  }
-  const [ys, ms, ds] = ymd.split("-");
-  const y = Number(ys);
-  const m = Number(ms);
-  const d = Number(ds);
-  const dt = new Date(y, m - 1, d);
-  return Number.isNaN(dt.getTime()) ? undefined : dt;
 }
 
 export function tabParamToInternal(tabParam?: string): RegelnTab {
@@ -124,7 +90,10 @@ export function useRegelnUrl(options: {
 
   const currentRouteState = fromSearchParams(routeSearch);
   const activeTab = tabParamToInternal(currentRouteState.tabParam);
-  const selectedDate = parseYmd(currentRouteState.dateYmd) ?? new Date();
+  const parsedDate = currentRouteState.dateDE
+    ? parseJSDateDE(currentRouteState.dateDE)
+    : null;
+  const selectedDate = parsedDate?.ok ? parsedDate.value : new Date();
   const isNewPatient =
     currentRouteState.patientTypeSegment !== EXISTING_PATIENT_SEGMENT;
   function navigateWithOptionalParams(
@@ -143,55 +112,52 @@ export function useRegelnUrl(options: {
     });
   }
 
-  // Map ruleSet slug -> id
+  // Map ruleSet ID from URL
   const ruleSetIdFromUrl: Id<"ruleSets"> | undefined = (() => {
-    if (!currentRouteState.ruleSetSlug) {
+    if (!currentRouteState.ruleSetId) {
       return;
     }
-    if (currentRouteState.ruleSetSlug === "ungespeichert") {
+    if (currentRouteState.ruleSetId === "ungespeichert") {
       return options.unsavedRuleSet?._id;
     }
     // Use ID directly - IDs are unique and prevent collisions
     const found = options.ruleSetsQuery?.find(
-      (rs) => rs._id === currentRouteState.ruleSetSlug,
+      (rs) => rs._id === currentRouteState.ruleSetId,
     );
     return found?._id;
   })();
 
-  // Map location slug -> id
+  // Map location name from URL -> id
   const locationIdFromUrl: Id<"locations"> | undefined = (() => {
-    if (!currentRouteState.locationSlug) {
+    if (!currentRouteState.locationName) {
       return;
     }
     const foundLoc = options.locationsListQuery?.find(
-      (l) => slugify(l.name) === currentRouteState.locationSlug,
+      (l) => l.name === currentRouteState.locationName,
     );
     return foundLoc?._id;
   })();
 
-  function getRuleSetSlugFromId(
-    id: Id<"ruleSets"> | undefined,
-  ): string | undefined {
+  function toUrlRuleSetId(id: Id<"ruleSets"> | undefined): string | undefined {
     if (!id) {
       return undefined;
     }
     if (options.unsavedRuleSet?._id === id) {
       return "ungespeichert";
     }
-    // Return the ID directly instead of slugified description
-    // This ensures uniqueness when multiple rule sets have the same name
+    // Return the ID directly - IDs are unique and prevent collisions
     const found = options.ruleSetsQuery?.find((rs) => rs._id === id);
     return found ? found._id : undefined;
   }
 
-  function getLocationSlugFromId(
+  function toUrlLocationName(
     id: Id<"locations"> | undefined,
   ): string | undefined {
     if (!id) {
       return undefined;
     }
     const loc = options.locationsListQuery?.find((l) => l._id === id);
-    return loc ? slugify(loc.name) : undefined;
+    return loc?.name;
   }
 
   function pushUrl(overrides: {
@@ -203,42 +169,42 @@ export function useRegelnUrl(options: {
   }) {
     const nextTabParam = internalTabToParam(overrides.tab ?? activeTab);
 
-    // Only convert to slug if we have an explicit override
-    // Otherwise preserve the current slug directly to avoid query dependency issues
-    const targetRuleSetSlug =
+    // Only convert to ID if we have an explicit override
+    // Otherwise preserve the current value directly to avoid query dependency issues
+    const targetRuleSetId =
       overrides.ruleSetId === undefined
-        ? currentRouteState.ruleSetSlug
-        : getRuleSetSlugFromId(overrides.ruleSetId); // Preserve current slug directly
+        ? currentRouteState.ruleSetId
+        : toUrlRuleSetId(overrides.ruleSetId);
 
     const targetIsNew = overrides.isNewPatient ?? isNewPatient;
     const patientTypeSegment = targetIsNew
       ? undefined
       : EXISTING_PATIENT_SEGMENT;
 
-    // Only convert to slug if we have an explicit override
-    // Otherwise preserve the current slug directly to avoid query dependency issues
-    const targetLocationSlug =
+    // Only convert to name if we have an explicit override
+    // Otherwise preserve the current value directly to avoid query dependency issues
+    const targetLocationName =
       overrides.locationId === undefined
-        ? currentRouteState.locationSlug
-        : getLocationSlugFromId(overrides.locationId); // Preserve current slug directly
+        ? currentRouteState.locationName
+        : toUrlLocationName(overrides.locationId);
 
     const dateToUse = overrides.date ?? selectedDate;
-    let dateYmd = isToday(dateToUse) ? undefined : formatYmd(dateToUse);
+    let dateDE = isTodayJS(dateToUse) ? undefined : formatJSDateDE(dateToUse);
     if (
-      !dateYmd &&
+      !dateDE &&
       (nextTabParam !== undefined ||
-        targetRuleSetSlug !== undefined ||
+        targetRuleSetId !== undefined ||
         patientTypeSegment !== undefined ||
-        targetLocationSlug !== undefined)
+        targetLocationName !== undefined)
     ) {
-      dateYmd = formatYmd(dateToUse);
+      dateDE = formatJSDateDE(dateToUse);
     }
 
     navigateWithOptionalParams({
-      dateYmd,
-      locationSlug: targetLocationSlug,
+      dateDE,
+      locationName: targetLocationName,
       patientTypeSegment,
-      ruleSetSlug: targetRuleSetSlug,
+      ruleSetId: targetRuleSetId,
       tabParam: nextTabParam,
     });
   }
@@ -253,10 +219,10 @@ export function useRegelnUrl(options: {
   return {
     // raw params
     raw: {
-      datum: currentRouteState.dateYmd,
+      datum: currentRouteState.dateDE,
       patientType: currentRouteState.patientTypeSegment,
-      ruleSet: currentRouteState.ruleSetSlug,
-      standort: currentRouteState.locationSlug,
+      ruleSet: currentRouteState.ruleSetId,
+      standort: currentRouteState.locationName,
       tab: currentRouteState.tabParam,
     },
     // derived state
@@ -281,10 +247,10 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
   }
 
   return {
-    dateYmd: params.datum,
-    locationSlug: params.standort,
+    dateDE: params.datum,
+    locationName: params.standort,
     patientTypeSegment,
-    ruleSetSlug: params.regelwerk,
+    ruleSetId: params.regelwerk,
     tabParam: params.tab,
   };
 }

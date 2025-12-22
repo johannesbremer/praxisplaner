@@ -10,7 +10,6 @@ import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { captureErrorGlobal } from "../../utils/error-tracking";
-import { slugify } from "../../utils/slug";
 import {
   formatTime,
   safeParseISOToPlainDate,
@@ -42,7 +41,7 @@ function handleEditBlockedSlot(
  * Deep comparison of appointment arrays.
  */
 export function useCalendarLogic({
-  locationSlug,
+  locationName,
   onDateChange,
   onLocationResolved,
   onPatientRequired,
@@ -548,10 +547,10 @@ export function useCalendarLogic({
     [updateBlockedSlotMutation, blockedSlotsQueryArgs],
   );
 
-  // Resolve location slug from URL
+  // Resolve location name from URL
   useEffect(() => {
     if (
-      !locationSlug ||
+      !locationName ||
       !locationsData ||
       selectedLocationId ||
       hasResolvedLocationRef.current
@@ -559,7 +558,7 @@ export function useCalendarLogic({
       return;
     }
     const match = locationsData.find(
-      (l: { name: string }) => slugify(l.name) === locationSlug,
+      (l: { name: string }) => l.name === locationName,
     );
     if (match) {
       hasResolvedLocationRef.current = true;
@@ -571,7 +570,7 @@ export function useCalendarLogic({
         }
       });
     }
-  }, [locationSlug, locationsData, onLocationResolved, selectedLocationId]);
+  }, [locationName, locationsData, onLocationResolved, selectedLocationId]);
 
   // Sync selected date with simulation date during render
   const [prevSimulationDate, setPrevSimulationDate] = useState(simulationDate);

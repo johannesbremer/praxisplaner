@@ -1,4 +1,4 @@
-export const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+import { isValidDateDE } from "./date-utils";
 
 export const NERDS_TAB_SEARCH_VALUE = "nerds" as const;
 
@@ -10,15 +10,12 @@ export interface PraxisplanerSearchParams {
 
 export type PraxisplanerTabParam = typeof NERDS_TAB_SEARCH_VALUE;
 
-const isValidDateString = (value: unknown): value is string =>
-  typeof value === "string" && DATE_REGEX.test(value);
-
 export const normalizePraxisplanerSearch = (
   search: Record<string, unknown>,
 ): PraxisplanerSearchParams => {
   const params: PraxisplanerSearchParams = {};
 
-  if (isValidDateString(search["datum"])) {
+  if (isValidDateDE(search["datum"])) {
     params.datum = search["datum"];
   }
 

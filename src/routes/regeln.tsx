@@ -55,6 +55,7 @@ import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
+import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
   EXISTING_PATIENT_SEGMENT,
@@ -82,10 +83,7 @@ export const Route = createFileRoute("/regeln")({
       result.standort = params["standort"];
     }
 
-    if (
-      typeof params["datum"] === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(params["datum"])
-    ) {
+    if (isValidDateDE(params["datum"])) {
       result.datum = params["datum"];
     }
 
@@ -116,7 +114,6 @@ interface SaveDialogFormProps {
 
 type SimulatedContext = SchedulingSimulatedContext;
 
-// Helper: slugify German names to URL-safe strings
 function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
   // URL is the source of truth. No local tab/date/patientType/ruleSet state.
@@ -332,15 +329,15 @@ function LogicView() {
   // We'll do a preliminary calculation to fetch locations
   const preliminarySelectedRuleSet = useMemo(() => {
     // We need to extract ruleSetIdFromUrl logic inline here to avoid circular dependency
-    const ruleSetSlug = routeSearch.regelwerk;
-    if (!ruleSetSlug) {
+    const ruleSetId = routeSearch.regelwerk;
+    if (!ruleSetId) {
       return;
     }
-    if (ruleSetSlug === "ungespeichert") {
+    if (ruleSetId === "ungespeichert") {
       return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
     }
     // Match by ID directly - IDs are unique and prevent collisions
-    return ruleSetsWithActive?.find((rs) => rs._id === ruleSetSlug);
+    return ruleSetsWithActive?.find((rs) => rs._id === ruleSetId);
   }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
 
   const preliminaryWorkingRuleSet = useMemo(
@@ -1229,8 +1226,6 @@ function SaveDialogForm({
     </form>
   );
 }
-
-// slugify moved to shared util
 
 // Simulation Controls Component - Extracted from SimulationPanel
 function SimulationControls({

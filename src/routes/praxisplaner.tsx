@@ -40,41 +40,21 @@ import {
   isFileSystemObserverSupported,
   SafeFileSystemObserver,
 } from "../utils/browser-api";
+import {
+  formatDateDE,
+  getToday,
+  isToday,
+  parseDateDE,
+} from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
-  DATE_REGEX,
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
   type PraxisplanerSearchParams,
 } from "../utils/praxisplaner-search";
-import { slugify } from "../utils/slug";
 
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
-
-const parseYmd = (ymd?: string): Temporal.PlainDate | undefined => {
-  if (!ymd || !DATE_REGEX.test(ymd)) {
-    return undefined;
-  }
-
-  try {
-    return Temporal.PlainDate.from(ymd); // ISO format: YYYY-MM-DD
-  } catch {
-    return undefined;
-  }
-};
-
-const formatYmd = (dt: Temporal.PlainDate): string => {
-  return dt.toString(); // Returns YYYY-MM-DD
-};
-
-const isToday = (dt?: Temporal.PlainDate) => {
-  if (!dt) {
-    return true;
-  }
-  const now = Temporal.Now.plainDateISO("Europe/Berlin");
-  return Temporal.PlainDate.compare(dt, now) === 0;
-};
 
 const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
   tab === NERDS_TAB_SEARCH_VALUE ? SETTINGS_TAB : CALENDAR_TAB;
@@ -88,7 +68,7 @@ const buildSearchFromState = (
     return { tab: NERDS_TAB_SEARCH_VALUE };
   }
 
-  const dateOut = isToday(date) ? undefined : formatYmd(date);
+  const dateOut = isToday(date) ? undefined : formatDateDE(date);
   const result: PraxisplanerSearchParams = {};
 
   if (dateOut) {
@@ -143,15 +123,12 @@ function PraxisPlanerComponent() {
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
 
-  // Find selected location based on slug in URL
+  // Find selected location based on name in URL
   const selectedLocation = useMemo(() => {
     if (!standortParam || !locationsData) {
       return;
     }
-    return locationsData.find((loc) => {
-      const slug = slugify(loc.name);
-      return slug === standortParam;
-    });
+    return locationsData.find((loc) => loc.name === standortParam);
   }, [standortParam, locationsData]);
 
   const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
@@ -166,10 +143,10 @@ function PraxisPlanerComponent() {
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
-  const selectedDate = useMemo(
-    () => parseYmd(dateParam) ?? Temporal.Now.plainDateISO("Europe/Berlin"),
-    [dateParam],
-  );
+  const selectedDate = useMemo(() => {
+    const result = dateParam ? parseDateDE(dateParam) : null;
+    return result?.ok ? result.value : getToday();
+  }, [dateParam]);
   const [activeTab, setActiveTab] = useState<string>(() =>
     tabFromSearch(tabParam),
   );
@@ -254,8 +231,7 @@ function PraxisPlanerComponent() {
   // Handle location selection from calendar
   const handleLocationResolved = useCallback(
     (_locationId: Id<"locations">, locationName: string) => {
-      const slug = slugify(locationName);
-      pushParams(selectedDate, activeTab, slug);
+      pushParams(selectedDate, activeTab, locationName);
     },
     [activeTab, pushParams, selectedDate],
   );

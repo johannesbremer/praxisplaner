@@ -36,7 +36,7 @@ export interface Appointment {
  * Used when patient selection is deferred (e.g., when creating via grid click without a patient selected).
  */
 export interface NewCalendarProps {
-  locationSlug?: string | undefined;
+  locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
