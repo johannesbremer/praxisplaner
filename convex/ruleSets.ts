@@ -1,4 +1,7 @@
-import type { GenericDatabaseWriter } from "convex/server";
+import type {
+  GenericDatabaseReader,
+  GenericDatabaseWriter,
+} from "convex/server";
 
 import { v } from "convex/values";
 
@@ -6,13 +9,33 @@ import type { DataModel, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
 // ================================
 // HELPER FUNCTIONS
 // ================================
 
-// Type alias for cleaner code
+// Type aliases for cleaner code
+type DatabaseReader = GenericDatabaseReader<DataModel>;
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
+
+/**
+ * Get existing saved descriptions for a practice.
+ * Used for validation.
+ */
+async function getExistingSavedDescriptions(
+  db: DatabaseReader,
+  practiceId: Id<"practices">,
+): Promise<string[]> {
+  const existingRuleSets = await db
+    .query("ruleSets")
+    .withIndex("by_practiceId_saved", (q) =>
+      q.eq("practiceId", practiceId).eq("saved", true),
+    )
+    .collect();
+
+  return existingRuleSets.map((rs) => rs.description);
+}
 
 /**
  * Delete appointment types by ruleSetId in batches.
@@ -142,6 +165,7 @@ async function deleteRuleConditionsByRuleSet(
  * Saves an unsaved rule set by setting saved=true and updating the description.
  *
  * This is the EXIT POINT after making all desired changes.
+ * - Validates that the description is valid and unique
  * - Validates that the rule set is currently unsaved
  * - Updates description and sets saved=true
  * - Optionally sets this as the active rule set for the practice
@@ -153,6 +177,24 @@ export const saveUnsavedRuleSet = mutation({
     setAsActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const trimmedDescription = args.description.trim();
+
+    // Get existing saved descriptions for validation
+    const existingDescriptions = await getExistingSavedDescriptions(
+      ctx.db,
+      args.practiceId,
+    );
+
+    // Validate the description using shared validation logic
+    const validationResult = validateRuleSetDescriptionSync(
+      trimmedDescription,
+      existingDescriptions,
+    );
+
+    if (!validationResult.isValid) {
+      throw new Error(validationResult.error);
+    }
+
     // Find the unsaved rule set
     const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
 
@@ -167,7 +209,7 @@ export const saveUnsavedRuleSet = mutation({
 
     // Update to saved state
     await ctx.db.patch("ruleSets", unsavedRuleSet._id, {
-      description: args.description,
+      description: trimmedDescription,
       saved: true,
     });
 
@@ -225,6 +267,19 @@ export const getUnsavedRuleSet = query({
   handler: async (ctx, args) => {
     return await findUnsavedRuleSet(ctx.db, args.practiceId);
   },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("ruleSets"),
+      createdAt: v.number(),
+      description: v.string(),
+      parentVersion: v.optional(v.id("ruleSets")),
+      practiceId: v.id("practices"),
+      saved: v.boolean(),
+      version: v.number(),
+    }),
+    v.null(),
+  ),
 });
 
 /**

@@ -12,7 +12,7 @@ describe("Regeln search helpers", () => {
       dateDE: "30.01.2025",
       locationName: "Praxis am Markt",
       patientTypeSegment: EXISTING_PATIENT_SEGMENT,
-      ruleSetId: "wintersprechzeiten-2025",
+      ruleSetDescription: "wintersprechzeiten-2025",
       tabParam: "debug",
     });
 
@@ -30,7 +30,7 @@ describe("Regeln search helpers", () => {
       dateDE: undefined,
       locationName: undefined,
       patientTypeSegment: NEW_PATIENT_SEGMENT,
-      ruleSetId: undefined,
+      ruleSetDescription: undefined,
       tabParam: undefined,
     });
 

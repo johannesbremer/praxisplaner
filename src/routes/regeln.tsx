@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
+import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
 import type { PatientInfo } from "../types";
@@ -106,6 +107,7 @@ export const Route = createFileRoute("/regeln")({
 
 interface SaveDialogFormProps {
   activationName: string;
+  existingSavedDescriptions: string[];
   onDiscard?: (() => void) | null;
   onSaveAndActivate: (name: string) => void;
   onSaveOnly: (name: string) => void;
@@ -1105,6 +1107,11 @@ function LogicView() {
           </DialogHeader>
           <SaveDialogForm
             activationName={activationName}
+            existingSavedDescriptions={
+              ruleSetsQuery
+                ?.filter((rs) => rs.saved)
+                .map((rs) => rs.description) ?? []
+            }
             onDiscard={pendingRuleSetId ? handleDiscardChanges : null}
             onSaveAndActivate={handleSaveAndActivate}
             onSaveOnly={handleSaveOnly}
@@ -1118,6 +1125,7 @@ function LogicView() {
 
 function SaveDialogForm({
   activationName,
+  existingSavedDescriptions,
   onDiscard,
   onSaveAndActivate,
   onSaveOnly,
@@ -1136,18 +1144,20 @@ function SaveDialogForm({
     form.setFieldValue("name", activationName);
   }, [activationName, form]);
 
-  // Simple validation: just check if name is not empty
-  const isValidName = React.useMemo(() => {
-    return form.getFieldValue("name").trim().length > 0;
-  }, [form]);
+  // Use activationName directly since it's kept in sync via setActivationName
+  const trimmedName = activationName.trim();
 
-  const validationError = React.useMemo(() => {
-    const trimmedName = form.getFieldValue("name").trim();
-    if (!trimmedName) {
-      return "Name ist erforderlich";
-    }
-    return;
-  }, [form]);
+  // Local validation using shared validation logic (instant, no network latency)
+  const { isValidName, validationError } = React.useMemo(() => {
+    const result = validateRuleSetDescriptionSync(
+      trimmedName,
+      existingSavedDescriptions,
+    );
+    return {
+      isValidName: result.isValid,
+      validationError: result.error,
+    };
+  }, [trimmedName, existingSavedDescriptions]);
 
   return (
     <form
@@ -1199,9 +1209,8 @@ function SaveDialogForm({
         <Button
           disabled={!isValidName}
           onClick={() => {
-            const name = form.getFieldValue("name").trim();
-            if (isValidName && name) {
-              onSaveOnly(name);
+            if (isValidName && trimmedName) {
+              onSaveOnly(trimmedName);
             }
           }}
           type="button"
@@ -1212,9 +1221,8 @@ function SaveDialogForm({
         <Button
           disabled={!isValidName}
           onClick={() => {
-            const name = form.getFieldValue("name").trim();
-            if (isValidName && name) {
-              onSaveAndActivate(name);
+            if (isValidName && trimmedName) {
+              onSaveAndActivate(trimmedName);
             }
           }}
           type="button"

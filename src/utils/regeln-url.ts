@@ -2,6 +2,8 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
+import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
+
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
 
 export const NEW_PATIENT_SEGMENT = "neu";
@@ -31,7 +33,7 @@ interface RegelnNavigationState {
     | typeof EXISTING_PATIENT_SEGMENT
     | typeof NEW_PATIENT_SEGMENT
     | undefined;
-  ruleSetId?: string | undefined;
+  ruleSetDescription?: string | undefined;
   tabParam?: RegelnTabParam | undefined;
 }
 
@@ -58,8 +60,8 @@ export function buildRegelnSearchFromState(
   if (state.patientTypeSegment) {
     search.patientType = state.patientTypeSegment;
   }
-  if (state.ruleSetId) {
-    search.regelwerk = state.ruleSetId;
+  if (state.ruleSetDescription) {
+    search.regelwerk = state.ruleSetDescription;
   }
   return search;
 }
@@ -112,17 +114,17 @@ export function useRegelnUrl(options: {
     });
   }
 
-  // Map ruleSet ID from URL
+  // Map ruleSet description from URL -> id
   const ruleSetIdFromUrl: Id<"ruleSets"> | undefined = (() => {
-    if (!currentRouteState.ruleSetId) {
+    if (!currentRouteState.ruleSetDescription) {
       return;
     }
-    if (currentRouteState.ruleSetId === "ungespeichert") {
+    if (currentRouteState.ruleSetDescription === RESERVED_UNSAVED_DESCRIPTION) {
       return options.unsavedRuleSet?._id;
     }
-    // Use ID directly - IDs are unique and prevent collisions
+    // Match by description - descriptions are unique within saved rule sets
     const found = options.ruleSetsQuery?.find(
-      (rs) => rs._id === currentRouteState.ruleSetId,
+      (rs) => rs.description === currentRouteState.ruleSetDescription,
     );
     return found?._id;
   })();
@@ -138,16 +140,18 @@ export function useRegelnUrl(options: {
     return foundLoc?._id;
   })();
 
-  function toUrlRuleSetId(id: Id<"ruleSets"> | undefined): string | undefined {
+  function toUrlRuleSetDescription(
+    id: Id<"ruleSets"> | undefined,
+  ): string | undefined {
     if (!id) {
       return undefined;
     }
     if (options.unsavedRuleSet?._id === id) {
-      return "ungespeichert";
+      return RESERVED_UNSAVED_DESCRIPTION;
     }
-    // Return the ID directly - IDs are unique and prevent collisions
+    // Return the description - descriptions are unique within saved rule sets
     const found = options.ruleSetsQuery?.find((rs) => rs._id === id);
-    return found ? found._id : undefined;
+    return found?.description;
   }
 
   function toUrlLocationName(
@@ -169,12 +173,12 @@ export function useRegelnUrl(options: {
   }) {
     const nextTabParam = internalTabToParam(overrides.tab ?? activeTab);
 
-    // Only convert to ID if we have an explicit override
+    // Only convert to description if we have an explicit override
     // Otherwise preserve the current value directly to avoid query dependency issues
-    const targetRuleSetId =
+    const targetRuleSetDescription =
       overrides.ruleSetId === undefined
-        ? currentRouteState.ruleSetId
-        : toUrlRuleSetId(overrides.ruleSetId);
+        ? currentRouteState.ruleSetDescription
+        : toUrlRuleSetDescription(overrides.ruleSetId);
 
     const targetIsNew = overrides.isNewPatient ?? isNewPatient;
     const patientTypeSegment = targetIsNew
@@ -193,7 +197,7 @@ export function useRegelnUrl(options: {
     if (
       !dateDE &&
       (nextTabParam !== undefined ||
-        targetRuleSetId !== undefined ||
+        targetRuleSetDescription !== undefined ||
         patientTypeSegment !== undefined ||
         targetLocationName !== undefined)
     ) {
@@ -204,7 +208,7 @@ export function useRegelnUrl(options: {
       dateDE,
       locationName: targetLocationName,
       patientTypeSegment,
-      ruleSetId: targetRuleSetId,
+      ruleSetDescription: targetRuleSetDescription,
       tabParam: nextTabParam,
     });
   }
@@ -221,7 +225,7 @@ export function useRegelnUrl(options: {
     raw: {
       datum: currentRouteState.dateDE,
       patientType: currentRouteState.patientTypeSegment,
-      ruleSet: currentRouteState.ruleSetId,
+      ruleSet: currentRouteState.ruleSetDescription,
       standort: currentRouteState.locationName,
       tab: currentRouteState.tabParam,
     },
@@ -250,7 +254,7 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
     dateDE: params.datum,
     locationName: params.standort,
     patientTypeSegment,
-    ruleSetId: params.regelwerk,
+    ruleSetDescription: params.regelwerk,
     tabParam: params.tab,
   };
 }
