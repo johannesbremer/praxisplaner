@@ -587,11 +587,11 @@ export const sendMessage = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const channel = await ctx.db.get("channels", args.channelId);
+    const channel = await ctx.db.get(args.channelId);
     if (!channel) {
       throw new Error("Channel not found");
     }
-    const user = await ctx.db.get("users", args.authorId);
+    const user = await ctx.db.get(args.authorId);
     if (!user) {
       throw new Error("User not found");
     }
@@ -645,7 +645,7 @@ export const loadContext = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const channel = await ctx.db.get("channels", args.channelId);
+    const channel = await ctx.db.get(args.channelId);
     if (!channel) {
       throw new Error("Channel not found");
     }
@@ -658,7 +658,7 @@ export const loadContext = internalQuery({
     const result = [];
     for (const message of messages) {
       if (message.authorId) {
-        const user = await ctx.db.get("users", message.authorId);
+        const user = await ctx.db.get(message.authorId);
         if (!user) {
           throw new Error("User not found");
         }
@@ -711,6 +711,36 @@ export default defineSchema({
     content: v.string(),
   }).index("by_channel", ["channelId"]),
 });
+```
+
+#### convex/tsconfig.json
+
+```typescript
+{
+  /* This TypeScript project config describes the environment that
+   * Convex functions run in and is used to typecheck them.
+   * You can modify it, but some settings required to use Convex.
+   */
+  "compilerOptions": {
+    /* These settings are not required by Convex and can be modified. */
+    "allowJs": true,
+    "strict": true,
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+
+    /* These compiler options are required by Convex */
+    "target": "ESNext",
+    "lib": ["ES2021", "dom"],
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["./**/*"],
+  "exclude": ["./_generated"]
+}
 ```
 
 #### src/App.tsx
