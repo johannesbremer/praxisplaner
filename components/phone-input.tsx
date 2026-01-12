@@ -43,8 +43,6 @@ const PhoneInput: React.ForwardRefExoticComponent<PhoneInputProps> =
         flagComponent={FlagComponent}
         inputComponent={InputComponent}
         labels={de}
-        ref={ref}
-        value={value ?? ""}
         /**
          * Handles the onChange event.
          *
@@ -54,6 +52,8 @@ const PhoneInput: React.ForwardRefExoticComponent<PhoneInputProps> =
          * @param value The entered value
          */
         onChange={(value) => onChange?.(value ?? ("" as RPNInput.Value))}
+        ref={ref}
+        value={value ?? ""}
         {...props}
       />
     );

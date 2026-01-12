@@ -22,7 +22,7 @@ export function parseGdtContent(content: string): GdtField[] {
 
   // Add Satzende if needed
   const lastField = fields[fields.length - 1];
-  if (!lastField || lastField.fieldId !== GDT_FIELD_IDS.SATZ_END) {
+  if (lastField?.fieldId !== GDT_FIELD_IDS.SATZ_END) {
     fields.push({
       content: satzartContent,
       fieldId: GDT_FIELD_IDS.SATZ_END,

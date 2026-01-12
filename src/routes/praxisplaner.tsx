@@ -417,10 +417,7 @@ function PraxisPlanerComponent() {
               timestamp: number;
             }>(IDB_GDT_PERMISSION_KEY);
 
-            if (
-              permissionMetadata &&
-              permissionMetadata.handleName === persistedHandle.name
-            ) {
+            if (permissionMetadata?.handleName === persistedHandle.name) {
               addGdtLog(
                 `Loaded permission metadata from IndexedDB: ${permissionMetadata.permission} (${new Date(permissionMetadata.timestamp).toLocaleString()})`,
               );
