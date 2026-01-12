@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -181,11 +182,11 @@ function assertStep<S extends BookingSessionState["step"]>(
 
 /**
  * Calculate end time from start time and duration.
+ * Handles ZonedDateTime format strings.
  */
 function calculateEndTime(startTime: string, durationMinutes: number): string {
-  const start = new Date(startTime);
-  start.setMinutes(start.getMinutes() + durationMinutes);
-  return start.toISOString();
+  const start = Temporal.ZonedDateTime.from(startTime);
+  return start.add({ minutes: durationMinutes }).toString();
 }
 
 // ============================================================================

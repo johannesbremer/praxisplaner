@@ -1,5 +1,6 @@
 // Confirmation step component (Final step for both paths)
 
+import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
 import { Temporal } from "temporal-polyfill";
 
@@ -63,7 +64,10 @@ export function ConfirmationStep({
         })
       : null;
 
-  if (!selectedSlot || !personalData) {
+  const appointmentId =
+    "appointmentId" in state ? (state.appointmentId as string) : null;
+
+  if (!selectedSlot || !personalData || !appointmentId) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>
@@ -132,6 +136,7 @@ export function ConfirmationStep({
             className="flex-1"
             onClick={() => {
               downloadICS(
+                appointmentId,
                 selectedSlot.startTime,
                 selectedSlot.duration,
                 "Arzttermin",
@@ -171,19 +176,45 @@ export function ConfirmationStep({
 }
 
 function downloadICS(
+  appointmentId: string,
   startTime: string,
   duration: number,
   title: string,
   location: string,
   practitionerName: string,
 ) {
-  const icsContent = generateICS(
-    startTime,
-    duration,
-    title,
+  const start = Temporal.ZonedDateTime.from(startTime);
+  const end = start.add({ minutes: duration });
+
+  const calendar = ical({
+    name: "Praxisplaner",
+    prodId: { company: "Praxisplaner", language: "DE", product: "Booking" },
+    timezone: "Europe/Berlin",
+  });
+
+  const event = calendar.createEvent({
+    description: `Termin bei ${practitionerName}`,
+    end: new Date(end.year, end.month - 1, end.day, end.hour, end.minute),
+    id: `${appointmentId}@praxisplaner`,
     location,
-    practitionerName,
-  );
+    start: new Date(
+      start.year,
+      start.month - 1,
+      start.day,
+      start.hour,
+      start.minute,
+    ),
+    summary: title,
+    timezone: "Europe/Berlin",
+  });
+
+  event.createAlarm({
+    description: "Terminerinnerung",
+    trigger: 60 * 60, // 1 hour before (in seconds)
+    type: ICalAlarmType.display,
+  });
+
+  const icsContent = calendar.toString();
   const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -193,52 +224,4 @@ function downloadICS(
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function generateICS(
-  startTime: string,
-  duration: number,
-  title: string,
-  location: string,
-  practitionerName: string,
-): string {
-  const start = Temporal.ZonedDateTime.from(startTime);
-  const end = start.add({ minutes: duration });
-
-  // Format for ICS (YYYYMMDDTHHMMSS)
-  const formatICS = (zdt: Temporal.ZonedDateTime) => {
-    return zdt
-      .toPlainDateTime()
-      .toString()
-      .replaceAll(/[-:]/g, "")
-      .replace("T", "T")
-      .slice(0, 15);
-  };
-
-  const uid = `${Date.now()}-${Math.random().toString(36).slice(2)}@praxisplaner`;
-  const now = formatICS(Temporal.Now.zonedDateTimeISO("Europe/Berlin"));
-
-  return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Praxisplaner//Booking//DE",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    "BEGIN:VEVENT",
-    `UID:${uid}`,
-    `DTSTAMP:${now}`,
-    `DTSTART;TZID=Europe/Berlin:${formatICS(start)}`,
-    `DTEND;TZID=Europe/Berlin:${formatICS(end)}`,
-    `SUMMARY:${title}`,
-    `LOCATION:${location}`,
-    `DESCRIPTION:Termin bei ${practitionerName}`,
-    "STATUS:CONFIRMED",
-    "BEGIN:VALARM",
-    "TRIGGER:-PT1H",
-    "ACTION:DISPLAY",
-    "DESCRIPTION:Terminerinnerung",
-    "END:VALARM",
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ].join("\r\n");
 }
