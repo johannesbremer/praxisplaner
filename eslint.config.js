@@ -133,6 +133,8 @@ export default tseslint.config(
             "DOMException",
             "localStorage",
             "crypto",
+            "URL.createObjectURL",
+            "URL.revokeObjectURL",
           ],
         },
       ],

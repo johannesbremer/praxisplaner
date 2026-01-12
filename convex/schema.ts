@@ -1,6 +1,370 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// ================================
+// BOOKING SESSION VALIDATORS
+// ================================
+
+/**
+ * Shared validators for booking session data.
+ * Each step's data is uploaded atomically when the form is validated with zod.
+ * All fields are required (non-optional) - upload complete data per step.
+ * Exported so they can be used in convex functions for argument validation.
+ */
+
+export const insuranceTypeValidator = v.union(
+  v.literal("gkv"),
+  v.literal("pkv"),
+);
+
+export const hzvStatusValidator = v.union(
+  v.literal("has-contract"),
+  v.literal("interested"),
+  v.literal("no-interest"),
+);
+
+export const beihilfeStatusValidator = v.union(
+  v.literal("yes"),
+  v.literal("no"),
+);
+
+export const pkvTariffValidator = v.union(
+  v.literal("basis"),
+  v.literal("standard"),
+  v.literal("premium"),
+);
+
+export const pkvInsuranceTypeValidator = v.union(
+  v.literal("postb"),
+  v.literal("kvb"),
+  v.literal("other"),
+);
+
+export const genderValidator = v.union(
+  v.literal("male"),
+  v.literal("female"),
+  v.literal("diverse"),
+);
+
+export const personalDataValidator = v.object({
+  city: v.optional(v.string()),
+  dateOfBirth: v.string(),
+  email: v.optional(v.string()),
+  firstName: v.string(),
+  gender: v.optional(genderValidator),
+  lastName: v.string(),
+  phoneNumber: v.string(),
+  postalCode: v.optional(v.string()),
+  street: v.optional(v.string()),
+  title: v.optional(v.string()),
+});
+
+export const medicalHistoryValidator = v.object({
+  allergiesDescription: v.optional(v.string()),
+  currentMedications: v.optional(v.string()),
+  hasAllergies: v.boolean(),
+  hasDiabetes: v.boolean(),
+  hasHeartCondition: v.boolean(),
+  hasLungCondition: v.boolean(),
+  otherConditions: v.optional(v.string()),
+});
+
+export const emergencyContactValidator = v.object({
+  name: v.string(),
+  phoneNumber: v.string(),
+  relationship: v.string(),
+});
+
+export const selectedSlotValidator = v.object({
+  duration: v.number(),
+  practitionerId: v.id("practitioners"),
+  practitionerName: v.string(),
+  startTime: v.string(),
+});
+
+/**
+ * GKV (Gesetzliche Krankenversicherung) details - all required
+ */
+export const gkvDetailsValidator = v.object({
+  hzvStatus: hzvStatusValidator,
+  insuranceType: v.literal("gkv"),
+});
+
+/**
+ * PKV (Private Krankenversicherung) details - all required
+ * beihilfeStatus, pkvTariff, pkvInsuranceType are optional info but pvsConsent is required
+ */
+export const pkvDetailsValidator = v.object({
+  beihilfeStatus: v.optional(beihilfeStatusValidator),
+  insuranceType: v.literal("pkv"),
+  pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+  pkvTariff: v.optional(pkvTariffValidator),
+  pvsConsent: v.literal(true), // Required: must consent to private billing
+});
+
+/**
+ * Combined insurance details - discriminated by insuranceType
+ */
+export const insuranceDetailsValidator = v.union(
+  gkvDetailsValidator,
+  pkvDetailsValidator,
+);
+
+/**
+ * Discriminated union for booking session steps.
+ * Each step contains ALL required data for that step (validated atomically with zod).
+ * The `step` field acts as the discriminant for type narrowing.
+ *
+ * Data flow:
+ * - Client validates form with zod
+ * - On success, uploads complete step data atomically
+ * - Convex validates with these validators (e2e type safety)
+ */
+export const bookingSessionStepValidator = v.union(
+  // Step 1: Privacy consent (initial state, no data yet)
+  v.object({
+    step: v.literal("privacy"),
+  }),
+
+  // Step 2: Location selection (privacy accepted)
+  v.object({
+    step: v.literal("location"),
+  }),
+
+  // Step 3: Patient status selection (location selected)
+  v.object({
+    locationId: v.id("locations"),
+    step: v.literal("patient-status"),
+  }),
+
+  // ================================
+  // PATH A: NEW PATIENT
+  // ================================
+
+  // A1: Age check (patient status: new)
+  v.object({
+    isNewPatient: v.literal(true),
+    locationId: v.id("locations"),
+    step: v.literal("new-age-check"),
+  }),
+
+  // A2: Insurance type selection (age confirmed)
+  v.object({
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-insurance-type"),
+  }),
+
+  // A3a: GKV details - HZV status (insurance type: GKV)
+  v.object({
+    insuranceType: v.literal("gkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-gkv-details"),
+  }),
+
+  // A3b: PKV PVS consent step (insurance type: PKV, before details input)
+  v.object({
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-pvs-consent"),
+  }),
+
+  // A3c: PKV details - optional additional info (after PVS consent)
+  v.object({
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-pkv-details"),
+  }),
+
+  // A4: Appointment type selection (insurance details completed)
+  // GKV path - has hzvStatus
+  v.object({
+    hzvStatus: hzvStatusValidator,
+    insuranceType: v.literal("gkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-appointment-type"),
+  }),
+
+  // A4: Appointment type selection (insurance details completed)
+  // PKV path - has pvsConsent and optional PKV details
+  v.object({
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
+    pvsConsent: v.literal(true),
+    step: v.literal("new-appointment-type"),
+  }),
+
+  // A5: Personal data input (appointment type selected)
+  // GKV path
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    hzvStatus: hzvStatusValidator,
+    insuranceType: v.literal("gkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    step: v.literal("new-data-input"),
+  }),
+
+  // A5: Personal data input (appointment type selected)
+  // PKV path
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
+    pvsConsent: v.literal(true),
+    step: v.literal("new-data-input"),
+  }),
+
+  // A6: Calendar selection (personal data submitted)
+  // GKV path
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    hzvStatus: hzvStatusValidator,
+    insuranceType: v.literal("gkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: personalDataValidator,
+    reasonDescription: v.string(),
+    step: v.literal("new-calendar-selection"),
+  }),
+
+  // A6: Calendar selection (personal data submitted)
+  // PKV path
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: personalDataValidator,
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
+    pvsConsent: v.literal(true),
+    reasonDescription: v.string(),
+    step: v.literal("new-calendar-selection"),
+  }),
+
+  // A7: Confirmation (slot selected, appointment created)
+  // GKV path
+  v.object({
+    appointmentId: v.id("appointments"),
+    appointmentTypeId: v.id("appointmentTypes"),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    hzvStatus: hzvStatusValidator,
+    insuranceType: v.literal("gkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: personalDataValidator,
+    reasonDescription: v.string(),
+    selectedSlot: selectedSlotValidator,
+    step: v.literal("new-confirmation"),
+    temporaryPatientId: v.id("temporaryPatients"),
+  }),
+
+  // A7: Confirmation (slot selected, appointment created)
+  // PKV path
+  v.object({
+    appointmentId: v.id("appointments"),
+    appointmentTypeId: v.id("appointmentTypes"),
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    insuranceType: v.literal("pkv"),
+    isNewPatient: v.literal(true),
+    isOver40: v.boolean(),
+    locationId: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: personalDataValidator,
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
+    pvsConsent: v.literal(true),
+    reasonDescription: v.string(),
+    selectedSlot: selectedSlotValidator,
+    step: v.literal("new-confirmation"),
+    temporaryPatientId: v.id("temporaryPatients"),
+  }),
+
+  // ================================
+  // PATH B: EXISTING PATIENT
+  // ================================
+
+  // B1: Doctor selection (patient status: existing)
+  v.object({
+    isNewPatient: v.literal(false),
+    locationId: v.id("locations"),
+    step: v.literal("existing-doctor-selection"),
+  }),
+
+  // B2: Appointment type selection (doctor selected)
+  v.object({
+    isNewPatient: v.literal(false),
+    locationId: v.id("locations"),
+    practitionerId: v.id("practitioners"),
+    step: v.literal("existing-appointment-type"),
+  }),
+
+  // B3: Personal data input (appointment type selected)
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    isNewPatient: v.literal(false),
+    locationId: v.id("locations"),
+    practitionerId: v.id("practitioners"),
+    step: v.literal("existing-data-input"),
+  }),
+
+  // B4: Calendar selection (personal data submitted)
+  v.object({
+    appointmentTypeId: v.id("appointmentTypes"),
+    isNewPatient: v.literal(false),
+    locationId: v.id("locations"),
+    personalData: personalDataValidator,
+    practitionerId: v.id("practitioners"),
+    reasonDescription: v.string(),
+    step: v.literal("existing-calendar-selection"),
+  }),
+
+  // B5: Confirmation (slot selected, appointment created)
+  v.object({
+    appointmentId: v.id("appointments"),
+    appointmentTypeId: v.id("appointmentTypes"),
+    isNewPatient: v.literal(false),
+    locationId: v.id("locations"),
+    personalData: personalDataValidator,
+    practitionerId: v.id("practitioners"),
+    reasonDescription: v.string(),
+    selectedSlot: selectedSlotValidator,
+    step: v.literal("existing-confirmation"),
+    temporaryPatientId: v.id("temporaryPatients"),
+  }),
+);
+
 export default defineSchema({
   appointments: defineTable({
     // Core appointment fields
@@ -296,4 +660,32 @@ export default defineSchema({
     ]) // Ordered children
     .index("by_copyFromId", ["copyFromId"])
     .index("by_copyFromId_ruleSetId", ["copyFromId", "ruleSetId"]),
+
+  /**
+   * Booking Sessions Table
+   *
+   * Stores the state of an in-progress online booking session.
+   * Uses a discriminated union based on `step` to represent
+   * the user's progress through the decision tree.
+   *
+   * The step field determines which other fields are present,
+   * enabling type-safe narrowing in the UI.
+   *
+   * Sessions expire after 30 minutes of inactivity.
+   */
+  bookingSessions: defineTable({
+    // Multi-tenancy
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+
+    // The discriminated union state - contains step + all data for that step
+    state: bookingSessionStepValidator,
+
+    // Metadata
+    createdAt: v.int64(),
+    expiresAt: v.int64(), // Auto-expire after 30 minutes
+    lastModified: v.int64(),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_expiresAt", ["expiresAt"]),
 });

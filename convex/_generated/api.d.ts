@@ -9,6 +9,7 @@
  */
 
 import type * as appointments from "../appointments.js";
+import type * as bookingSessions from "../bookingSessions.js";
 import type * as copyOnWrite from "../copyOnWrite.js";
 import type * as entities from "../entities.js";
 import type * as gdt_processing from "../gdt/processing.js";
@@ -32,6 +33,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   appointments: typeof appointments;
+  bookingSessions: typeof bookingSessions;
   copyOnWrite: typeof copyOnWrite;
   entities: typeof entities;
   "gdt/processing": typeof gdt_processing;
