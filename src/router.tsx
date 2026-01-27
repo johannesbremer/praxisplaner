@@ -30,7 +30,16 @@ function getEnvVar(name: string): string {
 }
 
 const WORKOS_CLIENT_ID = getEnvVar("VITE_WORKOS_CLIENT_ID");
-const WORKOS_REDIRECT_URI = getEnvVar("VITE_WORKOS_REDIRECT_URI");
+
+// Dynamically compute redirect URI based on current origin
+// This handles localhost, Vercel preview deployments, and production automatically
+function getRedirectUri(): string {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/callback`;
+  }
+  // Fallback for SSR or non-browser environments
+  return "http://localhost:5173/callback";
+}
 
 export function getRouter() {
   if (typeof document !== "undefined") {
@@ -110,7 +119,7 @@ export function getRouter() {
         <AuthKitProvider
           clientId={WORKOS_CLIENT_ID}
           devMode={true}
-          redirectUri={WORKOS_REDIRECT_URI}
+          redirectUri={getRedirectUri()}
         >
           <ConvexProviderWithAuth
             client={convexQueryClient.convexClient}
