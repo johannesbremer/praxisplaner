@@ -12,11 +12,25 @@ import {
   // ErrorComponentProps, // Changed to type-only import below
 } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
-import { ConvexProvider } from "convex/react";
+import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
+import { ConvexProviderWithAuth } from "convex/react";
+import { useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
 
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
+
+// WorkOS AuthKit configuration from environment variables
+function getEnvVar(name: string): string {
+  const value = (import.meta as { env: Record<string, string> }).env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const WORKOS_CLIENT_ID = getEnvVar("VITE_WORKOS_CLIENT_ID");
+const WORKOS_REDIRECT_URI = getEnvVar("VITE_WORKOS_REDIRECT_URI");
 
 export function getRouter() {
   if (typeof document !== "undefined") {
@@ -93,13 +107,66 @@ export function getRouter() {
       defaultPreload: "viewport",
       routeTree,
       Wrap: ({ children }) => (
-        <ConvexProvider client={convexQueryClient.convexClient}>
-          {children}
-        </ConvexProvider>
+        <AuthKitProvider
+          clientId={WORKOS_CLIENT_ID}
+          devMode={true}
+          redirectUri={WORKOS_REDIRECT_URI}
+        >
+          <ConvexProviderWithAuth
+            client={convexQueryClient.convexClient}
+            useAuth={useConvexAuthFromWorkOS}
+          >
+            {children}
+          </ConvexProviderWithAuth>
+        </AuthKitProvider>
       ),
     }),
     queryClient,
   );
 
   return router;
+}
+
+/**
+ * Adapts WorkOS AuthKit's useAuth hook for Convex's ConvexProviderWithAuth.
+ * This is a proper adapter that matches Convex's expected interface.
+ */
+function useConvexAuthFromWorkOS() {
+  const { getAccessToken, isLoading, user } = useAuth();
+
+  const fetchAccessToken = useCallback(
+    async ({
+      forceRefreshToken,
+    }: {
+      forceRefreshToken: boolean;
+    }): Promise<null | string> => {
+      // When WorkOS is still loading, return null
+      if (isLoading) {
+        return null;
+      }
+      // When user is not authenticated, return null
+      if (!user) {
+        return null;
+      }
+      try {
+        // getAccessToken returns the access token from WorkOS
+        // Pass forceRefresh to bypass cache if needed
+        const token = await getAccessToken({ forceRefresh: forceRefreshToken });
+        return token || null;
+      } catch (error) {
+        console.error("Error fetching access token:", error);
+        return null;
+      }
+    },
+    [isLoading, user, getAccessToken],
+  );
+
+  return useMemo(
+    () => ({
+      fetchAccessToken,
+      isAuthenticated: !!user,
+      isLoading,
+    }),
+    [isLoading, user, fetchAccessToken],
+  );
 }

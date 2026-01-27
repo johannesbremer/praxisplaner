@@ -542,6 +542,25 @@ export default defineSchema({
     .index("by_lastName", ["lastName"]),
 
   /**
+   * Users Table - Synced from WorkOS AuthKit
+   *
+   * This table stores user data synced from WorkOS via webhooks.
+   * The authId field links to the WorkOS user ID for authentication.
+   * Users can book appointments and manage their own data.
+   */
+  users: defineTable({
+    authId: v.string(), // WorkOS user ID (from event.data.id)
+    email: v.string(), // User's email address
+    firstName: v.optional(v.string()), // First name (optional from WorkOS)
+    lastName: v.optional(v.string()), // Last name (optional from WorkOS)
+
+    // Metadata
+    createdAt: v.int64(),
+  })
+    .index("by_authId", ["authId"])
+    .index("by_email", ["email"]),
+
+  /**
    * Rule Conditions Table - Recursive Tree Structure for Boolean Logic
    *
    * This table stores BOTH the rule metadata AND the condition tree nodes.
@@ -672,11 +691,15 @@ export default defineSchema({
    * enabling type-safe narrowing in the UI.
    *
    * Sessions expire after 30 minutes of inactivity.
+   * Sessions are tied to authenticated users.
    */
   bookingSessions: defineTable({
     // Multi-tenancy
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
+
+    // User who owns this session (required - no anonymous bookings)
+    userId: v.id("users"),
 
     // The discriminated union state - contains step + all data for that step
     state: bookingSessionStepValidator,
@@ -687,5 +710,6 @@ export default defineSchema({
     lastModified: v.int64(),
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_userId", ["userId"]),
 });

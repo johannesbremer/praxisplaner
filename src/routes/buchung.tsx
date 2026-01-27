@@ -1,7 +1,8 @@
 // src/routes/buchung.tsx
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { useAuth } from "@workos-inc/authkit-react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ArrowLeft, Loader2, LogIn } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -57,7 +58,75 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "confirmation",
 ];
 
+/**
+ * Main booking page component.
+ * Handles authentication check before rendering the booking flow.
+ */
 function PatientBookingPage() {
+  const { isLoading: authLoading, signIn, user } = useAuth();
+  const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
+    useConvexAuth();
+
+  // Authentication loading (either WorkOS or Convex)
+  if (authLoading || convexLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-96">
+          <CardContent className="py-6">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Laden...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Require authentication - show login prompt (check both WorkOS user and Convex auth)
+  if (!user || !convexAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle>Anmeldung erforderlich</CardTitle>
+            <CardDescription>
+              Bitte melden Sie sich an, um einen Termin zu buchen. So können wir
+              Ihre Termine sicher verwalten und Sie über wichtige Änderungen
+              informieren.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              className="w-full"
+              onClick={() => {
+                // Store the current URL to redirect back after login
+
+                localStorage.setItem(
+                  "authRedirectUrl",
+                  globalThis.location.pathname,
+                );
+                void signIn();
+              }}
+            >
+              <LogIn className="mr-2 h-4 w-4" />
+              Anmelden
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // User is authenticated, render the booking flow
+  return <AuthenticatedBookingFlow />;
+}
+
+/**
+ * Booking flow component that only renders after authentication.
+ * This separation ensures Convex hooks are only called when the user is authenticated.
+ */
+function AuthenticatedBookingFlow() {
   const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
     null,
   );

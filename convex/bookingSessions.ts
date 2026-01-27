@@ -1,9 +1,15 @@
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
+
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
+
+// Context types for helper functions
+type MutationCtx = GenericMutationCtx<DataModel>;
+type QueryCtx = GenericQueryCtx<DataModel>;
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -41,13 +47,35 @@ type StateAtStep<S extends BookingSessionState["step"]> = Extract<
 
 /**
  * Get a booking session by ID.
- * Returns null if the session doesn't exist or has expired.
+ * Returns null if the session doesn't exist, has expired, or belongs to another user.
+ * Requires authentication.
  */
 export const get = query({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
+    // Get authenticated user identity from JWT
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    // Find our app's user record by authId (which is the JWT subject)
+    const authId = identity.subject;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", authId))
+      .unique();
+    if (!user) {
+      return null;
+    }
+
     const session = await ctx.db.get("bookingSessions", args.sessionId);
     if (!session) {
+      return null;
+    }
+
+    // Check session ownership
+    if (session.userId !== user._id) {
       return null;
     }
 
@@ -69,6 +97,7 @@ export const get = query({
       practiceId: v.id("practices"),
       ruleSetId: v.id("ruleSets"),
       state: bookingSessionStepValidator,
+      userId: v.id("users"),
     }),
     v.null(),
   ),
@@ -80,6 +109,7 @@ export const get = query({
 
 /**
  * Create a new booking session starting at the privacy step.
+ * Requires authentication - the session is tied to the authenticated user.
  */
 export const create = mutation({
   args: {
@@ -87,6 +117,41 @@ export const create = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    // Get authenticated user identity from JWT
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required to create a booking session");
+    }
+
+    // The subject claim contains the WorkOS user ID
+    const authId = identity.subject;
+
+    // Find or create our app's user record
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", authId))
+      .unique();
+
+    if (!user) {
+      // Create user on first login using identity claims
+      // Parse name into first and last name if available
+      const nameParts = (identity.name ?? "").split(" ");
+      const firstName = nameParts[0] || undefined;
+      const lastName = nameParts.slice(1).join(" ") || undefined;
+
+      const userId = await ctx.db.insert("users", {
+        authId,
+        createdAt: BigInt(Date.now()),
+        email: identity.email ?? "",
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+      });
+      user = await ctx.db.get("users", userId);
+      if (!user) {
+        throw new Error("Failed to create user record");
+      }
+    }
+
     const now = BigInt(Date.now());
 
     const sessionId = await ctx.db.insert("bookingSessions", {
@@ -98,6 +163,7 @@ export const create = mutation({
       state: {
         step: "privacy" as const,
       },
+      userId: user._id,
     });
 
     return sessionId;
@@ -107,10 +173,23 @@ export const create = mutation({
 
 /**
  * Delete a booking session (e.g., after completion or abandonment).
+ * Requires authentication and ownership of the session.
  */
 export const remove = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
+    // Get authenticated user - use the helper which auto-creates users
+    const userId = await getAuthenticatedUserId(ctx);
+
+    // Check session ownership
+    const session = await ctx.db.get("bookingSessions", args.sessionId);
+    if (!session) {
+      return null; // Already deleted
+    }
+    if (session.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
     await ctx.db.delete("bookingSessions", args.sessionId);
     return null;
   },
@@ -143,18 +222,83 @@ export const cleanupExpired = internalMutation({
 // ============================================================================
 
 /**
+ * Get the authenticated user's ID from WorkOS and our users table.
+ * Throws if not authenticated or user not found.
+ */
+async function getAuthenticatedUserId(
+  ctx: MutationCtx | QueryCtx,
+): Promise<Id<"users">> {
+  // Get authenticated user identity directly from JWT
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Authentication required");
+  }
+
+  const authId = identity.subject;
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", authId))
+    .unique();
+
+  // Auto-create user on first login if they don't exist
+  if (!user) {
+    // Only mutations can insert - check if we have a mutation context
+    if ("db" in ctx && typeof (ctx as MutationCtx).db.insert === "function") {
+      const mutationCtx = ctx as MutationCtx;
+      // Parse name into first and last name if available
+      const nameParts = (identity.name ?? "").split(" ");
+      const firstName = nameParts[0] || undefined;
+      const lastName = nameParts.slice(1).join(" ") || undefined;
+
+      const userId = await mutationCtx.db.insert("users", {
+        authId,
+        createdAt: BigInt(Date.now()),
+        email: identity.email ?? "",
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+      });
+      return userId;
+    } else {
+      throw new Error("User not found. Please try logging in again.");
+    }
+  }
+
+  return user._id;
+}
+
+/**
+ * Verify that the session exists and belongs to the authenticated user.
+ * Returns the session if valid.
+ */
+async function getVerifiedSession(
+  ctx: MutationCtx | QueryCtx,
+  sessionId: Id<"bookingSessions">,
+): Promise<Doc<"bookingSessions">> {
+  const userId = await getAuthenticatedUserId(ctx);
+
+  const session = await ctx.db.get("bookingSessions", sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
+  if (session.userId !== userId) {
+    throw new Error("Access denied");
+  }
+
+  // Check if session has expired
+  const now = BigInt(Date.now());
+  if (session.expiresAt < now) {
+    throw new Error("Session has expired");
+  }
+
+  return session;
+}
+
+/**
  * Refresh session expiry on any update.
  */
 async function refreshSession(
-  ctx: {
-    db: {
-      patch: (
-        tableName: "bookingSessions",
-        id: Id<"bookingSessions">,
-        data: { expiresAt: bigint; lastModified: bigint },
-      ) => Promise<void>;
-    };
-  },
+  ctx: MutationCtx,
   sessionId: Id<"bookingSessions">,
 ) {
   const now = BigInt(Date.now());
@@ -461,14 +605,13 @@ function computePreviousState(
  * - Single source of truth for back navigation logic
  * - Easier to maintain and extend
  * - Fewer mutations to import and manage on the frontend
+ *
+ * Requires authentication.
  */
 export const goBack = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     const previousState = computePreviousState(session.state);
     if (!previousState) {
@@ -493,14 +636,12 @@ export const goBack = mutation({
 
 /**
  * Step 1 → 2: Accept privacy and proceed to location selection.
+ * Requires authentication.
  */
 export const acceptPrivacy = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     assertStep(session.state, "privacy");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -515,6 +656,7 @@ export const acceptPrivacy = mutation({
 
 /**
  * Step 2 → 3: Select a location and proceed to patient status.
+ * Requires authentication.
  */
 export const selectLocation = mutation({
   args: {
@@ -522,10 +664,7 @@ export const selectLocation = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     assertStep(session.state, "location");
 
     // Verify location exists and belongs to this practice
@@ -553,10 +692,7 @@ export const selectLocation = mutation({
 export const selectNewPatient = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "patient-status");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -576,14 +712,12 @@ export const selectNewPatient = mutation({
 /**
  * Step 3 → B1: Select "existing patient" path - proceed to doctor selection.
  * NOTE: After selecting a doctor, going back to this step is NOT allowed!
+ * Requires authentication.
  */
 export const selectExistingPatient = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "patient-status");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -606,6 +740,7 @@ export const selectExistingPatient = mutation({
 
 /**
  * A1 → A2: Confirm age check and proceed to insurance type.
+ * Requires authentication.
  */
 export const confirmAgeCheck = mutation({
   args: {
@@ -613,10 +748,7 @@ export const confirmAgeCheck = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-age-check");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -636,6 +768,7 @@ export const confirmAgeCheck = mutation({
 
 /**
  * A2 → A3a/A3b: Select insurance type and proceed to GKV or PKV details.
+ * Requires authentication.
  */
 export const selectInsuranceType = mutation({
   args: {
@@ -643,10 +776,7 @@ export const selectInsuranceType = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-insurance-type");
 
     if (args.insuranceType === "gkv") {
@@ -686,10 +816,7 @@ export const confirmGkvDetails = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-gkv-details");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -711,16 +838,14 @@ export const confirmGkvDetails = mutation({
 
 /**
  * A3b-1 → A3b-2: Accept PVS consent and proceed to PKV details input.
+ * Requires authentication.
  */
 export const acceptPvsConsent = mutation({
   args: {
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-pvs-consent");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -741,6 +866,7 @@ export const acceptPvsConsent = mutation({
 
 /**
  * A3b → A4: Confirm PKV details and proceed to appointment type selection.
+ * Requires authentication.
  */
 export const confirmPkvDetails = mutation({
   args: {
@@ -751,10 +877,7 @@ export const confirmPkvDetails = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-pkv-details");
 
     // Build state object - include optional fields only if defined
@@ -789,6 +912,7 @@ export const confirmPkvDetails = mutation({
 
 /**
  * A4 → A5: Select appointment type and proceed to data input.
+ * Requires authentication.
  */
 export const selectNewPatientAppointmentType = mutation({
   args: {
@@ -796,10 +920,7 @@ export const selectNewPatientAppointmentType = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     // new-appointment-type has two variants: GKV (with hzvStatus) and PKV (with pvsConsent)
     if (session.state.step !== "new-appointment-type") {
@@ -881,10 +1002,7 @@ export const submitNewPatientData = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "new-data-input") {
       throw new Error(
@@ -967,6 +1085,7 @@ export const submitNewPatientData = mutation({
 
 /**
  * A6 → A7: Select slot and create appointment (new patient).
+ * Requires authentication.
  */
 export const selectNewPatientSlot = mutation({
   args: {
@@ -974,10 +1093,7 @@ export const selectNewPatientSlot = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "new-calendar-selection") {
       throw new Error(
@@ -1112,6 +1228,7 @@ export const selectNewPatientSlot = mutation({
 /**
  * B1 → B2: Select doctor.
  * ⚠️ WARNING: After this step, going back to doctor selection is NOT allowed!
+ * Requires authentication.
  */
 export const selectDoctor = mutation({
   args: {
@@ -1119,10 +1236,7 @@ export const selectDoctor = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-doctor-selection");
 
     // Verify practitioner exists
@@ -1148,6 +1262,7 @@ export const selectDoctor = mutation({
 
 /**
  * B2 → B3: Select appointment type and proceed to data input.
+ * Requires authentication.
  */
 export const selectExistingPatientAppointmentType = mutation({
   args: {
@@ -1155,10 +1270,7 @@ export const selectExistingPatientAppointmentType = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-appointment-type");
 
     // Verify appointment type exists and belongs to this rule set
@@ -1188,6 +1300,7 @@ export const selectExistingPatientAppointmentType = mutation({
 
 /**
  * B3 → B4: Submit personal data and proceed to calendar selection.
+ * Requires authentication.
  */
 export const submitExistingPatientData = mutation({
   args: {
@@ -1196,10 +1309,7 @@ export const submitExistingPatientData = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-data-input");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -1222,6 +1332,7 @@ export const submitExistingPatientData = mutation({
 
 /**
  * B4 → B5: Select slot and create appointment (existing patient).
+ * Requires authentication.
  */
 export const selectExistingPatientSlot = mutation({
   args: {
@@ -1229,10 +1340,7 @@ export const selectExistingPatientSlot = mutation({
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-calendar-selection");
 
     const now = BigInt(Date.now());
@@ -1304,14 +1412,12 @@ export const selectExistingPatientSlot = mutation({
 
 /**
  * Go back from location to privacy.
+ * Requires authentication.
  */
 export const goBackToPrivacy = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "location") {
       throw new Error(
@@ -1331,14 +1437,12 @@ export const goBackToPrivacy = mutation({
 
 /**
  * Go back from patient-status to location.
+ * Requires authentication.
  */
 export const goBackToLocation = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "patient-status") {
       throw new Error(
@@ -1358,14 +1462,12 @@ export const goBackToLocation = mutation({
 
 /**
  * Go back from new-age-check or existing-doctor-selection to patient-status.
+ * Requires authentication.
  */
 export const goBackToPatientStatus = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     const validSteps = ["new-age-check", "existing-doctor-selection"];
     if (!validSteps.includes(session.state.step)) {
@@ -1395,14 +1497,12 @@ export const goBackToPatientStatus = mutation({
 
 /**
  * Go back from new-insurance-type to new-age-check.
+ * Requires authentication.
  */
 export const goBackToAgeCheck = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-insurance-type");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -1421,14 +1521,12 @@ export const goBackToAgeCheck = mutation({
 
 /**
  * Go back from new-gkv-details or new-pkv-details to new-insurance-type.
+ * Requires authentication.
  */
 export const goBackToInsuranceType = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     const validSteps = ["new-gkv-details", "new-pkv-details"];
     if (!validSteps.includes(session.state.step)) {
@@ -1459,14 +1557,12 @@ export const goBackToInsuranceType = mutation({
 
 /**
  * Go back from new-appointment-type to GKV or PKV details.
+ * Requires authentication.
  */
 export const goBackToInsuranceDetails = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "new-appointment-type") {
       throw new Error(
@@ -1506,14 +1602,12 @@ export const goBackToInsuranceDetails = mutation({
 
 /**
  * Go back from new-data-input to new-appointment-type.
+ * Requires authentication.
  */
 export const goBackToNewAppointmentType = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
 
     if (session.state.step !== "new-data-input") {
       throw new Error(
@@ -1571,14 +1665,12 @@ export const goBackToNewAppointmentType = mutation({
 
 /**
  * Go back from existing-data-input to existing-appointment-type.
+ * Requires authentication.
  */
 export const goBackToExistingAppointmentType = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
+    const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-data-input");
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
