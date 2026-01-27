@@ -1,5 +1,5 @@
 // src/router.tsx
-import type { ErrorComponentProps } from "@tanstack/react-router"; // Corrected: type-only import
+import type { ErrorComponentProps } from "@tanstack/react-router";
 
 import { ConvexQueryClient } from "@convex-dev/react-query";
 import {
@@ -8,38 +8,42 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import {
+  ClientOnly,
   createRouter as createTanStackRouter,
-  // ErrorComponentProps, // Changed to type-only import below
 } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuth } from "convex/react";
-import { useCallback, useMemo } from "react";
+import * as React from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import toast from "react-hot-toast";
+
+import type { FileRouteTypes } from "./routeTree.gen";
 
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 
-// WorkOS AuthKit configuration from environment variables
-function getEnvVar(name: string): string {
-  const value = (import.meta as { env: Record<string, string> }).env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+// Type-safe WorkOS callback route path
+const WORKOS_CALLBACK_PATH =
+  "/callback" as const satisfies FileRouteTypes["to"];
+
+// WorkOS AuthKit configuration
+function getWorkOSClientId(): string {
+  const clientId = (import.meta as { env: Record<string, string> }).env[
+    "VITE_WORKOS_CLIENT_ID"
+  ];
+  if (!clientId) {
+    throw new Error(
+      "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
+    );
   }
-  return value;
+  return clientId;
 }
 
-const WORKOS_CLIENT_ID = getEnvVar("VITE_WORKOS_CLIENT_ID");
+const WORKOS_CLIENT_ID = getWorkOSClientId();
 
-// Dynamically compute redirect URI based on current origin
-// This handles localhost, Vercel preview deployments, and production automatically
-function getRedirectUri(): string {
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/callback`;
-  }
-  // Fallback for SSR or non-browser environments
-  return "http://localhost:5173/callback";
-}
+// Context for sharing ConvexQueryClient with the Wrap component
+const ConvexQueryClientContext = createContext<ConvexQueryClient | null>(null);
 
 export function getRouter() {
   if (typeof document !== "undefined") {
@@ -93,9 +97,7 @@ export function getRouter() {
   const router = routerWithQueryClient(
     createTanStackRouter({
       context: { queryClient },
-      defaultErrorComponent: (
-        { error, reset }: ErrorComponentProps, // Type annotation is still valid
-      ) => (
+      defaultErrorComponent: ({ error, reset }: ErrorComponentProps) => (
         <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
           <h1>Etwas ist schiefgelaufen!</h1>
           <p>{error instanceof Error ? error.message : String(error)}</p>
@@ -116,24 +118,78 @@ export function getRouter() {
       defaultPreload: "viewport",
       routeTree,
       Wrap: ({ children }) => (
-        <AuthKitProvider
-          clientId={WORKOS_CLIENT_ID}
-          devMode={true}
-          redirectUri={getRedirectUri()}
-        >
-          <ConvexProviderWithAuth
-            client={convexQueryClient.convexClient}
-            useAuth={useConvexAuthFromWorkOS}
-          >
-            {children}
-          </ConvexProviderWithAuth>
-        </AuthKitProvider>
+        <ConvexQueryClientContext.Provider value={convexQueryClient}>
+          <AuthProviders>{children}</AuthProviders>
+        </ConvexQueryClientContext.Provider>
       ),
     }),
     queryClient,
   );
 
   return router;
+}
+
+function useConvexQueryClient(): ConvexQueryClient {
+  const client = useContext(ConvexQueryClientContext);
+  if (!client) {
+    throw new Error(
+      "useConvexQueryClient must be used within ConvexQueryClientContext",
+    );
+  }
+  return client;
+}
+
+/**
+ * Auth providers wrapper that uses TanStack Router's ClientOnly
+ * to dynamically build the WorkOS redirect URI on the client.
+ */
+function AuthProviders({ children }: { children: React.ReactNode }) {
+  const convexQueryClient = useConvexQueryClient();
+
+  return (
+    <ClientOnly
+      fallback={
+        <AuthProvidersInner
+          convexQueryClient={convexQueryClient}
+          redirectUri={WORKOS_CALLBACK_PATH}
+        >
+          {children}
+        </AuthProvidersInner>
+      }
+    >
+      <AuthProvidersInner
+        convexQueryClient={convexQueryClient}
+        redirectUri={`${globalThis.location.origin}${WORKOS_CALLBACK_PATH}`}
+      >
+        {children}
+      </AuthProvidersInner>
+    </ClientOnly>
+  );
+}
+
+function AuthProvidersInner({
+  children,
+  convexQueryClient,
+  redirectUri,
+}: {
+  children: React.ReactNode;
+  convexQueryClient: ConvexQueryClient;
+  redirectUri: string;
+}) {
+  return (
+    <AuthKitProvider
+      clientId={WORKOS_CLIENT_ID}
+      devMode={true}
+      redirectUri={redirectUri}
+    >
+      <ConvexProviderWithAuth
+        client={convexQueryClient.convexClient}
+        useAuth={useConvexAuthFromWorkOS}
+      >
+        {children}
+      </ConvexProviderWithAuth>
+    </AuthKitProvider>
+  );
 }
 
 /**
@@ -149,17 +205,13 @@ function useConvexAuthFromWorkOS() {
     }: {
       forceRefreshToken: boolean;
     }): Promise<null | string> => {
-      // When WorkOS is still loading, return null
       if (isLoading) {
         return null;
       }
-      // When user is not authenticated, return null
       if (!user) {
         return null;
       }
       try {
-        // getAccessToken returns the access token from WorkOS
-        // Pass forceRefresh to bypass cache if needed
         const token = await getAccessToken({ forceRefresh: forceRefreshToken });
         return token || null;
       } catch (error) {
