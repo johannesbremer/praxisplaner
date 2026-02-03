@@ -1,6 +1,12 @@
 // convex/auth.config.ts
 const clientId = process.env["WORKOS_CLIENT_ID"];
 
+if (!clientId) {
+  throw new Error(
+    "Missing WORKOS_CLIENT_ID environment variable. Auth configuration requires this to be set.",
+  );
+}
+
 const authConfig = {
   providers: [
     {
