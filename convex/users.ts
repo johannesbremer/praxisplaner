@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
+import { workOSAuthUserValidator } from "./validators";
 
 /**
  * Get the currently authenticated user.
@@ -41,13 +42,14 @@ export const getCurrentUser = query({
 /**
  * Get the authenticated user from WorkOS (auth metadata).
  * This returns the WorkOS user data directly from the component.
+ * @returns The WorkOS user object if authenticated, null otherwise.
  */
 export const getAuthUser = query({
   args: {},
   handler: async (ctx) => {
     return await authKit.getAuthUser(ctx);
   },
-  returns: v.any(), // WorkOS user type
+  returns: v.union(workOSAuthUserValidator, v.null()),
 });
 
 /**
