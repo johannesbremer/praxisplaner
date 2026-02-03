@@ -194,16 +194,10 @@ function downloadICS(
 
   const event = calendar.createEvent({
     description: `Termin bei ${practitionerName}`,
-    end: new Date(end.year, end.month - 1, end.day, end.hour, end.minute),
+    end: new Date(end.epochMilliseconds),
     id: `${appointmentId}@praxisplaner`,
     location,
-    start: new Date(
-      start.year,
-      start.month - 1,
-      start.day,
-      start.hour,
-      start.minute,
-    ),
+    start: new Date(start.epochMilliseconds),
     summary: title,
     timezone: "Europe/Berlin",
   });
