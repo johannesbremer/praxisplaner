@@ -21,6 +21,32 @@ export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
  */
 export const { authKitEvent } = authKit.events({
   "user.created": async (ctx, event) => {
+    // Check if user already exists to handle webhook retries idempotently
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", event.data.id))
+      .unique();
+
+    if (existingUser) {
+      // User already exists, update their data instead
+      const updateData: {
+        email: string;
+        firstName?: string;
+        lastName?: string;
+      } = {
+        email: event.data.email,
+      };
+      if (event.data.firstName) {
+        updateData.firstName = event.data.firstName;
+      }
+      if (event.data.lastName) {
+        updateData.lastName = event.data.lastName;
+      }
+      await ctx.db.patch("users", existingUser._id, updateData);
+      return;
+    }
+
+    // Insert new user
     const userData: {
       authId: string;
       createdAt: bigint;
