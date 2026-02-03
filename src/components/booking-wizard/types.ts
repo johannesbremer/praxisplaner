@@ -43,6 +43,7 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
 // Group steps for progress indicator
 export type StepGroup = "booking" | "confirmation" | "consent" | "info";
 
+// Helper for exhaustive switch checks - errors at compile time if a case is missing
 export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
   switch (step) {
     case "existing-appointment-type":
@@ -71,9 +72,13 @@ export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
       return "consent";
     }
     default: {
-      return "consent";
+      return assertNever(step, "Unhandled step in getStepGroup");
     }
   }
+}
+
+function assertNever(value: never, message: string): never {
+  throw new Error(`${message}: ${value as string}`);
 }
 
 // Check if we can go back from a given step
