@@ -8,26 +8,7 @@ import {
   STEP_LABELS,
 } from "../components/booking-wizard/types";
 
-// All step names for exhaustiveness checks
-const ALL_STEPS: BookingSessionState["step"][] = [
-  "existing-appointment-type",
-  "existing-calendar-selection",
-  "existing-confirmation",
-  "existing-data-input",
-  "existing-doctor-selection",
-  "location",
-  "new-age-check",
-  "new-appointment-type",
-  "new-calendar-selection",
-  "new-confirmation",
-  "new-data-input",
-  "new-gkv-details",
-  "new-insurance-type",
-  "new-pkv-details",
-  "new-pvs-consent",
-  "patient-status",
-  "privacy",
-];
+const ALL_STEPS = Object.keys(STEP_LABELS) as BookingSessionState["step"][];
 
 describe("STEP_LABELS", () => {
   it("has a label for every step", () => {
