@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2, LogIn } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -130,6 +130,8 @@ function AuthenticatedBookingFlow() {
   const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
     null,
   );
+  const [sessionError, setSessionError] = useState<null | string>(null);
+  const isCreatingSessionRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
@@ -151,13 +153,45 @@ function AuthenticatedBookingFlow() {
 
   // Create session on mount
   useEffect(() => {
-    if (currentPractice && activeRuleSetId && !sessionId) {
-      void createSession({
+    if (
+      currentPractice &&
+      activeRuleSetId &&
+      !sessionId &&
+      !isCreatingSessionRef.current &&
+      !sessionError
+    ) {
+      isCreatingSessionRef.current = true;
+      createSession({
         practiceId: currentPractice._id,
         ruleSetId: activeRuleSetId,
-      }).then(setSessionId);
+      })
+        .then(setSessionId)
+        .catch((error: unknown) => {
+          console.error("Failed to create booking session:", error);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unbekannter Fehler";
+          setSessionError(errorMessage);
+          toast.error("Buchung konnte nicht gestartet werden", {
+            description:
+              "Bitte versuchen Sie es erneut oder kontaktieren Sie die Praxis.",
+          });
+        })
+        .finally(() => {
+          isCreatingSessionRef.current = false;
+        });
     }
-  }, [currentPractice, activeRuleSetId, sessionId, createSession]);
+  }, [
+    currentPractice,
+    activeRuleSetId,
+    sessionId,
+    createSession,
+    sessionError,
+  ]);
+
+  // Handle retry after session creation error
+  const handleRetrySessionCreation = useCallback(() => {
+    setSessionError(null);
+  }, []);
 
   // Handle starting over
   const handleStartOver = useCallback(() => {
@@ -231,6 +265,29 @@ function AuthenticatedBookingFlow() {
               kontaktieren Sie die Praxis telefonisch.
             </CardDescription>
           </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Session creation error
+  if (sessionError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Buchung konnte nicht gestartet werden</CardTitle>
+            <CardDescription>
+              Bei der Vorbereitung Ihrer Buchung ist ein Fehler aufgetreten.
+              Bitte versuchen Sie es erneut oder kontaktieren Sie die Praxis
+              telefonisch.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full" onClick={handleRetrySessionCreation}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );
