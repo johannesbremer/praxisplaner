@@ -53,29 +53,6 @@ export const getAuthUser = query({
 });
 
 /**
- * DEBUG: Check raw Convex auth identity.
- * This bypasses authKit to see if the JWT is reaching Convex.
- */
-export const debugAuthIdentity = query({
-  args: {},
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    return {
-      hasIdentity: identity !== null,
-      issuer: identity?.issuer ?? null,
-      subject: identity?.subject ?? null,
-      tokenIdentifier: identity?.tokenIdentifier ?? null,
-    };
-  },
-  returns: v.object({
-    hasIdentity: v.boolean(),
-    issuer: v.union(v.string(), v.null()),
-    subject: v.union(v.string(), v.null()),
-    tokenIdentifier: v.union(v.string(), v.null()),
-  }),
-});
-
-/**
  * Get a user by their Convex ID.
  */
 export const getById = query({
