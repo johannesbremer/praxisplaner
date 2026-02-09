@@ -307,7 +307,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // Session loading
-  if (!sessionId || session === undefined) {
+  if (!resolvedSessionId || session === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -351,7 +351,7 @@ function AuthenticatedBookingFlow() {
   const stepProps: StepComponentProps = {
     practiceId: currentPractice._id,
     ruleSetId: activeRuleSetId,
-    sessionId,
+    sessionId: resolvedSessionId,
     state: session.state,
   };
 
