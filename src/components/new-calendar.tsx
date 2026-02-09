@@ -15,11 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
 
-import type {
-  Appointment,
-  NewCalendarProps,
-  PendingAppointmentData,
-} from "./calendar/types";
+import type { Appointment, NewCalendarProps } from "./calendar/types";
 
 import {
   getPublicHolidayName,
@@ -45,13 +41,13 @@ import { BlockedSlotWarningDialog } from "./calendar/blocked-slot-warning-dialog
 import { CalendarGrid } from "./calendar/calendar-grid";
 import { SLOT_DURATION } from "./calendar/types";
 import { useCalendarLogic } from "./calendar/use-calendar-logic";
-import {
-  TemporaryPatientCreationModal,
-  type TemporaryPatientSelection,
-} from "./patient-selection-modal";
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
+
+type SelectedPatient =
+  | { id: Id<"patients">; type: "patient" }
+  | { id: Id<"users">; type: "user" };
 
 // Wrapper component that enhances appointment selection with sidebar opening
 // Must be rendered inside RightSidebarProvider
@@ -115,9 +111,7 @@ export function NewCalendar({
   >();
   // Track patient selection with explicit type to avoid ID prefix guessing
   const [selectedPatient, setSelectedPatient] = useState<
-    | undefined
-    | { id: Id<"patients">; type: "patient" }
-    | { id: Id<"temporaryPatients">; type: "temporaryPatient" }
+    SelectedPatient | undefined
   >();
 
   // State for blocking mode
@@ -137,12 +131,6 @@ export function NewCalendar({
     slotData: Doc<"blockedSlots">;
     slotIsSimulation: boolean;
   }>(null);
-
-  // State for patient selection modal (shown when creating appointment without patient)
-  const [patientSelectionModalOpen, setPatientSelectionModalOpen] =
-    useState(false);
-  const [pendingAppointmentData, setPendingAppointmentData] =
-    useState<null | PendingAppointmentData>(null);
 
   const {
     addAppointment,
@@ -188,10 +176,6 @@ export function NewCalendar({
     locationName,
     onDateChange,
     onLocationResolved,
-    onPatientRequired: useCallback((data: PendingAppointmentData) => {
-      setPendingAppointmentData(data);
-      setPatientSelectionModalOpen(true);
-    }, []),
     onUpdateSimulatedContext,
     patient,
     pendingAppointmentTitle,
@@ -206,17 +190,18 @@ export function NewCalendar({
   });
 
   // Query for patient appointments when a patient is selected
-  // Note: The query handles both regular patients and temporary patients
   // Also queries for GDT patient when no specific appointment is selected
   const patientAppointments = useQuery(
     api.appointments.getAppointmentsForPatient,
     selectedPatient
       ? selectedPatient.type === "patient"
         ? { patientId: selectedPatient.id }
-        : { temporaryPatientId: selectedPatient.id }
+        : { userId: selectedPatient.id }
       : patient?.convexPatientId
         ? { patientId: patient.convexPatientId }
-        : "skip",
+        : patient?.userId
+          ? { userId: patient.userId }
+          : "skip",
   );
 
   // Query for selected patient data (regular patient)
@@ -225,12 +210,9 @@ export function NewCalendar({
     selectedPatient?.type === "patient" ? { id: selectedPatient.id } : "skip",
   );
 
-  // Query for selected temporary patient data
-  const selectedTemporaryPatientData = useQuery(
-    api.temporaryPatients.getTemporaryPatient,
-    selectedPatient?.type === "temporaryPatient"
-      ? { temporaryPatientId: selectedPatient.id }
-      : "skip",
+  const selectedUserData = useQuery(
+    api.users.getById,
+    selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
   );
 
   // Convert selected patient data to PatientInfo format for the sidebar
@@ -257,44 +239,47 @@ export function NewCalendar({
         info.city = selectedPatientData.city;
       }
       return info;
-    } else if (
-      selectedPatient?.type === "temporaryPatient" &&
-      selectedTemporaryPatientData
-    ) {
-      return {
-        firstName: selectedTemporaryPatientData.firstName,
-        isNewPatient: true,
-        lastName: selectedTemporaryPatientData.lastName,
-      };
     }
+
+    if (selectedPatient?.type === "user" && selectedUserData) {
+      const info: PatientInfo = {
+        email: selectedUserData.email,
+        isNewPatient: false,
+        userId: selectedUserData._id,
+      };
+
+      if (selectedUserData.firstName !== undefined) {
+        info.firstName = selectedUserData.firstName;
+      }
+      if (selectedUserData.lastName !== undefined) {
+        info.lastName = selectedUserData.lastName;
+      }
+
+      return info;
+    }
+
     return;
   })();
 
   // Handler for selecting an appointment
   const handleSelectAppointment = useCallback((appointment: Appointment) => {
     setSelectedAppointmentId(appointment.convexId);
-    // Set the patient - could be patientId or temporaryPatientId
     if (appointment.resource?.patientId) {
       setSelectedPatient({
         id: appointment.resource.patientId,
         type: "patient",
       });
-    } else if (appointment.resource?.temporaryPatientId) {
-      setSelectedPatient({
-        id: appointment.resource.temporaryPatientId,
-        type: "temporaryPatient",
-      });
+      return;
+    }
+
+    if (appointment.resource?.userId) {
+      setSelectedPatient({ id: appointment.resource.userId, type: "user" });
     }
   }, []);
 
   // Handler for selecting an appointment by ID (used after creation)
   const handleAppointmentSelection = useCallback(
-    (
-      appointmentId: Id<"appointments">,
-      patient?:
-        | { id: Id<"patients">; type: "patient" }
-        | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
-    ) => {
+    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
       setSelectedAppointmentId(appointmentId);
       if (patient) {
         setSelectedPatient(patient);
@@ -302,84 +287,6 @@ export function NewCalendar({
     },
     [],
   );
-
-  // Handle patient selection from modal
-  const handlePatientSelection = useCallback(
-    async (selection: TemporaryPatientSelection) => {
-      if (!pendingAppointmentData) {
-        return;
-      }
-
-      try {
-        const newAppointmentId = await runCreateAppointment({
-          ...pendingAppointmentData,
-          temporaryPatientId: selection.temporaryPatientId,
-        });
-
-        // Select the newly created appointment
-        if (newAppointmentId) {
-          setSelectedAppointmentId(newAppointmentId);
-          setSelectedPatient({
-            id: selection.temporaryPatientId,
-            type: "temporaryPatient",
-          });
-        }
-
-        toast.success("Termin erfolgreich erstellt");
-        setPatientSelectionModalOpen(false);
-        setPendingAppointmentData(null);
-        // Clear the pending title after successful appointment creation
-        setPendingAppointmentTitle(undefined);
-      } catch {
-        toast.error("Fehler beim Erstellen des Termins");
-      }
-    },
-    [pendingAppointmentData, runCreateAppointment],
-  );
-
-  // Auto-create appointment when a patient is selected externally (via GDT) while modal is open
-  useEffect(() => {
-    const createAppointmentWithExternalPatient = async () => {
-      if (
-        !patientSelectionModalOpen ||
-        !pendingAppointmentData ||
-        !patient?.convexPatientId
-      ) {
-        return;
-      }
-
-      try {
-        const newAppointmentId = await runCreateAppointment({
-          ...pendingAppointmentData,
-          patientId: patient.convexPatientId,
-        });
-
-        // Select the newly created appointment
-        if (newAppointmentId) {
-          setSelectedAppointmentId(newAppointmentId);
-          setSelectedPatient({
-            id: patient.convexPatientId,
-            type: "patient",
-          });
-        }
-
-        toast.success("Termin erfolgreich erstellt");
-        setPatientSelectionModalOpen(false);
-        setPendingAppointmentData(null);
-        // Clear the pending title after successful appointment creation
-        setPendingAppointmentTitle(undefined);
-      } catch {
-        toast.error("Fehler beim Erstellen des Termins");
-      }
-    };
-
-    void createAppointmentWithExternalPatient();
-  }, [
-    patient?.convexPatientId,
-    patientSelectionModalOpen,
-    pendingAppointmentData,
-    runCreateAppointment,
-  ]);
 
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);
@@ -618,7 +525,16 @@ export function NewCalendar({
                       onResizeStartBlockedSlot={handleBlockedSlotResizeStart}
                       onSelectAppointment={handleSelectAppointment}
                       selectedAppointmentId={selectedAppointmentId ?? null}
-                      selectedPatientId={selectedPatient?.id ?? null}
+                      selectedPatientId={
+                        selectedPatient?.type === "patient"
+                          ? selectedPatient.id
+                          : null
+                      }
+                      selectedUserId={
+                        selectedPatient?.type === "user"
+                          ? selectedPatient.id
+                          : null
+                      }
                       slotDuration={SLOT_DURATION}
                       slotToTime={slotToTime}
                       timeToSlot={timeToSlot}
@@ -656,11 +572,8 @@ export function NewCalendar({
                     id: appointment.patientId,
                     type: "patient",
                   });
-                } else if (appointment.temporaryPatientId) {
-                  setSelectedPatient({
-                    id: appointment.temporaryPatientId,
-                    type: "temporaryPatient",
-                  });
+                } else if (appointment.userId) {
+                  setSelectedPatient({ id: appointment.userId, type: "user" });
                 }
 
                 // Navigate to the appointment's date
@@ -775,22 +688,6 @@ export function NewCalendar({
             runUpdateBlockedSlot={runUpdateBlockedSlot}
             slotData={blockedSlotEditData.slotData}
             slotIsSimulation={blockedSlotEditData.slotIsSimulation}
-          />
-        )}
-        {/* Temporary patient creation modal - shown when creating appointment without patient */}
-        {practiceId && pendingAppointmentData && (
-          <TemporaryPatientCreationModal
-            onOpenChange={(open) => {
-              setPatientSelectionModalOpen(open);
-              if (!open) {
-                setPendingAppointmentData(null);
-              }
-            }}
-            onSelect={(selection) => {
-              void handlePatientSelection(selection);
-            }}
-            open={patientSelectionModalOpen}
-            practiceId={practiceId}
           />
         )}
       </RightSidebarProvider>

@@ -73,3 +73,47 @@ export const getById = query({
     v.null(),
   ),
 });
+
+/**
+ * Fetch a lightweight map of users by their Convex IDs for UI display.
+ * Returns only the fields we need for names and email fallbacks.
+ */
+export const getUsersByIds = query({
+  args: { userIds: v.array(v.id("users")) },
+  handler: async (ctx, args) => {
+    const users = await Promise.all(
+      args.userIds.map((id) => ctx.db.get("users", id)),
+    );
+
+    const userMap: Record<
+      string,
+      {
+        email: string;
+        firstName?: string;
+        lastName?: string;
+      }
+    > = {};
+
+    for (const user of users) {
+      if (!user) {
+        continue;
+      }
+
+      userMap[user._id] = {
+        email: user.email,
+        ...(user.firstName ? { firstName: user.firstName } : {}),
+        ...(user.lastName ? { lastName: user.lastName } : {}),
+      };
+    }
+
+    return userMap;
+  },
+  returns: v.record(
+    v.id("users"),
+    v.object({
+      email: v.string(),
+      firstName: v.optional(v.string()),
+      lastName: v.optional(v.string()),
+    }),
+  ),
+});

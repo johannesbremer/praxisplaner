@@ -54,7 +54,7 @@ interface CalendarContextValue {
     appointmentId: Id<"appointments">,
     patient?:
       | { id: Id<"patients">; type: "patient" }
-      | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
+      | { id: Id<"users">; type: "user" },
   ) => void;
 
   // Pending appointment title (set by sidebar modal before manual placement)
@@ -71,8 +71,8 @@ interface CalendarContextValue {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
-    temporaryPatientId?: Id<"temporaryPatients">;
     title: string;
+    userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;
 }
 

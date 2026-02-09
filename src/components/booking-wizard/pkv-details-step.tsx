@@ -40,14 +40,27 @@ const pkvFormSchema = z.object({
     .transform((v) => v || undefined),
 });
 
-export function PkvDetailsStep({ sessionId }: StepComponentProps) {
+export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
+
+  const initialBeihilfeStatus =
+    state.step === "new-pkv-details" && "beihilfeStatus" in state
+      ? (state.beihilfeStatus as "" | "no" | "yes" | undefined)
+      : undefined;
+  const initialPkvInsuranceType =
+    state.step === "new-pkv-details" && "pkvInsuranceType" in state
+      ? (state.pkvInsuranceType as "" | "kvb" | "other" | "postb" | undefined)
+      : undefined;
+  const initialPkvTariff =
+    state.step === "new-pkv-details" && "pkvTariff" in state
+      ? (state.pkvTariff as "" | "basis" | "premium" | "standard" | undefined)
+      : undefined;
 
   const form = useForm({
     defaultValues: {
-      beihilfeStatus: "" as "" | "no" | "yes",
-      pkvInsuranceType: "" as "" | "kvb" | "other" | "postb",
-      pkvTariff: "" as "" | "basis" | "premium" | "standard",
+      beihilfeStatus: initialBeihilfeStatus ?? "",
+      pkvInsuranceType: initialPkvInsuranceType ?? "",
+      pkvTariff: initialPkvTariff ?? "",
     },
     onSubmit: async ({ value }) => {
       try {

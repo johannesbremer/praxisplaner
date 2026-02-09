@@ -226,8 +226,8 @@ export const getAppointments = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
-      temporaryPatientId: v.optional(v.id("temporaryPatients")),
       title: v.string(),
+      userId: v.optional(v.id("users")),
     }),
   ),
 });
@@ -285,8 +285,8 @@ export const getAppointmentsInRange = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
-      temporaryPatientId: v.optional(v.id("temporaryPatients")),
       title: v.string(),
+      userId: v.optional(v.id("users")),
     }),
   ),
 });
@@ -303,18 +303,13 @@ export const createAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.string(),
-    temporaryPatientId: v.optional(v.id("temporaryPatients")),
     title: v.string(),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const now = BigInt(Date.now());
-    const {
-      isSimulation,
-      patientId,
-      replacesAppointmentId,
-      temporaryPatientId,
-      ...rest
-    } = args;
+    const { isSimulation, patientId, replacesAppointmentId, userId, ...rest } =
+      args;
 
     if (replacesAppointmentId && isSimulation !== true) {
       throw new Error(
@@ -322,38 +317,9 @@ export const createAppointment = mutation({
       );
     }
 
-    // For non-simulation appointments, validate that exactly one of patientId or temporaryPatientId is provided
-    if (!isSimulation) {
-      if (!patientId && !temporaryPatientId) {
-        throw new Error(
-          "Either patientId or temporaryPatientId must be provided.",
-        );
-      }
-      if (patientId && temporaryPatientId) {
-        throw new Error(
-          "Cannot provide both patientId and temporaryPatientId. Choose one.",
-        );
-      }
-    }
-
-    // If both are provided (even for simulations), reject
-    if (patientId && temporaryPatientId) {
-      throw new Error(
-        "Cannot provide both patientId and temporaryPatientId. Choose one.",
-      );
-    }
-
-    // If a temporaryPatientId is provided, verify it exists
-    if (temporaryPatientId) {
-      const temporaryPatient = await ctx.db.get(
-        "temporaryPatients",
-        temporaryPatientId,
-      );
-      if (!temporaryPatient) {
-        throw new Error(
-          `Temporary patient with ID ${temporaryPatientId} not found`,
-        );
-      }
+    // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
+    if (!isSimulation && !patientId && !userId) {
+      throw new Error("Either patientId or userId must be provided.");
     }
 
     // If a patientId is provided, verify it exists
@@ -361,6 +327,13 @@ export const createAppointment = mutation({
       const patient = await ctx.db.get("patients", patientId);
       if (!patient) {
         throw new Error(`Patient with ID ${patientId} not found`);
+      }
+    }
+
+    if (userId) {
+      const user = await ctx.db.get("users", userId);
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
       }
     }
 
@@ -382,7 +355,7 @@ export const createAppointment = mutation({
       isSimulation: isSimulation ?? false,
       lastModified: now,
       ...(patientId && { patientId }),
-      ...(temporaryPatientId && { temporaryPatientId }),
+      ...(userId && { userId }),
       ...(replacesAppointmentId !== undefined && {
         replacesAppointmentId,
       }),
@@ -404,8 +377,8 @@ export const updateAppointment = mutation({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     start: v.optional(v.string()),
-    temporaryPatientId: v.optional(v.id("temporaryPatients")),
     title: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const { id, ...updateData } = args;
@@ -415,7 +388,23 @@ export const updateAppointment = mutation({
     const filteredUpdateData = Object.fromEntries(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       Object.entries(updateData).filter(([, value]) => value !== undefined),
-    );
+    ) as Partial<typeof updateData>;
+
+    const { patientId, userId } = filteredUpdateData;
+
+    if (patientId) {
+      const patient = await ctx.db.get("patients", patientId);
+      if (!patient) {
+        throw new Error(`Patient with ID ${patientId} not found`);
+      }
+    }
+
+    if (userId) {
+      const user = await ctx.db.get("users", userId);
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+    }
 
     await ctx.db.patch("appointments", id, {
       ...filteredUpdateData,
@@ -443,11 +432,11 @@ export const deleteAppointment = mutation({
 export const getAppointmentsForPatient = query({
   args: {
     patientId: v.optional(v.id("patients")),
-    temporaryPatientId: v.optional(v.id("temporaryPatients")),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     // Need at least one patient ID
-    if (!args.patientId && !args.temporaryPatientId) {
+    if (!args.patientId && !args.userId) {
       return [];
     }
 
@@ -462,19 +451,22 @@ export const getAppointmentsForPatient = query({
       appointments.push(...patientAppointments);
     }
 
-    // Query by temporary patient ID if provided
-    if (args.temporaryPatientId) {
-      const tempPatientAppointments = await ctx.db
+    if (args.userId) {
+      const userAppointments = await ctx.db
         .query("appointments")
-        .withIndex("by_temporaryPatientId", (q) =>
-          q.eq("temporaryPatientId", args.temporaryPatientId),
-        )
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
         .collect();
-      appointments.push(...tempPatientAppointments);
+      appointments.push(...userAppointments);
     }
 
-    // Sort by start time (ascending)
-    return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+    // Dedupe in case both queries return the same appointment, then sort by start time (ascending)
+    const uniqueAppointments = [
+      ...new Map(appointments.map((appt) => [appt._id, appt])).values(),
+    ];
+
+    return uniqueAppointments.toSorted((a, b) =>
+      a.start.localeCompare(b.start),
+    );
   },
   returns: v.array(
     v.object({
@@ -492,8 +484,8 @@ export const getAppointmentsForPatient = query({
       practitionerId: v.optional(v.id("practitioners")),
       replacesAppointmentId: v.optional(v.id("appointments")),
       start: v.string(),
-      temporaryPatientId: v.optional(v.id("temporaryPatients")),
       title: v.string(),
+      userId: v.optional(v.id("users")),
     }),
   ),
 });

@@ -40,12 +40,17 @@ const hzvOptions: { description: string; label: string; value: HzvStatus }[] = [
   },
 ];
 
-export function GkvDetailsStep({ sessionId }: StepComponentProps) {
+export function GkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmGkvDetails = useMutation(api.bookingSessions.confirmGkvDetails);
+
+  const initialHzvStatus =
+    state.step === "new-gkv-details" && "hzvStatus" in state
+      ? (state.hzvStatus as HzvStatus | undefined)
+      : undefined;
 
   const form = useForm({
     defaultValues: {
-      hzvStatus: undefined as HzvStatus | undefined,
+      hzvStatus: initialHzvStatus,
     },
     onSubmit: async ({ value }) => {
       if (value.hzvStatus) {

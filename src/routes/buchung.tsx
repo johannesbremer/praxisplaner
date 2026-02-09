@@ -140,10 +140,19 @@ function AuthenticatedBookingFlow() {
   // Get active rule set for the practice
   const activeRuleSetId = currentPractice?.currentActiveRuleSetId;
 
+  const existingSession = useQuery(
+    api.bookingSessions.getActiveForUser,
+    currentPractice && activeRuleSetId
+      ? { practiceId: currentPractice._id, ruleSetId: activeRuleSetId }
+      : "skip",
+  );
+
+  const resolvedSessionId = sessionId ?? existingSession?._id ?? null;
+
   // Query the session if we have one
   const session = useQuery(
     api.bookingSessions.get,
-    sessionId ? { sessionId } : "skip",
+    resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
 
   // Mutations
@@ -156,9 +165,11 @@ function AuthenticatedBookingFlow() {
     if (
       currentPractice &&
       activeRuleSetId &&
-      !sessionId &&
+      !resolvedSessionId &&
       !isCreatingSessionRef.current &&
-      !sessionError
+      !sessionError &&
+      existingSession !== undefined &&
+      !existingSession
     ) {
       isCreatingSessionRef.current = true;
       createSession({
@@ -186,6 +197,8 @@ function AuthenticatedBookingFlow() {
     sessionId,
     createSession,
     sessionError,
+    existingSession,
+    resolvedSessionId,
   ]);
 
   // Handle retry after session creation error
@@ -195,20 +208,20 @@ function AuthenticatedBookingFlow() {
 
   // Handle starting over
   const handleStartOver = useCallback(() => {
-    if (sessionId) {
-      void removeSession({ sessionId });
+    if (resolvedSessionId) {
+      void removeSession({ sessionId: resolvedSessionId });
     }
     setSessionId(null);
-  }, [sessionId, removeSession]);
+  }, [resolvedSessionId, removeSession]);
 
   // Handle back navigation using unified goBack mutation
   const handleBack = useCallback(async () => {
-    if (!sessionId) {
+    if (!resolvedSessionId) {
       return;
     }
 
     try {
-      await goBackMutation({ sessionId });
+      await goBackMutation({ sessionId: resolvedSessionId });
     } catch (error) {
       console.error("Failed to go back:", error);
       toast.error("Navigation fehlgeschlagen", {
@@ -218,7 +231,7 @@ function AuthenticatedBookingFlow() {
             : "Bitte versuchen Sie es erneut.",
       });
     }
-  }, [sessionId, goBackMutation]);
+  }, [resolvedSessionId, goBackMutation]);
 
   // Loading state
   if (!practicesQuery) {

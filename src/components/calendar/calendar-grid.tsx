@@ -58,7 +58,8 @@ interface CalendarGridProps {
   ) => void;
   onSelectAppointment?: (appointment: Appointment) => void;
   selectedAppointmentId?: Id<"appointments"> | null;
-  selectedPatientId?: Id<"patients"> | Id<"temporaryPatients"> | null;
+  selectedPatientId?: Id<"patients"> | null;
+  selectedUserId?: Id<"users"> | null;
   slotDuration: number;
   slotToTime: (slot: number) => string;
   timeToSlot: (time: string) => number;
@@ -91,6 +92,7 @@ export function CalendarGrid({
   onSelectAppointment,
   selectedAppointmentId,
   selectedPatientId,
+  selectedUserId,
   slotDuration,
   slotToTime,
   timeToSlot,
@@ -103,14 +105,13 @@ export function CalendarGrid({
         const isDragging = draggedAppointment?.id === appointment.id;
         const isSelected = selectedAppointmentId === appointment.convexId;
         // Check if this appointment belongs to the selected patient
-        // Supports both regular patients and temporary patients
-        const appointmentPatientId =
-          appointment.resource?.patientId ??
-          appointment.resource?.temporaryPatientId;
         const isRelatedToSelectedPatient =
-          selectedPatientId !== null &&
-          selectedPatientId !== undefined &&
-          appointmentPatientId === selectedPatientId;
+          (selectedPatientId !== null &&
+            selectedPatientId !== undefined &&
+            appointment.resource?.patientId === selectedPatientId) ||
+          (selectedUserId !== null &&
+            selectedUserId !== undefined &&
+            appointment.resource?.userId === selectedUserId);
 
         return (
           <CalendarAppointment
