@@ -1,6 +1,8 @@
 // convex/users.ts
 import { v } from "convex/values";
 
+import type { Id } from "./_generated/dataModel";
+
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
 import { workOSAuthUserValidator } from "./validators";
@@ -86,7 +88,7 @@ export const getUsersByIds = query({
     );
 
     const userMap: Record<
-      string,
+      Id<"users">,
       {
         email: string;
         firstName?: string;
