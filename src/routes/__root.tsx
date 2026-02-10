@@ -55,7 +55,7 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { Clock, Settings } from "lucide-react";
+import { CalendarPlus, Clock, Settings } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -202,6 +202,24 @@ export function PraxisplanerHomePageContent() {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 GDT-Dateien aus Verzeichnis einlesen und verarbeiten
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="/buchung">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarPlus className="h-5 w-5" />
+                Online-Terminbuchung
+              </CardTitle>
+              <CardDescription>Termine online buchen</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Patientenportal für die Online-Terminbuchung mit
+                Anamnese-Fragebogen
               </p>
             </CardContent>
           </Card>

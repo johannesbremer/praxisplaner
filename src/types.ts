@@ -31,6 +31,10 @@ export interface PatientInfo extends Partial<
 > {
   /** Convex database ID for linking appointments */
   convexPatientId?: Id<"patients">;
+  /** Linked user for bookings created via /buchung */
+  userId?: Id<"users">;
+  /** Optional email when sourced from a user booking */
+  email?: string;
   /** Whether this patient was just created (from GDT import) */
   isNewPatient?: boolean;
 }

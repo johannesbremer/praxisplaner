@@ -24,8 +24,8 @@ export interface Appointment {
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
-    temporaryPatientId?: Doc<"appointments">["temporaryPatientId"];
     title?: string;
+    userId?: Doc<"appointments">["userId"];
   };
   startTime: string;
   title: string;
@@ -41,6 +41,18 @@ export interface NewCalendarProps {
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
+  onPatientRequired?:
+    | ((params: {
+        appointmentTypeId: Id<"appointmentTypes">;
+        end: string;
+        isSimulation: boolean;
+        locationId: Id<"locations">;
+        practiceId: Id<"practices">;
+        practitionerId?: Id<"practitioners">;
+        start: string;
+        title: string;
+      }) => void)
+    | undefined;
 
   /**
    * Pending appointment title set by the sidebar modal before manual placement.
@@ -52,38 +64,19 @@ export interface NewCalendarProps {
    * Optional ref to the scroll container for auto-scroll during drag operations
    * and scrolling to appointments when selected from the sidebar.
    */
-  scrollContainerRef?: React.RefObject<HTMLDivElement | null> | undefined;
-
-  /**
-   * Called when an appointment creation is attempted without a patient selected.
-   * The component should show a patient selection modal and then call
-   * `runCreateAppointment` with the pending data plus the selected patient.
-   */
-  onPatientRequired?:
-    | ((pendingData: PendingAppointmentData) => void)
-    | undefined;
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
     | undefined;
+
   patient?: PatientInfo | undefined;
   practiceId?: Id<"practices"> | undefined;
   ruleSetId?: SchedulingRuleSetId | undefined;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null> | undefined;
   selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
-}
-
-export interface PendingAppointmentData {
-  appointmentTypeId: Id<"appointmentTypes">;
-  end: string;
-  isSimulation: boolean;
-  locationId: Id<"locations">;
-  practiceId: Id<"practices">;
-  practitionerId?: Id<"practitioners">;
-  start: string;
-  title: string;
 }
 
 export const SLOT_DURATION = 5; // minutes

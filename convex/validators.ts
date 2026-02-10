@@ -1,7 +1,8 @@
 // convex/validators.ts
 // Shared validators derived from the schema as single source of truth
 
-import { v } from "convex/values";
+import { AuthKit } from "@convex-dev/workos-authkit";
+import { type Infer, v } from "convex/values";
 
 // Common reusable validators based on schema definitions
 
@@ -105,3 +106,39 @@ export const ruleSetRuleUpdateValidator = v.object({
   enabled: v.optional(v.boolean()),
   priority: v.optional(v.number()),
 });
+
+/**
+ * TypeScript type for WorkOS Auth User.
+ * Derived directly from AuthKit.getAuthUser() to maintain the package as the source of truth.
+ */
+export type WorkOSAuthUser = NonNullable<
+  Awaited<ReturnType<AuthKit<never>["getAuthUser"]>>
+>;
+
+/**
+ * WorkOS Auth User validator for Convex runtime validation.
+ * @see https://workos.com/docs/user-management
+ */
+export const workOSAuthUserValidator = v.object({
+  createdAt: v.string(),
+  email: v.string(),
+  emailVerified: v.boolean(),
+  externalId: v.optional(v.union(v.string(), v.null())),
+  firstName: v.optional(v.union(v.string(), v.null())),
+  id: v.string(),
+  lastName: v.optional(v.union(v.string(), v.null())),
+  lastSignInAt: v.optional(v.union(v.string(), v.null())),
+  locale: v.optional(v.union(v.string(), v.null())),
+  metadata: v.record(v.string(), v.any()),
+  profilePictureUrl: v.optional(v.union(v.string(), v.null())),
+  updatedAt: v.string(),
+});
+
+/**
+ * Identity function that narrows validated data to the canonical WorkOSAuthUser type.
+ * Also serves as a compile-time assertion: if the validator drifts from the source
+ * type, this function will fail to compile.
+ */
+export const asWorkOSAuthUser = (
+  data: Infer<typeof workOSAuthUserValidator>,
+): WorkOSAuthUser => data;

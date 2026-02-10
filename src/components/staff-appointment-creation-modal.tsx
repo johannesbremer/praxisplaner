@@ -26,10 +26,6 @@ import { api } from "@/convex/_generated/api";
 import type { PatientInfo } from "../types";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
-import {
-  TemporaryPatientCreationModal,
-  type TemporaryPatientSelection,
-} from "./patient-selection-modal";
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -38,7 +34,7 @@ interface StaffAppointmentCreationModalProps {
     appointmentId: Id<"appointments">,
     patient?:
       | { id: Id<"patients">; type: "patient" }
-      | { id: Id<"temporaryPatients">; type: "temporaryPatient" },
+      | { id: Id<"users">; type: "user" },
   ) => void;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
@@ -56,7 +52,6 @@ interface StaffAppointmentCreationModalProps {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
-    temporaryPatientId?: Id<"temporaryPatients">;
     title: string;
   }) => Promise<Id<"appointments"> | undefined>;
 }
@@ -75,10 +70,6 @@ export function StaffAppointmentCreationModal({
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
   const [title, setTitle] = useState("");
-  const [showPatientSelectionModal, setShowPatientSelectionModal] =
-    useState(false);
-  const [selectedPatient, setSelectedPatient] =
-    useState<null | TemporaryPatientSelection>(null);
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
@@ -129,10 +120,10 @@ export function StaffAppointmentCreationModal({
     (slot) => slot.status === "AVAILABLE",
   );
 
-  // Determine if we have a patient (from GDT or manual selection)
+  // Determine if we have a patient (from GDT or user-linked booking)
   const hasPatientFromGdt = patient?.convexPatientId !== undefined;
-  const hasSelectedPatient = selectedPatient !== null;
-  const hasAnyPatient = hasPatientFromGdt || hasSelectedPatient;
+  const hasUserLinkedPatient = patient?.userId !== undefined;
+  const hasAnyPatient = hasPatientFromGdt || hasUserLinkedPatient;
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
@@ -142,17 +133,29 @@ export function StaffAppointmentCreationModal({
       }
       return `Patient ${patient.patientId ?? ""}`;
     }
-    if (selectedPatient) {
-      return "Temporärer Patient";
+
+    if (hasUserLinkedPatient) {
+      const parts = [patient.firstName, patient.lastName].filter(Boolean);
+      if (parts.length > 0) {
+        return parts.join(" ");
+      }
+      return patient.email ?? "Kein Patient";
     }
+
     return "Kein Patient";
   };
 
   // Helper function to create appointment with a patient selection
-  const createAppointmentWithPatient = async (
-    patientSelection?: TemporaryPatientSelection,
-  ) => {
+  const createAppointmentWithPatient = async () => {
     if (!nextAvailableSlot) {
+      return;
+    }
+
+    const patientId = patient?.convexPatientId;
+    const userId = patient?.userId;
+
+    if (!patientId && !userId) {
+      toast.error("Bitte wählen Sie einen Patienten aus.");
       return;
     }
 
@@ -165,36 +168,30 @@ export function StaffAppointmentCreationModal({
         minutes: nextAvailableSlot.duration,
       });
 
-      // Determine patient IDs based on source (GDT patient or selected patient)
-      const patientId = hasPatientFromGdt ? patient.convexPatientId : undefined;
-
-      const temporaryPatientId = patientSelection?.temporaryPatientId;
-
       const newAppointmentId = await runCreateAppointment({
         appointmentTypeId,
         end: endZoned.toString(),
         locationId,
         ...(patientId && { patientId }),
+        ...(userId && { userId }),
         practiceId,
         practitionerId: nextAvailableSlot.practitionerId,
         start: startZoned.toString(),
-        ...(temporaryPatientId && { temporaryPatientId }),
         title,
       });
 
       // Notify about the created appointment for selection
-      if (newAppointmentId) {
-        if (patientId) {
-          onAppointmentCreated?.(newAppointmentId, {
-            id: patientId,
-            type: "patient",
-          });
-        } else if (temporaryPatientId) {
-          onAppointmentCreated?.(newAppointmentId, {
-            id: temporaryPatientId,
-            type: "temporaryPatient",
-          });
-        }
+      const recipient:
+        | undefined
+        | { id: Id<"patients">; type: "patient" }
+        | { id: Id<"users">; type: "user" } = patientId
+        ? { id: patientId, type: "patient" as const }
+        : userId
+          ? { id: userId, type: "user" as const }
+          : undefined;
+
+      if (newAppointmentId && recipient) {
+        onAppointmentCreated?.(newAppointmentId, recipient);
       }
 
       toast.success("Termin erfolgreich erstellt");
@@ -202,7 +199,6 @@ export function StaffAppointmentCreationModal({
       // Reset and close after successful creation
       onOpenChange(false, true);
       setMode(null);
-      setSelectedPatient(null);
       setTitle("");
       form.reset();
     } catch (error) {
@@ -219,12 +215,12 @@ export function StaffAppointmentCreationModal({
       if (mode === "next" && nextAvailableSlot) {
         // Check if we have any patient - if not, show selection modal
         if (!hasAnyPatient) {
-          setShowPatientSelectionModal(true);
+          toast.error("Bitte wählen Sie einen Patienten aus.");
           return;
         }
 
         // Create appointment with the selected patient
-        await createAppointmentWithPatient(selectedPatient ?? undefined);
+        await createAppointmentWithPatient();
       }
     },
   });
@@ -232,7 +228,6 @@ export function StaffAppointmentCreationModal({
   const handleClose = (shouldResetAppointmentType = true) => {
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
-    setSelectedPatient(null);
     setTitle("");
     form.reset();
   };
@@ -245,21 +240,12 @@ export function StaffAppointmentCreationModal({
     }
   };
 
-  const handlePatientSelection = (selection: TemporaryPatientSelection) => {
-    setSelectedPatient(selection);
-    setShowPatientSelectionModal(false);
-    // After patient selection, create the appointment directly with the selection
-    // We can't rely on state being updated, so pass the selection directly
-    void createAppointmentWithPatient(selection);
-  };
-
   // Auto-create appointment when a patient is selected externally (via GDT) while modal is open
   useEffect(() => {
     const createAppointmentWithExternalPatient = async () => {
       if (
-        !showPatientSelectionModal ||
         !nextAvailableSlot ||
-        !patient?.convexPatientId
+        (!patient?.convexPatientId && !patient?.userId)
       ) {
         return;
       }
@@ -276,7 +262,10 @@ export function StaffAppointmentCreationModal({
           appointmentTypeId,
           end: endZoned.toString(),
           locationId,
-          patientId: patient.convexPatientId,
+          ...(patient.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
+          ...(patient.userId && { userId: patient.userId }),
           practiceId,
           practitionerId: nextAvailableSlot.practitionerId,
           start: startZoned.toString(),
@@ -284,18 +273,22 @@ export function StaffAppointmentCreationModal({
         });
 
         // Notify about the created appointment for selection
-        if (newAppointmentId) {
-          onAppointmentCreated?.(newAppointmentId, {
-            id: patient.convexPatientId,
-            type: "patient",
-          });
+        const recipient:
+          | undefined
+          | { id: Id<"patients">; type: "patient" }
+          | { id: Id<"users">; type: "user" } = patient.convexPatientId
+          ? { id: patient.convexPatientId, type: "patient" as const }
+          : patient.userId
+            ? { id: patient.userId, type: "user" as const }
+            : undefined;
+
+        if (newAppointmentId && recipient) {
+          onAppointmentCreated?.(newAppointmentId, recipient);
         }
 
         toast.success("Termin erfolgreich erstellt");
-        setShowPatientSelectionModal(false);
         onOpenChange(false, true);
         setMode(null);
-        setSelectedPatient(null);
       } catch (error) {
         captureErrorGlobal(error, {
           context:
@@ -313,9 +306,9 @@ export function StaffAppointmentCreationModal({
     onAppointmentCreated,
     onOpenChange,
     patient?.convexPatientId,
+    patient?.userId,
     practiceId,
     runCreateAppointment,
-    showPatientSelectionModal,
     title,
   ]);
 
@@ -369,18 +362,6 @@ export function StaffAppointmentCreationModal({
                       </span>
                     )}
                   </span>
-                  {!hasPatientFromGdt && (
-                    <Button
-                      className="ml-auto h-7 px-2 text-xs"
-                      onClick={() => {
-                        setShowPatientSelectionModal(true);
-                      }}
-                      type="button"
-                      variant="outline"
-                    >
-                      {hasSelectedPatient ? "Ändern" : "Auswählen"}
-                    </Button>
-                  )}
                 </div>
               </div>
 
@@ -388,7 +369,6 @@ export function StaffAppointmentCreationModal({
                 <Button
                   onClick={() => {
                     setMode(null);
-                    setSelectedPatient(null);
                   }}
                   type="button"
                   variant="outline"
@@ -483,14 +463,6 @@ export function StaffAppointmentCreationModal({
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Temporary patient creation modal */}
-      <TemporaryPatientCreationModal
-        onOpenChange={setShowPatientSelectionModal}
-        onSelect={handlePatientSelection}
-        open={showPatientSelectionModal}
-        practiceId={practiceId}
-      />
     </>
   );
 }
