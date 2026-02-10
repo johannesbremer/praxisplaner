@@ -10,6 +10,7 @@ Expert assistance with shadcn/ui - a collection of beautifully-designed, accessi
 ## When to Use This Skill
 
 This skill should be triggered when:
+
 - Installing or configuring shadcn/ui in any supported framework
 - Adding shadcn/ui components (Button, Dialog, Form, Table, etc.)
 - Implementing forms with React Hook Form or TanStack Form
@@ -330,7 +331,9 @@ export default function Combobox() {
 This skill includes comprehensive documentation in `references/`:
 
 ### llms.md
+
 Complete overview of shadcn/ui with links to all components and features. Covers:
+
 - Core principles (Open Code, Composition, Distribution, Beautiful Defaults, AI-Ready)
 - Installation guides for all supported frameworks (Next.js, Vite, Remix, Astro, Laravel, etc.)
 - Complete component catalog organized by category
@@ -341,7 +344,9 @@ Complete overview of shadcn/ui with links to all components and features. Covers
 - MCP Server integration for AI assistants
 
 ### other.md
+
 Additional documentation mirroring llms.md content with organized sections for:
+
 - All component categories (Form & Input, Layout & Navigation, Overlays & Dialogs, etc.)
 - Installation instructions by framework
 - Dark mode configuration
@@ -352,24 +357,28 @@ Use `view references/llms.md` for quick access to component links and documentat
 ## Working with This Skill
 
 ### For Beginners
+
 1. Start by initializing shadcn/ui: `npx shadcn@latest init`
 2. Add basic components like Button, Input, and Card to learn the patterns
 3. Review the Quick Reference examples above for common use cases
 4. Use `references/llms.md` to explore available components by category
 
 ### For Building Forms
+
 1. Install form components: `npx shadcn@latest add form input`
 2. Set up React Hook Form with Zod validation (see Form example above)
 3. Use Field component for labels and error messages
 4. Check the Forms section in references for advanced patterns
 
 ### For Complex Components
+
 1. Check component categories in references (Data Table, Command, Combobox)
 2. Install required dependencies (some components use external libraries)
 3. Follow the component-specific documentation links
 4. Customize using Tailwind classes and component props
 
 ### For Theming
+
 1. Edit `components.json` to configure paths and styling
 2. Use the Theming guide for customizing colors and design tokens
 3. Set up dark mode using the framework-specific guide
@@ -378,20 +387,25 @@ Use `view references/llms.md` for quick access to component links and documentat
 ## Key Concepts
 
 ### Component Philosophy
+
 - **Open Code**: Components are copied into your project, not installed as dependencies
 - **Composition**: Components are built using Radix UI primitives for accessibility
 - **Customization**: Full control over styling using Tailwind CSS
 - **Copy-paste friendly**: Modify components directly in your codebase
 
 ### Installation Model
+
 Unlike traditional libraries, shadcn/ui components are added to your project via CLI:
+
 - Components live in your `components/ui` directory
 - You have full ownership and can modify them
 - No package.json dependency (except for Radix UI and utilities)
 - Update components by re-running `add` command
 
 ### components.json
+
 Central configuration file that controls:
+
 - Component installation paths
 - TypeScript/JavaScript preference
 - Tailwind CSS configuration
@@ -400,20 +414,25 @@ Central configuration file that controls:
 - Import aliases
 
 ### Styling Approach
+
 - Uses Tailwind CSS utility classes
 - CSS variables for theming (light/dark mode)
 - `cn()` utility for conditional classes
 - Variants defined using `class-variance-authority`
 
 ### Accessibility
+
 All components built on Radix UI primitives ensure:
+
 - Keyboard navigation
 - Screen reader support
 - ARIA attributes
 - Focus management
 
 ### Framework Support
+
 Works with any React framework through appropriate setup:
+
 - **Next.js**: App Router and Pages Router
 - **Vite**: Standard React setup
 - **Remix**: Requires specific configuration
@@ -424,20 +443,23 @@ Works with any React framework through appropriate setup:
 ## Common Patterns
 
 ### Async Form Submission (Next.js Server Actions)
+
 ```typescript
-"use server"
+"use server";
 async function onSubmit(formData: FormData) {
   const data = {
     name: formData.get("name"),
     email: formData.get("email"),
-  }
+  };
   // Process data
-  return { success: true }
+  return { success: true };
 }
 ```
 
 ### Responsive Dialog/Sheet
+
 Use Dialog for desktop, Sheet for mobile:
+
 ```typescript
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -452,6 +474,7 @@ return <Sheet>...</Sheet>
 ```
 
 ### Controlled Components
+
 ```typescript
 const [open, setOpen] = useState(false)
 const [value, setValue] = useState("")
@@ -464,18 +487,22 @@ const [value, setValue] = useState("")
 ## Resources
 
 ### Official Documentation
+
 - Main site: https://ui.shadcn.com
 - Components: https://ui.shadcn.com/docs/components
 - CLI: https://ui.shadcn.com/docs/cli
 - Themes: https://ui.shadcn.com/themes
 
 ### Tools
+
 - **v0 by Vercel**: AI-powered UI generation with shadcn/ui
 - **Figma**: Design resources available
 - **MCP Server**: AI assistant integration for Claude Code, Cursor, etc.
 
 ### Registry
+
 Create and publish your own component collections:
+
 - Set up private or public registries
 - Share components across projects
 - Use authentication for private registries
@@ -483,7 +510,9 @@ Create and publish your own component collections:
 ## Troubleshooting
 
 ### Import Errors
+
 Ensure your `tsconfig.json` has the correct path aliases:
+
 ```json
 {
   "compilerOptions": {
@@ -495,11 +524,13 @@ Ensure your `tsconfig.json` has the correct path aliases:
 ```
 
 ### Styling Issues
+
 1. Verify Tailwind CSS is configured with `tailwind.config.js`
 2. Check that globals.css imports are present
 3. Ensure `cn()` utility is in `lib/utils.ts`
 
 ### Component Not Found
+
 Run `npx shadcn@latest add <component-name>` to install missing components
 
 ## Notes

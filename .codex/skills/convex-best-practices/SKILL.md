@@ -20,9 +20,7 @@ npm i @convex-dev/eslint-plugin --save-dev
 import { defineConfig } from "eslint/config";
 import convexPlugin from "@convex-dev/eslint-plugin";
 
-export default defineConfig([
-  ...convexPlugin.configs.recommended,
-]);
+export default defineConfig([...convexPlugin.configs.recommended]);
 ```
 
 The plugin enforces four rules:

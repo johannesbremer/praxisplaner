@@ -3,10 +3,7 @@ version = 1
 name = "praxisplaner"
 
 [setup]
-script = '''
-pnpm i
-CONVEX_AGENT_MODE=anonymous npx convex dev --once
-'''
+script = "pnpm i"
 
 [[actions]]
 name = "Verify CI checks don't fail."
