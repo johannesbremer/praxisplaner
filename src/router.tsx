@@ -7,10 +7,7 @@ import {
   notifyManager,
   QueryClient,
 } from "@tanstack/react-query";
-import {
-  ClientOnly,
-  createRouter as createTanStackRouter,
-} from "@tanstack/react-router";
+import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuth } from "convex/react";
@@ -24,14 +21,28 @@ import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 
 // Type-safe WorkOS callback route path
-const WORKOS_CALLBACK_PATH =
-  "/callback" as const satisfies FileRouteTypes["to"];
+const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
+
+function getSiteOrigin(): string {
+  const fromEnv = import.meta.env["VITE_CONVEX_SITE_URL"] as string | undefined;
+  if (!import.meta.env.SSR) {
+    return globalThis.window.location.origin;
+  }
+  if (fromEnv) {
+    return fromEnv;
+  }
+  throw new Error(
+    "Missing VITE_CONVEX_SITE_URL for SSR redirectUri construction",
+  );
+}
+
+const WORKOS_REDIRECT_URI = new URL(CALLBACK_PATH, getSiteOrigin()).toString();
 
 // WorkOS AuthKit configuration
 function getWorkOSClientId(): string {
-  const clientId = (import.meta as { env: Record<string, string> }).env[
-    "VITE_WORKOS_CLIENT_ID"
-  ];
+  const clientId = import.meta.env["VITE_WORKOS_CLIENT_ID"] as
+    | string
+    | undefined;
   if (!clientId) {
     throw new Error(
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
@@ -50,9 +61,7 @@ export function getRouter() {
     notifyManager.setScheduler(globalThis.requestAnimationFrame);
   }
 
-  const CONVEX_URL = (import.meta as { env: Record<string, string> }).env[
-    "VITE_CONVEX_URL"
-  ];
+  const CONVEX_URL = import.meta.env["VITE_CONVEX_URL"] as string | undefined;
 
   if (!CONVEX_URL) {
     const errorMessage = "VITE_CONVEX_URL environment variable is required";
@@ -129,41 +138,16 @@ export function getRouter() {
   return router;
 }
 
-function useConvexQueryClient(): ConvexQueryClient {
-  const client = useContext(ConvexQueryClientContext);
-  if (!client) {
-    throw new Error(
-      "useConvexQueryClient must be used within ConvexQueryClientContext",
-    );
-  }
-  return client;
-}
-
-/**
- * Auth providers wrapper that uses TanStack Router's ClientOnly
- * to dynamically build the WorkOS redirect URI on the client.
- */
 function AuthProviders({ children }: { children: React.ReactNode }) {
   const convexQueryClient = useConvexQueryClient();
 
   return (
-    <ClientOnly
-      fallback={
-        <AuthProvidersInner
-          convexQueryClient={convexQueryClient}
-          redirectUri={WORKOS_CALLBACK_PATH}
-        >
-          {children}
-        </AuthProvidersInner>
-      }
+    <AuthProvidersInner
+      convexQueryClient={convexQueryClient}
+      redirectUri={WORKOS_REDIRECT_URI}
     >
-      <AuthProvidersInner
-        convexQueryClient={convexQueryClient}
-        redirectUri={`${globalThis.location.origin}${WORKOS_CALLBACK_PATH}`}
-      >
-        {children}
-      </AuthProvidersInner>
-    </ClientOnly>
+      {children}
+    </AuthProvidersInner>
   );
 }
 
@@ -186,6 +170,16 @@ function AuthProvidersInner({
       </ConvexProviderWithAuth>
     </AuthKitProvider>
   );
+}
+
+function useConvexQueryClient(): ConvexQueryClient {
+  const client = useContext(ConvexQueryClientContext);
+  if (!client) {
+    throw new Error(
+      "useConvexQueryClient must be used within ConvexQueryClientContext",
+    );
+  }
+  return client;
 }
 
 /**
