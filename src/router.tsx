@@ -161,7 +161,11 @@ function AuthProvidersInner({
   redirectUri: string;
 }) {
   return (
-    <AuthKitProvider clientId={WORKOS_CLIENT_ID} redirectUri={redirectUri}>
+    <AuthKitProvider
+      clientId={WORKOS_CLIENT_ID}
+      devMode
+      redirectUri={redirectUri}
+    >
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
         useAuth={useConvexAuthFromWorkOS}
