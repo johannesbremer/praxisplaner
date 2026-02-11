@@ -163,8 +163,8 @@ function AuthProvidersInner({
   return (
     <AuthKitProvider
       clientId={WORKOS_CLIENT_ID}
-      redirectUri={redirectUri}
       devMode
+      redirectUri={redirectUri}
     >
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
