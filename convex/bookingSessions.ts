@@ -540,17 +540,29 @@ async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
     return user._id;
   }
 
-  const authUser = await authKit.getAuthUser(ctx);
-  if (!authUser) {
-    throw new Error("User not found. Please contact support.");
+  // Re-check before creating to reduce duplicate users during concurrent requests.
+  const existingUser = await ctx.db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", authId))
+    .unique();
+  if (existingUser) {
+    return existingUser._id;
   }
+
+  const authUser = await authKit.getAuthUser(ctx);
+  const fallbackEmail =
+    "email" in identity &&
+    typeof identity.email === "string" &&
+    identity.email.length > 0
+      ? identity.email
+      : `${authId}@users.invalid`;
 
   return await ctx.db.insert("users", {
     authId,
     createdAt: BigInt(Date.now()),
-    email: authUser.email,
-    ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
-    ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+    email: authUser?.email ?? fallbackEmail,
+    ...(authUser?.firstName ? { firstName: authUser.firstName } : {}),
+    ...(authUser?.lastName ? { lastName: authUser.lastName } : {}),
   });
 }
 
