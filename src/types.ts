@@ -14,6 +14,7 @@ export type SchedulingSimulatedContext =
   SchedulingQuery["_args"]["simulatedContext"];
 
 export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
+type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
 type ConvexApi = typeof import("../convex/_generated/api").api;
 type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
 
@@ -23,18 +24,24 @@ type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
  * plus additional UI-specific fields.
  * All fields are optional to support partial patient info in the UI.
  */
-export interface PatientInfo extends Partial<
-  Pick<
-    Doc<"patients">,
-    "city" | "dateOfBirth" | "firstName" | "lastName" | "patientId" | "street"
-  >
-> {
+export interface PatientInfo
+  extends
+    Partial<
+      Pick<
+        Doc<"patients">,
+        | "city"
+        | "dateOfBirth"
+        | "firstName"
+        | "lastName"
+        | "patientId"
+        | "street"
+      >
+    >,
+    Partial<BookingPersonalData> {
   /** Convex database ID for linking appointments */
   convexPatientId?: Id<"patients">;
   /** Linked user for bookings created via /buchung */
   userId?: Id<"users">;
-  /** Optional email when sourced from a user booking */
-  email?: string;
   /** Whether this patient was just created (from GDT import) */
   isNewPatient?: boolean;
 }

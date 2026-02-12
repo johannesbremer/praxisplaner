@@ -1,12 +1,52 @@
 // convex/users.ts
 import { v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader } from "./_generated/server";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
+import { personalDataValidator } from "./schema";
 import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
+
+type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
+
+async function getLatestBookingPersonalData(
+  db: DatabaseReader,
+  userId: Id<"users">,
+): Promise<BookingPersonalData | null> {
+  const [latestExistingConfirmationStep, latestNewConfirmationStep] =
+    await Promise.all([
+      db
+        .query("bookingExistingConfirmationSteps")
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first(),
+      db
+        .query("bookingNewConfirmationSteps")
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first(),
+    ]);
+
+  if (latestExistingConfirmationStep && latestNewConfirmationStep) {
+    return latestExistingConfirmationStep.lastModified >
+      latestNewConfirmationStep.lastModified
+      ? latestExistingConfirmationStep.personalData
+      : latestNewConfirmationStep.personalData;
+  }
+
+  if (latestExistingConfirmationStep) {
+    return latestExistingConfirmationStep.personalData;
+  }
+
+  if (latestNewConfirmationStep) {
+    return latestNewConfirmationStep.personalData;
+  }
+
+  return null;
+}
 
 /**
  * Get the currently authenticated user.
@@ -58,13 +98,24 @@ export const getAuthUser = query({
 export const getById = query({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {
-    return await ctx.db.get("users", args.id);
+    const user = await ctx.db.get("users", args.id);
+    if (!user) {
+      return null;
+    }
+
+    const personalData = await getLatestBookingPersonalData(ctx.db, args.id);
+
+    return {
+      ...user,
+      ...(personalData && { bookingPersonalData: personalData }),
+    };
   },
   returns: v.union(
     v.object({
       _creationTime: v.number(),
       _id: v.id("users"),
       authId: v.string(),
+      bookingPersonalData: v.optional(personalDataValidator),
       createdAt: v.int64(),
       email: v.string(),
       firstName: v.optional(v.string()),

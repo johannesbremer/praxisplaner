@@ -31,6 +31,7 @@ import { formatZonedDateTimeDE } from "../utils/date-utils";
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = Doc<"appointments">;
+type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
@@ -42,6 +43,38 @@ interface CalendarRightSidebarProps {
 
 const RIGHT_SIDEBAR_WIDTH = "18rem";
 const RIGHT_SIDEBAR_WIDTH_MOBILE = "18rem";
+const GENDER_LABELS: Record<
+  NonNullable<BookingPersonalData["gender"]>,
+  string
+> = {
+  diverse: "Divers",
+  female: "Weiblich",
+  male: "Männlich",
+};
+const BOOKING_FIELD_LABELS: Record<keyof BookingPersonalData, string> = {
+  city: "Ort",
+  dateOfBirth: "Geburtsdatum",
+  email: "E-Mail",
+  firstName: "Vorname",
+  gender: "Geschlecht",
+  lastName: "Nachname",
+  phoneNumber: "Telefon",
+  postalCode: "PLZ",
+  street: "Straße",
+  title: "Titel",
+};
+const BOOKING_FIELD_ORDER = [
+  "title",
+  "firstName",
+  "lastName",
+  "dateOfBirth",
+  "gender",
+  "phoneNumber",
+  "email",
+  "street",
+  "postalCode",
+  "city",
+] as const satisfies readonly (keyof BookingPersonalData)[];
 
 // Context for controlling the right sidebar from anywhere
 interface RightSidebarContextProps {
@@ -68,10 +101,12 @@ export function CalendarRightSidebar({
 
   const patientDisplayName = patient
     ? patient.firstName && patient.lastName
-      ? `${patient.firstName} ${patient.lastName}`
+      ? `${patient.title ? `${patient.title} ` : ""}${patient.firstName} ${patient.lastName}`
       : patient.patientId
         ? `Patient ${patient.patientId}`
-        : "Kein Patient ausgewählt"
+        : patient.email
+          ? patient.email
+          : "Kein Patient ausgewählt"
     : "Kein Patient ausgewählt";
 
   const handleOpenInPvs = () => {
@@ -241,6 +276,9 @@ function RightSidebarContent({
   selectedAppointmentId: Id<"appointments"> | undefined;
   showGdtAlert: boolean | undefined;
 }) {
+  const bookingFieldEntries =
+    patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
+
   return (
     <ScrollArea className="flex-1">
       <div className="p-4 pb-[100%]">
@@ -260,18 +298,40 @@ function RightSidebarContent({
             {/* Patient Name */}
             <p className="text-lg font-semibold">{patientDisplayName}</p>
 
-            {/* Date of Birth */}
-            {patient.dateOfBirth !== undefined && (
-              <p className="text-sm text-muted-foreground">
-                {formatGermanDate(patient.dateOfBirth)}
-              </p>
+            {bookingFieldEntries.length > 0 ? (
+              <div className="space-y-1">
+                {bookingFieldEntries.map((entry) => (
+                  <p className="text-sm" key={entry.field}>
+                    <span className="text-muted-foreground">
+                      {entry.label}:
+                    </span>{" "}
+                    {entry.value}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <>
+                {/* Date of Birth */}
+                {patient.dateOfBirth !== undefined && (
+                  <p className="text-sm text-muted-foreground">
+                    {formatGermanDate(patient.dateOfBirth)}
+                  </p>
+                )}
+
+                {/* Email (online booking) */}
+                {patient.email && (
+                  <p className="text-sm text-muted-foreground">
+                    {patient.email}
+                  </p>
+                )}
+
+                {/* Address - Street */}
+                {patient.street && <p className="text-sm">{patient.street}</p>}
+
+                {/* Address - City */}
+                {patient.city && <p className="text-sm">{patient.city}</p>}
+              </>
             )}
-
-            {/* Address - Street */}
-            {patient.street && <p className="text-sm">{patient.street}</p>}
-
-            {/* Address - City */}
-            {patient.city && <p className="text-sm">{patient.city}</p>}
 
             <Separator />
 
@@ -384,6 +444,40 @@ function formatGermanDate(dateString: string) {
   }
 
   return dateString;
+}
+
+function getBookingFieldEntries(patient: PatientInfo): {
+  field: keyof BookingPersonalData;
+  label: string;
+  value: string;
+}[] {
+  const entries: {
+    field: keyof BookingPersonalData;
+    label: string;
+    value: string;
+  }[] = [];
+
+  for (const field of BOOKING_FIELD_ORDER) {
+    const rawValue = patient[field];
+    if (typeof rawValue === "string" && rawValue.trim().length > 0) {
+      let value = rawValue;
+      if (field === "dateOfBirth") {
+        value = formatGermanDate(rawValue);
+      }
+      if (field === "gender") {
+        value =
+          GENDER_LABELS[rawValue as NonNullable<BookingPersonalData["gender"]>];
+      }
+
+      entries.push({
+        field,
+        label: BOOKING_FIELD_LABELS[field],
+        value,
+      });
+    }
+  }
+
+  return entries;
 }
 
 // Helper to format appointment date/time for the list in German
