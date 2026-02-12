@@ -4,10 +4,7 @@
 export { AgeCheckStep } from "./age-check-step";
 export { AppointmentTypeStep } from "./appointment-type-step";
 export { CalendarSelectionStep } from "./calendar-selection-step";
-export {
-  ConfirmationStep,
-  type ConfirmationStepProps,
-} from "./confirmation-step";
+export { ConfirmationStep } from "./confirmation-step";
 export { DataInputStep } from "./data-input-step";
 export { DoctorSelectionStep } from "./doctor-selection-step";
 export { GkvDetailsStep } from "./gkv-details-step";
