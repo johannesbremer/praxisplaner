@@ -161,6 +161,7 @@ function PatientBookingPage() {
  * This separation ensures Convex hooks are only called when the user is authenticated.
  */
 function AuthenticatedBookingFlow() {
+  const { signOut } = useAuth();
   const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
     null,
   );
@@ -266,6 +267,20 @@ function AuthenticatedBookingFlow() {
       });
     }
   }, [resolvedSessionId, goBackMutation]);
+
+  const handleSignOut = useCallback(() => {
+    try {
+      signOut();
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+      toast.error("Abmeldung fehlgeschlagen", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Bitte versuchen Sie es erneut.",
+      });
+    }
+  }, [signOut]);
 
   // Loading state
   if (!practicesQuery) {
@@ -401,39 +416,44 @@ function AuthenticatedBookingFlow() {
                 Online-Terminbuchung
               </p>
             </div>
-            {/* Step group indicator */}
-            <div className="flex items-center gap-2 text-sm">
-              {STEP_GROUP_ORDER.map((group, index) => (
-                <div className="flex items-center" key={group}>
-                  {index > 0 && <div className="w-8 h-px bg-border mr-2" />}
-                  <div
-                    className={`flex items-center gap-1.5 ${
-                      currentGroup === group
-                        ? "text-primary font-medium"
-                        : STEP_GROUP_ORDER.indexOf(group) <
-                            STEP_GROUP_ORDER.indexOf(currentGroup)
-                          ? "text-primary/60"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    <span
-                      className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
+            <div className="flex items-center gap-3">
+              {/* Step group indicator */}
+              <div className="flex items-center gap-2 text-sm">
+                {STEP_GROUP_ORDER.map((group, index) => (
+                  <div className="flex items-center" key={group}>
+                    {index > 0 && <div className="w-8 h-px bg-border mr-2" />}
+                    <div
+                      className={`flex items-center gap-1.5 ${
                         currentGroup === group
-                          ? "border-primary bg-primary text-primary-foreground"
+                          ? "text-primary font-medium"
                           : STEP_GROUP_ORDER.indexOf(group) <
                               STEP_GROUP_ORDER.indexOf(currentGroup)
-                            ? "border-primary/60 bg-primary/20"
-                            : ""
+                            ? "text-primary/60"
+                            : "text-muted-foreground"
                       }`}
                     >
-                      {index + 1}
-                    </span>
-                    <span className="hidden sm:inline">
-                      {STEP_GROUP_LABELS[group]}
-                    </span>
+                      <span
+                        className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
+                          currentGroup === group
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : STEP_GROUP_ORDER.indexOf(group) <
+                                STEP_GROUP_ORDER.indexOf(currentGroup)
+                              ? "border-primary/60 bg-primary/20"
+                              : ""
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                      <span className="hidden sm:inline">
+                        {STEP_GROUP_LABELS[group]}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <Button onClick={handleSignOut} size="sm" variant="outline">
+                Abmelden
+              </Button>
             </div>
           </div>
         </div>
