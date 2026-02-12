@@ -640,6 +640,7 @@ async function loadStepSnapshot(
     "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
     "existing-confirmation": "bookingExistingConfirmationSteps",
     "existing-data-input": "bookingExistingPersonalDataSteps",
+    "existing-data-input-complete": "bookingExistingPersonalDataSteps",
     "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
     location: "bookingLocationSteps",
     "new-age-check": "bookingNewAgeCheckSteps",
@@ -647,9 +648,12 @@ async function loadStepSnapshot(
     "new-calendar-selection": "bookingNewCalendarSelectionSteps",
     "new-confirmation": "bookingNewConfirmationSteps",
     "new-data-input": "bookingNewPersonalDataSteps",
+    "new-data-input-complete": "bookingNewPersonalDataSteps",
     "new-gkv-details": "bookingNewGkvDetailSteps",
+    "new-gkv-details-complete": "bookingNewGkvDetailSteps",
     "new-insurance-type": "bookingNewInsuranceTypeSteps",
     "new-pkv-details": "bookingNewPkvDetailSteps",
+    "new-pkv-details-complete": "bookingNewPkvDetailSteps",
     "new-pvs-consent": "bookingNewPkvConsentSteps",
     "patient-status": "bookingPatientStatusSteps",
     privacy: "bookingPrivacySteps",
@@ -725,6 +729,12 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "isNewPatient",
     "locationId",
     "practitionerId",
+  ],
+  "existing-data-input-complete": [
+    "appointmentTypeId",
+    "isNewPatient",
+    "locationId",
+    "practitionerId",
     "personalData",
     "reasonDescription",
   ],
@@ -788,6 +798,18 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "pkvInsuranceType",
     "pkvTariff",
     "beihilfeStatus",
+  ],
+  "new-data-input-complete": [
+    "appointmentTypeId",
+    "insuranceType",
+    "isNewPatient",
+    "isOver40",
+    "locationId",
+    "hzvStatus",
+    "pvsConsent",
+    "pkvInsuranceType",
+    "pkvTariff",
+    "beihilfeStatus",
     "personalData",
     "medicalHistory",
     "reasonDescription",
@@ -797,10 +819,22 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "isNewPatient",
     "isOver40",
     "locationId",
+  ],
+  "new-gkv-details-complete": [
+    "insuranceType",
+    "isNewPatient",
+    "isOver40",
+    "locationId",
     "hzvStatus",
   ],
   "new-insurance-type": ["isNewPatient", "isOver40", "locationId"],
   "new-pkv-details": [
+    "insuranceType",
+    "isNewPatient",
+    "isOver40",
+    "locationId",
+  ],
+  "new-pkv-details-complete": [
     "insuranceType",
     "isNewPatient",
     "isOver40",
@@ -881,19 +915,25 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
     computePrev: (state) => {
       if ("insuranceType" in state) {
         return state.insuranceType === "gkv"
-          ? "new-gkv-details"
-          : "new-pkv-details";
+          ? "new-gkv-details-complete"
+          : "new-pkv-details-complete";
       }
       return "new-gkv-details";
     },
     prev: "new-gkv-details", // Default, but computed dynamically
   },
-  "new-calendar-selection": { canGoBack: true, prev: "new-data-input" },
+  "new-calendar-selection": {
+    canGoBack: true,
+    prev: "new-data-input-complete",
+  },
   "new-confirmation": { canGoBack: false, prev: null }, // Final step - no back
   "new-data-input": { canGoBack: true, prev: "new-appointment-type" },
+  "new-data-input-complete": { canGoBack: true, prev: "new-appointment-type" },
   "new-gkv-details": { canGoBack: true, prev: "new-insurance-type" },
+  "new-gkv-details-complete": { canGoBack: true, prev: "new-insurance-type" },
   "new-insurance-type": { canGoBack: true, prev: "new-age-check" },
   "new-pkv-details": { canGoBack: true, prev: "new-pvs-consent" },
+  "new-pkv-details-complete": { canGoBack: true, prev: "new-pvs-consent" },
   "new-pvs-consent": { canGoBack: true, prev: "new-insurance-type" },
 
   // PATH B: Existing patient (no back after doctor selection)
@@ -901,6 +941,7 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-calendar-selection": { canGoBack: false, prev: null },
   "existing-confirmation": { canGoBack: false, prev: null },
   "existing-data-input": { canGoBack: false, prev: null },
+  "existing-data-input-complete": { canGoBack: false, prev: null },
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
 };
 
@@ -957,6 +998,24 @@ function computePreviousState(
       };
     }
 
+    case "new-gkv-details-complete": {
+      if (
+        !("locationId" in state) ||
+        !("isOver40" in state) ||
+        !("hzvStatus" in state)
+      ) {
+        throw new Error("Cannot go back: missing required fields");
+      }
+      return {
+        hzvStatus: state.hzvStatus,
+        insuranceType: "gkv",
+        isNewPatient: true,
+        isOver40: state.isOver40,
+        locationId: state.locationId,
+        step: "new-gkv-details-complete",
+      };
+    }
+
     case "new-insurance-type": {
       if (!("locationId" in state) || !("isOver40" in state)) {
         throw new Error("Cannot go back: missing required fields");
@@ -979,6 +1038,26 @@ function computePreviousState(
         isOver40: state.isOver40,
         locationId: state.locationId,
         step: "new-pkv-details",
+      };
+    }
+
+    case "new-pkv-details-complete": {
+      if (!("locationId" in state) || !("isOver40" in state)) {
+        throw new Error("Cannot go back: missing required fields");
+      }
+      return {
+        ...("beihilfeStatus" in state
+          ? { beihilfeStatus: state.beihilfeStatus }
+          : {}),
+        ...("pkvInsuranceType" in state
+          ? { pkvInsuranceType: state.pkvInsuranceType }
+          : {}),
+        ...("pkvTariff" in state ? { pkvTariff: state.pkvTariff } : {}),
+        insuranceType: "pkv",
+        isNewPatient: true,
+        isOver40: state.isOver40,
+        locationId: state.locationId,
+        step: "new-pkv-details-complete",
       };
     }
 
@@ -1049,16 +1128,17 @@ function computePreviousState(
       }
     }
 
-    case "new-data-input": {
+    case "new-data-input":
+    case "new-data-input-complete": {
       // Going back from new-calendar-selection to new-data-input
-      // Note: new-data-input step doesn't store personalData/medicalHistory/emergencyContacts
-      // Those are submitted when transitioning to new-calendar-selection
-      // So we only need the base state for new-data-input
+      // Preserve submitted data in a dedicated completed state.
       if (
         !("locationId" in state) ||
         !("isOver40" in state) ||
         !("insuranceType" in state) ||
-        !("appointmentTypeId" in state)
+        !("appointmentTypeId" in state) ||
+        !("personalData" in state) ||
+        !("reasonDescription" in state)
       ) {
         throw new Error("Cannot go back: missing required fields");
       }
@@ -1067,19 +1147,25 @@ function computePreviousState(
         if (!("hzvStatus" in state)) {
           throw new Error("Cannot go back: missing hzvStatus");
         }
-        return {
+        const returnState: StateAtStep<"new-data-input-complete"> = {
           appointmentTypeId: state.appointmentTypeId,
           hzvStatus: state.hzvStatus,
           insuranceType: "gkv" as const,
           isNewPatient: true as const,
           isOver40: state.isOver40,
           locationId: state.locationId,
-          step: "new-data-input" as const,
+          personalData: state.personalData,
+          reasonDescription: state.reasonDescription,
+          step: "new-data-input-complete" as const,
         };
+        if (state.medicalHistory !== undefined) {
+          returnState.medicalHistory = state.medicalHistory;
+        }
+        return returnState;
       } else {
         // PKV path - preserve optional fields from the insurance step
         // Use spread to only include defined optional properties
-        return {
+        const returnState: StateAtStep<"new-data-input-complete"> = {
           ...("beihilfeStatus" in state
             ? { beihilfeStatus: state.beihilfeStatus }
             : {}),
@@ -1092,9 +1178,15 @@ function computePreviousState(
           isNewPatient: true as const,
           isOver40: state.isOver40,
           locationId: state.locationId,
+          personalData: state.personalData,
           pvsConsent: true as const,
-          step: "new-data-input" as const,
+          reasonDescription: state.reasonDescription,
+          step: "new-data-input-complete" as const,
         };
+        if (state.medicalHistory !== undefined) {
+          returnState.medicalHistory = state.medicalHistory;
+        }
+        return returnState;
       }
     }
 
@@ -1383,7 +1475,15 @@ export const confirmGkvDetails = mutation({
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertStep(session.state, "new-gkv-details");
+    if (
+      session.state.step !== "new-gkv-details" &&
+      session.state.step !== "new-gkv-details-complete"
+    ) {
+      throw new Error(
+        `Invalid step: expected 'new-gkv-details' or 'new-gkv-details-complete', got '${session.state.step}'`,
+      );
+    }
+    const state = session.state;
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
@@ -1464,7 +1564,15 @@ export const confirmPkvDetails = mutation({
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertStep(session.state, "new-pkv-details");
+    if (
+      session.state.step !== "new-pkv-details" &&
+      session.state.step !== "new-pkv-details-complete"
+    ) {
+      throw new Error(
+        `Invalid step: expected 'new-pkv-details' or 'new-pkv-details-complete', got '${session.state.step}'`,
+      );
+    }
+    const state = session.state;
 
     // Build state object - include optional fields only if defined
     type PkvAppointmentType = StateAtStep<"new-appointment-type"> & {
@@ -1617,9 +1725,12 @@ export const submitNewPatientData = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
 
-    if (session.state.step !== "new-data-input") {
+    if (
+      session.state.step !== "new-data-input" &&
+      session.state.step !== "new-data-input-complete"
+    ) {
       throw new Error(
-        `Invalid step: expected 'new-data-input', got '${session.state.step}'`,
+        `Invalid step: expected 'new-data-input' or 'new-data-input-complete', got '${session.state.step}'`,
       );
     }
 
@@ -2049,7 +2160,15 @@ export const submitExistingPatientData = mutation({
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertStep(session.state, "existing-data-input");
+    if (
+      session.state.step !== "existing-data-input" &&
+      session.state.step !== "existing-data-input-complete"
+    ) {
+      throw new Error(
+        `Invalid step: expected 'existing-data-input' or 'existing-data-input-complete', got '${session.state.step}'`,
+      );
+    }
+    const state = session.state;
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {

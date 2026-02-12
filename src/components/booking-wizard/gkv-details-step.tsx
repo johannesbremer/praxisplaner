@@ -13,9 +13,9 @@ import {
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
-import type { StepComponentProps } from "./types";
+import type { StateAtStep, StepComponentProps } from "./types";
 
-type HzvStatus = "has-contract" | "interested" | "no-interest";
+type HzvStatus = StateAtStep<"new-gkv-details-complete">["hzvStatus"];
 
 const hzvOptions: { description: string; label: string; value: HzvStatus }[] = [
   {
@@ -39,9 +39,7 @@ export function GkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmGkvDetails = useMutation(api.bookingSessions.confirmGkvDetails);
 
   const selectedHzvStatus =
-    state.step === "new-gkv-details" && "hzvStatus" in state
-      ? (state.hzvStatus as HzvStatus | undefined)
-      : undefined;
+    state.step === "new-gkv-details-complete" ? state.hzvStatus : undefined;
 
   const handleHzvSelection = async (hzvStatus: HzvStatus) => {
     try {

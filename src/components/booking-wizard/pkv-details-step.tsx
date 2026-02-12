@@ -44,17 +44,15 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
 
   const initialBeihilfeStatus =
-    state.step === "new-pkv-details" && "beihilfeStatus" in state
-      ? (state.beihilfeStatus as "" | "no" | "yes" | undefined)
+    state.step === "new-pkv-details-complete"
+      ? state.beihilfeStatus
       : undefined;
   const initialPkvInsuranceType =
-    state.step === "new-pkv-details" && "pkvInsuranceType" in state
-      ? (state.pkvInsuranceType as "" | "kvb" | "other" | "postb" | undefined)
+    state.step === "new-pkv-details-complete"
+      ? state.pkvInsuranceType
       : undefined;
   const initialPkvTariff =
-    state.step === "new-pkv-details" && "pkvTariff" in state
-      ? (state.pkvTariff as "" | "basis" | "premium" | "standard" | undefined)
-      : undefined;
+    state.step === "new-pkv-details-complete" ? state.pkvTariff : undefined;
 
   const form = useForm({
     defaultValues: {
@@ -64,19 +62,36 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
     },
     onSubmit: async ({ value }) => {
       try {
-        await confirmPkvDetails({
+        const payload: {
+          beihilfeStatus?: "no" | "yes";
+          pkvInsuranceType?: "kvb" | "other" | "postb";
+          pkvTariff?: "basis" | "premium" | "standard";
+          pvsConsent: true;
+          sessionId: typeof sessionId;
+        } = {
           pvsConsent: true, // Already consented in previous step
           sessionId,
-          ...(value.beihilfeStatus && {
-            beihilfeStatus: value.beihilfeStatus,
-          }),
-          ...(value.pkvInsuranceType && {
-            pkvInsuranceType: value.pkvInsuranceType,
-          }),
-          ...(value.pkvTariff && {
-            pkvTariff: value.pkvTariff,
-          }),
-        });
+        };
+
+        if (value.beihilfeStatus === "no" || value.beihilfeStatus === "yes") {
+          payload.beihilfeStatus = value.beihilfeStatus;
+        }
+        if (
+          value.pkvInsuranceType === "kvb" ||
+          value.pkvInsuranceType === "other" ||
+          value.pkvInsuranceType === "postb"
+        ) {
+          payload.pkvInsuranceType = value.pkvInsuranceType;
+        }
+        if (
+          value.pkvTariff === "basis" ||
+          value.pkvTariff === "premium" ||
+          value.pkvTariff === "standard"
+        ) {
+          payload.pkvTariff = value.pkvTariff;
+        }
+
+        await confirmPkvDetails(payload);
       } catch (error) {
         console.error("Failed to confirm PKV details:", error);
         toast.error("PKV-Details konnten nicht gespeichert werden", {

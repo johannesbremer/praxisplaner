@@ -32,13 +32,17 @@ describe("getStepGroup", () => {
     const infoSteps: BookingSessionState["step"][] = [
       "existing-appointment-type",
       "existing-data-input",
+      "existing-data-input-complete",
       "existing-doctor-selection",
       "new-age-check",
       "new-appointment-type",
       "new-data-input",
+      "new-data-input-complete",
       "new-gkv-details",
+      "new-gkv-details-complete",
       "new-insurance-type",
       "new-pkv-details",
+      "new-pkv-details-complete",
       "patient-status",
     ];
 
@@ -112,6 +116,10 @@ describe("canGoBack", () => {
       expect(canGoBack("existing-data-input")).toBe(false);
     });
 
+    it("cannot go back from existing-data-input-complete", () => {
+      expect(canGoBack("existing-data-input-complete")).toBe(false);
+    });
+
     it("can go back from existing-doctor-selection", () => {
       expect(canGoBack("existing-doctor-selection")).toBe(true);
     });
@@ -134,8 +142,16 @@ describe("canGoBack", () => {
       expect(canGoBack("new-data-input")).toBe(true);
     });
 
+    it("can go back from new-data-input-complete", () => {
+      expect(canGoBack("new-data-input-complete")).toBe(true);
+    });
+
     it("can go back from new-gkv-details", () => {
       expect(canGoBack("new-gkv-details")).toBe(true);
+    });
+
+    it("can go back from new-gkv-details-complete", () => {
+      expect(canGoBack("new-gkv-details-complete")).toBe(true);
     });
 
     it("can go back from new-insurance-type", () => {
@@ -144,6 +160,10 @@ describe("canGoBack", () => {
 
     it("can go back from new-pkv-details", () => {
       expect(canGoBack("new-pkv-details")).toBe(true);
+    });
+
+    it("can go back from new-pkv-details-complete", () => {
+      expect(canGoBack("new-pkv-details-complete")).toBe(true);
     });
 
     it("can go back from new-pvs-consent", () => {
