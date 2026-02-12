@@ -4,6 +4,7 @@ import { type AuthFunctions, AuthKit } from "@convex-dev/workos-authkit";
 import type { DataModel } from "./_generated/dataModel";
 
 import { components, internal } from "./_generated/api";
+import { findUserByAuthId } from "./userIdentity";
 
 // Get a typed object of internal Convex functions exported by this file
 const authFunctions: AuthFunctions = internal.auth;
@@ -22,12 +23,12 @@ export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
 export const { authKitEvent } = authKit.events({
   "user.created": async (ctx, event) => {
     // Check if user already exists to handle webhook retries idempotently
-    const existingUser = await ctx.db
+    const existingUsers = await ctx.db
       .query("users")
       .withIndex("by_authId", (q) => q.eq("authId", event.data.id))
-      .unique();
+      .collect();
 
-    if (existingUser) {
+    if (existingUsers.length > 0) {
       // User already exists, update their data instead
       const updateData: {
         email: string;
@@ -42,7 +43,11 @@ export const { authKitEvent } = authKit.events({
       if (event.data.lastName) {
         updateData.lastName = event.data.lastName;
       }
-      await ctx.db.patch("users", existingUser._id, updateData);
+      await Promise.all(
+        existingUsers.map((existingUser) =>
+          ctx.db.patch("users", existingUser._id, updateData),
+        ),
+      );
       return;
     }
 
@@ -67,21 +72,18 @@ export const { authKitEvent } = authKit.events({
     await ctx.db.insert("users", userData);
   },
   "user.deleted": async (ctx, event) => {
-    const user = await ctx.db
+    const users = await ctx.db
       .query("users")
       .withIndex("by_authId", (q) => q.eq("authId", event.data.id))
-      .unique();
-    if (!user) {
+      .collect();
+    if (users.length === 0) {
       console.warn(`User not found for delete: ${event.data.id}`);
       return;
     }
-    await ctx.db.delete("users", user._id);
+    await Promise.all(users.map((user) => ctx.db.delete("users", user._id)));
   },
   "user.updated": async (ctx, event) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", event.data.id))
-      .unique();
+    const user = await findUserByAuthId(ctx.db, event.data.id);
     if (!user) {
       console.warn(`User not found for update: ${event.data.id}`);
       return;

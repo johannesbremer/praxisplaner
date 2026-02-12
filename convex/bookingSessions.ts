@@ -6,7 +6,6 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
-import { authKit } from "./auth";
 
 // Context types for helper functions
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -22,6 +21,10 @@ import {
   pkvTariffValidator,
   selectedSlotValidator,
 } from "./schema";
+import {
+  ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQuery,
+} from "./userIdentity";
 
 // ============================================================================
 // CONSTANTS
@@ -298,19 +301,8 @@ const STEP_PATCH_MAP: StepPatchMap = {
 export const get = query({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    // Get authenticated user identity from JWT
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
-
-    // Find our app's user record by authId (which is the JWT subject)
-    const authId = identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", authId))
-      .unique();
-    if (!user) {
+    const userId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -320,7 +312,7 @@ export const get = query({
     }
 
     // Check session ownership
-    if (session.userId !== user._id) {
+    if (session.userId !== userId) {
       return null;
     }
 
@@ -359,17 +351,8 @@ export const getActiveForUser = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
-
-    const authId = identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", authId))
-      .unique();
-    if (!user) {
+    const userId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -377,7 +360,7 @@ export const getActiveForUser = query({
       .query("bookingSessions")
       .withIndex("by_userId_practiceId_ruleSetId", (q) =>
         q
-          .eq("userId", user._id)
+          .eq("userId", userId)
           .eq("practiceId", args.practiceId)
           .eq("ruleSetId", args.ruleSetId),
       )
@@ -426,7 +409,7 @@ export const create = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUserId(ctx);
+    const userId = await ensureAuthenticatedUserId(ctx);
 
     const now = BigInt(Date.now());
 
@@ -476,8 +459,7 @@ export const create = mutation({
 export const remove = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    // Get authenticated user - users must already exist
-    const userId = await getAuthenticatedUserId(ctx);
+    const userId = await ensureAuthenticatedUserId(ctx);
 
     // Check session ownership
     const session = await ctx.db.get("bookingSessions", args.sessionId);
@@ -524,46 +506,7 @@ export const cleanupExpired = internalMutation({
  * If the user record is missing (e.g. after preview re-seeding), create it.
  */
 async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
-  // Get authenticated user identity directly from JWT
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Authentication required");
-  }
-
-  const authId = identity.subject;
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_authId", (q) => q.eq("authId", authId))
-    .unique();
-
-  if (user) {
-    return user._id;
-  }
-
-  // Re-check before creating to reduce duplicate users during concurrent requests.
-  const existingUser = await ctx.db
-    .query("users")
-    .withIndex("by_authId", (q) => q.eq("authId", authId))
-    .unique();
-  if (existingUser) {
-    return existingUser._id;
-  }
-
-  const authUser = await authKit.getAuthUser(ctx);
-  const fallbackEmail =
-    "email" in identity &&
-    typeof identity.email === "string" &&
-    identity.email.length > 0
-      ? identity.email
-      : `${authId}@users.invalid`;
-
-  return await ctx.db.insert("users", {
-    authId,
-    createdAt: BigInt(Date.now()),
-    email: authUser?.email ?? fallbackEmail,
-    ...(authUser?.firstName ? { firstName: authUser.firstName } : {}),
-    ...(authUser?.lastName ? { lastName: authUser.lastName } : {}),
-  });
+  return await ensureAuthenticatedUserId(ctx);
 }
 
 /**
