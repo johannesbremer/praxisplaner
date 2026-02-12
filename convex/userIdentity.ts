@@ -6,8 +6,6 @@ import type {
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
-import { authKit } from "./auth";
-
 type MutationCtx = GenericMutationCtx<DataModel>;
 type QueryCtx = GenericQueryCtx<DataModel>;
 type Reader = GenericDatabaseReader<DataModel>;
@@ -26,7 +24,6 @@ export async function ensureAuthenticatedUserId(
     return existing._id;
   }
 
-  const authUser = await authKit.getAuthUser(ctx);
   const fallbackEmail =
     "email" in identity &&
     typeof identity.email === "string" &&
@@ -37,9 +34,7 @@ export async function ensureAuthenticatedUserId(
   return await ctx.db.insert("users", {
     authId,
     createdAt: BigInt(Date.now()),
-    email: authUser?.email ?? fallbackEmail,
-    ...(authUser?.firstName ? { firstName: authUser.firstName } : {}),
-    ...(authUser?.lastName ? { lastName: authUser.lastName } : {}),
+    email: fallbackEmail,
   });
 }
 
