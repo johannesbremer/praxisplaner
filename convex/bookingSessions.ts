@@ -1,4 +1,4 @@
-import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
+import type { GenericMutationCtx } from "convex/server";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -6,10 +6,10 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
+import { authKit } from "./auth";
 
 // Context types for helper functions
 type MutationCtx = GenericMutationCtx<DataModel>;
-type QueryCtx = GenericQueryCtx<DataModel>;
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -521,11 +521,9 @@ export const cleanupExpired = internalMutation({
 
 /**
  * Get the authenticated user's ID from WorkOS and our users table.
- * Throws if not authenticated or user not found.
+ * If the user record is missing (e.g. after preview re-seeding), create it.
  */
-async function getAuthenticatedUserId(
-  ctx: MutationCtx | QueryCtx,
-): Promise<Id<"users">> {
+async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
   // Get authenticated user identity directly from JWT
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
@@ -538,11 +536,22 @@ async function getAuthenticatedUserId(
     .withIndex("by_authId", (q) => q.eq("authId", authId))
     .unique();
 
-  if (!user) {
+  if (user) {
+    return user._id;
+  }
+
+  const authUser = await authKit.getAuthUser(ctx);
+  if (!authUser) {
     throw new Error("User not found. Please contact support.");
   }
 
-  return user._id;
+  return await ctx.db.insert("users", {
+    authId,
+    createdAt: BigInt(Date.now()),
+    email: authUser.email,
+    ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
+    ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+  });
 }
 
 /**
@@ -550,7 +559,7 @@ async function getAuthenticatedUserId(
  * Returns the session if valid.
  */
 async function getVerifiedSession(
-  ctx: MutationCtx | QueryCtx,
+  ctx: MutationCtx,
   sessionId: Id<"bookingSessions">,
 ): Promise<Doc<"bookingSessions">> {
   const userId = await getAuthenticatedUserId(ctx);
