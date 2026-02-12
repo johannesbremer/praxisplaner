@@ -4,8 +4,18 @@ name = "praxisplaner"
 
 [setup]
 script = '''
+set -eu
+
+SOURCE_ENV="$HOME/path/to/main/repo/.env.local"
+
+[ -f "$SOURCE_ENV" ] || { echo "Missing $SOURCE_ENV"; exit 1; }
+
+cp -f "$SOURCE_ENV" .env.local
+chmod 600 .env.local
+
+export CONVEX_AGENT_MODE=anonymous
 pnpm i
-CONVEX_AGENT_MODE=anonymous
+pnpm gen
 '''
 
 [[actions]]
