@@ -2,11 +2,15 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useEffect } from "react";
 
+import type { FileRouteTypes } from "../routeTree.gen";
+
 import { Button } from "../../components/ui/button";
 
 export const Route = createFileRoute("/callback")({
   component: CallbackComponent,
 });
+
+const BOOKING_PATH = "/buchung" as const satisfies FileRouteTypes["to"];
 
 function CallbackComponent() {
   const { isLoading, signIn, user } = useAuth();
@@ -14,16 +18,11 @@ function CallbackComponent() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      // Get the stored redirect URL or default to home
-      const redirectUrl = localStorage.getItem("authRedirectUrl") || "/";
-      localStorage.removeItem("authRedirectUrl");
-
-      // Navigate to the original destination
-      void navigate({ to: redirectUrl });
+      void navigate({ replace: true, to: BOOKING_PATH });
     }
-  }, [isLoading, user, navigate]);
+  }, [isLoading, navigate, user]);
 
-  // Auth completed but no user - show error state
+  // Auth completed but no user - keep retry path only.
   if (!isLoading && !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -34,15 +33,7 @@ function CallbackComponent() {
           <p className="text-muted-foreground text-sm">
             Die Authentifizierung konnte nicht abgeschlossen werden.
           </p>
-          <div className="flex gap-2 justify-center">
-            <Button
-              onClick={() => void navigate({ to: "/" })}
-              variant="outline"
-            >
-              Zur Startseite
-            </Button>
-            <Button onClick={() => void signIn()}>Erneut anmelden</Button>
-          </div>
+          <Button onClick={() => void signIn()}>Erneut anmelden</Button>
         </div>
       </div>
     );

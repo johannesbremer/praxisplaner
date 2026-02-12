@@ -2,7 +2,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Loader2, LogIn } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -66,6 +66,35 @@ function PatientBookingPage() {
   const { isLoading: authLoading, signIn, user } = useAuth();
   const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
     useConvexAuth();
+  const [signInError, setSignInError] = useState<null | string>(null);
+  const signInRequestedRef = useRef(false);
+
+  const startSignIn = useCallback(() => {
+    if (signInRequestedRef.current) {
+      return;
+    }
+    signInRequestedRef.current = true;
+    signIn().catch((error: unknown) => {
+      signInRequestedRef.current = false;
+      setSignInError(
+        error instanceof Error
+          ? error.message
+          : "Anmeldung konnte nicht gestartet werden",
+      );
+    });
+  }, [signIn]);
+
+  const handleRetrySignIn = useCallback(() => {
+    setSignInError(null);
+    startSignIn();
+  }, [startSignIn]);
+
+  useEffect(() => {
+    if (authLoading || convexLoading || (user && convexAuthenticated)) {
+      return;
+    }
+    startSignIn();
+  }, [authLoading, convexAuthenticated, convexLoading, startSignIn, user]);
 
   // Authentication loading (either WorkOS or Convex)
   if (authLoading || convexLoading) {
@@ -83,35 +112,37 @@ function PatientBookingPage() {
     );
   }
 
-  // Require authentication - show login prompt (check both WorkOS user and Convex auth)
+  // Require authentication - redirect to sign-in automatically.
   if (!user || !convexAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader className="text-center">
-            <CardTitle>Anmeldung erforderlich</CardTitle>
+            <CardTitle>Weiterleitung zur Anmeldung...</CardTitle>
             <CardDescription>
-              Bitte melden Sie sich an, um einen Termin zu buchen. So können wir
-              Ihre Termine sicher verwalten und Sie über wichtige Änderungen
-              informieren.
+              Bitte warten Sie einen Moment. Wir leiten Sie automatisch zur
+              Anmeldung weiter.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              className="w-full"
-              onClick={() => {
-                // Store the current URL to redirect back after login
-
-                localStorage.setItem(
-                  "authRedirectUrl",
-                  globalThis.location.pathname,
-                );
-                void signIn();
-              }}
-            >
-              <LogIn className="mr-2 h-4 w-4" />
-              Anmelden
-            </Button>
+            {signInError ? (
+              <div className="space-y-3">
+                <p className="text-sm text-destructive">{signInError}</p>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    handleRetrySignIn();
+                  }}
+                >
+                  Erneut versuchen
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Anmeldung wird geöffnet...</span>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
