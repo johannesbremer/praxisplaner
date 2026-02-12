@@ -37,12 +37,9 @@ function formatDate(isoString: string): string {
 }
 
 // Generate ICS calendar file content
-export interface ConfirmationStepProps extends StepComponentProps {
-  onStartOver: () => void;
-}
+export type ConfirmationStepProps = StepComponentProps;
 
 export function ConfirmationStep({
-  onStartOver,
   state,
 }: ConfirmationStepProps) {
   // Extract data from confirmation state
@@ -161,14 +158,11 @@ export function ConfirmationStep({
           </Button>
         </div>
 
-        {/* Close/home button */}
+        {/* Follow-up note */}
         <div className="text-center pt-4 border-t">
           <p className="text-sm text-muted-foreground mb-4">
             Sie erhalten in Kürze eine Bestätigung per E-Mail (falls angegeben).
           </p>
-          <Button onClick={onStartOver} variant="ghost">
-            Weiteren Termin buchen
-          </Button>
         </div>
       </CardContent>
     </Card>

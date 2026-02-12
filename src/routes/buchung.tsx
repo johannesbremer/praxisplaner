@@ -453,7 +453,7 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     }
     case "existing-confirmation":
     case "new-confirmation": {
-      return <ConfirmationStep {...stepProps} onStartOver={onStartOver} />;
+      return <ConfirmationStep {...stepProps} />;
     }
     case "existing-data-input":
     case "new-data-input": {
