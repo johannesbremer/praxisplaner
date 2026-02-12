@@ -6,7 +6,7 @@ name = "praxisplaner"
 script = '''
 set -eu
 
-SOURCE_ENV="$HOME/path/to/main/repo/.env.local"
+SOURCE_ENV="$HOME/Code/praxisplaner/.env.local"
 
 [ -f "$SOURCE_ENV" ] || { echo "Missing $SOURCE_ENV"; exit 1; }
 
