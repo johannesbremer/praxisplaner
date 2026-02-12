@@ -42,55 +42,27 @@ const pkvFormSchema = z.object({
 
 export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
-
-  const initialBeihilfeStatus =
-    state.step === "new-pkv-details-complete"
-      ? state.beihilfeStatus
-      : undefined;
-  const initialPkvInsuranceType =
-    state.step === "new-pkv-details-complete"
-      ? state.pkvInsuranceType
-      : undefined;
-  const initialPkvTariff =
-    state.step === "new-pkv-details-complete" ? state.pkvTariff : undefined;
+  const completedState =
+    state.step === "new-pkv-details-complete" ? state : null;
 
   const form = useForm({
     defaultValues: {
-      beihilfeStatus: initialBeihilfeStatus ?? "",
-      pkvInsuranceType: initialPkvInsuranceType ?? "",
-      pkvTariff: initialPkvTariff ?? "",
+      beihilfeStatus: completedState?.beihilfeStatus ?? "",
+      pkvInsuranceType: completedState?.pkvInsuranceType ?? "",
+      pkvTariff: completedState?.pkvTariff ?? "",
     },
     onSubmit: async ({ value }) => {
       try {
-        const payload: {
-          beihilfeStatus?: "no" | "yes";
-          pkvInsuranceType?: "kvb" | "other" | "postb";
-          pkvTariff?: "basis" | "premium" | "standard";
-          pvsConsent: true;
-          sessionId: typeof sessionId;
-        } = {
-          pvsConsent: true, // Already consented in previous step
+        const parsed = pkvFormSchema.parse(value);
+        const payload = {
+          pvsConsent: true as const, // Already consented in previous step
           sessionId,
+          ...pickDefined({
+            beihilfeStatus: parsed.beihilfeStatus,
+            pkvInsuranceType: parsed.pkvInsuranceType,
+            pkvTariff: parsed.pkvTariff,
+          }),
         };
-
-        if (value.beihilfeStatus === "no" || value.beihilfeStatus === "yes") {
-          payload.beihilfeStatus = value.beihilfeStatus;
-        }
-        if (
-          value.pkvInsuranceType === "kvb" ||
-          value.pkvInsuranceType === "other" ||
-          value.pkvInsuranceType === "postb"
-        ) {
-          payload.pkvInsuranceType = value.pkvInsuranceType;
-        }
-        if (
-          value.pkvTariff === "basis" ||
-          value.pkvTariff === "premium" ||
-          value.pkvTariff === "standard"
-        ) {
-          payload.pkvTariff = value.pkvTariff;
-        }
-
         await confirmPkvDetails(payload);
       } catch (error) {
         console.error("Failed to confirm PKV details:", error);
@@ -223,4 +195,12 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
       </CardContent>
     </Card>
   );
+}
+
+function pickDefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  ) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
 }
