@@ -248,11 +248,20 @@ export function NewCalendar({
         userId: selectedUserData._id,
       };
 
+      if (selectedUserData.city !== undefined) {
+        info.city = selectedUserData.city;
+      }
+      if (selectedUserData.dateOfBirth !== undefined) {
+        info.dateOfBirth = selectedUserData.dateOfBirth;
+      }
       if (selectedUserData.firstName !== undefined) {
         info.firstName = selectedUserData.firstName;
       }
       if (selectedUserData.lastName !== undefined) {
         info.lastName = selectedUserData.lastName;
+      }
+      if (selectedUserData.street !== undefined) {
+        info.street = selectedUserData.street;
       }
 
       return info;

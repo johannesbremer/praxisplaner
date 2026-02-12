@@ -71,7 +71,9 @@ export function CalendarRightSidebar({
       ? `${patient.firstName} ${patient.lastName}`
       : patient.patientId
         ? `Patient ${patient.patientId}`
-        : "Kein Patient ausgewählt"
+        : patient.email
+          ? patient.email
+          : "Kein Patient ausgewählt"
     : "Kein Patient ausgewählt";
 
   const handleOpenInPvs = () => {
@@ -265,6 +267,11 @@ function RightSidebarContent({
               <p className="text-sm text-muted-foreground">
                 {formatGermanDate(patient.dateOfBirth)}
               </p>
+            )}
+
+            {/* Email (online booking) */}
+            {patient.email && (
+              <p className="text-sm text-muted-foreground">{patient.email}</p>
             )}
 
             {/* Address - Street */}
