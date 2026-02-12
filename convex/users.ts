@@ -6,6 +6,7 @@ import type { DatabaseReader } from "./_generated/server";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
+import { personalDataValidator } from "./schema";
 import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
@@ -109,13 +110,7 @@ export const getById = query({
 
     return {
       ...user,
-      ...(personalData?.city && { city: personalData.city }),
-      ...(personalData?.dateOfBirth && {
-        dateOfBirth: personalData.dateOfBirth,
-      }),
-      ...(personalData?.firstName && { firstName: personalData.firstName }),
-      ...(personalData?.lastName && { lastName: personalData.lastName }),
-      ...(personalData?.street && { street: personalData.street }),
+      ...(personalData && { bookingPersonalData: personalData }),
     };
   },
   returns: v.union(
@@ -123,13 +118,11 @@ export const getById = query({
       _creationTime: v.number(),
       _id: v.id("users"),
       authId: v.string(),
-      city: v.optional(v.string()),
+      bookingPersonalData: v.optional(personalDataValidator),
       createdAt: v.int64(),
-      dateOfBirth: v.optional(v.string()),
       email: v.string(),
       firstName: v.optional(v.string()),
       lastName: v.optional(v.string()),
-      street: v.optional(v.string()),
     }),
     v.null(),
   ),

@@ -242,27 +242,29 @@ export function NewCalendar({
     }
 
     if (selectedPatient?.type === "user" && selectedUserData) {
+      const bookingPersonalData = selectedUserData.bookingPersonalData;
       const info: PatientInfo = {
-        email: selectedUserData.email,
         isNewPatient: false,
         userId: selectedUserData._id,
       };
+      if (bookingPersonalData) {
+        Object.assign(info, bookingPersonalData);
+      }
 
-      if (selectedUserData.city !== undefined) {
-        info.city = selectedUserData.city;
-      }
-      if (selectedUserData.dateOfBirth !== undefined) {
-        info.dateOfBirth = selectedUserData.dateOfBirth;
-      }
-      if (selectedUserData.firstName !== undefined) {
+      // Fallback to data from users table if no personal booking data exists yet.
+      if (
+        info.firstName === undefined &&
+        selectedUserData.firstName !== undefined
+      ) {
         info.firstName = selectedUserData.firstName;
       }
-      if (selectedUserData.lastName !== undefined) {
+      if (
+        info.lastName === undefined &&
+        selectedUserData.lastName !== undefined
+      ) {
         info.lastName = selectedUserData.lastName;
       }
-      if (selectedUserData.street !== undefined) {
-        info.street = selectedUserData.street;
-      }
+      info.email ??= selectedUserData.email;
 
       return info;
     }
