@@ -7,6 +7,19 @@ import { query } from "./_generated/server";
 import { authKit } from "./auth";
 import { workOSAuthUserValidator } from "./validators";
 
+interface BookingConfirmationStepSnapshot {
+  lastModified: bigint;
+  personalData: BookingPersonalData;
+}
+
+interface BookingPersonalData {
+  city?: string;
+  dateOfBirth?: string;
+  firstName?: string;
+  lastName?: string;
+  street?: string;
+}
+
 /**
  * Get the currently authenticated user.
  * Returns the user from our users table if authenticated, null otherwise.
@@ -60,17 +73,93 @@ export const getAuthUser = query({
 export const getById = query({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {
-    return await ctx.db.get("users", args.id);
+    const [existingConfirmationStepRaw, newConfirmationStepRaw, user] =
+      await Promise.all([
+        ctx.db
+          .query("bookingExistingConfirmationSteps")
+          .withIndex("by_userId", (q) => q.eq("userId", args.id))
+          .order("desc")
+          .first(),
+        ctx.db
+          .query("bookingNewConfirmationSteps")
+          .withIndex("by_userId", (q) => q.eq("userId", args.id))
+          .order("desc")
+          .first(),
+        ctx.db.get("users", args.id),
+      ]);
+
+    const existingConfirmationStep =
+      existingConfirmationStepRaw as BookingConfirmationStepSnapshot | null;
+    const newConfirmationStep =
+      newConfirmationStepRaw as BookingConfirmationStepSnapshot | null;
+
+    if (!user) {
+      return null;
+    }
+
+    let latestPersonalData: BookingPersonalData | undefined;
+
+    if (existingConfirmationStep && newConfirmationStep) {
+      latestPersonalData =
+        existingConfirmationStep.lastModified >= newConfirmationStep.lastModified
+          ? existingConfirmationStep.personalData
+          : newConfirmationStep.personalData;
+    } else if (existingConfirmationStep) {
+      latestPersonalData = existingConfirmationStep.personalData;
+    } else if (newConfirmationStep) {
+      latestPersonalData = newConfirmationStep.personalData;
+    }
+
+    const firstName = user.firstName ?? latestPersonalData?.firstName;
+    const lastName = user.lastName ?? latestPersonalData?.lastName;
+
+    const result: {
+      _creationTime: number;
+      _id: Id<"users">;
+      authId: string;
+      city?: string;
+      createdAt: bigint;
+      dateOfBirth?: string;
+      email: string;
+      firstName?: string;
+      lastName?: string;
+      street?: string;
+    } = {
+      ...user,
+    };
+
+    const assignIfDefined = <
+      K extends "city" | "dateOfBirth" | "firstName" | "lastName" | "street",
+    >(
+      key: K,
+      value: (typeof result)[K] | undefined,
+    ) => {
+      if (value === undefined) {
+        return;
+      }
+      result[key] = value;
+    };
+
+    assignIfDefined("city", latestPersonalData?.city);
+    assignIfDefined("dateOfBirth", latestPersonalData?.dateOfBirth);
+    assignIfDefined("firstName", firstName);
+    assignIfDefined("lastName", lastName);
+    assignIfDefined("street", latestPersonalData?.street);
+
+    return result;
   },
   returns: v.union(
     v.object({
       _creationTime: v.number(),
       _id: v.id("users"),
       authId: v.string(),
+      city: v.optional(v.string()),
       createdAt: v.int64(),
+      dateOfBirth: v.optional(v.string()),
       email: v.string(),
       firstName: v.optional(v.string()),
       lastName: v.optional(v.string()),
+      street: v.optional(v.string()),
     }),
     v.null(),
   ),

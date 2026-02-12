@@ -67,11 +67,19 @@ export function CalendarRightSidebar({
   const { isMobile, open, openMobile, setOpenMobile } = useRightSidebar();
 
   const patientDisplayName = patient
-    ? patient.firstName && patient.lastName
-      ? `${patient.firstName} ${patient.lastName}`
-      : patient.patientId
-        ? `Patient ${patient.patientId}`
-        : "Kein Patient ausgewählt"
+    ? (() => {
+        const nameParts = [patient.firstName, patient.lastName].filter(Boolean);
+        if (nameParts.length > 0) {
+          return nameParts.join(" ");
+        }
+        if (patient.email) {
+          return patient.email;
+        }
+        if (patient.patientId) {
+          return `Patient ${patient.patientId}`;
+        }
+        return "Kein Patient ausgewählt";
+      })()
     : "Kein Patient ausgewählt";
 
   const handleOpenInPvs = () => {
@@ -265,6 +273,11 @@ function RightSidebarContent({
               <p className="text-sm text-muted-foreground">
                 {formatGermanDate(patient.dateOfBirth)}
               </p>
+            )}
+
+            {/* Email (booking user fallback) */}
+            {patient.email && (
+              <p className="text-sm text-muted-foreground">{patient.email}</p>
             )}
 
             {/* Address - Street */}

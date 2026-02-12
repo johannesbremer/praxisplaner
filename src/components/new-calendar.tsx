@@ -49,6 +49,16 @@ type SelectedPatient =
   | { id: Id<"patients">; type: "patient" }
   | { id: Id<"users">; type: "user" };
 
+interface SelectedUserSidebarData {
+  _id: Id<"users">;
+  city?: string;
+  dateOfBirth?: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  street?: string;
+}
+
 // Wrapper component that enhances appointment selection with sidebar opening
 // Must be rendered inside RightSidebarProvider
 function CalendarGridWithSidebarOpening({
@@ -213,7 +223,7 @@ export function NewCalendar({
   const selectedUserData = useQuery(
     api.users.getById,
     selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
-  );
+  ) as null | SelectedUserSidebarData | undefined;
 
   // Convert selected patient data to PatientInfo format for the sidebar
   const selectedPatientInfo: PatientInfo | undefined = (() => {
@@ -253,6 +263,15 @@ export function NewCalendar({
       }
       if (selectedUserData.lastName !== undefined) {
         info.lastName = selectedUserData.lastName;
+      }
+      if (selectedUserData.dateOfBirth !== undefined) {
+        info.dateOfBirth = selectedUserData.dateOfBirth;
+      }
+      if (selectedUserData.street !== undefined) {
+        info.street = selectedUserData.street;
+      }
+      if (selectedUserData.city !== undefined) {
+        info.city = selectedUserData.city;
       }
 
       return info;
