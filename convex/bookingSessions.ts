@@ -1,4 +1,4 @@
-import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
+import type { GenericMutationCtx } from "convex/server";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -9,7 +9,6 @@ import { internalMutation, mutation, query } from "./_generated/server";
 
 // Context types for helper functions
 type MutationCtx = GenericMutationCtx<DataModel>;
-type QueryCtx = GenericQueryCtx<DataModel>;
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -22,6 +21,10 @@ import {
   pkvTariffValidator,
   selectedSlotValidator,
 } from "./schema";
+import {
+  ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQuery,
+} from "./userIdentity";
 
 // ============================================================================
 // CONSTANTS
@@ -298,19 +301,8 @@ const STEP_PATCH_MAP: StepPatchMap = {
 export const get = query({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    // Get authenticated user identity from JWT
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
-
-    // Find our app's user record by authId (which is the JWT subject)
-    const authId = identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", authId))
-      .unique();
-    if (!user) {
+    const userId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -320,7 +312,7 @@ export const get = query({
     }
 
     // Check session ownership
-    if (session.userId !== user._id) {
+    if (session.userId !== userId) {
       return null;
     }
 
@@ -359,17 +351,8 @@ export const getActiveForUser = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
-
-    const authId = identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", authId))
-      .unique();
-    if (!user) {
+    const userId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -377,7 +360,7 @@ export const getActiveForUser = query({
       .query("bookingSessions")
       .withIndex("by_userId_practiceId_ruleSetId", (q) =>
         q
-          .eq("userId", user._id)
+          .eq("userId", userId)
           .eq("practiceId", args.practiceId)
           .eq("ruleSetId", args.ruleSetId),
       )
@@ -426,7 +409,7 @@ export const create = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUserId(ctx);
+    const userId = await ensureAuthenticatedUserId(ctx);
 
     const now = BigInt(Date.now());
 
@@ -476,8 +459,7 @@ export const create = mutation({
 export const remove = mutation({
   args: { sessionId: v.id("bookingSessions") },
   handler: async (ctx, args) => {
-    // Get authenticated user - users must already exist
-    const userId = await getAuthenticatedUserId(ctx);
+    const userId = await ensureAuthenticatedUserId(ctx);
 
     // Check session ownership
     const session = await ctx.db.get("bookingSessions", args.sessionId);
@@ -521,28 +503,10 @@ export const cleanupExpired = internalMutation({
 
 /**
  * Get the authenticated user's ID from WorkOS and our users table.
- * Throws if not authenticated or user not found.
+ * If the user record is missing (e.g. after preview re-seeding), create it.
  */
-async function getAuthenticatedUserId(
-  ctx: MutationCtx | QueryCtx,
-): Promise<Id<"users">> {
-  // Get authenticated user identity directly from JWT
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Authentication required");
-  }
-
-  const authId = identity.subject;
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_authId", (q) => q.eq("authId", authId))
-    .unique();
-
-  if (!user) {
-    throw new Error("User not found. Please contact support.");
-  }
-
-  return user._id;
+async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
+  return await ensureAuthenticatedUserId(ctx);
 }
 
 /**
@@ -550,7 +514,7 @@ async function getAuthenticatedUserId(
  * Returns the session if valid.
  */
 async function getVerifiedSession(
-  ctx: MutationCtx | QueryCtx,
+  ctx: MutationCtx,
   sessionId: Id<"bookingSessions">,
 ): Promise<Doc<"bookingSessions">> {
   const userId = await getAuthenticatedUserId(ctx);

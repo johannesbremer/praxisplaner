@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "build:vercel": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then PREVIEW_NAME=\"$(printf '%s' \"$VERCEL_GIT_COMMIT_REF\" | tr '/' '-')\"; pnpm exec convex deploy --cmd \"pnpm run build\" --preview-create \"$PREVIEW_NAME\" && pnpm exec convex import --preview-name \"$PREVIEW_NAME\" --replace-all seed_data.zip; else pnpm exec convex deploy --cmd \"pnpm run build\"; fi",
     "dev": "pnpm dev:frontend & pnpm dev:backend",
     "dev:backend": "pnpm exec convex dev",
     "dev:frontend": "vite dev",

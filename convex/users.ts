@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
+import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
 /**
@@ -20,10 +21,7 @@ export const getCurrentUser = query({
     }
 
     // Find our app's user record by authId
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_authId", (q) => q.eq("authId", authUser.id))
-      .unique();
+    const user = await findUserByAuthId(ctx.db, authUser.id);
 
     return user;
   },
