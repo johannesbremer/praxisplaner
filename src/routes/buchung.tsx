@@ -1,4 +1,5 @@
 // src/routes/buchung.tsx
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -119,10 +120,12 @@ function PatientBookingPage() {
         <Card className="max-w-md">
           <CardHeader className="text-center">
             <CardTitle>Weiterleitung zur Anmeldung...</CardTitle>
-            <CardDescription>
-              Bitte warten Sie einen Moment. Wir leiten Sie automatisch zur
-              Anmeldung weiter.
-            </CardDescription>
+            <VisuallyHidden>
+              <CardDescription>
+                Bitte warten Sie einen Moment. Wir leiten Sie automatisch zur
+                Anmeldung weiter.
+              </CardDescription>
+            </VisuallyHidden>
           </CardHeader>
           <CardContent>
             {signInError ? (
