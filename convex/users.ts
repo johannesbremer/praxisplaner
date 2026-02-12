@@ -30,25 +30,22 @@ async function getLatestBookingPersonalData(
         .first(),
     ]);
 
-  if (!latestExistingConfirmationStep && !latestNewConfirmationStep) {
-    return null;
+  if (latestExistingConfirmationStep && latestNewConfirmationStep) {
+    return latestExistingConfirmationStep.lastModified >
+      latestNewConfirmationStep.lastModified
+      ? latestExistingConfirmationStep.personalData
+      : latestNewConfirmationStep.personalData;
   }
 
-  if (!latestExistingConfirmationStep) {
-    if (!latestNewConfirmationStep) {
-      return null;
-    }
-    return latestNewConfirmationStep.personalData;
-  }
-
-  if (!latestNewConfirmationStep) {
+  if (latestExistingConfirmationStep) {
     return latestExistingConfirmationStep.personalData;
   }
 
-  return latestExistingConfirmationStep.lastModified >
-    latestNewConfirmationStep.lastModified
-    ? latestExistingConfirmationStep.personalData
-    : latestNewConfirmationStep.personalData;
+  if (latestNewConfirmationStep) {
+    return latestNewConfirmationStep.personalData;
+  }
+
+  return null;
 }
 
 /**
