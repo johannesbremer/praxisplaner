@@ -1129,68 +1129,6 @@ function computePreviousState(
       }
     }
 
-    case "new-data-input":
-    case "new-data-input-complete": {
-      // Going back from new-calendar-selection to new-data-input
-      // Preserve submitted data in a dedicated completed state.
-      if (
-        !("locationId" in state) ||
-        !("isOver40" in state) ||
-        !("insuranceType" in state) ||
-        !("appointmentTypeId" in state) ||
-        !("personalData" in state) ||
-        !("reasonDescription" in state)
-      ) {
-        throw new Error("Cannot go back: missing required fields");
-      }
-
-      if (state.insuranceType === "gkv") {
-        if (!("hzvStatus" in state)) {
-          throw new Error("Cannot go back: missing hzvStatus");
-        }
-        const returnState: StateAtStep<"new-data-input-complete"> = {
-          appointmentTypeId: state.appointmentTypeId,
-          hzvStatus: state.hzvStatus,
-          insuranceType: "gkv" as const,
-          isNewPatient: true as const,
-          isOver40: state.isOver40,
-          locationId: state.locationId,
-          personalData: state.personalData,
-          reasonDescription: state.reasonDescription,
-          step: "new-data-input-complete" as const,
-        };
-        if (state.medicalHistory !== undefined) {
-          returnState.medicalHistory = state.medicalHistory;
-        }
-        return returnState;
-      } else {
-        // PKV path - preserve optional fields from the insurance step
-        // Use spread to only include defined optional properties
-        const returnState: StateAtStep<"new-data-input-complete"> = {
-          ...("beihilfeStatus" in state
-            ? { beihilfeStatus: state.beihilfeStatus }
-            : {}),
-          ...("pkvInsuranceType" in state
-            ? { pkvInsuranceType: state.pkvInsuranceType }
-            : {}),
-          ...("pkvTariff" in state ? { pkvTariff: state.pkvTariff } : {}),
-          appointmentTypeId: state.appointmentTypeId,
-          insuranceType: "pkv" as const,
-          isNewPatient: true as const,
-          isOver40: state.isOver40,
-          locationId: state.locationId,
-          personalData: state.personalData,
-          pvsConsent: true as const,
-          reasonDescription: state.reasonDescription,
-          step: "new-data-input-complete" as const,
-        };
-        if (state.medicalHistory !== undefined) {
-          returnState.medicalHistory = state.medicalHistory;
-        }
-        return returnState;
-      }
-    }
-
     default: {
       return null;
     }
