@@ -2323,14 +2323,6 @@ export function useCalendarLogic({
     setDragPreview({ column: "", slot: 0, visible: false });
   };
 
-  const handleDeleteBlockedSlot = (blockedSlotId: string) => {
-    if (confirm("Gesperrten Zeitraum löschen?")) {
-      void runDeleteBlockedSlot({
-        id: blockedSlotId as Id<"blockedSlots">,
-      });
-    }
-  };
-
   const handleBlockedSlotResizeStart = (
     e: React.MouseEvent,
     blockedSlotId: string,
@@ -2637,7 +2629,6 @@ export function useCalendarLogic({
     handleBlockedSlotResizeStart,
     handleDateChange,
     handleDeleteAppointment,
-    handleDeleteBlockedSlot,
     handleDragEnd,
     handleDragOver,
     handleDragStart,
@@ -2652,6 +2643,7 @@ export function useCalendarLogic({
     practiceId,
     runCreateAppointment,
     runCreateBlockedSlot,
+    runDeleteBlockedSlot,
     runUpdateBlockedSlot,
     selectedDate,
     selectedLocationId: simulatedContext?.locationId || selectedLocationId,
