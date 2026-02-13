@@ -220,10 +220,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: true,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "gkv",
       sessionId,
@@ -294,10 +290,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: false,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "pkv",
       sessionId,
@@ -377,10 +369,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: true,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "gkv",
       sessionId,

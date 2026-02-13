@@ -16,6 +16,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 
@@ -53,8 +61,7 @@ export function CalendarSelectionStep({
 }: StepComponentProps) {
   const isNewPatient = state.step === "new-calendar-selection";
 
-  // Get the appointment type ID and location ID from state
-  const appointmentTypeId =
+  const initialAppointmentTypeId =
     "appointmentTypeId" in state
       ? (state.appointmentTypeId as Id<"appointmentTypes">)
       : undefined;
@@ -66,10 +73,19 @@ export function CalendarSelectionStep({
     "practitionerId" in state
       ? (state.practitionerId as Id<"practitioners">)
       : undefined;
+  const personalData = "personalData" in state ? state.personalData : undefined;
+  const initialReasonDescription =
+    "reasonDescription" in state ? state.reasonDescription : "";
 
   // Date selection state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date(),
+  );
+  const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
+    Id<"appointmentTypes"> | undefined
+  >(initialAppointmentTypeId);
+  const [reasonDescription, setReasonDescription] = useState(
+    initialReasonDescription,
   );
 
   // Selected slot state
@@ -79,21 +95,33 @@ export function CalendarSelectionStep({
   const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
   });
+  const locations = useQuery(api.entities.getLocations, { ruleSetId });
+  const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const appointmentType = appointmentTypes?.find(
-    (t) => t._id === appointmentTypeId,
+    (t) => t._id === selectedAppointmentTypeId,
   );
+  const locationName = locations?.find(
+    (location) => location._id === locationId,
+  )?.name;
+  const practitionerName = existingPractitionerId
+    ? practitioners?.find(
+        (practitioner) => practitioner._id === existingPractitionerId,
+      )?.name
+    : undefined;
 
   // Build simulated context for slot query - only include locationId if defined
   const simulatedContext = {
     patient: { isNew: isNewPatient },
-    ...(appointmentTypeId && { appointmentTypeId }),
+    ...(selectedAppointmentTypeId && {
+      appointmentTypeId: selectedAppointmentTypeId,
+    }),
     ...(locationId && { locationId }),
   };
 
   // Query slots for the selected day
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedDate && appointmentTypeId
+    selectedDate && selectedAppointmentTypeId
       ? {
           date: formatDateISO(dateToTemporal(selectedDate)),
           practiceId,
@@ -116,7 +144,13 @@ export function CalendarSelectionStep({
   };
 
   const handleConfirmSlot = async () => {
-    if (!selectedSlot || !appointmentType) {
+    const trimmedReason = reasonDescription.trim();
+    if (
+      !selectedSlot ||
+      !appointmentType ||
+      !selectedAppointmentTypeId ||
+      !trimmedReason
+    ) {
       return;
     }
 
@@ -130,11 +164,15 @@ export function CalendarSelectionStep({
     try {
       if (isNewPatient) {
         await selectNewPatientSlot({
+          appointmentTypeId: selectedAppointmentTypeId,
+          reasonDescription: trimmedReason,
           selectedSlot: slotData,
           sessionId,
         });
       } else {
         await selectExistingPatientSlot({
+          appointmentTypeId: selectedAppointmentTypeId,
+          reasonDescription: trimmedReason,
           selectedSlot: slotData,
           sessionId,
         });
@@ -175,7 +213,7 @@ export function CalendarSelectionStep({
     today.add({ days: 28 }).day,
   );
 
-  if (!appointmentTypeId || !locationId) {
+  if (!locationId) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>
@@ -194,7 +232,8 @@ export function CalendarSelectionStep({
       <CardHeader>
         <CardTitle>Wählen Sie Ihren Termin</CardTitle>
         <CardDescription>
-          Wählen Sie ein Datum und dann eine verfügbare Uhrzeit.
+          Wählen Sie Terminart, Termingrund, Datum und dann eine verfügbare
+          Uhrzeit.
           {appointmentType && (
             <span className="block mt-1">
               Terminart: {appointmentType.name} (ca. {appointmentType.duration}{" "}
@@ -227,6 +266,45 @@ export function CalendarSelectionStep({
 
           {/* Time slots */}
           <div className="space-y-4">
+            <div className="space-y-3 rounded-lg border p-3">
+              <p className="text-sm font-medium">Termindetails</p>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Terminart *</p>
+                <Select
+                  onValueChange={(value) => {
+                    setSelectedAppointmentTypeId(
+                      value as Id<"appointmentTypes">,
+                    );
+                    setSelectedSlot(null);
+                  }}
+                  {...(selectedAppointmentTypeId
+                    ? { value: selectedAppointmentTypeId }
+                    : {})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Bitte auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {appointmentTypes?.map((type) => (
+                      <SelectItem key={type._id} value={type._id}>
+                        {type.name} (ca. {type.duration} Min.)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Termingrund *</p>
+                <Input
+                  onChange={(event) => {
+                    setReasonDescription(event.target.value);
+                  }}
+                  placeholder="z.B. Erkältungssymptome seit 3 Tagen"
+                  value={reasonDescription}
+                />
+              </div>
+            </div>
+
             <h4 className="font-medium text-sm">
               {selectedDate
                 ? `Termine am ${selectedDate.toLocaleDateString("de-DE", {
@@ -238,48 +316,54 @@ export function CalendarSelectionStep({
             </h4>
 
             {selectedDate ? (
-              slotsResult === undefined ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ) : sortedSlots.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Keine Termine an diesem Tag verfügbar. Bitte wählen Sie ein
-                  anderes Datum.
-                </p>
-              ) : (
-                <div className="grid gap-2 max-h-80 overflow-y-auto">
-                  {sortedSlots.map((slot) => {
-                    const isSelected =
-                      selectedSlot?.startTime === slot.startTime &&
-                      selectedSlot.practitionerId === slot.practitionerId;
+              selectedAppointmentTypeId ? (
+                slotsResult === undefined ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : sortedSlots.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Keine Termine an diesem Tag verfügbar. Bitte wählen Sie ein
+                    anderes Datum.
+                  </p>
+                ) : (
+                  <div className="grid gap-2 max-h-80 overflow-y-auto">
+                    {sortedSlots.map((slot) => {
+                      const isSelected =
+                        selectedSlot?.startTime === slot.startTime &&
+                        selectedSlot.practitionerId === slot.practitionerId;
 
-                    return (
-                      <Button
-                        className="justify-between"
-                        key={`${slot.practitionerId}-${slot.startTime}`}
-                        onClick={() => {
-                          handleSelectSlot({
-                            duration: slot.duration,
-                            practitionerId: slot.practitionerId,
-                            practitionerName: slot.practitionerName,
-                            startTime: slot.startTime,
-                          });
-                        }}
-                        variant={isSelected ? "default" : "outline"}
-                      >
-                        <span>{formatTime(slot.startTime)} Uhr</span>
-                        {!existingPractitionerId && (
-                          <span className="text-xs opacity-70">
-                            {slot.practitionerName}
-                          </span>
-                        )}
-                      </Button>
-                    );
-                  })}
-                </div>
+                      return (
+                        <Button
+                          className="justify-between"
+                          key={`${slot.practitionerId}-${slot.startTime}`}
+                          onClick={() => {
+                            handleSelectSlot({
+                              duration: slot.duration,
+                              practitionerId: slot.practitionerId,
+                              practitionerName: slot.practitionerName,
+                              startTime: slot.startTime,
+                            });
+                          }}
+                          variant={isSelected ? "default" : "outline"}
+                        >
+                          <span>{formatTime(slot.startTime)} Uhr</span>
+                          {!existingPractitionerId && (
+                            <span className="text-xs opacity-70">
+                              {slot.practitionerName}
+                            </span>
+                          )}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Bitte wählen Sie zuerst eine Terminart.
+                </p>
               )
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -309,13 +393,99 @@ export function CalendarSelectionStep({
                 <span className="block text-muted-foreground">
                   bei {selectedSlot.practitionerName}
                 </span>
+                <span className="block text-muted-foreground">
+                  Termingrund: {reasonDescription.trim()}
+                </span>
               </div>
-              <Button onClick={() => void handleConfirmSlot()}>
+              <Button
+                disabled={
+                  !selectedAppointmentTypeId || reasonDescription.trim() === ""
+                }
+                onClick={() => void handleConfirmSlot()}
+              >
                 Termin bestätigen
               </Button>
             </div>
           </div>
         )}
+
+        <div className="mt-6 rounded-lg border p-4 space-y-3">
+          <h4 className="font-medium">Ihre Angaben (nicht editierbar)</h4>
+          <div className="grid gap-3 sm:grid-cols-2 text-sm">
+            <ReadOnlyItem label="Standort" value={locationName} />
+            <ReadOnlyItem
+              label="Patiententyp"
+              value={isNewPatient ? "Neu" : "Bestand"}
+            />
+            {existingPractitionerId && (
+              <ReadOnlyItem
+                label="Behandler/in"
+                value={practitionerName ?? existingPractitionerId}
+              />
+            )}
+            {"insuranceType" in state && (
+              <ReadOnlyItem
+                label="Versicherungsart"
+                value={state.insuranceType.toUpperCase()}
+              />
+            )}
+            {"hzvStatus" in state && (
+              <ReadOnlyItem label="HZV-Status" value={state.hzvStatus} />
+            )}
+            {"pkvInsuranceType" in state && (
+              <ReadOnlyItem
+                label="PKV-Art"
+                value={state.pkvInsuranceType ?? "Keine Angabe"}
+              />
+            )}
+            {"pkvTariff" in state && (
+              <ReadOnlyItem
+                label="PKV-Tarif"
+                value={state.pkvTariff ?? "Keine Angabe"}
+              />
+            )}
+            {"beihilfeStatus" in state && (
+              <ReadOnlyItem
+                label="Beihilfe"
+                value={state.beihilfeStatus ?? "Keine Angabe"}
+              />
+            )}
+            {personalData && (
+              <ReadOnlyItem
+                label="Name"
+                value={`${personalData.firstName} ${personalData.lastName}`}
+              />
+            )}
+            {personalData && (
+              <ReadOnlyItem
+                label="Geburtsdatum"
+                value={personalData.dateOfBirth}
+              />
+            )}
+            {personalData && (
+              <ReadOnlyItem label="Telefon" value={personalData.phoneNumber} />
+            )}
+            {personalData?.email && (
+              <ReadOnlyItem label="E-Mail" value={personalData.email} />
+            )}
+            {personalData &&
+              (personalData.street ||
+                personalData.postalCode ||
+                personalData.city) && (
+                <ReadOnlyItem
+                  label="Adresse"
+                  value={[
+                    personalData.street,
+                    [personalData.postalCode, personalData.city]
+                      .filter(Boolean)
+                      .join(" "),
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                />
+              )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -324,4 +494,19 @@ export function CalendarSelectionStep({
 function formatTime(isoString: string): string {
   const zdt = Temporal.ZonedDateTime.from(isoString);
   return zdt.toPlainTime().toString({ smallestUnit: "minute" });
+}
+
+function ReadOnlyItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | undefined;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="font-medium">{value && value.length > 0 ? value : "-"}</p>
+    </div>
+  );
 }

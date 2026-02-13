@@ -74,7 +74,6 @@ const medicalHistorySchema = z.object({
 const formSchema = z.object({
   medicalHistory: medicalHistorySchema,
   personalData: personalDataSchema,
-  reasonDescription: z.string().min(1, "Bitte geben Sie einen Grund an"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -87,10 +86,6 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
     "personalData" in state ? state.personalData : undefined;
   const initialMedicalHistory =
     "medicalHistory" in state ? state.medicalHistory : undefined;
-  const initialReason =
-    "reasonDescription" in state && state.reasonDescription
-      ? state.reasonDescription
-      : "";
 
   const submitNewPatientData = useMutation(
     api.bookingSessions.submitNewPatientData,
@@ -122,7 +117,6 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         street: initialPersonalData?.street ?? "",
         title: initialPersonalData?.title ?? "",
       },
-      reasonDescription: initialReason,
     },
     onSubmit: async ({ value }) => {
       const parsed = formSchema.parse(value);
@@ -178,7 +172,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitNewPatientData({
             personalData,
-            reasonDescription: parsed.reasonDescription,
+            reasonDescription: "",
             sessionId,
             ...(medicalHistory && { medicalHistory }),
           });
@@ -195,7 +189,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitExistingPatientData({
             personalData,
-            reasonDescription: parsed.reasonDescription,
+            reasonDescription: "",
             sessionId,
           });
         } catch (error: unknown) {
@@ -493,43 +487,6 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
                   )}
                 </form.Field>
               </div>
-            </div>
-
-            {/* Reason for visit */}
-            <div className="space-y-4 pt-4 border-t">
-              <h3 className="text-lg font-medium">Termingrund</h3>
-
-              <form.Field name="reasonDescription">
-                {(field) => {
-                  const isInvalid =
-                    field.state.meta.isTouched && !field.state.meta.isValid;
-                  return (
-                    <Field data-invalid={isInvalid}>
-                      <FieldLabel htmlFor={field.name}>
-                        Beschreibung Ihres Anliegens *
-                      </FieldLabel>
-                      <Input
-                        aria-invalid={isInvalid}
-                        id={field.name}
-                        name={field.name}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => {
-                          field.handleChange(e.target.value);
-                        }}
-                        placeholder="z.B. Erkältungssymptome seit 3 Tagen"
-                        value={field.state.value}
-                      />
-                      <FieldDescription>
-                        Diese Information hilft uns, uns auf Ihren Termin
-                        vorzubereiten.
-                      </FieldDescription>
-                      {isInvalid && (
-                        <FieldError errors={field.state.meta.errors} />
-                      )}
-                    </Field>
-                  );
-                }}
-              </form.Field>
             </div>
 
             {/* Medical History Section (new patients only) */}

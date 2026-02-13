@@ -20,8 +20,6 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
-  AgeCheckStep,
-  AppointmentTypeStep,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -40,7 +38,7 @@ import {
 } from "../components/booking-wizard/index";
 
 export const Route = createFileRoute("/buchung")({
-  component: PatientBookingPage,
+  component: BookingPage,
 });
 
 // Step group labels for progress indicator
@@ -59,11 +57,110 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "confirmation",
 ];
 
+function AppointmentTypeAutoAdvanceStep({
+  ruleSetId,
+  sessionId,
+  state,
+}: Pick<StepComponentProps, "ruleSetId" | "sessionId" | "state">) {
+  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+    ruleSetId,
+  });
+  const selectNewPatientAppointmentType = useMutation(
+    api.bookingSessions.selectNewPatientAppointmentType,
+  );
+  const selectExistingPatientAppointmentType = useMutation(
+    api.bookingSessions.selectExistingPatientAppointmentType,
+  );
+  const hasTriggeredTransitionRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      hasTriggeredTransitionRef.current ||
+      !appointmentTypes ||
+      appointmentTypes.length === 0
+    ) {
+      return;
+    }
+
+    const firstAppointmentType = appointmentTypes.at(0);
+    if (!firstAppointmentType) {
+      return;
+    }
+
+    hasTriggeredTransitionRef.current = true;
+
+    const transition =
+      state.step === "new-appointment-type"
+        ? selectNewPatientAppointmentType({
+            appointmentTypeId: firstAppointmentType._id,
+            sessionId,
+          })
+        : selectExistingPatientAppointmentType({
+            appointmentTypeId: firstAppointmentType._id,
+            sessionId,
+          });
+
+    void transition.catch((error: unknown) => {
+      console.error("Failed to auto-advance appointment type step:", error);
+      toast.error("Navigation fehlgeschlagen", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Bitte versuchen Sie es erneut.",
+      });
+      hasTriggeredTransitionRef.current = false;
+    });
+  }, [
+    appointmentTypes,
+    selectExistingPatientAppointmentType,
+    selectNewPatientAppointmentType,
+    sessionId,
+    state.step,
+  ]);
+
+  if (!appointmentTypes) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardContent className="py-8">
+          <div className="flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Bitte warten…</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (appointmentTypes.length === 0) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Keine Terminarten verfügbar</CardTitle>
+          <CardDescription>
+            Aktuell können online keine Terminarten ausgewählt werden.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="max-w-2xl mx-auto">
+      <CardContent className="py-8">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Bitte warten…</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
  * Main booking page component.
  * Handles authentication check before rendering the booking flow.
  */
-function PatientBookingPage() {
+function BookingPage() {
   const { isLoading: authLoading, signIn, user } = useAuth();
   const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
     useConvexAuth();
@@ -488,6 +585,45 @@ function AuthenticatedBookingFlow() {
   );
 }
 
+function LegacyAgeCheckRedirectStep({
+  sessionId,
+}: {
+  sessionId: Id<"bookingSessions">;
+}) {
+  const confirmAgeCheck = useMutation(api.bookingSessions.confirmAgeCheck);
+  const hasTriggeredTransitionRef = useRef(false);
+
+  useEffect(() => {
+    if (hasTriggeredTransitionRef.current) {
+      return;
+    }
+    hasTriggeredTransitionRef.current = true;
+    void confirmAgeCheck({ isOver40: false, sessionId }).catch(
+      (error: unknown) => {
+        console.error("Failed to transition legacy age-check step:", error);
+        toast.error("Navigation fehlgeschlagen", {
+          description:
+            error instanceof Error
+              ? error.message
+              : "Bitte versuchen Sie es erneut.",
+        });
+        hasTriggeredTransitionRef.current = false;
+      },
+    );
+  }, [confirmAgeCheck, sessionId]);
+
+  return (
+    <Card className="max-w-2xl mx-auto">
+      <CardContent className="py-8">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Bitte warten…</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Step renderer component
 interface StepRendererProps {
   onStartOver: () => void;
@@ -499,7 +635,7 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
   switch (step) {
     case "existing-appointment-type":
     case "new-appointment-type": {
-      return <AppointmentTypeStep {...stepProps} />;
+      return <AppointmentTypeAutoAdvanceStep {...stepProps} />;
     }
     case "existing-calendar-selection":
     case "new-calendar-selection": {
@@ -522,7 +658,7 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
       return <LocationStep {...stepProps} />;
     }
     case "new-age-check": {
-      return <AgeCheckStep {...stepProps} />;
+      return <LegacyAgeCheckRedirectStep sessionId={stepProps.sessionId} />;
     }
     case "new-gkv-details":
     case "new-gkv-details-complete": {

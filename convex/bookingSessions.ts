@@ -930,7 +930,7 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "new-data-input-complete": { canGoBack: true, prev: "new-appointment-type" },
   "new-gkv-details": { canGoBack: true, prev: "new-insurance-type" },
   "new-gkv-details-complete": { canGoBack: true, prev: "new-insurance-type" },
-  "new-insurance-type": { canGoBack: true, prev: "new-age-check" },
+  "new-insurance-type": { canGoBack: true, prev: "patient-status" },
   "new-pkv-details": { canGoBack: true, prev: "new-pvs-consent" },
   "new-pkv-details-complete": { canGoBack: true, prev: "new-pvs-consent" },
   "new-pvs-consent": { canGoBack: true, prev: "new-insurance-type" },
@@ -1253,7 +1253,7 @@ export const selectLocation = mutation({
 });
 
 /**
- * Step 3 → A1: Select "new patient" path - proceed to age check.
+ * Step 3 → A2: Select "new patient" path - proceed directly to insurance type.
  */
 export const selectNewPatient = mutation({
   args: { sessionId: v.id("bookingSessions") },
@@ -1264,8 +1264,9 @@ export const selectNewPatient = mutation({
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
         isNewPatient: true as const,
+        isOver40: false,
         locationId: state.locationId,
-        step: "new-age-check" as const,
+        step: "new-insurance-type" as const,
       },
     });
 
@@ -1784,6 +1785,8 @@ export const submitNewPatientData = mutation({
  */
 export const selectNewPatientSlot = mutation({
   args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
     sessionId: v.id("bookingSessions"),
   },
@@ -1798,17 +1801,30 @@ export const selectNewPatientSlot = mutation({
 
     const state = session.state;
     const now = BigInt(Date.now());
+    const reasonDescription = args.reasonDescription.trim();
+
+    if (reasonDescription.length === 0) {
+      throw new Error("Reason description is required");
+    }
+
+    const selectedAppointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    if (selectedAppointmentType?.ruleSetId !== session.ruleSetId) {
+      throw new Error("Invalid appointment type");
+    }
 
     const base = getStepBase(session);
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
       ...base,
-      appointmentTypeId: state.appointmentTypeId,
+      appointmentTypeId: args.appointmentTypeId,
       insuranceType: state.insuranceType,
       isNewPatient: true,
       isOver40: state.isOver40,
       locationId: state.locationId,
       personalData: state.personalData,
-      reasonDescription: state.reasonDescription,
+      reasonDescription,
       selectedSlot: args.selectedSlot,
       ...(state.medicalHistory === undefined
         ? {}
@@ -1835,19 +1851,10 @@ export const selectNewPatientSlot = mutation({
       calendarStep,
     );
 
-    // Get the appointment type for the title
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
-      state.appointmentTypeId,
-    );
-    if (!appointmentType) {
-      throw new Error("Appointment type not found");
-    }
-
     // Create the appointment
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeId: state.appointmentTypeId,
-      appointmentTypeTitle: appointmentType.name,
+      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeTitle: selectedAppointmentType.name,
       createdAt: now,
       end: calculateEndTime(
         args.selectedSlot.startTime,
@@ -1858,7 +1865,7 @@ export const selectNewPatientSlot = mutation({
       practiceId: session.practiceId,
       practitionerId: args.selectedSlot.practitionerId,
       start: args.selectedSlot.startTime,
-      title: `Online-Termin: ${appointmentType.name}`,
+      title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
     });
 
@@ -1869,14 +1876,14 @@ export const selectNewPatientSlot = mutation({
       };
       const confirmState: GkvConfirm = {
         appointmentId,
-        appointmentTypeId: state.appointmentTypeId,
+        appointmentTypeId: args.appointmentTypeId,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
         isOver40: state.isOver40,
         locationId: state.locationId,
         personalData: state.personalData,
-        reasonDescription: state.reasonDescription,
+        reasonDescription,
         selectedSlot: args.selectedSlot,
         step: "new-confirmation" as const,
       };
@@ -1895,14 +1902,14 @@ export const selectNewPatientSlot = mutation({
       await upsertStep(ctx, "bookingNewConfirmationSteps", session, {
         ...base,
         appointmentId,
-        appointmentTypeId: state.appointmentTypeId,
+        appointmentTypeId: args.appointmentTypeId,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
         isOver40: state.isOver40,
         locationId: state.locationId,
         personalData: state.personalData,
-        reasonDescription: state.reasonDescription,
+        reasonDescription,
         selectedSlot: args.selectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
@@ -1918,14 +1925,14 @@ export const selectNewPatientSlot = mutation({
       };
       const confirmState: PkvConfirm = {
         appointmentId,
-        appointmentTypeId: state.appointmentTypeId,
+        appointmentTypeId: args.appointmentTypeId,
         insuranceType: "pkv" as const,
         isNewPatient: true as const,
         isOver40: state.isOver40,
         locationId: state.locationId,
         personalData: state.personalData,
         pvsConsent: true as const,
-        reasonDescription: state.reasonDescription,
+        reasonDescription,
         selectedSlot: args.selectedSlot,
         step: "new-confirmation" as const,
       };
@@ -1953,13 +1960,13 @@ export const selectNewPatientSlot = mutation({
       const confirmStep: StepTableInput<"bookingNewConfirmationSteps"> = {
         ...base,
         appointmentId,
-        appointmentTypeId: state.appointmentTypeId,
+        appointmentTypeId: args.appointmentTypeId,
         insuranceType: "pkv",
         isNewPatient: true,
         isOver40: state.isOver40,
         locationId: state.locationId,
         personalData: state.personalData,
-        reasonDescription: state.reasonDescription,
+        reasonDescription,
         selectedSlot: args.selectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
@@ -2146,27 +2153,33 @@ export const submitExistingPatientData = mutation({
  */
 export const selectExistingPatientSlot = mutation({
   args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-calendar-selection");
+    const reasonDescription = args.reasonDescription.trim();
+
+    if (reasonDescription.length === 0) {
+      throw new Error("Reason description is required");
+    }
 
     const now = BigInt(Date.now());
 
-    // Get the appointment type for the title
     const appointmentType = await ctx.db.get(
       "appointmentTypes",
-      state.appointmentTypeId,
+      args.appointmentTypeId,
     );
-    if (!appointmentType) {
-      throw new Error("Appointment type not found");
+    if (appointmentType?.ruleSetId !== session.ruleSetId) {
+      throw new Error("Invalid appointment type");
     }
 
     // Create the appointment
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeId: state.appointmentTypeId,
+      appointmentTypeId: args.appointmentTypeId,
       appointmentTypeTitle: appointmentType.name,
       createdAt: now,
       end: calculateEndTime(
@@ -2185,12 +2198,12 @@ export const selectExistingPatientSlot = mutation({
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
         appointmentId,
-        appointmentTypeId: state.appointmentTypeId,
+        appointmentTypeId: args.appointmentTypeId,
         isNewPatient: false as const,
         locationId: state.locationId,
         personalData: state.personalData,
         practitionerId: state.practitionerId,
-        reasonDescription: state.reasonDescription,
+        reasonDescription,
         selectedSlot: args.selectedSlot,
         step: "existing-confirmation" as const,
       },
@@ -2199,24 +2212,24 @@ export const selectExistingPatientSlot = mutation({
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {
       ...base,
-      appointmentTypeId: state.appointmentTypeId,
+      appointmentTypeId: args.appointmentTypeId,
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: state.personalData,
       practitionerId: state.practitionerId,
-      reasonDescription: state.reasonDescription,
+      reasonDescription,
       selectedSlot: args.selectedSlot,
     });
 
     await upsertStep(ctx, "bookingExistingConfirmationSteps", session, {
       ...base,
       appointmentId,
-      appointmentTypeId: state.appointmentTypeId,
+      appointmentTypeId: args.appointmentTypeId,
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: state.personalData,
       practitionerId: state.practitionerId,
-      reasonDescription: state.reasonDescription,
+      reasonDescription,
       selectedSlot: args.selectedSlot,
     });
 
