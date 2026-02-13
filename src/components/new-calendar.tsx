@@ -28,7 +28,6 @@ import {
   temporalDayToLegacy,
 } from "../utils/time-calculations";
 import { BlockedSlotCreationModal } from "./blocked-slot-creation-modal";
-import { BlockedSlotDeleteModal } from "./blocked-slot-delete-modal";
 import { BlockedSlotEditModal } from "./blocked-slot-edit-modal";
 import { CalendarProvider } from "./calendar-context";
 import {
@@ -131,12 +130,6 @@ export function NewCalendar({
     currentTitle: string;
     slotData: Doc<"blockedSlots">;
     slotIsSimulation: boolean;
-  }>(null);
-  const [blockedSlotDeleteModalOpen, setBlockedSlotDeleteModalOpen] =
-    useState(false);
-  const [blockedSlotDeleteData, setBlockedSlotDeleteData] = useState<null | {
-    blockedSlotId: Id<"blockedSlots">;
-    currentTitle: string;
   }>(null);
 
   const {
@@ -355,25 +348,6 @@ export function NewCalendar({
     [blockedSlotsData, handleEditBlockedSlotInternal],
   );
 
-  const handleRequestDeleteBlockedSlot = useCallback(
-    (blockedSlotId: string) => {
-      const blockedSlot = blockedSlotsData?.find(
-        (slot) => slot._id === blockedSlotId,
-      );
-      if (!blockedSlot) {
-        toast.error("Gesperrter Slot nicht gefunden");
-        return;
-      }
-
-      setBlockedSlotDeleteData({
-        blockedSlotId: blockedSlot._id,
-        currentTitle: blockedSlot.title,
-      });
-      setBlockedSlotDeleteModalOpen(true);
-    },
-    [blockedSlotsData],
-  );
-
   const handleAppointmentTypeSelect = useCallback(
     (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
       setSelectedAppointmentTypeId(appointmentTypeId);
@@ -550,7 +524,7 @@ export function NewCalendar({
                       onBlockedSlotDragEnd={handleBlockedSlotDragEnd}
                       onBlockSlot={handleBlockSlot}
                       onDeleteAppointment={handleDeleteAppointment}
-                      onDeleteBlockedSlot={handleRequestDeleteBlockedSlot}
+                      onDeleteBlockedSlot={handleEditBlockedSlot}
                       onDragEnd={handleDragEnd}
                       onDragOver={handleDragOver}
                       onDragStart={handleDragStart}
@@ -722,23 +696,10 @@ export function NewCalendar({
             }}
             open={blockedSlotEditModalOpen}
             runCreateBlockedSlot={runCreateBlockedSlot}
+            runDeleteBlockedSlot={runDeleteBlockedSlot}
             runUpdateBlockedSlot={runUpdateBlockedSlot}
             slotData={blockedSlotEditData.slotData}
             slotIsSimulation={blockedSlotEditData.slotIsSimulation}
-          />
-        )}
-        {blockedSlotDeleteData && (
-          <BlockedSlotDeleteModal
-            blockedSlotId={blockedSlotDeleteData.blockedSlotId}
-            blockedSlotTitle={blockedSlotDeleteData.currentTitle}
-            onOpenChange={(open) => {
-              setBlockedSlotDeleteModalOpen(open);
-              if (!open) {
-                setBlockedSlotDeleteData(null);
-              }
-            }}
-            open={blockedSlotDeleteModalOpen}
-            runDeleteBlockedSlot={runDeleteBlockedSlot}
           />
         )}
       </RightSidebarProvider>

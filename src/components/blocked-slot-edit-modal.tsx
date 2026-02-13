@@ -2,6 +2,7 @@
 
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "convex/react";
+import { useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
@@ -50,6 +51,9 @@ interface BlockedSlotEditModalProps {
     start: string;
     title: string;
   }) => Promise<Id<"blockedSlots"> | undefined>;
+  runDeleteBlockedSlot?: (args: {
+    id: Id<"blockedSlots">;
+  }) => Promise<null | undefined>;
   runUpdateBlockedSlot?: (args: {
     id: Id<"blockedSlots">;
     isSimulation?: boolean;
@@ -66,10 +70,14 @@ export function BlockedSlotEditModal({
   onOpenChange,
   open,
   runCreateBlockedSlot: runCreateBlockedSlotProp,
+  runDeleteBlockedSlot: runDeleteBlockedSlotProp,
   runUpdateBlockedSlot: runUpdateBlockedSlotProp,
   slotData,
   slotIsSimulation = false,
 }: BlockedSlotEditModalProps) {
+  const deleteBlockedSlotMutation = useMutation(
+    api.appointments.deleteBlockedSlot,
+  );
   const updateBlockedSlotMutation = useMutation(
     api.appointments.updateBlockedSlot,
   );
@@ -81,11 +89,16 @@ export function BlockedSlotEditModal({
     runUpdateBlockedSlotProp ??
     ((args: Parameters<typeof updateBlockedSlotMutation>[0]) =>
       updateBlockedSlotMutation(args));
+  const runDeleteBlockedSlot =
+    runDeleteBlockedSlotProp ??
+    ((args: Parameters<typeof deleteBlockedSlotMutation>[0]) =>
+      deleteBlockedSlotMutation(args));
 
   const runCreateBlockedSlot =
     runCreateBlockedSlotProp ??
     ((args: Parameters<typeof createBlockedSlotMutation>[0]) =>
       createBlockedSlotMutation(args));
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const form = useForm({
     defaultValues: {
@@ -145,6 +158,30 @@ export function BlockedSlotEditModal({
     onOpenChange(newOpen);
   };
 
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await runDeleteBlockedSlot({ id: blockedSlotId });
+      toast.success("Sperrung erfolgreich gelöscht");
+      onOpenChange(false);
+      form.reset();
+    } catch (error: unknown) {
+      captureErrorGlobal(error, {
+        blockedSlotId,
+        context: "blocked_slot_delete",
+      });
+
+      const description =
+        error instanceof Error ? error.message : "Unbekannter Fehler";
+
+      toast.error("Sperrung konnte nicht gelöscht werden", {
+        description,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent className="sm:max-w-[500px]">
@@ -155,9 +192,9 @@ export function BlockedSlotEditModal({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Slot-Titel bearbeiten</DialogTitle>
+            <DialogTitle>Sperrung bearbeiten</DialogTitle>
             <DialogDescription>
-              Ändern Sie den Titel der Sperrung
+              Ändern Sie den Titel oder löschen Sie die Sperrung.
             </DialogDescription>
           </DialogHeader>
 
@@ -192,6 +229,17 @@ export function BlockedSlotEditModal({
 
           <DialogFooter>
             <Button
+              disabled={isDeleting || form.state.isSubmitting}
+              onClick={() => {
+                void handleDelete();
+              }}
+              type="button"
+              variant="destructive"
+            >
+              {isDeleting ? "Löschen..." : "Löschen"}
+            </Button>
+            <Button
+              disabled={isDeleting || form.state.isSubmitting}
               onClick={() => {
                 handleOpenChange(false);
               }}
@@ -200,7 +248,10 @@ export function BlockedSlotEditModal({
             >
               Abbrechen
             </Button>
-            <Button disabled={form.state.isSubmitting} type="submit">
+            <Button
+              disabled={isDeleting || form.state.isSubmitting}
+              type="submit"
+            >
               {form.state.isSubmitting ? "Speichern..." : "Speichern"}
             </Button>
           </DialogFooter>
