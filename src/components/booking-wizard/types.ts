@@ -25,6 +25,7 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
   "existing-calendar-selection": "Terminauswahl",
   "existing-confirmation": "Bestätigung",
   "existing-data-input": "Persönliche Daten",
+  "existing-data-input-complete": "Persönliche Daten",
   "existing-doctor-selection": "Arztauswahl",
   location: "Standort",
   "new-age-check": "Altersabfrage",
@@ -32,9 +33,12 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
   "new-calendar-selection": "Terminauswahl",
   "new-confirmation": "Bestätigung",
   "new-data-input": "Persönliche Daten",
+  "new-data-input-complete": "Persönliche Daten",
   "new-gkv-details": "Kassendetails",
+  "new-gkv-details-complete": "Kassendetails",
   "new-insurance-type": "Versicherungsart",
   "new-pkv-details": "Privatversicherung",
+  "new-pkv-details-complete": "Privatversicherung",
   "new-pvs-consent": "PVS-Einwilligung",
   "patient-status": "Patientenstatus",
   privacy: "Datenschutz",
@@ -48,13 +52,17 @@ export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
   switch (step) {
     case "existing-appointment-type":
     case "existing-data-input":
+    case "existing-data-input-complete":
     case "existing-doctor-selection":
     case "new-age-check":
     case "new-appointment-type":
     case "new-data-input":
+    case "new-data-input-complete":
     case "new-gkv-details":
+    case "new-gkv-details-complete":
     case "new-insurance-type":
     case "new-pkv-details":
+    case "new-pkv-details-complete":
     case "patient-status": {
       return "info";
     }
@@ -89,7 +97,11 @@ export function canGoBack(step: BookingSessionState["step"]): boolean {
     case "existing-appointment-type":
     case "existing-calendar-selection":
     case "existing-confirmation":
-    case "existing-data-input": {
+    case "existing-data-input":
+    case "existing-data-input-complete": {
+      return false;
+    }
+    case "new-calendar-selection": {
       return false;
     }
     // After confirmation, cannot go back

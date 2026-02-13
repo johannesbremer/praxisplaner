@@ -151,7 +151,6 @@ export function NewCalendar({
     handleBlockedSlotResizeStart,
     handleDateChange,
     handleDeleteAppointment,
-    handleDeleteBlockedSlot,
     handleDragEnd,
     handleDragOver,
     handleDragStart,
@@ -164,6 +163,7 @@ export function NewCalendar({
     practiceId,
     runCreateAppointment,
     runCreateBlockedSlot,
+    runDeleteBlockedSlot,
     runUpdateBlockedSlot,
     selectedDate,
     selectedLocationId,
@@ -524,7 +524,7 @@ export function NewCalendar({
                       onBlockedSlotDragEnd={handleBlockedSlotDragEnd}
                       onBlockSlot={handleBlockSlot}
                       onDeleteAppointment={handleDeleteAppointment}
-                      onDeleteBlockedSlot={handleDeleteBlockedSlot}
+                      onDeleteBlockedSlot={handleEditBlockedSlot}
                       onDragEnd={handleDragEnd}
                       onDragOver={handleDragOver}
                       onDragStart={handleDragStart}
@@ -696,6 +696,7 @@ export function NewCalendar({
             }}
             open={blockedSlotEditModalOpen}
             runCreateBlockedSlot={runCreateBlockedSlot}
+            runDeleteBlockedSlot={runDeleteBlockedSlot}
             runUpdateBlockedSlot={runUpdateBlockedSlot}
             slotData={blockedSlotEditData.slotData}
             slotIsSimulation={blockedSlotEditData.slotIsSimulation}
