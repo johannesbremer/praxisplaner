@@ -547,6 +547,32 @@ export function useCalendarLogic({
     [updateBlockedSlotMutation, blockedSlotsQueryArgs],
   );
 
+  const runDeleteBlockedSlot = useCallback(
+    async (args: Parameters<typeof deleteBlockedSlotMutation>[0]) => {
+      return await deleteBlockedSlotMutation.withOptimisticUpdate(
+        (localStore, optimisticArgs) => {
+          const existingBlockedSlots = localStore.getQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+          );
+
+          if (!existingBlockedSlots) {
+            return;
+          }
+
+          localStore.setQuery(
+            api.appointments.getBlockedSlots,
+            blockedSlotsQueryArgs,
+            existingBlockedSlots.filter(
+              (slot) => slot._id !== optimisticArgs.id,
+            ),
+          );
+        },
+      )(args);
+    },
+    [deleteBlockedSlotMutation, blockedSlotsQueryArgs],
+  );
+
   // Resolve location name from URL
   useEffect(() => {
     if (
@@ -1845,7 +1871,7 @@ export function useCalendarLogic({
               "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
             );
           } else if (blockedSlotDoc.isSimulation) {
-            await updateBlockedSlotMutation({
+            await runUpdateBlockedSlot({
               end: endZoned.toString(),
               id: blockedSlotDoc._id,
               ...(newPractitionerId && { practitionerId: newPractitionerId }),
@@ -1869,7 +1895,7 @@ export function useCalendarLogic({
             });
           }
         } else if (blockedSlot.id) {
-          await updateBlockedSlotMutation({
+          await runUpdateBlockedSlot({
             end: endZoned.toString(),
             id: blockedSlot.id as Id<"blockedSlots">,
             ...(newPractitionerId && { practitionerId: newPractitionerId }),
@@ -2299,7 +2325,7 @@ export function useCalendarLogic({
 
   const handleDeleteBlockedSlot = (blockedSlotId: string) => {
     if (confirm("Gesperrten Zeitraum löschen?")) {
-      void deleteBlockedSlotMutation({
+      void runDeleteBlockedSlot({
         id: blockedSlotId as Id<"blockedSlots">,
       });
     }
@@ -2502,7 +2528,7 @@ export function useCalendarLogic({
               });
               const endZoned = startZoned.add({ minutes: newDuration });
 
-              await updateBlockedSlotMutation({
+              await runUpdateBlockedSlot({
                 end: endZoned.toString(),
                 id: resizingBlockedSlot.blockedSlotId as Id<"blockedSlots">,
                 ...(simulatedContext && { isSimulation: true }),
@@ -2561,7 +2587,7 @@ export function useCalendarLogic({
     checkCollision,
     appointmentsQueryArgs,
     updateAppointmentMutation,
-    updateBlockedSlotMutation,
+    runUpdateBlockedSlot,
     selectedDate,
     simulatedContext,
   ]);
