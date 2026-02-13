@@ -362,7 +362,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     expect(updated.state.pkvTariff).toBe("standard");
   });
 
-  test("new patient data-input step is pending until submitted and completed on back-navigation", async () => {
+  test("new patient data-input step stays pending before submit and calendar step cannot go back", async () => {
     const t = createTestContext();
     const { appointmentTypeId, locationId, practiceId, ruleSetId } =
       await createBookingEntities(t);
@@ -426,19 +426,18 @@ describe("bookingSessions atomic pending/completed step states", () => {
     expect(atCalendar.state.reasonDescription).toBe("Kontrolle");
     expect(atCalendar.state.personalData.firstName).toBe("Ada");
 
-    const backStep = await authed.mutation(api.bookingSessions.goBack, {
-      sessionId,
-    });
-    expect(backStep).toBe("new-data-input-complete");
+    await expect(
+      authed.mutation(api.bookingSessions.goBack, { sessionId }),
+    ).rejects.toThrow("Cannot go back from step 'new-calendar-selection'");
 
     const completed = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
     assertSessionExists(
       completed,
-      "session should exist at completed data-input",
+      "session should still exist at calendar step after failed back",
     );
-    assertStateStep(completed.state, "new-data-input-complete");
+    assertStateStep(completed.state, "new-calendar-selection");
     expect(completed.state.reasonDescription).toBe("Kontrolle");
     expect(completed.state.personalData.lastName).toBe("Lovelace");
   });

@@ -922,10 +922,7 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
     },
     prev: "new-gkv-details", // Default, but computed dynamically
   },
-  "new-calendar-selection": {
-    canGoBack: true,
-    prev: "new-data-input-complete",
-  },
+  "new-calendar-selection": { canGoBack: false, prev: null },
   "new-confirmation": { canGoBack: false, prev: null }, // Final step - no back
   "new-data-input": { canGoBack: true, prev: "new-appointment-type" },
   "new-data-input-complete": { canGoBack: true, prev: "new-appointment-type" },
