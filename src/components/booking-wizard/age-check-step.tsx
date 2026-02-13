@@ -1,9 +1,10 @@
 // Age check step component (New patient path A1)
 
 import { useMutation } from "convex/react";
+import { Loader2 } from "lucide-react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -18,49 +19,44 @@ import type { StepComponentProps } from "./types";
 export function AgeCheckStep({ sessionId }: StepComponentProps) {
   const confirmAgeCheck = useMutation(api.bookingSessions.confirmAgeCheck);
 
-  const handleAgeSelection = async (isOver40: boolean) => {
-    try {
-      await confirmAgeCheck({ isOver40, sessionId });
-    } catch (error) {
-      console.error("Failed to confirm age check:", error);
-      toast.error("Auswahl fehlgeschlagen", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
-    }
-  };
+  useEffect(() => {
+    let isMounted = true;
+
+    const continueWithoutAgeQuestion = async () => {
+      try {
+        await confirmAgeCheck({ isOver40: false, sessionId });
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        console.error("Failed to confirm age check:", error);
+        toast.error("Weiterleitung fehlgeschlagen", {
+          description:
+            error instanceof Error
+              ? error.message
+              : "Bitte versuchen Sie es erneut.",
+        });
+      }
+    };
+
+    void continueWithoutAgeQuestion();
+    return () => {
+      isMounted = false;
+    };
+  }, [confirmAgeCheck, sessionId]);
 
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
-        <CardTitle>Sind Sie 40 Jahre oder älter?</CardTitle>
+        <CardTitle>Bitte warten...</CardTitle>
         <CardDescription>
-          Diese Information hilft uns, den passenden Termin für Sie zu finden.
+          Wir leiten Sie automatisch zum nächsten Schritt weiter.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Button
-            className="h-auto p-6"
-            onClick={() => void handleAgeSelection(false)}
-            variant="outline"
-          >
-            <div className="text-center">
-              <div className="font-medium">Unter 40 Jahre</div>
-            </div>
-          </Button>
-
-          <Button
-            className="h-auto p-6"
-            onClick={() => void handleAgeSelection(true)}
-            variant="outline"
-          >
-            <div className="text-center">
-              <div className="font-medium">40 Jahre oder älter</div>
-            </div>
-          </Button>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Weiterleitung läuft</span>
         </div>
       </CardContent>
     </Card>

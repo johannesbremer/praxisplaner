@@ -892,7 +892,7 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "new-confirmation": { canGoBack: false, prev: null }, // Final step - no back
   "new-data-input": { canGoBack: true, prev: "new-appointment-type" },
   "new-gkv-details": { canGoBack: true, prev: "new-insurance-type" },
-  "new-insurance-type": { canGoBack: true, prev: "new-age-check" },
+  "new-insurance-type": { canGoBack: true, prev: "patient-status" },
   "new-pkv-details": { canGoBack: true, prev: "new-pvs-consent" },
   "new-pvs-consent": { canGoBack: true, prev: "new-insurance-type" },
 
@@ -1222,7 +1222,7 @@ export const selectLocation = mutation({
 });
 
 /**
- * Step 3 → A1: Select "new patient" path - proceed to age check.
+ * Step 3 → A2: Select "new patient" path - proceed directly to insurance type.
  */
 export const selectNewPatient = mutation({
   args: { sessionId: v.id("bookingSessions") },
@@ -1233,8 +1233,9 @@ export const selectNewPatient = mutation({
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
         isNewPatient: true as const,
+        isOver40: false,
         locationId: state.locationId,
-        step: "new-age-check" as const,
+        step: "new-insurance-type" as const,
       },
     });
 
@@ -2076,6 +2077,112 @@ export const submitExistingPatientData = mutation({
 
     await refreshSession(ctx, args.sessionId);
     return null;
+  },
+  returns: v.null(),
+});
+
+/**
+ * Update appointment details while on calendar selection.
+ * Allows changing appointment type and reason without reopening previous steps.
+ */
+export const updateCalendarSelectionDetails = mutation({
+  args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    reasonDescription: v.string(),
+    sessionId: v.id("bookingSessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await getVerifiedSession(ctx, args.sessionId);
+    const reasonDescription = args.reasonDescription.trim();
+
+    if (reasonDescription.length === 0) {
+      throw new Error("Reason description is required");
+    }
+
+    // Verify appointment type exists and belongs to this rule set
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    if (appointmentType?.ruleSetId !== session.ruleSetId) {
+      throw new Error("Invalid appointment type");
+    }
+
+    const state = session.state;
+    const base = getStepBase(session);
+
+    if (state.step === "new-calendar-selection") {
+      await ctx.db.patch("bookingSessions", args.sessionId, {
+        state: {
+          ...state,
+          appointmentTypeId: args.appointmentTypeId,
+          reasonDescription,
+          step: "new-calendar-selection",
+        },
+      });
+
+      const stepData: StepTableInput<"bookingNewPersonalDataSteps"> = {
+        ...base,
+        appointmentTypeId: args.appointmentTypeId,
+        insuranceType: state.insuranceType,
+        isNewPatient: true,
+        isOver40: state.isOver40,
+        locationId: state.locationId,
+        personalData: state.personalData,
+        reasonDescription,
+        ...(state.medicalHistory === undefined
+          ? {}
+          : { medicalHistory: state.medicalHistory }),
+        ...(state.emergencyContacts === undefined
+          ? {}
+          : { emergencyContacts: state.emergencyContacts }),
+        ...(state.insuranceType === "gkv"
+          ? { hzvStatus: state.hzvStatus }
+          : {}),
+        ...(state.insuranceType === "pkv" && state.pkvTariff !== undefined
+          ? { pkvTariff: state.pkvTariff }
+          : {}),
+        ...(state.insuranceType === "pkv" &&
+        state.pkvInsuranceType !== undefined
+          ? { pkvInsuranceType: state.pkvInsuranceType }
+          : {}),
+        ...(state.insuranceType === "pkv" && state.beihilfeStatus !== undefined
+          ? { beihilfeStatus: state.beihilfeStatus }
+          : {}),
+      };
+
+      await upsertStep(ctx, "bookingNewPersonalDataSteps", session, stepData);
+      await refreshSession(ctx, args.sessionId);
+      return null;
+    }
+
+    if (state.step === "existing-calendar-selection") {
+      await ctx.db.patch("bookingSessions", args.sessionId, {
+        state: {
+          ...state,
+          appointmentTypeId: args.appointmentTypeId,
+          reasonDescription,
+          step: "existing-calendar-selection",
+        },
+      });
+
+      await upsertStep(ctx, "bookingExistingPersonalDataSteps", session, {
+        ...base,
+        appointmentTypeId: args.appointmentTypeId,
+        isNewPatient: false as const,
+        locationId: state.locationId,
+        personalData: state.personalData,
+        practitionerId: state.practitionerId,
+        reasonDescription,
+      });
+
+      await refreshSession(ctx, args.sessionId);
+      return null;
+    }
+
+    throw new Error(
+      `Invalid step: expected 'new-calendar-selection' or 'existing-calendar-selection', got '${state.step}'`,
+    );
   },
   returns: v.null(),
 });
