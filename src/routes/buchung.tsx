@@ -510,7 +510,9 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
       return <ConfirmationStep {...stepProps} />;
     }
     case "existing-data-input":
-    case "new-data-input": {
+    case "existing-data-input-complete":
+    case "new-data-input":
+    case "new-data-input-complete": {
       return <DataInputStep {...stepProps} />;
     }
     case "existing-doctor-selection": {
@@ -522,13 +524,15 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     case "new-age-check": {
       return <AgeCheckStep {...stepProps} />;
     }
-    case "new-gkv-details": {
+    case "new-gkv-details":
+    case "new-gkv-details-complete": {
       return <GkvDetailsStep {...stepProps} />;
     }
     case "new-insurance-type": {
       return <InsuranceTypeStep {...stepProps} />;
     }
-    case "new-pkv-details": {
+    case "new-pkv-details":
+    case "new-pkv-details-complete": {
       return <PkvDetailsStep {...stepProps} />;
     }
     case "new-pvs-consent": {

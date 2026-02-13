@@ -80,7 +80,8 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export function DataInputStep({ sessionId, state }: StepComponentProps) {
-  const isNewPatient = state.step === "new-data-input";
+  const isNewPatient =
+    state.step === "new-data-input" || state.step === "new-data-input-complete";
 
   const initialPersonalData =
     "personalData" in state ? state.personalData : undefined;

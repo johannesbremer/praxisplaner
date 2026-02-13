@@ -42,41 +42,28 @@ const pkvFormSchema = z.object({
 
 export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
-
-  const initialBeihilfeStatus =
-    state.step === "new-pkv-details" && "beihilfeStatus" in state
-      ? (state.beihilfeStatus as "" | "no" | "yes" | undefined)
-      : undefined;
-  const initialPkvInsuranceType =
-    state.step === "new-pkv-details" && "pkvInsuranceType" in state
-      ? (state.pkvInsuranceType as "" | "kvb" | "other" | "postb" | undefined)
-      : undefined;
-  const initialPkvTariff =
-    state.step === "new-pkv-details" && "pkvTariff" in state
-      ? (state.pkvTariff as "" | "basis" | "premium" | "standard" | undefined)
-      : undefined;
+  const completedState =
+    state.step === "new-pkv-details-complete" ? state : null;
 
   const form = useForm({
     defaultValues: {
-      beihilfeStatus: initialBeihilfeStatus ?? "",
-      pkvInsuranceType: initialPkvInsuranceType ?? "",
-      pkvTariff: initialPkvTariff ?? "",
+      beihilfeStatus: completedState?.beihilfeStatus ?? "",
+      pkvInsuranceType: completedState?.pkvInsuranceType ?? "",
+      pkvTariff: completedState?.pkvTariff ?? "",
     },
     onSubmit: async ({ value }) => {
       try {
-        await confirmPkvDetails({
-          pvsConsent: true, // Already consented in previous step
+        const parsed = pkvFormSchema.parse(value);
+        const payload = {
+          pvsConsent: true as const, // Already consented in previous step
           sessionId,
-          ...(value.beihilfeStatus && {
-            beihilfeStatus: value.beihilfeStatus,
+          ...pickDefined({
+            beihilfeStatus: parsed.beihilfeStatus,
+            pkvInsuranceType: parsed.pkvInsuranceType,
+            pkvTariff: parsed.pkvTariff,
           }),
-          ...(value.pkvInsuranceType && {
-            pkvInsuranceType: value.pkvInsuranceType,
-          }),
-          ...(value.pkvTariff && {
-            pkvTariff: value.pkvTariff,
-          }),
-        });
+        };
+        await confirmPkvDetails(payload);
       } catch (error) {
         console.error("Failed to confirm PKV details:", error);
         toast.error("PKV-Details konnten nicht gespeichert werden", {
@@ -208,4 +195,12 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
       </CardContent>
     </Card>
   );
+}
+
+function pickDefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  ) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
 }
