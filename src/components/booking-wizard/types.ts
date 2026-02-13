@@ -101,6 +101,9 @@ export function canGoBack(step: BookingSessionState["step"]): boolean {
     case "existing-data-input-complete": {
       return false;
     }
+    case "new-calendar-selection": {
+      return false;
+    }
     // After confirmation, cannot go back
     case "new-confirmation": {
       return false;

@@ -134,8 +134,8 @@ describe("canGoBack", () => {
       expect(canGoBack("new-appointment-type")).toBe(true);
     });
 
-    it("can go back from new-calendar-selection", () => {
-      expect(canGoBack("new-calendar-selection")).toBe(true);
+    it("cannot go back from new-calendar-selection", () => {
+      expect(canGoBack("new-calendar-selection")).toBe(false);
     });
 
     it("can go back from new-data-input", () => {
