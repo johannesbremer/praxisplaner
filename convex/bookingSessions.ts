@@ -833,12 +833,14 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "isNewPatient",
     "isOver40",
     "locationId",
+    "pvsConsent",
   ],
   "new-pkv-details-complete": [
     "insuranceType",
     "isNewPatient",
     "isOver40",
     "locationId",
+    "pvsConsent",
     "pkvInsuranceType",
     "pkvTariff",
     "beihilfeStatus",
@@ -1034,6 +1036,7 @@ function computePreviousState(
         isNewPatient: true,
         isOver40: state.isOver40,
         locationId: state.locationId,
+        pvsConsent: true,
         step: "new-pkv-details",
       };
     }
@@ -1054,6 +1057,7 @@ function computePreviousState(
         isNewPatient: true,
         isOver40: state.isOver40,
         locationId: state.locationId,
+        pvsConsent: true,
         step: "new-pkv-details-complete",
       };
     }
@@ -1527,6 +1531,7 @@ export const acceptPvsConsent = mutation({
         isNewPatient: true as const,
         isOver40: state.isOver40,
         locationId: state.locationId,
+        pvsConsent: true as const,
         step: "new-pkv-details" as const,
       },
     });
@@ -1603,6 +1608,7 @@ export const confirmPkvDetails = mutation({
       isNewPatient: true,
       isOver40: state.isOver40,
       locationId: state.locationId,
+      pvsConsent: true,
       ...(args.pkvTariff === undefined ? {} : { pkvTariff: args.pkvTariff }),
       ...(args.pkvInsuranceType === undefined
         ? {}

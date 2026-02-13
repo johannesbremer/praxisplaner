@@ -190,6 +190,7 @@ export const bookingSessionStepValidator = v.union(
     isNewPatient: v.literal(true),
     isOver40: v.boolean(),
     locationId: v.id("locations"),
+    pvsConsent: v.literal(true),
     step: v.literal("new-pkv-details"),
   }),
 
@@ -202,6 +203,7 @@ export const bookingSessionStepValidator = v.union(
     locationId: v.id("locations"),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
+    pvsConsent: v.literal(true),
     step: v.literal("new-pkv-details-complete"),
   }),
 
@@ -789,6 +791,7 @@ export default defineSchema({
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
+    pvsConsent: v.literal(true),
     ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),

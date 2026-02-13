@@ -307,6 +307,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(pending, "session should exist at pending pkv details");
     assertStateStep(pending.state, "new-pkv-details");
+    expect(pending.state.pvsConsent).toBe(true);
     expect("pkvTariff" in pending.state).toBe(false);
     expect("pkvInsuranceType" in pending.state).toBe(false);
     expect("beihilfeStatus" in pending.state).toBe(false);
@@ -342,6 +343,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at completed pkv step",
     );
     assertStateStep(completed.state, "new-pkv-details-complete");
+    expect(completed.state.pvsConsent).toBe(true);
 
     await authed.mutation(api.bookingSessions.confirmPkvDetails, {
       beihilfeStatus: "yes",
