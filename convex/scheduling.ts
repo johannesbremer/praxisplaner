@@ -463,6 +463,9 @@ export const getSlotsForDay = query({
           const dayContext = {
             appointmentTypeId,
             dateTime: firstSlot.startTime, // Any slot time works for day-invariant rules
+            ...(args.simulatedContext.patient.dateOfBirth && {
+              patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
+            }),
             practiceId: args.practiceId,
             // Note: We use the first slot's practitionerId here, but PRACTITIONER conditions
             // should NOT be in the day-invariant set since practitionerId varies per slot
@@ -500,6 +503,9 @@ export const getSlotsForDay = query({
         const appointmentContext = {
           appointmentTypeId,
           dateTime: slot.startTime,
+          ...(args.simulatedContext.patient.dateOfBirth && {
+            patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
+          }),
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId as Id<"practitioners">,
           requestedAt:

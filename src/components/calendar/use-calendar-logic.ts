@@ -2601,6 +2601,9 @@ export function useCalendarLogic({
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
+        ...(simulatedContext.patient.dateOfBirth && {
+          patientDateOfBirth: simulatedContext.patient.dateOfBirth,
+        }),
         ...(locationId && { locationId }),
       });
 

@@ -108,6 +108,9 @@ export function StaffAppointmentCreationModal({
             appointmentTypeId,
             locationId,
             patient: {
+              ...(patient?.dateOfBirth && {
+                dateOfBirth: patient.dateOfBirth,
+              }),
               isNew: false,
             },
             requestedAt,

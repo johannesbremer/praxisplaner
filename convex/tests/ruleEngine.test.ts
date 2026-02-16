@@ -974,6 +974,157 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
     expect(farResult.isBlocked).toBe(true);
   });
 
+  test("PATIENT_AGE with GREATER_THAN_OR_EQUAL - should block patients at or above threshold age", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
+    const conditionTree = {
+      conditionType: "PATIENT_AGE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      valueNumber: 65,
+    };
+
+    const expectedRule = generateRuleName(
+      conditionTreeToConditions(conditionTree),
+      [],
+      [],
+      [],
+    );
+    expect(expectedRule).toContain("Wenn der Patient 65 Jahre oder älter ist,");
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    // Patient is still 64 on the day before birthday.
+    const beforeBirthday = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2025-02-28T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientDateOfBirth: "1960-03-01",
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-02-20T11:00:00+01:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(beforeBirthday.isBlocked).toBe(false);
+
+    // Turns 65 on this date.
+    const onBirthday = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2025-03-01T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientDateOfBirth: "1960-03-01",
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-02-20T11:00:00+01:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(onBirthday.isBlocked).toBe(true);
+  });
+
+  test("PATIENT_AGE with LESS_THAN - should block younger patients using GDT date format", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
+    const conditionTree = {
+      conditionType: "PATIENT_AGE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "LESS_THAN" as const,
+      valueNumber: 18,
+    };
+
+    const expectedRule = generateRuleName(
+      conditionTreeToConditions(conditionTree),
+      [],
+      [],
+      [],
+    );
+    expect(expectedRule).toContain(
+      "Wenn der Patient jünger als 18 Jahre alt ist,",
+    );
+
+    await createRule(t, practiceId, ruleSetId, conditionTree);
+
+    const under18 = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2026-12-31T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientDateOfBirth: "01012010",
+          practiceId,
+          practitionerId,
+          requestedAt: "2026-12-20T11:00:00+01:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(under18.isBlocked).toBe(true);
+
+    const adult = await t.query(internal.ruleEngine.checkRulesForAppointment, {
+      context: {
+        appointmentTypeId: checkupTypeId,
+        dateTime: "2028-01-02T11:00:00+01:00[Europe/Berlin]",
+        locationId,
+        patientDateOfBirth: "01012010",
+        practiceId,
+        practitionerId,
+        requestedAt: "2027-12-20T11:00:00+01:00[Europe/Berlin]",
+      },
+      ruleSetId,
+    });
+
+    expect(adult.isBlocked).toBe(false);
+  });
+
   test("CONCURRENT_COUNT with practice scope - should block when too many concurrent appointments", async () => {
     const t = createTestContext();
 
