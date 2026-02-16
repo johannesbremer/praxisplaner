@@ -323,6 +323,9 @@ export function useCalendarLogic({
             simulatedContext: createSimulatedContext({
               appointmentTypeId: selectedAppointmentTypeId,
               locationId: selectedLocationId,
+              ...(patient?.dateOfBirth && {
+                patientDateOfBirth: patient.dateOfBirth,
+              }),
             }),
           }
         : "skip",

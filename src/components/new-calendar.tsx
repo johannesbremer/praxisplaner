@@ -421,6 +421,7 @@ export function NewCalendar({
         onLocationSelect: handleLocationSelect,
         onPendingTitleChange: setPendingAppointmentTitle,
         onUpdateSimulatedContext,
+        patient: selectedPatientInfo ?? patient,
         practiceId: practiceId ?? undefined,
         ruleSetId,
         runCreateAppointment,

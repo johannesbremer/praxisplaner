@@ -929,8 +929,6 @@ function PatientAgeCondition({
         type="number"
         value={condition.valueNumber ?? ""}
       />
-
-      <span className="text-sm text-muted-foreground">Jahre alt</span>
     </>
   );
 }
