@@ -24,15 +24,19 @@ export default function Branches({
   nodeRadius,
   versionsMap,
 }: Props) {
-  const currentLastCommits =
-    Math.max(...[...versionsMap.values()].map((c) => c.y)) * commitSpacing +
-    nodeRadius * 4;
+  // `BranchPath` expects `start`/`end` in commit-row units, not pixels.
+  // If we pass a pixel value here, height gets multiplied by `commitSpacing`
+  // again and the line can extend far beyond the graph.
+  const currentLastCommitY = Math.max(
+    0,
+    ...[...versionsMap.values()].map((c) => c.y),
+  );
 
   return (
     <>
       {columns.map((column, i) => {
         return column.map((c) => {
-          const end = c.end === Infinity ? currentLastCommits : c.end;
+          const end = c.end === Infinity ? currentLastCommitY : c.end;
           const color =
             c.color ?? branchColors[i % branchColors.length] ?? "#000000";
           return (
