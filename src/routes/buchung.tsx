@@ -585,45 +585,6 @@ function AuthenticatedBookingFlow() {
   );
 }
 
-function LegacyAgeCheckRedirectStep({
-  sessionId,
-}: {
-  sessionId: Id<"bookingSessions">;
-}) {
-  const confirmAgeCheck = useMutation(api.bookingSessions.confirmAgeCheck);
-  const hasTriggeredTransitionRef = useRef(false);
-
-  useEffect(() => {
-    if (hasTriggeredTransitionRef.current) {
-      return;
-    }
-    hasTriggeredTransitionRef.current = true;
-    void confirmAgeCheck({ isOver40: false, sessionId }).catch(
-      (error: unknown) => {
-        console.error("Failed to transition legacy age-check step:", error);
-        toast.error("Navigation fehlgeschlagen", {
-          description:
-            error instanceof Error
-              ? error.message
-              : "Bitte versuchen Sie es erneut.",
-        });
-        hasTriggeredTransitionRef.current = false;
-      },
-    );
-  }, [confirmAgeCheck, sessionId]);
-
-  return (
-    <Card className="max-w-2xl mx-auto">
-      <CardContent className="py-8">
-        <div className="flex items-center justify-center gap-2 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Bitte warten…</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // Step renderer component
 interface StepRendererProps {
   onStartOver: () => void;
@@ -656,9 +617,6 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     }
     case "location": {
       return <LocationStep {...stepProps} />;
-    }
-    case "new-age-check": {
-      return <LegacyAgeCheckRedirectStep sessionId={stepProps.sessionId} />;
     }
     case "new-gkv-details":
     case "new-gkv-details-complete": {

@@ -28,7 +28,6 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
   "existing-data-input-complete": "Persönliche Daten",
   "existing-doctor-selection": "Arztauswahl",
   location: "Standort",
-  "new-age-check": "Altersabfrage",
   "new-appointment-type": "Termingrund",
   "new-calendar-selection": "Terminauswahl",
   "new-confirmation": "Bestätigung",
@@ -54,7 +53,6 @@ export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
     case "existing-data-input":
     case "existing-data-input-complete":
     case "existing-doctor-selection":
-    case "new-age-check":
     case "new-appointment-type":
     case "new-data-input":
     case "new-data-input-complete":

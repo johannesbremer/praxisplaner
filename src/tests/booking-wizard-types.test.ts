@@ -34,7 +34,6 @@ describe("getStepGroup", () => {
       "existing-data-input",
       "existing-data-input-complete",
       "existing-doctor-selection",
-      "new-age-check",
       "new-appointment-type",
       "new-data-input",
       "new-data-input-complete",
@@ -168,10 +167,6 @@ describe("canGoBack", () => {
 
     it("can go back from new-pvs-consent", () => {
       expect(canGoBack("new-pvs-consent")).toBe(true);
-    });
-
-    it("can go back from new-age-check", () => {
-      expect(canGoBack("new-age-check")).toBe(true);
     });
   });
 

@@ -1,7 +1,6 @@
 // Booking Wizard Components
 // Export all step components for the multi-step booking wizard
 
-export { AgeCheckStep } from "./age-check-step";
 export { AppointmentTypeStep } from "./appointment-type-step";
 export { CalendarSelectionStep } from "./calendar-selection-step";
 export { ConfirmationStep } from "./confirmation-step";
