@@ -905,17 +905,13 @@ function PatientAgeCondition({
       >
         <SelectTrigger
           aria-invalid={invalidFields?.has("operator")}
-          className="w-auto min-w-[220px]"
+          className="w-auto min-w-[190px]"
         >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="GREATER_THAN_OR_EQUAL">
-            Jahre oder älter ist
-          </SelectItem>
-          <SelectItem value="LESS_THAN">
-            jünger als ... Jahre alt ist
-          </SelectItem>
+          <SelectItem value="GREATER_THAN_OR_EQUAL">ist mindestens</SelectItem>
+          <SelectItem value="LESS_THAN">ist jünger als</SelectItem>
         </SelectContent>
       </Select>
 
@@ -933,6 +929,8 @@ function PatientAgeCondition({
         type="number"
         value={condition.valueNumber ?? ""}
       />
+
+      <span className="text-sm text-muted-foreground">Jahre alt</span>
     </>
   );
 }
