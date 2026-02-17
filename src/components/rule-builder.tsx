@@ -43,7 +43,7 @@ import { Combobox, type ComboboxOption } from "./combobox";
 // Condition types for the new list-based UI
 interface Condition {
   id: string;
-  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT";
+  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT" | "LESS_THAN";
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
@@ -60,6 +60,7 @@ type ConditionType =
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
+  | "PATIENT_AGE"
   | "PRACTITIONER";
 
 // Validation helper
@@ -289,6 +290,20 @@ function validateCondition(condition: Condition): string[] {
       }
       break;
     }
+    case "PATIENT_AGE": {
+      if (!condition.operator) {
+        invalidFields.push("operator");
+      }
+      if (
+        condition.valueNumber === null ||
+        condition.valueNumber === undefined
+      ) {
+        invalidFields.push("valueNumber");
+      } else if (condition.valueNumber < 0) {
+        invalidFields.push("valueNumber");
+      }
+      break;
+    }
   }
 
   return invalidFields;
@@ -333,6 +348,15 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
     case "DAYS_AHEAD": {
       if (invalidField === "valueNumber") {
         return "Bitte geben Sie eine Anzahl von mindestens 1 Tag ein.";
+      }
+      return "";
+    }
+    case "PATIENT_AGE": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie eine Altersbedingung aus.";
+      }
+      if (invalidField === "valueNumber") {
+        return "Bitte geben Sie ein Alter von mindestens 0 Jahren ein.";
       }
       return "";
     }
@@ -582,6 +606,7 @@ function ConditionEditor({
     { label: "Termintyp", value: "APPOINTMENT_TYPE" },
     { label: "Behandler", value: "PRACTITIONER" },
     { label: "Standort", value: "LOCATION" },
+    { label: "Patientenalter", value: "PATIENT_AGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
     { label: "Tage im Voraus", value: "DAYS_AHEAD" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
@@ -600,6 +625,7 @@ function ConditionEditor({
                 // Reset other values when type changes
                 operator:
                   value === "DAYS_AHEAD" ||
+                  value === "PATIENT_AGE" ||
                   value === "CONCURRENT_COUNT" ||
                   value === "DAILY_CAPACITY"
                     ? "GREATER_THAN_OR_EQUAL"
@@ -646,6 +672,14 @@ function ConditionEditor({
 
           {condition.type === "DAYS_AHEAD" && (
             <DaysAheadCondition
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+
+          {condition.type === "PATIENT_AGE" && (
+            <PatientAgeCondition
               condition={condition}
               invalidFields={invalidFields}
               onUpdate={onUpdate}
@@ -821,6 +855,12 @@ interface DaysAheadConditionProps {
   onUpdate: (updates: Partial<Condition>) => void;
 }
 
+interface PatientAgeConditionProps {
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
 function DaysAheadCondition({
   condition,
   invalidFields,
@@ -841,6 +881,55 @@ function DaysAheadCondition({
       type="number"
       value={condition.valueNumber || ""}
     />
+  );
+}
+
+function PatientAgeCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: PatientAgeConditionProps) {
+  return (
+    <>
+      <Select
+        onValueChange={(value) => {
+          onUpdate({
+            operator: value as "GREATER_THAN_OR_EQUAL" | "LESS_THAN",
+          });
+        }}
+        value={
+          condition.operator === "LESS_THAN"
+            ? "LESS_THAN"
+            : "GREATER_THAN_OR_EQUAL"
+        }
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[190px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="GREATER_THAN_OR_EQUAL">ist mindestens</SelectItem>
+          <SelectItem value="LESS_THAN">ist jünger als</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Input
+        aria-invalid={invalidFields?.has("valueNumber")}
+        className="w-auto min-w-[120px]"
+        min="0"
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value);
+          onUpdate({
+            valueNumber: Number.isNaN(parsed) ? null : parsed,
+          });
+        }}
+        placeholder="z.B. 65"
+        type="number"
+        value={condition.valueNumber ?? ""}
+      />
+    </>
   );
 }
 
@@ -1059,6 +1148,21 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
             conditionType: "DAYS_AHEAD",
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
+            valueNumber: condition.valueNumber,
+          });
+        }
+        break;
+      }
+      case "PATIENT_AGE": {
+        if (
+          condition.valueNumber !== null &&
+          condition.valueNumber !== undefined &&
+          condition.operator
+        ) {
+          nodes.push({
+            conditionType: "PATIENT_AGE",
+            nodeType: "CONDITION",
+            operator: condition.operator,
             valueNumber: condition.valueNumber,
           });
         }

@@ -26,7 +26,10 @@ export const breakTimesValidator = v.optional(
 export const simulatedContextValidator = v.object({
   appointmentTypeId: v.optional(v.id("appointmentTypes")),
   locationId: v.optional(v.id("locations")),
-  patient: v.object({ isNew: v.boolean() }),
+  patient: v.object({
+    dateOfBirth: v.optional(v.string()),
+    isNew: v.boolean(),
+  }),
   requestedAt: v.optional(v.string()), // ISO datetime string for when appointment is being requested
 });
 
