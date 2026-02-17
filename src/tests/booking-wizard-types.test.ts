@@ -30,12 +30,9 @@ describe("STEP_LABELS", () => {
 describe("getStepGroup", () => {
   describe("info group", () => {
     const infoSteps: BookingSessionState["step"][] = [
-      "existing-appointment-type",
       "existing-data-input",
       "existing-data-input-complete",
       "existing-doctor-selection",
-      "new-age-check",
-      "new-appointment-type",
       "new-data-input",
       "new-data-input-complete",
       "new-gkv-details",
@@ -100,10 +97,6 @@ describe("getStepGroup", () => {
 
 describe("canGoBack", () => {
   describe("existing patient flow", () => {
-    it("cannot go back from existing-appointment-type (after doctor selection)", () => {
-      expect(canGoBack("existing-appointment-type")).toBe(false);
-    });
-
     it("cannot go back from existing-calendar-selection", () => {
       expect(canGoBack("existing-calendar-selection")).toBe(false);
     });
@@ -128,10 +121,6 @@ describe("canGoBack", () => {
   describe("new patient flow", () => {
     it("cannot go back from new-confirmation", () => {
       expect(canGoBack("new-confirmation")).toBe(false);
-    });
-
-    it("can go back from new-appointment-type", () => {
-      expect(canGoBack("new-appointment-type")).toBe(true);
     });
 
     it("cannot go back from new-calendar-selection", () => {
@@ -168,10 +157,6 @@ describe("canGoBack", () => {
 
     it("can go back from new-pvs-consent", () => {
       expect(canGoBack("new-pvs-consent")).toBe(true);
-    });
-
-    it("can go back from new-age-check", () => {
-      expect(canGoBack("new-age-check")).toBe(true);
     });
   });
 

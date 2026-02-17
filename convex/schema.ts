@@ -141,17 +141,9 @@ export const bookingSessionStepValidator = v.union(
   // PATH A: NEW PATIENT
   // ================================
 
-  // A1: Age check (patient status: new)
+  // A1: Insurance type selection
   v.object({
     isNewPatient: v.literal(true),
-    locationId: v.id("locations"),
-    step: v.literal("new-age-check"),
-  }),
-
-  // A2: Insurance type selection (age confirmed)
-  v.object({
-    isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     step: v.literal("new-insurance-type"),
   }),
@@ -160,7 +152,6 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     step: v.literal("new-gkv-details"),
   }),
@@ -170,7 +161,6 @@ export const bookingSessionStepValidator = v.union(
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     step: v.literal("new-gkv-details-complete"),
   }),
@@ -179,7 +169,6 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     step: v.literal("new-pvs-consent"),
   }),
@@ -188,7 +177,6 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     pvsConsent: v.literal(true),
     step: v.literal("new-pkv-details"),
@@ -199,7 +187,6 @@ export const bookingSessionStepValidator = v.union(
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
@@ -207,66 +194,34 @@ export const bookingSessionStepValidator = v.union(
     step: v.literal("new-pkv-details-complete"),
   }),
 
-  // A4: Appointment type selection (insurance details completed)
-  // GKV path - has hzvStatus
-  v.object({
-    hzvStatus: hzvStatusValidator,
-    insuranceType: v.literal("gkv"),
-    isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
-    locationId: v.id("locations"),
-    step: v.literal("new-appointment-type"),
-  }),
-
-  // A4: Appointment type selection (insurance details completed)
-  // PKV path - has pvsConsent and optional PKV details
-  v.object({
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    insuranceType: v.literal("pkv"),
-    isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
-    locationId: v.id("locations"),
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    pvsConsent: v.literal(true),
-    step: v.literal("new-appointment-type"),
-  }),
-
-  // A5: Personal data input (appointment type selected, pending)
+  // A4: Personal data input (insurance details completed, pending)
   // GKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     step: v.literal("new-data-input"),
   }),
 
-  // A5: Personal data input completed
+  // A4: Personal data input completed
   // GKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
-    reasonDescription: v.string(),
     step: v.literal("new-data-input-complete"),
   }),
 
-  // A5: Personal data input (appointment type selected, pending)
+  // A4: Personal data input (insurance details completed, pending)
   // PKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
@@ -274,56 +229,47 @@ export const bookingSessionStepValidator = v.union(
     step: v.literal("new-data-input"),
   }),
 
-  // A5: Personal data input completed
+  // A4: Personal data input completed
   // PKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
-    reasonDescription: v.string(),
     step: v.literal("new-data-input-complete"),
   }),
 
   // A6: Calendar selection (personal data submitted)
   // GKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
-    reasonDescription: v.string(),
     step: v.literal("new-calendar-selection"),
   }),
 
   // A6: Calendar selection (personal data submitted)
   // PKV path
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
-    reasonDescription: v.string(),
     step: v.literal("new-calendar-selection"),
   }),
 
@@ -336,7 +282,6 @@ export const bookingSessionStepValidator = v.union(
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     patientId: v.optional(v.id("patients")),
@@ -355,7 +300,6 @@ export const bookingSessionStepValidator = v.union(
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
     patientId: v.optional(v.id("patients")),
@@ -379,17 +323,8 @@ export const bookingSessionStepValidator = v.union(
     step: v.literal("existing-doctor-selection"),
   }),
 
-  // B2: Appointment type selection (doctor selected)
+  // B2: Personal data input (doctor selected, pending)
   v.object({
-    isNewPatient: v.literal(false),
-    locationId: v.id("locations"),
-    practitionerId: v.id("practitioners"),
-    step: v.literal("existing-appointment-type"),
-  }),
-
-  // B3: Personal data input (appointment type selected, pending)
-  v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     isNewPatient: v.literal(false),
     locationId: v.id("locations"),
     practitionerId: v.id("practitioners"),
@@ -398,23 +333,19 @@ export const bookingSessionStepValidator = v.union(
 
   // B3: Personal data input completed
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     isNewPatient: v.literal(false),
     locationId: v.id("locations"),
     personalData: personalDataValidator,
     practitionerId: v.id("practitioners"),
-    reasonDescription: v.string(),
     step: v.literal("existing-data-input-complete"),
   }),
 
   // B4: Calendar selection (personal data submitted)
   v.object({
-    appointmentTypeId: v.id("appointmentTypes"),
     isNewPatient: v.literal(false),
     locationId: v.id("locations"),
     personalData: personalDataValidator,
     practitionerId: v.id("practitioners"),
-    reasonDescription: v.string(),
     step: v.literal("existing-calendar-selection"),
   }),
 
@@ -534,21 +465,6 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
 
-  bookingExistingAppointmentChoiceSteps: defineTable({
-    appointmentTypeId: v.id("appointmentTypes"),
-    createdAt: v.int64(),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationId: v.id("locations"),
-    practiceId: v.id("practices"),
-    practitionerId: v.id("practitioners"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
   bookingExistingCalendarSelectionSteps: defineTable({
     appointmentTypeId: v.id("appointmentTypes"),
     createdAt: v.int64(),
@@ -602,7 +518,6 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   bookingExistingPersonalDataSteps: defineTable({
-    appointmentTypeId: v.id("appointmentTypes"),
     createdAt: v.int64(),
     isNewPatient: v.literal(false),
     lastModified: v.int64(),
@@ -610,7 +525,6 @@ export default defineSchema({
     personalData: personalDataValidator,
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
-    reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
@@ -630,35 +544,6 @@ export default defineSchema({
     .index("by_sessionId", ["sessionId"])
     .index("by_userId", ["userId"]),
 
-  bookingNewAgeCheckSteps: defineTable({
-    createdAt: v.int64(),
-    isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
-    lastModified: v.int64(),
-    locationId: v.id("locations"),
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingNewAppointmentChoiceSteps: defineTable({
-    appointmentTypeId: v.id("appointmentTypes"),
-    createdAt: v.int64(),
-    isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
-    lastModified: v.int64(),
-    locationId: v.id("locations"),
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
   bookingNewCalendarSelectionSteps: defineTable({
     appointmentTypeId: v.id("appointmentTypes"),
     createdAt: v.int64(),
@@ -666,7 +551,6 @@ export default defineSchema({
     hzvStatus: v.optional(hzvStatusValidator),
     insuranceType: insuranceTypeValidator,
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
@@ -691,7 +575,6 @@ export default defineSchema({
     hzvStatus: v.optional(hzvStatusValidator),
     insuranceType: insuranceTypeValidator,
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
@@ -714,7 +597,6 @@ export default defineSchema({
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     practiceId: v.id("practices"),
@@ -729,7 +611,6 @@ export default defineSchema({
     createdAt: v.int64(),
     insuranceType: insuranceTypeValidator,
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     practiceId: v.id("practices"),
@@ -741,14 +622,12 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   bookingNewPersonalDataSteps: defineTable({
-    appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     createdAt: v.int64(),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     hzvStatus: v.optional(hzvStatusValidator),
     insuranceType: insuranceTypeValidator,
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     medicalHistory: v.optional(medicalHistoryValidator),
@@ -756,7 +635,6 @@ export default defineSchema({
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
-    reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
@@ -768,7 +646,6 @@ export default defineSchema({
     createdAt: v.int64(),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     practiceId: v.id("practices"),
@@ -785,7 +662,6 @@ export default defineSchema({
     createdAt: v.int64(),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
-    isOver40: v.boolean(),
     lastModified: v.int64(),
     locationId: v.id("locations"),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),

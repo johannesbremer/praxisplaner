@@ -1,5 +1,7 @@
+import type { FunctionArgs } from "convex/server";
+
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { Doc, Id } from "../_generated/dataModel";
 
@@ -8,6 +10,14 @@ import schema from "../schema";
 import { modules } from "./test.setup";
 
 type BookingSessionState = Doc<"bookingSessions">["state"];
+type ExistingPatientSlotArgs = FunctionArgs<
+  typeof api.bookingSessions.selectExistingPatientSlot
+>;
+type IsAssignable<From, To> = [From] extends [To] ? true : false;
+type NewPatientSlotArgs = FunctionArgs<
+  typeof api.bookingSessions.selectNewPatientSlot
+>;
+type SelectedSlotInput = NewPatientSlotArgs["selectedSlot"];
 
 function assertSessionExists<T>(
   session: null | T,
@@ -25,6 +35,57 @@ function assertStateStep<S extends BookingSessionState["step"]>(
   expect(state.step).toBe(step);
 }
 
+async function bootstrapToExistingCalendarSelection(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  practitionerId: Id<"practitioners">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectExistingPatient, {
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.selectDoctor, {
+    practitionerId,
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitExistingPatientData, {
+    personalData: {
+      dateOfBirth: "1975-05-20",
+      firstName: "Grace",
+      lastName: "Hopper",
+      phoneNumber: "+491709999999",
+    },
+    sessionId,
+  });
+}
+
+async function bootstrapToNewCalendarSelection(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+  await authed.mutation(api.bookingSessions.selectInsuranceType, {
+    insuranceType: "gkv",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.confirmGkvDetails, {
+    hzvStatus: "has-contract",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitNewPatientData, {
+    personalData: {
+      dateOfBirth: "1980-01-01",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phoneNumber: "+491701234567",
+    },
+    sessionId,
+  });
+}
+
 async function bootstrapToPatientStatus(
   authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
   sessionId: Id<"bookingSessions">,
@@ -34,6 +95,33 @@ async function bootstrapToPatientStatus(
   await authed.mutation(api.bookingSessions.selectLocation, {
     locationId,
     sessionId,
+  });
+}
+
+async function createAppointmentTypeInOtherRuleSet(
+  t: ReturnType<typeof convexTest>,
+  practiceId: Id<"practices">,
+  practitionerId: Id<"practitioners">,
+) {
+  return await t.run(async (ctx) => {
+    const otherRuleSetId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      description: "Other Rule Set",
+      practiceId,
+      saved: true,
+      version: 2,
+    });
+
+    const now = BigInt(Date.now());
+    return await ctx.db.insert("appointmentTypes", {
+      allowedPractitionerIds: [practitionerId],
+      createdAt: now,
+      duration: 20,
+      lastModified: now,
+      name: "Other Checkup",
+      practiceId,
+      ruleSetId: otherRuleSetId,
+    });
   });
 }
 
@@ -122,6 +210,17 @@ function makeAuthedClient(
     email: `${identitySuffix}@example.com`,
     subject: `workos_${identitySuffix}`,
   });
+}
+
+function makeSelectedSlot(
+  practitionerId: Id<"practitioners">,
+): SelectedSlotInput {
+  return {
+    duration: 30,
+    practitionerId,
+    practitionerName: "Dr. Test",
+    startTime: "2026-03-01T09:00:00+01:00[Europe/Berlin]",
+  };
 }
 
 describe("bookingSessions user identity handling", () => {
@@ -220,10 +319,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: true,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "gkv",
       sessionId,
@@ -239,18 +334,15 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    const atAppointmentType = await authed.query(api.bookingSessions.get, {
+    const atDataInput = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
-    assertSessionExists(
-      atAppointmentType,
-      "session should exist at appointment step",
-    );
-    assertStateStep(atAppointmentType.state, "new-appointment-type");
-    if (atAppointmentType.state.insuranceType !== "gkv") {
-      throw new Error("Expected GKV appointment-type state");
+    assertSessionExists(atDataInput, "session should exist at data-input step");
+    assertStateStep(atDataInput.state, "new-data-input");
+    if (atDataInput.state.insuranceType !== "gkv") {
+      throw new Error("Expected GKV data-input state");
     }
-    expect(atAppointmentType.state.hzvStatus).toBe("has-contract");
+    expect(atDataInput.state.hzvStatus).toBe("has-contract");
 
     const backStep = await authed.mutation(api.bookingSessions.goBack, {
       sessionId,
@@ -274,9 +366,9 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
     const updated = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(updated, "session should exist after resubmitting gkv");
-    assertStateStep(updated.state, "new-appointment-type");
+    assertStateStep(updated.state, "new-data-input");
     if (updated.state.insuranceType !== "gkv") {
-      throw new Error("Expected GKV appointment-type state after resubmit");
+      throw new Error("Expected GKV data-input state after resubmit");
     }
     expect(updated.state.hzvStatus).toBe("interested");
   });
@@ -294,10 +386,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: false,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "pkv",
       sessionId,
@@ -317,18 +405,18 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    const atAppointmentType = await authed.query(api.bookingSessions.get, {
+    const atDataInput = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
     assertSessionExists(
-      atAppointmentType,
-      "session should exist at appointment type for pkv",
+      atDataInput,
+      "session should exist at data-input for pkv",
     );
-    assertStateStep(atAppointmentType.state, "new-appointment-type");
-    if (atAppointmentType.state.insuranceType !== "pkv") {
-      throw new Error("Expected PKV appointment-type state");
+    assertStateStep(atDataInput.state, "new-data-input");
+    if (atDataInput.state.insuranceType !== "pkv") {
+      throw new Error("Expected PKV data-input state");
     }
-    expect(atAppointmentType.state.pvsConsent).toBe(true);
+    expect(atDataInput.state.pvsConsent).toBe(true);
 
     const backStep = await authed.mutation(api.bookingSessions.goBack, {
       sessionId,
@@ -355,9 +443,9 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
     const updated = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(updated, "session should exist after resubmitting pkv");
-    assertStateStep(updated.state, "new-appointment-type");
+    assertStateStep(updated.state, "new-data-input");
     if (updated.state.insuranceType !== "pkv") {
-      throw new Error("Expected PKV appointment-type state after resubmit");
+      throw new Error("Expected PKV data-input state after resubmit");
     }
     expect(updated.state.beihilfeStatus).toBe("yes");
     expect(updated.state.pkvInsuranceType).toBe("postb");
@@ -366,7 +454,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("new patient data-input step stays pending before submit and calendar step cannot go back", async () => {
     const t = createTestContext();
-    const { appointmentTypeId, locationId, practiceId, ruleSetId } =
+    const { locationId, practiceId, ruleSetId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_new_data");
 
@@ -377,10 +465,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
-    await authed.mutation(api.bookingSessions.confirmAgeCheck, {
-      isOver40: true,
-      sessionId,
-    });
     await authed.mutation(api.bookingSessions.selectInsuranceType, {
       insuranceType: "gkv",
       sessionId,
@@ -389,11 +473,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       hzvStatus: "has-contract",
       sessionId,
     });
-    await authed.mutation(api.bookingSessions.selectNewPatientAppointmentType, {
-      appointmentTypeId,
-      sessionId,
-    });
-
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(
       pending,
@@ -416,7 +495,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
         lastName: "Lovelace",
         phoneNumber: "+491701234567",
       },
-      reasonDescription: "Kontrolle",
       sessionId,
     });
 
@@ -425,7 +503,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     });
     assertSessionExists(atCalendar, "session should exist at calendar step");
     assertStateStep(atCalendar.state, "new-calendar-selection");
-    expect(atCalendar.state.reasonDescription).toBe("Kontrolle");
+    expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Ada");
 
     await expect(
@@ -440,19 +518,14 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should still exist at calendar step after failed back",
     );
     assertStateStep(completed.state, "new-calendar-selection");
-    expect(completed.state.reasonDescription).toBe("Kontrolle");
+    expect("reasonDescription" in completed.state).toBe(false);
     expect(completed.state.personalData.lastName).toBe("Lovelace");
   });
 
   test("existing patient data-input step remains atomic (pending before submit)", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_existing_data");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
@@ -468,14 +541,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       practitionerId,
       sessionId,
     });
-    await authed.mutation(
-      api.bookingSessions.selectExistingPatientAppointmentType,
-      {
-        appointmentTypeId,
-        sessionId,
-      },
-    );
-
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(
       pending,
@@ -492,7 +557,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
         lastName: "Hopper",
         phoneNumber: "+491709999999",
       },
-      reasonDescription: "Folgetermin",
       sessionId,
     });
 
@@ -504,7 +568,166 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at existing calendar-selection step",
     );
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.reasonDescription).toBe("Folgetermin");
+    expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
+  });
+});
+
+describe("bookingSessions slot selection validation", () => {
+  test("selectNewPatientSlot rejects empty reason descriptions", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_validation_new_reason");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "   ",
+        selectedSlot: makeSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Reason description is required");
+  });
+
+  test("selectNewPatientSlot rejects appointment types from other rule sets", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_validation_new_ruleset");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    const otherRuleSetAppointmentTypeId =
+      await createAppointmentTypeInOtherRuleSet(t, practiceId, practitionerId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makeSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Invalid appointment type");
+  });
+
+  test("selectExistingPatientSlot rejects empty reason descriptions", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_validation_existing_reason");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: " ",
+        selectedSlot: makeSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Reason description is required");
+  });
+
+  test("selectExistingPatientSlot rejects appointment types from other rule sets", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_validation_existing_ruleset");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    const otherRuleSetAppointmentTypeId =
+      await createAppointmentTypeInOtherRuleSet(t, practiceId, practitionerId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makeSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Invalid appointment type");
+  });
+});
+
+describe("bookingSessions slot selection argument contracts", () => {
+  test("new patient slot args require appointmentTypeId", () => {
+    type MissingAppointmentType = Omit<NewPatientSlotArgs, "appointmentTypeId">;
+    type IsMissingTypeAccepted = IsAssignable<
+      MissingAppointmentType,
+      NewPatientSlotArgs
+    >;
+    expectTypeOf<IsMissingTypeAccepted>().toEqualTypeOf<false>();
+  });
+
+  test("new patient slot args require reasonDescription", () => {
+    type MissingReasonDescription = Omit<
+      NewPatientSlotArgs,
+      "reasonDescription"
+    >;
+    type IsMissingReasonAccepted = IsAssignable<
+      MissingReasonDescription,
+      NewPatientSlotArgs
+    >;
+    expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
+  });
+
+  test("existing patient slot args require appointmentTypeId", () => {
+    type MissingAppointmentType = Omit<
+      ExistingPatientSlotArgs,
+      "appointmentTypeId"
+    >;
+    type IsMissingTypeAccepted = IsAssignable<
+      MissingAppointmentType,
+      ExistingPatientSlotArgs
+    >;
+    expectTypeOf<IsMissingTypeAccepted>().toEqualTypeOf<false>();
+  });
+
+  test("existing patient slot args require reasonDescription", () => {
+    type MissingReasonDescription = Omit<
+      ExistingPatientSlotArgs,
+      "reasonDescription"
+    >;
+    type IsMissingReasonAccepted = IsAssignable<
+      MissingReasonDescription,
+      ExistingPatientSlotArgs
+    >;
+    expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
   });
 });

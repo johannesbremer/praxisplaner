@@ -20,8 +20,6 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
-  AgeCheckStep,
-  AppointmentTypeStep,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -40,7 +38,7 @@ import {
 } from "../components/booking-wizard/index";
 
 export const Route = createFileRoute("/buchung")({
-  component: PatientBookingPage,
+  component: BookingPage,
 });
 
 // Step group labels for progress indicator
@@ -63,7 +61,7 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
  * Main booking page component.
  * Handles authentication check before rendering the booking flow.
  */
-function PatientBookingPage() {
+function BookingPage() {
   const { isLoading: authLoading, signIn, user } = useAuth();
   const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
     useConvexAuth();
@@ -91,14 +89,18 @@ function PatientBookingPage() {
   }, [startSignIn]);
 
   useEffect(() => {
-    if (authLoading || convexLoading || (user && convexAuthenticated)) {
+    // Start WorkOS sign-in as soon as WorkOS auth state is resolved and no user exists.
+    // Do not block this on Convex loading, otherwise unauthenticated users can get stuck.
+    if (authLoading || user) {
       return;
     }
     startSignIn();
-  }, [authLoading, convexAuthenticated, convexLoading, startSignIn, user]);
+  }, [authLoading, startSignIn, user]);
 
-  // Authentication loading (either WorkOS or Convex)
-  if (authLoading || convexLoading) {
+  // Authentication loading:
+  // - always wait for WorkOS auth state
+  // - wait for Convex only after WorkOS has a user
+  if (authLoading || (user && convexLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -497,10 +499,6 @@ interface StepRendererProps {
 
 function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
   switch (step) {
-    case "existing-appointment-type":
-    case "new-appointment-type": {
-      return <AppointmentTypeStep {...stepProps} />;
-    }
     case "existing-calendar-selection":
     case "new-calendar-selection": {
       return <CalendarSelectionStep {...stepProps} />;
@@ -520,9 +518,6 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     }
     case "location": {
       return <LocationStep {...stepProps} />;
-    }
-    case "new-age-check": {
-      return <AgeCheckStep {...stepProps} />;
     }
     case "new-gkv-details":
     case "new-gkv-details-complete": {
