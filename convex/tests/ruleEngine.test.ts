@@ -1192,6 +1192,72 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
     ).rejects.toThrow();
   });
 
+  test("PATIENT_AGE should handle leap-year birthdays on non-leap years", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
+    await createRule(t, practiceId, ruleSetId, {
+      conditionType: "PATIENT_AGE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      valueNumber: 18,
+    });
+
+    // DOB on leap day.
+    const leapDayDob = "2008-02-29";
+
+    // With current age logic, birthday is considered reached on Mar 1 in non-leap years.
+    const beforeBirthdayInNonLeapYear = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2026-02-28T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientDateOfBirth: leapDayDob,
+          practiceId,
+          practitionerId,
+          requestedAt: "2026-02-20T11:00:00+01:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+    expect(beforeBirthdayInNonLeapYear.isBlocked).toBe(false);
+
+    const afterBirthdayInNonLeapYear = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId: checkupTypeId,
+          dateTime: "2026-03-01T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientDateOfBirth: leapDayDob,
+          practiceId,
+          practitionerId,
+          requestedAt: "2026-02-20T11:00:00+01:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+    expect(afterBirthdayInNonLeapYear.isBlocked).toBe(true);
+  });
+
   test("CONCURRENT_COUNT with practice scope - should block when too many concurrent appointments", async () => {
     const t = createTestContext();
 
