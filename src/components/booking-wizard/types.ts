@@ -44,7 +44,7 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
 // Group steps for progress indicator
 export type StepGroup = "booking" | "confirmation" | "consent" | "info";
 
-const STEP_GROUP_BY_STEP: Record<BookingSessionState["step"], StepGroup> = {
+const STEP_GROUP_BY_STEP = {
   "existing-calendar-selection": "booking",
   "existing-confirmation": "confirmation",
   "existing-data-input": "info",
@@ -63,7 +63,7 @@ const STEP_GROUP_BY_STEP: Record<BookingSessionState["step"], StepGroup> = {
   "new-pvs-consent": "consent",
   "patient-status": "info",
   privacy: "consent",
-};
+} as const satisfies Record<BookingSessionState["step"], StepGroup>;
 
 export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
   return STEP_GROUP_BY_STEP[step];
