@@ -176,11 +176,6 @@ function LogicView() {
     }
   }, [redoRegelnHistoryAction]);
 
-  useUndoRedoHotkeys({
-    onRedo: runRegelnRedo,
-    onUndo: runRegelnUndo,
-  });
-
   const registerRegelnHistoryAction = useCallback(
     (action: LocalHistoryAction) => {
       pushRegelnHistoryAction(action);
@@ -415,6 +410,12 @@ function LogicView() {
     locationsListQuery: locationsListQuery ?? undefined,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
+  });
+
+  useUndoRedoHotkeys({
+    enabled: activeTab === "rule-management",
+    onRedo: runRegelnRedo,
+    onUndo: runRegelnUndo,
   });
 
   // Determine current working rule set based on the properly computed ruleSetIdFromUrl

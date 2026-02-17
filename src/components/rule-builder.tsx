@@ -169,23 +169,6 @@ export function RuleBuilder({
             return { status: "applied" as const };
           },
           undo: async () => {
-            const duplicate = rulesRef.current.find(
-              (rule) =>
-                generateRuleName(
-                  conditionTreeToConditions(rule.conditionTree),
-                  appointmentTypes ?? [],
-                  practitioners ?? [],
-                  locations ?? [],
-                ) === deletedRuleName,
-            );
-            if (duplicate) {
-              return {
-                message:
-                  "Die Regel kann nicht wiederhergestellt werden, weil bereits eine gleichnamige Regel existiert.",
-                status: "conflict" as const,
-              };
-            }
-
             const recreateResult = await createRuleMutation({
               conditionTree: deletedRule.conditionTree as Parameters<
                 typeof createRuleMutation

@@ -11,13 +11,15 @@ export function useUndoRedoHotkeys({
   onRedo,
   onUndo,
 }: UseUndoRedoHotkeysOptions) {
+  const conflictBehavior = enabled ? "replace" : "allow";
+
   useHotkey(
     "Mod+Z",
     () => {
       void onUndo();
     },
     {
-      conflictBehavior: "replace",
+      conflictBehavior,
       enabled,
       requireReset: true,
     },
@@ -29,7 +31,7 @@ export function useUndoRedoHotkeys({
       void onRedo();
     },
     {
-      conflictBehavior: "replace",
+      conflictBehavior,
       enabled,
       requireReset: true,
     },
@@ -41,7 +43,7 @@ export function useUndoRedoHotkeys({
       void onRedo();
     },
     {
-      conflictBehavior: "replace",
+      conflictBehavior,
       enabled,
       requireReset: true,
     },
