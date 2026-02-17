@@ -89,14 +89,18 @@ function BookingPage() {
   }, [startSignIn]);
 
   useEffect(() => {
-    if (authLoading || convexLoading || (user && convexAuthenticated)) {
+    // Start WorkOS sign-in as soon as WorkOS auth state is resolved and no user exists.
+    // Do not block this on Convex loading, otherwise unauthenticated users can get stuck.
+    if (authLoading || user) {
       return;
     }
     startSignIn();
-  }, [authLoading, convexAuthenticated, convexLoading, startSignIn, user]);
+  }, [authLoading, startSignIn, user]);
 
-  // Authentication loading (either WorkOS or Convex)
-  if (authLoading || convexLoading) {
+  // Authentication loading:
+  // - always wait for WorkOS auth state
+  // - wait for Convex only after WorkOS has a user
+  if (authLoading || (user && convexLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
