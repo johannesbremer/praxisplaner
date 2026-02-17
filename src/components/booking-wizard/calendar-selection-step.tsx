@@ -150,12 +150,6 @@ export function CalendarSelectionStep({
     const trimmedReason = reasonDescription.trim();
     const hasMissingAppointmentType = !selectedAppointmentTypeId;
     const hasMissingReason = trimmedReason.length === 0;
-    if (hasMissingAppointmentType) {
-      setHasTouchedAppointmentType(true);
-    }
-    if (hasMissingReason) {
-      setHasTouchedReasonDescription(true);
-    }
     if (
       !selectedSlot ||
       !appointmentType ||
