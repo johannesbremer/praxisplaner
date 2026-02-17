@@ -235,18 +235,15 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    const atAppointmentType = await authed.query(api.bookingSessions.get, {
+    const atDataInput = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
-    assertSessionExists(
-      atAppointmentType,
-      "session should exist at appointment step",
-    );
-    assertStateStep(atAppointmentType.state, "new-appointment-type");
-    if (atAppointmentType.state.insuranceType !== "gkv") {
-      throw new Error("Expected GKV appointment-type state");
+    assertSessionExists(atDataInput, "session should exist at data-input step");
+    assertStateStep(atDataInput.state, "new-data-input");
+    if (atDataInput.state.insuranceType !== "gkv") {
+      throw new Error("Expected GKV data-input state");
     }
-    expect(atAppointmentType.state.hzvStatus).toBe("has-contract");
+    expect(atDataInput.state.hzvStatus).toBe("has-contract");
 
     const backStep = await authed.mutation(api.bookingSessions.goBack, {
       sessionId,
@@ -270,9 +267,9 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
     const updated = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(updated, "session should exist after resubmitting gkv");
-    assertStateStep(updated.state, "new-appointment-type");
+    assertStateStep(updated.state, "new-data-input");
     if (updated.state.insuranceType !== "gkv") {
-      throw new Error("Expected GKV appointment-type state after resubmit");
+      throw new Error("Expected GKV data-input state after resubmit");
     }
     expect(updated.state.hzvStatus).toBe("interested");
   });
@@ -309,18 +306,18 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    const atAppointmentType = await authed.query(api.bookingSessions.get, {
+    const atDataInput = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
     assertSessionExists(
-      atAppointmentType,
-      "session should exist at appointment type for pkv",
+      atDataInput,
+      "session should exist at data-input for pkv",
     );
-    assertStateStep(atAppointmentType.state, "new-appointment-type");
-    if (atAppointmentType.state.insuranceType !== "pkv") {
-      throw new Error("Expected PKV appointment-type state");
+    assertStateStep(atDataInput.state, "new-data-input");
+    if (atDataInput.state.insuranceType !== "pkv") {
+      throw new Error("Expected PKV data-input state");
     }
-    expect(atAppointmentType.state.pvsConsent).toBe(true);
+    expect(atDataInput.state.pvsConsent).toBe(true);
 
     const backStep = await authed.mutation(api.bookingSessions.goBack, {
       sessionId,
@@ -347,9 +344,9 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
     const updated = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(updated, "session should exist after resubmitting pkv");
-    assertStateStep(updated.state, "new-appointment-type");
+    assertStateStep(updated.state, "new-data-input");
     if (updated.state.insuranceType !== "pkv") {
-      throw new Error("Expected PKV appointment-type state after resubmit");
+      throw new Error("Expected PKV data-input state after resubmit");
     }
     expect(updated.state.beihilfeStatus).toBe("yes");
     expect(updated.state.pkvInsuranceType).toBe("postb");
@@ -358,7 +355,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("new patient data-input step stays pending before submit and calendar step cannot go back", async () => {
     const t = createTestContext();
-    const { appointmentTypeId, locationId, practiceId, ruleSetId } =
+    const { locationId, practiceId, ruleSetId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_new_data");
 
@@ -377,11 +374,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       hzvStatus: "has-contract",
       sessionId,
     });
-    await authed.mutation(api.bookingSessions.selectNewPatientAppointmentType, {
-      appointmentTypeId,
-      sessionId,
-    });
-
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(
       pending,
@@ -404,7 +396,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
         lastName: "Lovelace",
         phoneNumber: "+491701234567",
       },
-      reasonDescription: "Kontrolle",
       sessionId,
     });
 
@@ -413,7 +404,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     });
     assertSessionExists(atCalendar, "session should exist at calendar step");
     assertStateStep(atCalendar.state, "new-calendar-selection");
-    expect(atCalendar.state.reasonDescription).toBe("Kontrolle");
+    expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Ada");
 
     await expect(
@@ -428,19 +419,14 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should still exist at calendar step after failed back",
     );
     assertStateStep(completed.state, "new-calendar-selection");
-    expect(completed.state.reasonDescription).toBe("Kontrolle");
+    expect("reasonDescription" in completed.state).toBe(false);
     expect(completed.state.personalData.lastName).toBe("Lovelace");
   });
 
   test("existing patient data-input step remains atomic (pending before submit)", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_existing_data");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
@@ -456,14 +442,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       practitionerId,
       sessionId,
     });
-    await authed.mutation(
-      api.bookingSessions.selectExistingPatientAppointmentType,
-      {
-        appointmentTypeId,
-        sessionId,
-      },
-    );
-
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(
       pending,
@@ -480,7 +458,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
         lastName: "Hopper",
         phoneNumber: "+491709999999",
       },
-      reasonDescription: "Folgetermin",
       sessionId,
     });
 
@@ -492,7 +469,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at existing calendar-selection step",
     );
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.reasonDescription).toBe("Folgetermin");
+    expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
 });

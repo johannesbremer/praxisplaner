@@ -172,7 +172,6 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitNewPatientData({
             personalData,
-            reasonDescription: "",
             sessionId,
             ...(medicalHistory && { medicalHistory }),
           });
@@ -189,7 +188,6 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitExistingPatientData({
             personalData,
-            reasonDescription: "",
             sessionId,
           });
         } catch (error: unknown) {

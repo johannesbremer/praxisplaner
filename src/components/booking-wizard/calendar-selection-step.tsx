@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -61,10 +62,6 @@ export function CalendarSelectionStep({
 }: StepComponentProps) {
   const isNewPatient = state.step === "new-calendar-selection";
 
-  const initialAppointmentTypeId =
-    "appointmentTypeId" in state
-      ? (state.appointmentTypeId as Id<"appointmentTypes">)
-      : undefined;
   const locationId =
     "locationId" in state ? (state.locationId as Id<"locations">) : undefined;
 
@@ -74,8 +71,6 @@ export function CalendarSelectionStep({
       ? (state.practitionerId as Id<"practitioners">)
       : undefined;
   const personalData = "personalData" in state ? state.personalData : undefined;
-  const initialReasonDescription =
-    "reasonDescription" in state ? state.reasonDescription : "";
 
   // Date selection state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
@@ -83,10 +78,13 @@ export function CalendarSelectionStep({
   );
   const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
     Id<"appointmentTypes"> | undefined
-  >(initialAppointmentTypeId);
-  const [reasonDescription, setReasonDescription] = useState(
-    initialReasonDescription,
-  );
+  >();
+  const [reasonDescription, setReasonDescription] = useState("");
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [hasTouchedAppointmentType, setHasTouchedAppointmentType] =
+    useState(false);
+  const [hasTouchedReasonDescription, setHasTouchedReasonDescription] =
+    useState(false);
 
   // Selected slot state
   const [selectedSlot, setSelectedSlot] = useState<null | SlotInfo>(null);
@@ -144,12 +142,21 @@ export function CalendarSelectionStep({
   };
 
   const handleConfirmSlot = async () => {
+    setHasAttemptedSubmit(true);
     const trimmedReason = reasonDescription.trim();
+    const hasMissingAppointmentType = !selectedAppointmentTypeId;
+    const hasMissingReason = trimmedReason.length === 0;
+    if (hasMissingAppointmentType) {
+      setHasTouchedAppointmentType(true);
+    }
+    if (hasMissingReason) {
+      setHasTouchedReasonDescription(true);
+    }
     if (
       !selectedSlot ||
       !appointmentType ||
-      !selectedAppointmentTypeId ||
-      !trimmedReason
+      hasMissingAppointmentType ||
+      hasMissingReason
     ) {
       return;
     }
@@ -268,10 +275,16 @@ export function CalendarSelectionStep({
           <div className="space-y-4">
             <div className="space-y-3 rounded-lg border p-3">
               <p className="text-sm font-medium">Termindetails</p>
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Terminart *</p>
+              <Field
+                data-invalid={
+                  (hasAttemptedSubmit || hasTouchedAppointmentType) &&
+                  !selectedAppointmentTypeId
+                }
+              >
+                <FieldLabel>Terminart *</FieldLabel>
                 <Select
                   onValueChange={(value) => {
+                    setHasTouchedAppointmentType(true);
                     setSelectedAppointmentTypeId(
                       value as Id<"appointmentTypes">,
                     );
@@ -292,17 +305,43 @@ export function CalendarSelectionStep({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Termingrund *</p>
+                {(hasAttemptedSubmit || hasTouchedAppointmentType) &&
+                  !selectedAppointmentTypeId && (
+                    <FieldError
+                      errors={[{ message: "Bitte wählen Sie eine Terminart." }]}
+                    />
+                  )}
+              </Field>
+              <Field
+                data-invalid={
+                  (hasAttemptedSubmit || hasTouchedReasonDescription) &&
+                  reasonDescription.trim().length === 0
+                }
+              >
+                <FieldLabel htmlFor="reason-description">
+                  Termingrund *
+                </FieldLabel>
                 <Input
+                  id="reason-description"
+                  onBlur={() => {
+                    setHasTouchedReasonDescription(true);
+                  }}
                   onChange={(event) => {
+                    setHasTouchedReasonDescription(true);
                     setReasonDescription(event.target.value);
                   }}
                   placeholder="z.B. Erkältungssymptome seit 3 Tagen"
                   value={reasonDescription}
                 />
-              </div>
+                {(hasAttemptedSubmit || hasTouchedReasonDescription) &&
+                  reasonDescription.trim().length === 0 && (
+                    <FieldError
+                      errors={[
+                        { message: "Bitte geben Sie einen Termingrund ein." },
+                      ]}
+                    />
+                  )}
+              </Field>
             </div>
 
             <h4 className="font-medium text-sm">
@@ -397,12 +436,7 @@ export function CalendarSelectionStep({
                   Termingrund: {reasonDescription.trim()}
                 </span>
               </div>
-              <Button
-                disabled={
-                  !selectedAppointmentTypeId || reasonDescription.trim() === ""
-                }
-                onClick={() => void handleConfirmSlot()}
-              >
+              <Button onClick={() => void handleConfirmSlot()}>
                 Termin bestätigen
               </Button>
             </div>

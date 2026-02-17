@@ -57,105 +57,6 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "confirmation",
 ];
 
-function AppointmentTypeAutoAdvanceStep({
-  ruleSetId,
-  sessionId,
-  state,
-}: Pick<StepComponentProps, "ruleSetId" | "sessionId" | "state">) {
-  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
-    ruleSetId,
-  });
-  const selectNewPatientAppointmentType = useMutation(
-    api.bookingSessions.selectNewPatientAppointmentType,
-  );
-  const selectExistingPatientAppointmentType = useMutation(
-    api.bookingSessions.selectExistingPatientAppointmentType,
-  );
-  const hasTriggeredTransitionRef = useRef(false);
-
-  useEffect(() => {
-    if (
-      hasTriggeredTransitionRef.current ||
-      !appointmentTypes ||
-      appointmentTypes.length === 0
-    ) {
-      return;
-    }
-
-    const firstAppointmentType = appointmentTypes.at(0);
-    if (!firstAppointmentType) {
-      return;
-    }
-
-    hasTriggeredTransitionRef.current = true;
-
-    const transition =
-      state.step === "new-appointment-type"
-        ? selectNewPatientAppointmentType({
-            appointmentTypeId: firstAppointmentType._id,
-            sessionId,
-          })
-        : selectExistingPatientAppointmentType({
-            appointmentTypeId: firstAppointmentType._id,
-            sessionId,
-          });
-
-    void transition.catch((error: unknown) => {
-      console.error("Failed to auto-advance appointment type step:", error);
-      toast.error("Navigation fehlgeschlagen", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
-      hasTriggeredTransitionRef.current = false;
-    });
-  }, [
-    appointmentTypes,
-    selectExistingPatientAppointmentType,
-    selectNewPatientAppointmentType,
-    sessionId,
-    state.step,
-  ]);
-
-  if (!appointmentTypes) {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardContent className="py-8">
-          <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Bitte warten…</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (appointmentTypes.length === 0) {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Keine Terminarten verfügbar</CardTitle>
-          <CardDescription>
-            Aktuell können online keine Terminarten ausgewählt werden.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="max-w-2xl mx-auto">
-      <CardContent className="py-8">
-        <div className="flex items-center justify-center gap-2 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Bitte warten…</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * Main booking page component.
  * Handles authentication check before rendering the booking flow.
@@ -594,10 +495,6 @@ interface StepRendererProps {
 
 function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
   switch (step) {
-    case "existing-appointment-type":
-    case "new-appointment-type": {
-      return <AppointmentTypeAutoAdvanceStep {...stepProps} />;
-    }
     case "existing-calendar-selection":
     case "new-calendar-selection": {
       return <CalendarSelectionStep {...stepProps} />;

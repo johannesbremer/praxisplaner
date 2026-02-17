@@ -21,14 +21,12 @@ export interface StepComponentProps {
 
 // Step names mapped to readable labels
 export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
-  "existing-appointment-type": "Termingrund",
   "existing-calendar-selection": "Terminauswahl",
   "existing-confirmation": "Bestätigung",
   "existing-data-input": "Persönliche Daten",
   "existing-data-input-complete": "Persönliche Daten",
   "existing-doctor-selection": "Arztauswahl",
   location: "Standort",
-  "new-appointment-type": "Termingrund",
   "new-calendar-selection": "Terminauswahl",
   "new-confirmation": "Bestätigung",
   "new-data-input": "Persönliche Daten",
@@ -46,45 +44,29 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
 // Group steps for progress indicator
 export type StepGroup = "booking" | "confirmation" | "consent" | "info";
 
-// Helper for exhaustive switch checks - errors at compile time if a case is missing
-export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
-  switch (step) {
-    case "existing-appointment-type":
-    case "existing-data-input":
-    case "existing-data-input-complete":
-    case "existing-doctor-selection":
-    case "new-appointment-type":
-    case "new-data-input":
-    case "new-data-input-complete":
-    case "new-gkv-details":
-    case "new-gkv-details-complete":
-    case "new-insurance-type":
-    case "new-pkv-details":
-    case "new-pkv-details-complete":
-    case "patient-status": {
-      return "info";
-    }
-    case "existing-calendar-selection":
-    case "new-calendar-selection": {
-      return "booking";
-    }
-    case "existing-confirmation":
-    case "new-confirmation": {
-      return "confirmation";
-    }
-    case "location":
-    case "new-pvs-consent":
-    case "privacy": {
-      return "consent";
-    }
-    default: {
-      return assertNever(step, "Unhandled step in getStepGroup");
-    }
-  }
-}
+const STEP_GROUP_BY_STEP: Record<BookingSessionState["step"], StepGroup> = {
+  "existing-calendar-selection": "booking",
+  "existing-confirmation": "confirmation",
+  "existing-data-input": "info",
+  "existing-data-input-complete": "info",
+  "existing-doctor-selection": "info",
+  location: "consent",
+  "new-calendar-selection": "booking",
+  "new-confirmation": "confirmation",
+  "new-data-input": "info",
+  "new-data-input-complete": "info",
+  "new-gkv-details": "info",
+  "new-gkv-details-complete": "info",
+  "new-insurance-type": "info",
+  "new-pkv-details": "info",
+  "new-pkv-details-complete": "info",
+  "new-pvs-consent": "consent",
+  "patient-status": "info",
+  privacy: "consent",
+};
 
-function assertNever(value: never, message: string): never {
-  throw new Error(`${message}: ${value as string}`);
+export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
+  return STEP_GROUP_BY_STEP[step];
 }
 
 // Check if we can go back from a given step
@@ -92,7 +74,6 @@ function assertNever(value: never, message: string): never {
 export function canGoBack(step: BookingSessionState["step"]): boolean {
   switch (step) {
     // After doctor selection, cannot go back
-    case "existing-appointment-type":
     case "existing-calendar-selection":
     case "existing-confirmation":
     case "existing-data-input":
