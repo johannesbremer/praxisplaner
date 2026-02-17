@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Package2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
@@ -32,9 +32,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { api } from "@/convex/_generated/api";
 
+import type { LocalHistoryAction } from "../hooks/use-local-history";
+
 type AppointmentType = AppointmentTypesResult[number];
 
 interface AppointmentTypesManagementProps {
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
@@ -61,7 +64,24 @@ const formSchema = z.object({
     .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
 });
 
+const normalizeIds = (ids: Id<"practitioners">[]) => ids.toSorted();
+
+const samePractitionerIds = (
+  left: Id<"practitioners">[],
+  right: Id<"practitioners">[],
+) => {
+  const leftSorted = normalizeIds(left);
+  const rightSorted = normalizeIds(right);
+
+  if (leftSorted.length !== rightSorted.length) {
+    return false;
+  }
+
+  return leftSorted.every((id, index) => id === rightSorted[index]);
+};
+
 export function AppointmentTypesManagement({
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   ruleSetId,
@@ -86,8 +106,15 @@ export function AppointmentTypesManagement({
     api.entities.deleteAppointmentType,
   );
 
-  const appointmentTypes: AppointmentType[] = appointmentTypesQuery ?? [];
+  const appointmentTypes: AppointmentType[] = useMemo(
+    () => appointmentTypesQuery ?? [],
+    [appointmentTypesQuery],
+  );
   const practitioners = practitionersQuery ?? [];
+  const appointmentTypesRef = useRef<AppointmentType[]>(appointmentTypes);
+  useEffect(() => {
+    appointmentTypesRef.current = appointmentTypes;
+  }, [appointmentTypes]);
 
   const form = useForm({
     defaultValues: {
@@ -97,17 +124,98 @@ export function AppointmentTypesManagement({
     },
     onSubmit: async ({ value }) => {
       try {
+        const trimmedName = value.name.trim();
+        const formPractitionerIds =
+          value.practitionerIds as Id<"practitioners">[];
+
         if (editingAppointmentType) {
+          const beforeState = {
+            duration: editingAppointmentType.duration,
+            name: editingAppointmentType.name,
+            practitionerIds: editingAppointmentType.allowedPractitionerIds,
+          };
+          const afterState = {
+            duration: value.duration,
+            name: trimmedName,
+            practitionerIds: formPractitionerIds,
+          };
+
           // Update existing appointment type
           const { ruleSetId: newRuleSetId } =
             await updateAppointmentTypeMutation({
               appointmentTypeId: editingAppointmentType._id,
               duration: value.duration,
-              name: value.name.trim(),
+              name: trimmedName,
               practiceId,
-              practitionerIds: value.practitionerIds as Id<"practitioners">[],
+              practitionerIds: formPractitionerIds,
               sourceRuleSetId: ruleSetId,
             });
+
+          onRegisterHistoryAction?.({
+            label: "Terminart aktualisiert",
+            redo: async () => {
+              const current = appointmentTypesRef.current.find(
+                (type) => type._id === editingAppointmentType._id,
+              );
+
+              if (
+                current?.name !== beforeState.name ||
+                current.duration !== beforeState.duration ||
+                !samePractitionerIds(
+                  current.allowedPractitionerIds,
+                  beforeState.practitionerIds,
+                )
+              ) {
+                return {
+                  message:
+                    "Die Terminart wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateAppointmentTypeMutation({
+                appointmentTypeId: editingAppointmentType._id,
+                duration: afterState.duration,
+                name: afterState.name,
+                practiceId,
+                practitionerIds: afterState.practitionerIds,
+                sourceRuleSetId: newRuleSetId,
+              });
+
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const current = appointmentTypesRef.current.find(
+                (type) => type._id === editingAppointmentType._id,
+              );
+
+              if (
+                current?.name !== afterState.name ||
+                current.duration !== afterState.duration ||
+                !samePractitionerIds(
+                  current.allowedPractitionerIds,
+                  afterState.practitionerIds,
+                )
+              ) {
+                return {
+                  message:
+                    "Die Terminart wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateAppointmentTypeMutation({
+                appointmentTypeId: editingAppointmentType._id,
+                duration: beforeState.duration,
+                name: beforeState.name,
+                practiceId,
+                practitionerIds: beforeState.practitionerIds,
+                sourceRuleSetId: newRuleSetId,
+              });
+
+              return { status: "applied" as const };
+            },
+          });
 
           toast.success("Terminart aktualisiert", {
             description: `Terminart "${value.name}" wurde erfolgreich aktualisiert.`,
@@ -123,14 +231,61 @@ export function AppointmentTypesManagement({
           }
         } else {
           // Create new appointment type
-          const { ruleSetId: newRuleSetId } =
+          const { entityId, ruleSetId: newRuleSetId } =
             await createAppointmentTypeMutation({
               duration: value.duration,
-              name: value.name.trim(),
+              name: trimmedName,
               practiceId,
-              practitionerIds: value.practitionerIds as Id<"practitioners">[],
+              practitionerIds: formPractitionerIds,
               sourceRuleSetId: ruleSetId,
             });
+
+          let currentAppointmentTypeId = entityId as Id<"appointmentTypes">;
+
+          onRegisterHistoryAction?.({
+            label: "Terminart erstellt",
+            redo: async () => {
+              const existing = appointmentTypesRef.current.find(
+                (type) => type.name === trimmedName,
+              );
+              if (existing) {
+                return {
+                  message:
+                    "Die Terminart existiert bereits und kann nicht erneut erstellt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              const recreateResult = await createAppointmentTypeMutation({
+                duration: value.duration,
+                name: trimmedName,
+                practiceId,
+                practitionerIds: formPractitionerIds,
+                sourceRuleSetId: newRuleSetId,
+              });
+              currentAppointmentTypeId =
+                recreateResult.entityId as Id<"appointmentTypes">;
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const existing = appointmentTypesRef.current.find(
+                (type) => type._id === currentAppointmentTypeId,
+              );
+              if (!existing) {
+                return {
+                  message: "Die Terminart wurde bereits gelöscht.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await deleteAppointmentTypeMutation({
+                appointmentTypeId: currentAppointmentTypeId,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            },
+          });
 
           toast.success("Terminart erstellt", {
             description: `Terminart "${value.name}" wurde erfolgreich erstellt.`,
@@ -186,10 +341,63 @@ export function AppointmentTypesManagement({
 
   const handleDelete = async (appointmentType: AppointmentType) => {
     try {
+      const deletedSnapshot = {
+        duration: appointmentType.duration,
+        name: appointmentType.name,
+        practitionerIds: appointmentType.allowedPractitionerIds,
+      };
+
       const { ruleSetId: newRuleSetId } = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
         practiceId,
         sourceRuleSetId: ruleSetId,
+      });
+
+      let currentAppointmentTypeId = appointmentType._id;
+
+      onRegisterHistoryAction?.({
+        label: "Terminart gelöscht",
+        redo: async () => {
+          const existing = appointmentTypesRef.current.find(
+            (type) => type._id === currentAppointmentTypeId,
+          );
+          if (!existing) {
+            return {
+              message: "Die Terminart ist bereits gelöscht.",
+              status: "conflict" as const,
+            };
+          }
+
+          await deleteAppointmentTypeMutation({
+            appointmentTypeId: currentAppointmentTypeId,
+            practiceId,
+            sourceRuleSetId: newRuleSetId,
+          });
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          const existingByName = appointmentTypesRef.current.find(
+            (type) => type.name === deletedSnapshot.name,
+          );
+          if (existingByName) {
+            return {
+              message:
+                "Die Terminart kann nicht wiederhergestellt werden, weil bereits eine Terminart mit demselben Namen existiert.",
+              status: "conflict" as const,
+            };
+          }
+
+          const recreateResult = await createAppointmentTypeMutation({
+            duration: deletedSnapshot.duration,
+            name: deletedSnapshot.name,
+            practiceId,
+            practitionerIds: deletedSnapshot.practitionerIds,
+            sourceRuleSetId: newRuleSetId,
+          });
+          currentAppointmentTypeId =
+            recreateResult.entityId as Id<"appointmentTypes">;
+          return { status: "applied" as const };
+        },
       });
 
       toast.success("Terminart gelöscht", {

@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ConditionTreeNode } from "@/convex/ruleEngine";
 
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { api } from "../../convex/_generated/api";
 import {
@@ -65,6 +66,7 @@ type ConditionType =
 
 // Validation helper
 interface RuleBuilderProps {
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
@@ -82,6 +84,7 @@ interface RuleFromDB {
 }
 
 export function RuleBuilder({
+  onRegisterHistoryAction,
   onRuleCreated,
   practiceId,
   ruleSetId,
@@ -96,6 +99,10 @@ export function RuleBuilder({
   const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
   const existingRules = useQuery(api.entities.getRules, { ruleSetId });
+  const rulesRef = useRef(existingRules ?? []);
+  useEffect(() => {
+    rulesRef.current = existingRules ?? [];
+  }, [existingRules]);
 
   // Check if all data is loaded
   const dataReady = Boolean(appointmentTypes && practitioners && locations);
@@ -123,11 +130,76 @@ export function RuleBuilder({
 
   const handleDeleteRule = async (ruleId: Id<"ruleConditions">) => {
     try {
+      const deletedRule = rulesRef.current.find((rule) => rule._id === ruleId);
+      const deletedRuleName = deletedRule
+        ? generateRuleName(
+            conditionTreeToConditions(deletedRule.conditionTree),
+            appointmentTypes ?? [],
+            practitioners ?? [],
+            locations ?? [],
+          )
+        : "Regel";
+
       const { ruleSetId: newRuleSetId } = await deleteRuleMutation({
         practiceId,
         ruleId,
         sourceRuleSetId: ruleSetId,
       });
+
+      if (deletedRule) {
+        let currentRuleId = ruleId;
+        onRegisterHistoryAction?.({
+          label: "Regel gelöscht",
+          redo: async () => {
+            const existing = rulesRef.current.find(
+              (rule) => rule._id === currentRuleId,
+            );
+            if (!existing) {
+              return {
+                message: "Die Regel ist bereits gelöscht.",
+                status: "conflict" as const,
+              };
+            }
+
+            await deleteRuleMutation({
+              practiceId,
+              ruleId: currentRuleId,
+              sourceRuleSetId: newRuleSetId,
+            });
+            return { status: "applied" as const };
+          },
+          undo: async () => {
+            const duplicate = rulesRef.current.find(
+              (rule) =>
+                generateRuleName(
+                  conditionTreeToConditions(rule.conditionTree),
+                  appointmentTypes ?? [],
+                  practitioners ?? [],
+                  locations ?? [],
+                ) === deletedRuleName,
+            );
+            if (duplicate) {
+              return {
+                message:
+                  "Die Regel kann nicht wiederhergestellt werden, weil bereits eine gleichnamige Regel existiert.",
+                status: "conflict" as const,
+              };
+            }
+
+            const recreateResult = await createRuleMutation({
+              conditionTree: deletedRule.conditionTree as Parameters<
+                typeof createRuleMutation
+              >[0]["conditionTree"],
+              enabled: deletedRule.enabled,
+              name: deletedRuleName,
+              practiceId,
+              sourceRuleSetId: newRuleSetId,
+            });
+            currentRuleId = recreateResult.entityId as Id<"ruleConditions">;
+            return { status: "applied" as const };
+          },
+        });
+      }
 
       // Notify parent if rule set changed (new unsaved rule set was created)
       if (onRuleCreated && newRuleSetId !== ruleSetId) {
@@ -206,6 +278,11 @@ export function RuleBuilder({
           locations={locations}
           onClose={closeDialog}
           onCreate={async (conditionTree) => {
+            const previousRule =
+              editingRuleId === "new"
+                ? undefined
+                : rulesRef.current.find((rule) => rule._id === editingRuleId);
+
             let finalRuleSetId = ruleSetId;
 
             if (editingRuleId !== "new") {
@@ -228,15 +305,129 @@ export function RuleBuilder({
               locations,
             );
 
-            const { ruleSetId: createRuleSetId } = await createRuleMutation({
-              conditionTree: conditionTree as Parameters<
-                typeof createRuleMutation
-              >[0]["conditionTree"],
-              enabled: true,
-              name: ruleName,
-              practiceId,
-              sourceRuleSetId: finalRuleSetId,
-            });
+            const { entityId, ruleSetId: createRuleSetId } =
+              await createRuleMutation({
+                conditionTree: conditionTree as Parameters<
+                  typeof createRuleMutation
+                >[0]["conditionTree"],
+                enabled: true,
+                name: ruleName,
+                practiceId,
+                sourceRuleSetId: finalRuleSetId,
+              });
+
+            let currentRuleId = entityId as Id<"ruleConditions">;
+
+            if (previousRule) {
+              const previousRuleName = generateRuleName(
+                conditionTreeToConditions(previousRule.conditionTree),
+                appointmentTypes,
+                practitioners,
+                locations,
+              );
+
+              onRegisterHistoryAction?.({
+                label: "Regel aktualisiert",
+                redo: async () => {
+                  const existing = rulesRef.current.find(
+                    (rule) => rule._id === currentRuleId,
+                  );
+                  if (!existing) {
+                    return {
+                      message:
+                        "Die Regel kann nicht wiederhergestellt werden, weil sie bereits gelöscht wurde.",
+                      status: "conflict" as const,
+                    };
+                  }
+
+                  await deleteRuleMutation({
+                    practiceId,
+                    ruleId: currentRuleId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+
+                  const recreateResult = await createRuleMutation({
+                    conditionTree: conditionTree as Parameters<
+                      typeof createRuleMutation
+                    >[0]["conditionTree"],
+                    enabled: true,
+                    name: ruleName,
+                    practiceId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+                  currentRuleId =
+                    recreateResult.entityId as Id<"ruleConditions">;
+                  return { status: "applied" as const };
+                },
+                undo: async () => {
+                  const existing = rulesRef.current.find(
+                    (rule) => rule._id === currentRuleId,
+                  );
+                  if (!existing) {
+                    return {
+                      message:
+                        "Die aktualisierte Regel wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+                      status: "conflict" as const,
+                    };
+                  }
+
+                  await deleteRuleMutation({
+                    practiceId,
+                    ruleId: currentRuleId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+
+                  const recreatePrevious = await createRuleMutation({
+                    conditionTree: previousRule.conditionTree as Parameters<
+                      typeof createRuleMutation
+                    >[0]["conditionTree"],
+                    enabled: previousRule.enabled,
+                    name: previousRuleName,
+                    practiceId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+                  currentRuleId =
+                    recreatePrevious.entityId as Id<"ruleConditions">;
+                  return { status: "applied" as const };
+                },
+              });
+            } else {
+              onRegisterHistoryAction?.({
+                label: "Regel erstellt",
+                redo: async () => {
+                  const recreateResult = await createRuleMutation({
+                    conditionTree: conditionTree as Parameters<
+                      typeof createRuleMutation
+                    >[0]["conditionTree"],
+                    enabled: true,
+                    name: ruleName,
+                    practiceId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+                  currentRuleId =
+                    recreateResult.entityId as Id<"ruleConditions">;
+                  return { status: "applied" as const };
+                },
+                undo: async () => {
+                  const existing = rulesRef.current.find(
+                    (rule) => rule._id === currentRuleId,
+                  );
+                  if (!existing) {
+                    return {
+                      message: "Die Regel wurde bereits gelöscht.",
+                      status: "conflict" as const,
+                    };
+                  }
+
+                  await deleteRuleMutation({
+                    practiceId,
+                    ruleId: currentRuleId,
+                    sourceRuleSetId: createRuleSetId,
+                  });
+                  return { status: "applied" as const };
+                },
+              });
+            }
 
             closeDialog();
 

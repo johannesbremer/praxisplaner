@@ -42,6 +42,7 @@ import { api } from "@/convex/_generated/api";
 import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
+import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 
@@ -56,6 +57,8 @@ import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
+import { useLocalHistory } from "../hooks/use-local-history";
+import { useUndoRedoHotkeys } from "../hooks/use-undo-redo-hotkeys";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -141,6 +144,49 @@ function LogicView() {
   const [isClearingSimulatedAppointments, setIsClearingSimulatedAppointments] =
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
+  const {
+    pushAction: pushRegelnHistoryAction,
+    redo: redoRegelnHistoryAction,
+    undo: undoRegelnHistoryAction,
+  } = useLocalHistory();
+
+  const runRegelnUndo = useCallback(async () => {
+    const result = await undoRegelnHistoryAction();
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht rückgängig gemacht werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung rückgängig gemacht");
+    }
+  }, [undoRegelnHistoryAction]);
+
+  const runRegelnRedo = useCallback(async () => {
+    const result = await redoRegelnHistoryAction();
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht wiederhergestellt werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung wiederhergestellt");
+    }
+  }, [redoRegelnHistoryAction]);
+
+  useUndoRedoHotkeys({
+    onRedo: runRegelnRedo,
+    onUndo: runRegelnUndo,
+  });
+
+  const registerRegelnHistoryAction = useCallback(
+    (action: LocalHistoryAction) => {
+      pushRegelnHistoryAction(action);
+    },
+    [pushRegelnHistoryAction],
+  );
 
   const deleteAllSimulatedDataMutation = useMutation(
     api.appointments.deleteAllSimulatedData,
@@ -854,6 +900,7 @@ function LogicView() {
                   {/* Appointment Types Management */}
                   {currentWorkingRuleSet && (
                     <AppointmentTypesManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={(newRuleSetId) => {
                         setUnsavedRuleSetId(newRuleSetId);
                       }}
@@ -865,6 +912,7 @@ function LogicView() {
                   {/* Practitioner Management */}
                   {currentWorkingRuleSet && (
                     <PractitionerManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -874,6 +922,7 @@ function LogicView() {
                   {/* Base Schedule Management */}
                   {currentWorkingRuleSet && (
                     <BaseScheduleManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -883,6 +932,7 @@ function LogicView() {
                   {/* Locations Management */}
                   {currentWorkingRuleSet && (
                     <LocationsManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -1004,6 +1054,7 @@ function LogicView() {
                   <CardContent>
                     {currentWorkingRuleSet && (
                       <RuleBuilder
+                        onRegisterHistoryAction={registerRegelnHistoryAction}
                         onRuleCreated={handleRuleSetCreated}
                         practiceId={currentPractice._id}
                         ruleSetId={currentWorkingRuleSet._id}

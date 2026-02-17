@@ -1,5 +1,6 @@
 // src/routes/buchung.tsx
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -283,6 +284,90 @@ function AuthenticatedBookingFlow() {
       });
     }
   }, [signOut]);
+  const currentStep = session?.state.step;
+
+  const handleForward = useCallback(() => {
+    const main = document.querySelector("main");
+    if (!main) {
+      return;
+    }
+
+    const submitButtons = [
+      ...main.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
+        'button[type="submit"], input[type="submit"]',
+      ),
+    ];
+    const firstEnabled = submitButtons.find((button) => {
+      const ariaDisabled = button.getAttribute("aria-disabled") === "true";
+      return !button.disabled && !ariaDisabled;
+    });
+
+    firstEnabled?.click();
+  }, []);
+
+  useHotkey(
+    "Mod+Z",
+    () => {
+      if (currentStep && canGoBack(currentStep)) {
+        void handleBack();
+      }
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Shift+Z",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Y",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Alt+ArrowLeft",
+    () => {
+      if (currentStep && canGoBack(currentStep)) {
+        void handleBack();
+      }
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Alt+ArrowRight",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
 
   // Loading state
   if (!practicesQuery) {

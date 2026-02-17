@@ -3,6 +3,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
+import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
   ClientOnly,
@@ -265,6 +266,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <TanStackDevtools
             eventBusConfig={{ debug: false }}
             plugins={[
+              hotkeysDevtoolsPlugin(),
               {
                 name: "TanStack Query",
                 render: <ReactQueryDevtoolsPanel />,
