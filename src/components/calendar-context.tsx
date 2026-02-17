@@ -6,6 +6,7 @@ import { createContext, useContext } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 
 /**
@@ -59,6 +60,7 @@ interface CalendarContextValue {
 
   // Pending appointment title (set by sidebar modal before manual placement)
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
+  patient?: PatientInfo | undefined;
 
   // Optimistic mutations
   runCreateAppointment?: (args: {

@@ -71,6 +71,8 @@ export function CalendarSelectionStep({
       ? (state.practitionerId as Id<"practitioners">)
       : undefined;
   const personalData = "personalData" in state ? state.personalData : undefined;
+  const patientDateOfBirth =
+    personalData?.dateOfBirth;
 
   // Date selection state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
@@ -109,7 +111,10 @@ export function CalendarSelectionStep({
 
   // Build simulated context for slot query - only include locationId if defined
   const simulatedContext = {
-    patient: { isNew: isNewPatient },
+    patient: {
+      isNew: isNewPatient,
+      ...(patientDateOfBirth && { dateOfBirth: patientDateOfBirth }),
+    },
     ...(selectedAppointmentTypeId && {
       appointmentTypeId: selectedAppointmentTypeId,
     }),

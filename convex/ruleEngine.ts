@@ -238,6 +238,8 @@ export const appointmentContextValidator = v.object({
   // ISO datetime string
   dateTime: v.string(),
   locationId: v.optional(v.id("locations")),
+  // Patient birth date as YYYY-MM-DD (booking flow) or TTMMJJJJ (GDT)
+  patientDateOfBirth: v.optional(v.string()),
   practiceId: v.id("practices"),
   practitionerId: v.id("practitioners"),
   // For DAYS_AHEAD conditions: when was this appointment requested?
@@ -258,7 +260,7 @@ export type AppointmentContext = Infer<typeof appointmentContextValidator>;
  * - APPOINTMENT_TYPE: Fixed in simulatedContext for entire query
  * - LOCATION: Fixed in simulatedContext for entire query
  * - CLIENT_TYPE: Fixed (patient.isNew) for entire query
- * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD: Only depend on the target date
+ * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD, PATIENT_AGE: Only depend on target date + fixed patient context
  *
  * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
  * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
@@ -273,7 +275,52 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
   "DAY_OF_WEEK",
   "DAYS_AHEAD",
   "LOCATION",
+  "PATIENT_AGE",
 ]);
+
+/**
+ * Parses a patient birth date.
+ */
+function parsePatientBirthDate(dateString: string): Temporal.PlainDate {
+  // Supported format: YYYY-MM-DD (booking flow)
+  const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (isoPattern.test(dateString)) {
+    return Temporal.PlainDate.from(dateString);
+  }
+
+  // Supported format: TTMMJJJJ (legacy GDT)
+  const gdtPattern = /^\d{8}$/;
+  if (gdtPattern.test(dateString)) {
+    const day = dateString.slice(0, 2);
+    const month = dateString.slice(2, 4);
+    const year = dateString.slice(4, 8);
+    return Temporal.PlainDate.from(`${year}-${month}-${day}`);
+  }
+
+  throw new Error(
+    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD" or "TTMMJJJJ".`,
+  );
+}
+
+/**
+ * Calculate age in full years at a given reference date.
+ */
+function getAgeYearsAtDate(
+  birthDate: Temporal.PlainDate,
+  referenceDate: Temporal.PlainDate,
+): number {
+  let years = referenceDate.year - birthDate.year;
+
+  if (
+    referenceDate.month < birthDate.month ||
+    (referenceDate.month === birthDate.month &&
+      referenceDate.day < birthDate.day)
+  ) {
+    years -= 1;
+  }
+
+  return years;
+}
 
 /**
  * Evaluate a single leaf condition against the appointment context.
@@ -308,6 +355,9 @@ function evaluateCondition(
       }
       case "GREATER_THAN_OR_EQUAL": {
         return actual >= expected;
+      }
+      case "LESS_THAN": {
+        return actual < expected;
       }
       case "LESS_THAN_OR_EQUAL": {
         return actual <= expected;
@@ -534,6 +584,19 @@ function evaluateCondition(
     case "LOCATION": {
       // Compare location ID
       return checkIdMembership(context.locationId, valueIds);
+    }
+
+    case "PATIENT_AGE": {
+      if (valueNumber === undefined || !context.patientDateOfBirth) {
+        return false;
+      }
+
+      const birthDate = parsePatientBirthDate(context.patientDateOfBirth);
+      const appointmentDate = Temporal.ZonedDateTime.from(
+        context.dateTime,
+      ).toPlainDate();
+      const ageYears = getAgeYearsAtDate(birthDate, appointmentDate);
+      return compareValue(ageYears, valueNumber);
     }
 
     case "PRACTITIONER": {
@@ -933,6 +996,7 @@ export type ConditionType =
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
+  | "PATIENT_AGE"
   | "PRACTITIONER"
   | "PRACTITIONER_TAG"
   | "TIME_RANGE";
@@ -945,6 +1009,7 @@ export type ConditionOperator =
   | "GREATER_THAN_OR_EQUAL"
   | "IS"
   | "IS_NOT"
+  | "LESS_THAN"
   | "LESS_THAN_OR_EQUAL";
 
 /**
@@ -998,12 +1063,14 @@ export const conditionTreeNodeValidator = v.union(
       v.literal("DAILY_CAPACITY"),
       v.literal("CONCURRENT_COUNT"),
       v.literal("CLIENT_TYPE"),
+      v.literal("PATIENT_AGE"),
     ),
     nodeType: v.literal("CONDITION"),
     operator: v.union(
       v.literal("IS"),
       v.literal("IS_NOT"),
       v.literal("GREATER_THAN_OR_EQUAL"),
+      v.literal("LESS_THAN"),
       v.literal("LESS_THAN_OR_EQUAL"),
       v.literal("EQUALS"),
     ),
@@ -1394,7 +1461,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
  * Plain TypeScript function to avoid serialization overhead.
  *
  * Note: Day-invariant rules only use conditions that don't require appointment data
- * (APPOINTMENT_TYPE, CLIENT_TYPE, DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD, LOCATION),
+ * (APPOINTMENT_TYPE, CLIENT_TYPE, DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD, LOCATION, PATIENT_AGE),
  * so we pass an empty preloaded data object.
  */
 export function preEvaluateDayInvariantRulesHelper(

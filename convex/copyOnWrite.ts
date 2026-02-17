@@ -444,6 +444,7 @@ async function copyConditionNode(
       | "DAY_OF_WEEK"
       | "DAYS_AHEAD"
       | "LOCATION"
+      | "PATIENT_AGE"
       | "PRACTITIONER"
       | "PRACTITIONER_TAG"
       | "TIME_RANGE";
@@ -458,6 +459,7 @@ async function copyConditionNode(
       | "GREATER_THAN_OR_EQUAL"
       | "IS"
       | "IS_NOT"
+      | "LESS_THAN"
       | "LESS_THAN_OR_EQUAL";
     parentConditionId?: Id<"ruleConditions">;
     practiceId: Id<"practices">;

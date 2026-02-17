@@ -848,6 +848,7 @@ export default defineSchema({
         v.literal("DATE_RANGE"), // Test if date is in range
         v.literal("TIME_RANGE"), // Test if time is in range
         v.literal("DAYS_AHEAD"), // Test booking advance time
+        v.literal("PATIENT_AGE"), // Test patient age on appointment day
 
         // Capacity-based
         v.literal("DAILY_CAPACITY"), // Test appointments per day
@@ -864,6 +865,7 @@ export default defineSchema({
         v.literal("IS"), // Equals (single value)
         v.literal("IS_NOT"), // Not equals (single value)
         v.literal("GREATER_THAN_OR_EQUAL"), // >= (numeric)
+        v.literal("LESS_THAN"), // < (numeric)
         v.literal("LESS_THAN_OR_EQUAL"), // <= (numeric)
         v.literal("EQUALS"), // == (numeric)
       ),

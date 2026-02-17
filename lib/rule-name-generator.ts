@@ -8,7 +8,7 @@ import type { ConditionTreeNode } from "../convex/ruleEngine";
 // Condition types matching the UI
 interface Condition {
   id: string;
-  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT";
+  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT" | "LESS_THAN";
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
@@ -26,6 +26,7 @@ type ConditionType =
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
   | "LOCATION"
+  | "PATIENT_AGE"
   | "PRACTITIONER";
 
 interface Entity {
@@ -212,6 +213,15 @@ export function generateRuleName(
         );
         break;
       }
+      case "PATIENT_AGE": {
+        const age = condition.valueNumber ?? 0;
+        if (condition.operator === "LESS_THAN") {
+          parts.push(`der Patient jünger als ${age} Jahre alt ist,`);
+        } else {
+          parts.push(`der Patient ${age} Jahre oder älter ist,`);
+        }
+        break;
+      }
       case "PRACTITIONER": {
         const names = (condition.valueIds
           ?.map((id) => practitioners.find((p) => p._id === id)?.name)
@@ -290,6 +300,7 @@ function parseConditionNode(
     "DAY_OF_WEEK",
     "DAYS_AHEAD",
     "LOCATION",
+    "PATIENT_AGE",
     "PRACTITIONER",
   ];
 
@@ -348,6 +359,15 @@ function parseConditionNode(
       return {
         id,
         operator: "GREATER_THAN_OR_EQUAL",
+        type: conditionType,
+        valueNumber: valueNumber ?? null,
+      };
+    }
+    case "PATIENT_AGE": {
+      return {
+        id,
+        operator:
+          operator === "LESS_THAN" ? "LESS_THAN" : "GREATER_THAN_OR_EQUAL",
         type: conditionType,
         valueNumber: valueNumber ?? null,
       };
