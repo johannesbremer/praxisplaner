@@ -71,8 +71,7 @@ export function CalendarSelectionStep({
       ? (state.practitionerId as Id<"practitioners">)
       : undefined;
   const personalData = "personalData" in state ? state.personalData : undefined;
-  const patientDateOfBirth =
-    personalData?.dateOfBirth;
+  const patientDateOfBirth = personalData?.dateOfBirth;
 
   // Date selection state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
