@@ -281,15 +281,11 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
 /**
  * Parses a patient birth date.
  */
-function parsePatientBirthDate(dateString: string): null | Temporal.PlainDate {
+function parsePatientBirthDate(dateString: string): Temporal.PlainDate {
   // Supported format: YYYY-MM-DD (booking flow)
   const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
   if (isoPattern.test(dateString)) {
-    try {
-      return Temporal.PlainDate.from(dateString);
-    } catch {
-      return null;
-    }
+    return Temporal.PlainDate.from(dateString);
   }
 
   // Supported format: TTMMJJJJ (legacy GDT)
@@ -298,14 +294,12 @@ function parsePatientBirthDate(dateString: string): null | Temporal.PlainDate {
     const day = dateString.slice(0, 2);
     const month = dateString.slice(2, 4);
     const year = dateString.slice(4, 8);
-    try {
-      return Temporal.PlainDate.from(`${year}-${month}-${day}`);
-    } catch {
-      return null;
-    }
+    return Temporal.PlainDate.from(`${year}-${month}-${day}`);
   }
 
-  return null;
+  throw new Error(
+    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD" or "TTMMJJJJ".`,
+  );
 }
 
 /**
@@ -598,10 +592,6 @@ function evaluateCondition(
       }
 
       const birthDate = parsePatientBirthDate(context.patientDateOfBirth);
-      if (!birthDate) {
-        return false;
-      }
-
       const appointmentDate = Temporal.ZonedDateTime.from(
         context.dateTime,
       ).toPlainDate();

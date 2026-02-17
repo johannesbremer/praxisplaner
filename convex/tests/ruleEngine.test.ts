@@ -1125,6 +1125,73 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
     expect(adult.isBlocked).toBe(false);
   });
 
+  test("PATIENT_AGE should throw on malformed patientDateOfBirth values", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+    const checkupTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
+    await createRule(t, practiceId, ruleSetId, {
+      conditionType: "PATIENT_AGE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "GREATER_THAN_OR_EQUAL" as const,
+      valueNumber: 40,
+    });
+
+    const baseContext = {
+      appointmentTypeId: checkupTypeId,
+      dateTime: "2026-12-31T11:00:00+01:00[Europe/Berlin]",
+      locationId,
+      practiceId,
+      practitionerId,
+      requestedAt: "2026-12-20T11:00:00+01:00[Europe/Berlin]",
+    };
+
+    await expect(
+      t.query(internal.ruleEngine.checkRulesForAppointment, {
+        context: {
+          ...baseContext,
+          patientDateOfBirth: "2025-13-01", // malformed ISO date
+        },
+        ruleSetId,
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      t.query(internal.ruleEngine.checkRulesForAppointment, {
+        context: {
+          ...baseContext,
+          patientDateOfBirth: "01132025", // malformed GDT date
+        },
+        ruleSetId,
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      t.query(internal.ruleEngine.checkRulesForAppointment, {
+        context: {
+          ...baseContext,
+          patientDateOfBirth: "invalid", // unsupported format
+        },
+        ruleSetId,
+      }),
+    ).rejects.toThrow();
+  });
+
   test("CONCURRENT_COUNT with practice scope - should block when too many concurrent appointments", async () => {
     const t = createTestContext();
 

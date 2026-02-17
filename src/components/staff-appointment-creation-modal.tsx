@@ -4,7 +4,7 @@ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarIcon, User } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -242,78 +242,6 @@ export function StaffAppointmentCreationModal({
       handleClose(false);
     }
   };
-
-  // Auto-create appointment when a patient is selected externally (via GDT) while modal is open
-  useEffect(() => {
-    const createAppointmentWithExternalPatient = async () => {
-      if (
-        !nextAvailableSlot ||
-        (!patient?.convexPatientId && !patient?.userId)
-      ) {
-        return;
-      }
-
-      try {
-        const startZoned = Temporal.ZonedDateTime.from(
-          nextAvailableSlot.startTime,
-        );
-        const endZoned = startZoned.add({
-          minutes: nextAvailableSlot.duration,
-        });
-
-        const newAppointmentId = await runCreateAppointment({
-          appointmentTypeId,
-          end: endZoned.toString(),
-          locationId,
-          ...(patient.convexPatientId && {
-            patientId: patient.convexPatientId,
-          }),
-          ...(patient.userId && { userId: patient.userId }),
-          practiceId,
-          practitionerId: nextAvailableSlot.practitionerId,
-          start: startZoned.toString(),
-          title,
-        });
-
-        // Notify about the created appointment for selection
-        const recipient:
-          | undefined
-          | { id: Id<"patients">; type: "patient" }
-          | { id: Id<"users">; type: "user" } = patient.convexPatientId
-          ? { id: patient.convexPatientId, type: "patient" as const }
-          : patient.userId
-            ? { id: patient.userId, type: "user" as const }
-            : undefined;
-
-        if (newAppointmentId && recipient) {
-          onAppointmentCreated?.(newAppointmentId, recipient);
-        }
-
-        toast.success("Termin erfolgreich erstellt");
-        onOpenChange(false, true);
-        setMode(null);
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context:
-            "StaffAppointmentCreationModal - createAppointmentWithExternalPatient",
-        });
-        toast.error("Fehler beim Erstellen des Termins");
-      }
-    };
-
-    void createAppointmentWithExternalPatient();
-  }, [
-    appointmentTypeId,
-    locationId,
-    nextAvailableSlot,
-    onAppointmentCreated,
-    onOpenChange,
-    patient?.convexPatientId,
-    patient?.userId,
-    practiceId,
-    runCreateAppointment,
-    title,
-  ]);
 
   return (
     <>
