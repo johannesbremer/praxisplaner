@@ -484,6 +484,9 @@ function BaseScheduleDialog({
 
   const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
+  const replaceScheduleSetMutation = useMutation(
+    api.entities.replaceBaseScheduleSet,
+  );
 
   const form = useForm({
     defaultValues: {
@@ -734,77 +737,59 @@ function BaseScheduleDialog({
           }
 
           if (schedule && createdSchedulePayloads.length > 0) {
-            let mode: "new" | "old" = "new";
             let currentNewIds = [...createdScheduleIds];
             let currentOldIds: Id<"baseSchedules">[] = [];
+            const oldSchedulePayloads = deletedScheduleSnapshots.map(
+              (previous) => ({
+                ...(previous.breakTimes && { breakTimes: previous.breakTimes }),
+                dayOfWeek: previous.dayOfWeek,
+                endTime: previous.endTime,
+                locationId: previous.locationId,
+                practitionerId: previous.practitionerId,
+                startTime: previous.startTime,
+              }),
+            );
 
             onRegisterHistoryAction?.({
               label: "Arbeitszeiten aktualisiert",
               redo: async () => {
-                if (mode !== "old") {
-                  return { status: "noop" as const };
+                if (currentOldIds.length === 0) {
+                  return {
+                    message:
+                      "Die Änderung ist bereits aktiv und kann nicht erneut angewendet werden.",
+                    status: "conflict" as const,
+                  };
                 }
 
-                for (const id of currentOldIds) {
-                  const exists = schedulesRef.current.some((s) => s._id === id);
-                  if (exists) {
-                    await deleteScheduleMutation({
-                      baseScheduleId: id,
-                      practiceId,
-                      sourceRuleSetId: newRuleSetId,
-                    });
-                  }
-                }
-
-                const recreatedIds: Id<"baseSchedules">[] = [];
-                for (const payload of createdSchedulePayloads) {
-                  const result = await createScheduleMutation({
-                    ...payload,
-                    practiceId,
-                    sourceRuleSetId: newRuleSetId,
-                  });
-                  recreatedIds.push(result.entityId as Id<"baseSchedules">);
-                }
-
-                currentNewIds = recreatedIds;
-                mode = "new";
+                const result = await replaceScheduleSetMutation({
+                  expectedAbsentIds: currentNewIds,
+                  expectedPresentIds: currentOldIds,
+                  practiceId,
+                  replacementSchedules: createdSchedulePayloads,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentOldIds = result.deletedScheduleIds;
+                currentNewIds = result.createdScheduleIds;
                 return { status: "applied" as const };
               },
               undo: async () => {
-                if (mode !== "new") {
-                  return { status: "noop" as const };
+                if (currentNewIds.length === 0) {
+                  return {
+                    message:
+                      "Die Änderung wurde bereits zurückgesetzt und kann nicht erneut rückgängig gemacht werden.",
+                    status: "conflict" as const,
+                  };
                 }
 
-                for (const id of currentNewIds) {
-                  const exists = schedulesRef.current.some((s) => s._id === id);
-                  if (exists) {
-                    await deleteScheduleMutation({
-                      baseScheduleId: id,
-                      practiceId,
-                      sourceRuleSetId: newRuleSetId,
-                    });
-                  }
-                }
-
-                const restoredOldIds: Id<"baseSchedules">[] = [];
-                for (const previous of deletedScheduleSnapshots) {
-                  const result = await createScheduleMutation({
-                    dayOfWeek: previous.dayOfWeek,
-                    endTime: previous.endTime,
-                    locationId: previous.locationId,
-                    practiceId,
-                    practitionerId: previous.practitionerId,
-                    sourceRuleSetId: newRuleSetId,
-                    startTime: previous.startTime,
-                    ...(previous.breakTimes && {
-                      breakTimes: previous.breakTimes,
-                    }),
-                  });
-                  restoredOldIds.push(result.entityId as Id<"baseSchedules">);
-                }
-
-                currentOldIds = restoredOldIds;
-                mode = "old";
+                const result = await replaceScheduleSetMutation({
+                  expectedAbsentIds: currentOldIds,
+                  expectedPresentIds: currentNewIds,
+                  practiceId,
+                  replacementSchedules: oldSchedulePayloads,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentNewIds = result.deletedScheduleIds;
+                currentOldIds = result.createdScheduleIds;
                 return { status: "applied" as const };
               },
             });

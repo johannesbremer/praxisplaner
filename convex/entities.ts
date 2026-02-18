@@ -61,9 +61,133 @@ const createResultValidator = v.object({
   ruleSetId: v.id("ruleSets"),
 });
 
+const baseSchedulePayloadValidator = v.object({
+  breakTimes: v.optional(
+    v.array(
+      v.object({
+        end: v.string(),
+        start: v.string(),
+      }),
+    ),
+  ),
+  dayOfWeek: v.number(),
+  endTime: v.string(),
+  locationId: v.id("locations"),
+  practitionerId: v.id("practitioners"),
+  startTime: v.string(),
+});
+
+const replaceBaseScheduleSetResultValidator = v.object({
+  createdScheduleIds: v.array(v.id("baseSchedules")),
+  deletedScheduleIds: v.array(v.id("baseSchedules")),
+  ruleSetId: v.id("ruleSets"),
+});
+
 // ================================
 // SHARED HELPER FUNCTIONS
 // ================================
+
+/**
+ * Resolve a base schedule ID into the current unsaved rule set.
+ * Returns null when neither the original nor a CoW copy exists.
+ */
+async function resolveBaseScheduleIdInRuleSet(
+  db: DatabaseReader,
+  baseScheduleId: Id<"baseSchedules">,
+  ruleSetId: Id<"ruleSets">,
+): Promise<Id<"baseSchedules"> | null> {
+  const scheduleEntity = await db.get("baseSchedules", baseScheduleId);
+  if (!scheduleEntity) {
+    return null;
+  }
+
+  if (scheduleEntity.ruleSetId === ruleSetId) {
+    return scheduleEntity._id;
+  }
+
+  const scheduleCopy = await db
+    .query("baseSchedules")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", scheduleEntity._id).eq("ruleSetId", ruleSetId),
+    )
+    .first();
+
+  return scheduleCopy?._id ?? null;
+}
+
+/**
+ * Resolve a location ID into the current unsaved rule set.
+ */
+async function resolveLocationIdInRuleSet(
+  db: DatabaseReader,
+  locationId: Id<"locations">,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+): Promise<Id<"locations">> {
+  const locationEntity = await db.get("locations", locationId);
+  if (!locationEntity) {
+    throw new Error("Location not found");
+  }
+  if (locationEntity.practiceId !== practiceId) {
+    throw new Error("Location does not belong to this practice");
+  }
+
+  if (locationEntity.ruleSetId === ruleSetId) {
+    return locationEntity._id;
+  }
+
+  const locationCopy = await db
+    .query("locations")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", locationEntity._id).eq("ruleSetId", ruleSetId),
+    )
+    .first();
+
+  if (!locationCopy) {
+    throw new Error(
+      "Location not found in unsaved rule set. This should not happen.",
+    );
+  }
+
+  return locationCopy._id;
+}
+
+/**
+ * Resolve a practitioner ID into the current unsaved rule set.
+ */
+async function resolvePractitionerIdInRuleSet(
+  db: DatabaseReader,
+  practitionerId: Id<"practitioners">,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+): Promise<Id<"practitioners">> {
+  const practitionerEntity = await db.get("practitioners", practitionerId);
+  if (!practitionerEntity) {
+    throw new Error("Practitioner not found");
+  }
+  if (practitionerEntity.practiceId !== practiceId) {
+    throw new Error("Practitioner does not belong to this practice");
+  }
+
+  if (practitionerEntity.ruleSetId === ruleSetId) {
+    return practitionerEntity._id;
+  }
+
+  const practitionerCopy = await db
+    .query("practitioners")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", practitionerEntity._id).eq("ruleSetId", ruleSetId),
+    )
+    .first();
+
+  if (!practitionerCopy) {
+    throw new Error(
+      "Practitioner not found in unsaved rule set. This should not happen.",
+    );
+  }
+
+  return practitionerCopy._id;
+}
 
 /**
  * Resolve practitioner IDs to their unsaved rule set versions.
@@ -1089,6 +1213,132 @@ export const deleteBaseSchedule = mutation({
     return { entityId: schedule._id, ruleSetId };
   },
   returns: createResultValidator,
+});
+
+/**
+ * Replace a set of base schedules atomically in the unsaved rule set.
+ *
+ * This is used by undo/redo flows to swap one schedule set with another
+ * in a single mutation, reducing partial-state windows.
+ */
+export const replaceBaseScheduleSet = mutation({
+  args: {
+    expectedAbsentIds: v.optional(v.array(v.id("baseSchedules"))),
+    expectedPresentIds: v.array(v.id("baseSchedules")),
+    practiceId: v.id("practices"),
+    replacementSchedules: v.array(baseSchedulePayloadValidator),
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    if (args.expectedPresentIds.length === 0) {
+      throw new Error(
+        "Keine Arbeitszeiten ausgewählt. Die Änderung kann nicht angewendet werden.",
+      );
+    }
+
+    const resolvedExpectedPresentIds = await Promise.all(
+      args.expectedPresentIds.map((id) =>
+        resolveBaseScheduleIdInRuleSet(ctx.db, id, ruleSetId),
+      ),
+    );
+    const expectedPresentIds = [
+      ...new Set(
+        resolvedExpectedPresentIds.filter(
+          (id): id is Id<"baseSchedules"> => id !== null,
+        ),
+      ),
+    ];
+
+    if (expectedPresentIds.length !== args.expectedPresentIds.length) {
+      throw new Error(
+        "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher ersetzt werden.",
+      );
+    }
+
+    const resolvedExpectedAbsentIds = await Promise.all(
+      (args.expectedAbsentIds ?? []).map((id) =>
+        resolveBaseScheduleIdInRuleSet(ctx.db, id, ruleSetId),
+      ),
+    );
+    const expectedAbsentIds = [
+      ...new Set(
+        resolvedExpectedAbsentIds.filter(
+          (id): id is Id<"baseSchedules"> => id !== null,
+        ),
+      ),
+    ];
+
+    const expectedPresentSet = new Set(expectedPresentIds);
+    if (expectedAbsentIds.some((id) => expectedPresentSet.has(id))) {
+      throw new Error(
+        "Die Änderung kann nicht angewendet werden, weil alte und neue Arbeitszeiten gleichzeitig vorhanden sind.",
+      );
+    }
+
+    for (const absentId of expectedAbsentIds) {
+      const existing = await ctx.db.get("baseSchedules", absentId);
+      if (existing?.ruleSetId === ruleSetId) {
+        throw new Error(
+          "Die Änderung kann nicht angewendet werden, weil alte und neue Arbeitszeiten gleichzeitig vorhanden sind.",
+        );
+      }
+    }
+
+    for (const presentId of expectedPresentIds) {
+      const existing = await ctx.db.get("baseSchedules", presentId);
+      if (existing?.ruleSetId !== ruleSetId) {
+        throw new Error(
+          "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher ersetzt werden.",
+        );
+      }
+    }
+
+    for (const scheduleId of expectedPresentIds) {
+      await verifyEntityInUnsavedRuleSet(ctx.db, ruleSetId, "base schedule");
+      await ctx.db.delete("baseSchedules", scheduleId);
+    }
+
+    const createdScheduleIds: Id<"baseSchedules">[] = [];
+    for (const schedule of args.replacementSchedules) {
+      const practitionerId = await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerId,
+        args.practiceId,
+        ruleSetId,
+      );
+      const locationId = await resolveLocationIdInRuleSet(
+        ctx.db,
+        schedule.locationId,
+        args.practiceId,
+        ruleSetId,
+      );
+
+      const createdId = await ctx.db.insert("baseSchedules", {
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        locationId,
+        practiceId: args.practiceId,
+        practitionerId,
+        ruleSetId,
+        startTime: schedule.startTime,
+        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+      });
+      createdScheduleIds.push(createdId);
+    }
+
+    return {
+      createdScheduleIds,
+      deletedScheduleIds: expectedPresentIds,
+      ruleSetId,
+    };
+  },
+  returns: replaceBaseScheduleSetResultValidator,
 });
 
 /**
