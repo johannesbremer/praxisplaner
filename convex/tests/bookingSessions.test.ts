@@ -350,6 +350,73 @@ describe("bookingSessions user identity handling", () => {
     const session = await authed.query(api.bookingSessions.get, { sessionId });
     expect(session).toBeNull();
   });
+
+  test("get returns null when current step entry is linked to another user", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "step_row_owner");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+    await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+    await authed.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "gkv",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.confirmGkvDetails, {
+      hzvStatus: "has-contract",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: {
+        dateOfBirth: "1980-01-01",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("bookingSessions", sessionId);
+      if (!session) {
+        throw new Error("Expected booking session to exist");
+      }
+      if (session.state.step !== "new-data-sharing") {
+        throw new Error("Expected session to be at new-data-sharing");
+      }
+      const currentState = session.state;
+
+      const wrongUserId = await ctx.db.insert("users", {
+        authId: "workos_step_row_wrong_user",
+        createdAt: BigInt(Date.now()),
+        email: "wrong-user@example.com",
+      });
+
+      await ctx.db.insert("bookingNewDataSharingSteps", {
+        createdAt: BigInt(Date.now()),
+        dataSharingContacts: makeDataSharingContacts(),
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        lastModified: BigInt(Date.now()),
+        locationId: currentState.locationId,
+        personalData: currentState.personalData,
+        practiceId: session.practiceId,
+        ruleSetId: session.ruleSetId,
+        sessionId,
+        userId: wrongUserId,
+      });
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    expect(session).toBeNull();
+  });
 });
 
 describe("bookingSessions atomic pending/completed step states", () => {
@@ -649,6 +716,91 @@ describe("bookingSessions atomic pending/completed step states", () => {
     assertStateStep(atCalendar.state, "existing-calendar-selection");
     expect(atCalendar.state.dataSharingContacts).toHaveLength(1);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
+  });
+
+  test("new patient can skip data-sharing contacts", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "skip_data_sharing_new");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+    await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+    await authed.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "gkv",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.confirmGkvDetails, {
+      hzvStatus: "has-contract",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: {
+        dateOfBirth: "1980-01-01",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      sessionId,
+    });
+
+    await authed.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: [],
+      sessionId,
+    });
+
+    const atCalendar = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(atCalendar, "session should exist at calendar step");
+    assertStateStep(atCalendar.state, "new-calendar-selection");
+    expect(atCalendar.state.dataSharingContacts).toHaveLength(0);
+  });
+
+  test("existing patient can skip data-sharing contacts", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "skip_data_sharing_existing");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+
+    await authed.mutation(api.bookingSessions.selectExistingPatient, {
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.selectDoctor, {
+      practitionerId,
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      sessionId,
+    });
+
+    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
+      dataSharingContacts: [],
+      sessionId,
+    });
+
+    const atCalendar = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(atCalendar, "session should exist at calendar step");
+    assertStateStep(atCalendar.state, "existing-calendar-selection");
+    expect(atCalendar.state.dataSharingContacts).toHaveLength(0);
   });
 });
 

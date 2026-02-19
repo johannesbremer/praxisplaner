@@ -64,9 +64,7 @@ const dataSharingPersonSchema = z.object({
   title: z.string().trim().min(1, "Titel ist erforderlich"),
 });
 
-const dataSharingContactsSchema = z
-  .array(dataSharingPersonSchema)
-  .min(1, "Mindestens eine Person ist erforderlich");
+const dataSharingContactsSchema = z.array(dataSharingPersonSchema);
 
 export function DataSharingStep({ sessionId, state }: StepComponentProps) {
   const submitNewDataSharing = useMutation(
@@ -95,7 +93,7 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
           street: contact.street,
           title: contact.title,
         }))
-      : [createEmptyContact()],
+      : [],
   );
 
   const [errors, setErrors] = useState<
@@ -103,8 +101,6 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
   >({});
   const [formError, setFormError] = useState<null | string>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const canRemove = contacts.length > 1;
 
   const updateContactField = (
     index: number,
@@ -136,10 +132,6 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
   };
 
   const removeContact = (index: number) => {
-    if (!canRemove) {
-      return;
-    }
-
     setContacts((prev) =>
       prev.filter((_, contactIndex) => contactIndex !== index),
     );
@@ -230,12 +222,17 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
           className="space-y-6"
           onSubmit={(event) => void handleSubmit(event)}
         >
+          {contacts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Sie können die Datenweitergabe leer lassen und direkt zur
+              Terminauswahl weitergehen.
+            </p>
+          )}
           {contacts.map((contact, index) => (
             <div className="rounded-lg border p-4 space-y-4" key={index}>
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-medium">Person {index + 1}</h3>
                 <Button
-                  disabled={!canRemove}
                   onClick={() => {
                     removeContact(index);
                   }}

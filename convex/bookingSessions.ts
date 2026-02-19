@@ -1,4 +1,4 @@
-import type { GenericMutationCtx } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -9,6 +9,10 @@ import { internalMutation, mutation, query } from "./_generated/server";
 
 // Context types for helper functions
 type MutationCtx = GenericMutationCtx<DataModel>;
+type QueryCtx = GenericQueryCtx<DataModel>;
+interface StepReadCtx {
+  db: MutationCtx["db"] | QueryCtx["db"];
+}
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -62,7 +66,7 @@ type StepPatchMap = {
 
 type StepQueryMap = {
   [K in StepTableName]: (
-    ctx: MutationCtx,
+    ctx: StepReadCtx,
     sessionId: Id<"bookingSessions">,
   ) => Promise<StepTableDocMap[K][]>;
 };
@@ -311,6 +315,14 @@ export const get = query({
       return null;
     }
 
+    const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
+      ctx,
+      session,
+    );
+    if (!hasValidStepAssociation) {
+      return null;
+    }
+
     // Check if session has expired
     const now = BigInt(Date.now());
     if (session.expiresAt < now) {
@@ -369,6 +381,14 @@ export const getActiveForUser = query({
 
     const sessionUser = await ctx.db.get("users", session.userId);
     if (!sessionUser) {
+      return null;
+    }
+
+    const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
+      ctx,
+      session,
+    );
+    if (!hasValidStepAssociation) {
       return null;
     }
 
@@ -550,12 +570,55 @@ function getStepBase(session: Doc<"bookingSessions">) {
 }
 
 async function getStepRow<T extends StepTableName>(
-  ctx: MutationCtx,
+  ctx: StepReadCtx,
   tableName: T,
   sessionId: Id<"bookingSessions">,
 ): Promise<null | StepTableDocMap[T]> {
   const rows = await STEP_QUERY_MAP[tableName](ctx, sessionId);
   return rows[0] ?? null;
+}
+
+const STEP_TABLE_BY_STEP: Record<
+  BookingSessionState["step"],
+  null | StepTableName
+> = {
+  "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
+  "existing-confirmation": "bookingExistingConfirmationSteps",
+  "existing-data-input": "bookingExistingPersonalDataSteps",
+  "existing-data-input-complete": "bookingExistingPersonalDataSteps",
+  "existing-data-sharing": "bookingExistingDataSharingSteps",
+  "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
+  location: "bookingLocationSteps",
+  "new-calendar-selection": "bookingNewCalendarSelectionSteps",
+  "new-confirmation": "bookingNewConfirmationSteps",
+  "new-data-input": "bookingNewPersonalDataSteps",
+  "new-data-input-complete": "bookingNewPersonalDataSteps",
+  "new-data-sharing": "bookingNewDataSharingSteps",
+  "new-gkv-details": "bookingNewGkvDetailSteps",
+  "new-gkv-details-complete": "bookingNewGkvDetailSteps",
+  "new-insurance-type": "bookingNewInsuranceTypeSteps",
+  "new-pkv-details": "bookingNewPkvDetailSteps",
+  "new-pkv-details-complete": "bookingNewPkvDetailSteps",
+  "new-pvs-consent": "bookingNewPkvConsentSteps",
+  "patient-status": "bookingPatientStatusSteps",
+  privacy: "bookingPrivacySteps",
+};
+
+async function hasValidStepEntryUserAssociation(
+  ctx: QueryCtx,
+  session: Doc<"bookingSessions">,
+): Promise<boolean> {
+  const tableName = STEP_TABLE_BY_STEP[session.state.step];
+  if (!tableName) {
+    return true;
+  }
+
+  const row = await getStepRow(ctx, tableName, session._id);
+  if (!row) {
+    return true;
+  }
+
+  return row.userId === session.userId;
 }
 
 async function refreshSession(
@@ -640,30 +703,7 @@ async function loadStepSnapshot(
   sessionId: Id<"bookingSessions">,
   step: BookingSessionState["step"],
 ): Promise<null | Record<string, unknown>> {
-  const tableMap: Record<BookingSessionState["step"], null | StepTableName> = {
-    "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
-    "existing-confirmation": "bookingExistingConfirmationSteps",
-    "existing-data-input": "bookingExistingPersonalDataSteps",
-    "existing-data-input-complete": "bookingExistingPersonalDataSteps",
-    "existing-data-sharing": "bookingExistingDataSharingSteps",
-    "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
-    location: "bookingLocationSteps",
-    "new-calendar-selection": "bookingNewCalendarSelectionSteps",
-    "new-confirmation": "bookingNewConfirmationSteps",
-    "new-data-input": "bookingNewPersonalDataSteps",
-    "new-data-input-complete": "bookingNewPersonalDataSteps",
-    "new-data-sharing": "bookingNewDataSharingSteps",
-    "new-gkv-details": "bookingNewGkvDetailSteps",
-    "new-gkv-details-complete": "bookingNewGkvDetailSteps",
-    "new-insurance-type": "bookingNewInsuranceTypeSteps",
-    "new-pkv-details": "bookingNewPkvDetailSteps",
-    "new-pkv-details-complete": "bookingNewPkvDetailSteps",
-    "new-pvs-consent": "bookingNewPkvConsentSteps",
-    "patient-status": "bookingPatientStatusSteps",
-    privacy: "bookingPrivacySteps",
-  };
-
-  const tableName = tableMap[step];
+  const tableName = STEP_TABLE_BY_STEP[step];
   if (!tableName) {
     return null;
   }
@@ -1628,10 +1668,6 @@ export const submitNewDataSharing = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-data-sharing");
 
-    if (args.dataSharingContacts.length === 0) {
-      throw new Error("At least one data sharing contact is required");
-    }
-
     if (state.insuranceType === "gkv") {
       type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
         insuranceType: "gkv";
@@ -2044,10 +2080,6 @@ export const submitExistingDataSharing = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-data-sharing");
-
-    if (args.dataSharingContacts.length === 0) {
-      throw new Error("At least one data sharing contact is required");
-    }
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
