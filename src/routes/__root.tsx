@@ -56,7 +56,7 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { CalendarPlus, Clock, Settings } from "lucide-react";
+import { CalendarPlus, CircleHelp, Clock, Settings } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -170,7 +170,7 @@ export function PraxisplanerHomePageContent() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Link to="/regeln">
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
@@ -221,6 +221,26 @@ export function PraxisplanerHomePageContent() {
               <p className="text-sm text-muted-foreground">
                 Patientenportal für die Online-Terminbuchung mit
                 Anamnese-Fragebogen
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="/hilfe">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CircleHelp className="h-5 w-5" />
+                Hotkeys Hilfe
+              </CardTitle>
+              <CardDescription>
+                Tastenkombinationen und Anzeigeformate
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Übersicht über Undo/Redo Shortcuts und platform-spezifische
+                Darstellung (macOS, Windows, Linux).
               </p>
             </CardContent>
           </Card>

@@ -852,17 +852,15 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
-          const existing =
-            appointmentDocMapRef.current.get(currentAppointmentId);
-          if (!existing) {
+          try {
+            await runDeleteAppointmentInternal({ id: currentAppointmentId });
+            return { status: "applied" };
+          } catch {
             return {
               message: "Der Termin wurde bereits entfernt.",
               status: "conflict",
             };
           }
-
-          await runDeleteAppointmentInternal({ id: currentAppointmentId });
-          return { status: "applied" };
         },
       });
 
@@ -1016,17 +1014,15 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Termin gelöscht",
         redo: async () => {
-          const existing =
-            appointmentDocMapRef.current.get(currentAppointmentId);
-          if (!existing) {
+          try {
+            await runDeleteAppointmentInternal({ id: currentAppointmentId });
+            return { status: "applied" };
+          } catch {
             return {
               message: "Der Termin ist bereits gelöscht.",
               status: "conflict",
             };
           }
-
-          await runDeleteAppointmentInternal({ id: currentAppointmentId });
-          return { status: "applied" };
         },
         undo: async () => {
           if (
@@ -1105,17 +1101,15 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
-          const existing =
-            blockedSlotDocMapRef.current.get(currentBlockedSlotId);
-          if (!existing) {
+          try {
+            await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+            return { status: "applied" };
+          } catch {
             return {
               message: "Die Sperrung wurde bereits entfernt.",
               status: "conflict",
             };
           }
-
-          await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
-          return { status: "applied" };
         },
       });
 
@@ -1271,17 +1265,15 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Sperrung gelöscht",
         redo: async () => {
-          const existing =
-            blockedSlotDocMapRef.current.get(currentBlockedSlotId);
-          if (!existing) {
+          try {
+            await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+            return { status: "applied" };
+          } catch {
             return {
               message: "Die Sperrung ist bereits gelöscht.",
               status: "conflict",
             };
           }
-
-          await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
-          return { status: "applied" };
         },
         undo: async () => {
           if (
