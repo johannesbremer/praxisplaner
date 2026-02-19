@@ -57,6 +57,7 @@ import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
+import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../hooks/use-local-history";
 import { useUndoRedoHotkeys } from "../hooks/use-undo-redo-hotkeys";
 import { isValidDateDE } from "../utils/date-utils";
@@ -145,6 +146,8 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const {
+    canRedo: canRedoRegelnHistoryAction,
+    canUndo: canUndoRegelnHistoryAction,
     clear: clearRegelnHistoryAction,
     pushAction: pushRegelnHistoryAction,
     redo: redoRegelnHistoryAction,
@@ -523,6 +526,28 @@ function LogicView() {
     onRedo: runRegelnRedo,
     onUndo: runRegelnUndo,
   });
+
+  const regelnUndoRedoControls = useMemo(
+    () =>
+      activeTab === "rule-management" &&
+      (canUndoRegelnHistoryAction || canRedoRegelnHistoryAction)
+        ? {
+            canRedo: canRedoRegelnHistoryAction,
+            canUndo: canUndoRegelnHistoryAction,
+            onRedo: runRegelnRedo,
+            onUndo: runRegelnUndo,
+          }
+        : null,
+    [
+      activeTab,
+      canRedoRegelnHistoryAction,
+      canUndoRegelnHistoryAction,
+      runRegelnRedo,
+      runRegelnUndo,
+    ],
+  );
+
+  useRegisterGlobalUndoRedoControls(regelnUndoRedoControls);
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed

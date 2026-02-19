@@ -9,6 +9,7 @@ import type { Appointment, NewCalendarProps } from "./types";
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
+import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
 import { useUndoRedoHotkeys } from "../../hooks/use-undo-redo-hotkeys";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -368,6 +369,8 @@ export function useCalendarLogic({
   );
 
   const {
+    canRedo: canRedoHistoryAction,
+    canUndo: canUndoHistoryAction,
     pushAction: pushHistoryAction,
     redo: redoHistoryAction,
     undo: undoHistoryAction,
@@ -501,6 +504,21 @@ export function useCalendarLogic({
     onRedo: runRedo,
     onUndo: runUndo,
   });
+
+  const calendarUndoRedoControls = useMemo(
+    () =>
+      canUndoHistoryAction || canRedoHistoryAction
+        ? {
+            canRedo: canRedoHistoryAction,
+            canUndo: canUndoHistoryAction,
+            onRedo: runRedo,
+            onUndo: runUndo,
+          }
+        : null,
+    [canRedoHistoryAction, canUndoHistoryAction, runRedo, runUndo],
+  );
+
+  useRegisterGlobalUndoRedoControls(calendarUndoRedoControls);
 
   // Mutations
   const createAppointmentMutation = useMutation(

@@ -3,15 +3,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
-import {
-  formatForDisplay,
-  formatKeyForDebuggingDisplay,
-  formatWithLabels,
-  normalizeHotkey,
-  parseHotkey,
-  useHotkey,
-  validateHotkey,
-} from "@tanstack/react-hotkeys";
+import { formatForDisplay } from "@tanstack/react-hotkeys";
 import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
@@ -65,11 +57,10 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { CalendarPlus, CircleHelp, Clock, Settings } from "lucide-react";
+import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -78,13 +69,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"; // Ensure this path is correct
+
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  UndoRedoControlsProvider,
+  useGlobalUndoRedoControls,
+} from "../hooks/use-global-undo-redo-controls";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -249,190 +238,14 @@ export function PraxisplanerHomePageContent() {
 }
 
 function RootComponent() {
-  const [isHotkeysHelpOpen, setIsHotkeysHelpOpen] = React.useState(false);
-  const parsedExample = parseHotkey("Mod+Shift+S");
-  const validationValid = validateHotkey("Alt+A");
-  const validationInvalid = validateHotkey("InvalidKey+S");
-
-  useHotkey(
-    { key: "?" },
-    (event) => {
-      if (event.repeat) {
-        return;
-      }
-
-      setIsHotkeysHelpOpen(true);
-    },
-    {
-      conflictBehavior: "replace",
-    },
-  );
-
   return (
     <RootDocument>
       <ThemeProvider defaultTheme="system" storageKey="praxisplaner-theme">
-        <PostHogWrapper>
-          <div className="min-h-screen">
-            <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-              <Button
-                aria-label="Hotkeys Hilfe öffnen"
-                onClick={() => {
-                  setIsHotkeysHelpOpen(true);
-                }}
-                size="icon"
-                variant="outline"
-              >
-                <CircleHelp className="h-4 w-4" />
-              </Button>
-              <ModeToggle />
-            </div>
-            <Outlet />
-
-            <Dialog
-              onOpenChange={setIsHotkeysHelpOpen}
-              open={isHotkeysHelpOpen}
-            >
-              <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Hotkeys Hilfe</DialogTitle>
-                  <DialogDescription>
-                    Kurzbefehle und Darstellung mit TanStack Hotkeys.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-6 text-sm">
-                  <section className="space-y-2">
-                    <h3 className="font-semibold">Kurzbefehle in dieser App</h3>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Rückgängig</span>
-                        <ShortcutBadge hotkey="Mod+Z" />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Wiederholen</span>
-                        <ShortcutBadge hotkey="Mod+Shift+Z" />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Wiederholen (Alt.)</span>
-                        <ShortcutBadge hotkey="Mod+Y" />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Hilfe öffnen</span>
-                        <ShortcutBadge hotkey="?" />
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-2">
-                    <h3 className="font-semibold">formatForDisplay</h3>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Mod+S</span>
-                        <ShortcutBadge hotkey="Mod+S" />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Mod+Shift+Z</span>
-                        <ShortcutBadge hotkey="Mod+Shift+Z" />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border p-3">
-                        <span>Control+Alt+D</span>
-                        <ShortcutBadge hotkey="Control+Alt+D" />
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-2">
-                    <h3 className="font-semibold">Labels und Debugging</h3>
-                    <div className="rounded-md border p-3">
-                      <div>
-                        <strong>formatWithLabels(Mod+S):</strong>{" "}
-                        {formatWithLabels("Mod+S")}
-                      </div>
-                      <div>
-                        <strong>formatWithLabels(Mod+Shift+Z):</strong>{" "}
-                        {formatWithLabels("Mod+Shift+Z")}
-                      </div>
-                    </div>
-                    <div className="rounded-md border p-3">
-                      <div>
-                        <strong>formatKeyForDebuggingDisplay(Meta):</strong>{" "}
-                        {formatKeyForDebuggingDisplay("Meta")}
-                      </div>
-                      <div>
-                        <strong>formatKeyForDebuggingDisplay(Shift):</strong>{" "}
-                        {formatKeyForDebuggingDisplay("Shift")}
-                      </div>
-                      <div>
-                        <strong>formatKeyForDebuggingDisplay(Control):</strong>{" "}
-                        {formatKeyForDebuggingDisplay("Control")}
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-2">
-                    <h3 className="font-semibold">
-                      Parsing, Normalisierung, Validation
-                    </h3>
-                    <div className="rounded-md border p-3 space-y-1">
-                      <div>
-                        <strong>parseHotkey(Mod+Shift+S)</strong>
-                      </div>
-                      <pre className="overflow-x-auto text-xs">
-                        {JSON.stringify(parsedExample, null, 2)}
-                      </pre>
-                    </div>
-                    <div className="rounded-md border p-3">
-                      <div>
-                        <strong>normalizeHotkey(Cmd+S):</strong>{" "}
-                        {normalizeHotkey("Cmd+S")}
-                      </div>
-                      <div>
-                        <strong>normalizeHotkey(Ctrl+Shift+s):</strong>{" "}
-                        {normalizeHotkey("Ctrl+Shift+s")}
-                      </div>
-                      <div>
-                        <strong>normalizeHotkey(Mod+S):</strong>{" "}
-                        {normalizeHotkey("Mod+S")}
-                      </div>
-                    </div>
-                    <div className="rounded-md border p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <strong>validateHotkey(Alt+A)</strong>
-                        <Badge
-                          variant={
-                            validationValid.valid ? "default" : "destructive"
-                          }
-                        >
-                          {validationValid.valid ? "valid" : "invalid"}
-                        </Badge>
-                      </div>
-                      {validationValid.warnings.map((warning) => (
-                        <div className="text-muted-foreground" key={warning}>
-                          {warning}
-                        </div>
-                      ))}
-                      <div className="flex items-center gap-2 pt-2">
-                        <strong>validateHotkey(InvalidKey+S)</strong>
-                        <Badge
-                          variant={
-                            validationInvalid.valid ? "default" : "destructive"
-                          }
-                        >
-                          {validationInvalid.valid ? "valid" : "invalid"}
-                        </Badge>
-                      </div>
-                      {validationInvalid.errors.map((error) => (
-                        <div className="text-destructive" key={error}>
-                          {error}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </PostHogWrapper>
+        <UndoRedoControlsProvider>
+          <PostHogWrapper>
+            <RootLayout />
+          </PostHogWrapper>
+        </UndoRedoControlsProvider>
       </ThemeProvider>
     </RootDocument>
   );
@@ -484,10 +297,47 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ShortcutBadge({ hotkey }: { hotkey: string }) {
+function RootLayout() {
+  const controls = useGlobalUndoRedoControls();
+
   return (
-    <kbd className="inline-flex min-w-16 items-center justify-center rounded-md border px-2 py-1 text-xs font-medium">
-      {formatForDisplay(hotkey)}
-    </kbd>
+    <div className="min-h-screen">
+      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
+        {controls ? (
+          <>
+            <Button
+              disabled={!controls.canUndo}
+              onClick={() => {
+                void controls.onUndo();
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Undo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Undo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Z")}
+              </kbd>
+            </Button>
+            <Button
+              disabled={!controls.canRedo}
+              onClick={() => {
+                void controls.onRedo();
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Redo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Redo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Y")}
+              </kbd>
+            </Button>
+          </>
+        ) : null}
+        <ModeToggle />
+      </div>
+      <Outlet />
+    </div>
   );
 }

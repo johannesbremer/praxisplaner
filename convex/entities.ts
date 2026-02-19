@@ -83,6 +83,59 @@ const replaceBaseScheduleSetResultValidator = v.object({
   ruleSetId: v.id("ruleSets"),
 });
 
+const practitionerBaseScheduleSnapshotValidator = v.object({
+  breakTimes: v.optional(
+    v.array(
+      v.object({
+        end: v.string(),
+        start: v.string(),
+      }),
+    ),
+  ),
+  dayOfWeek: v.number(),
+  endTime: v.string(),
+  locationId: v.id("locations"),
+  startTime: v.string(),
+});
+
+const practitionerSnapshotValidator = v.object({
+  id: v.id("practitioners"),
+  name: v.string(),
+  tags: v.optional(v.array(v.string())),
+});
+
+const practitionerAppointmentTypePatchValidator = v.object({
+  action: v.union(v.literal("delete"), v.literal("patch")),
+  afterAllowedPractitionerIds: v.array(v.id("practitioners")),
+  appointmentTypeId: v.id("appointmentTypes"),
+  beforeAllowedPractitionerIds: v.array(v.id("practitioners")),
+  duration: v.optional(v.number()),
+  name: v.optional(v.string()),
+});
+
+const practitionerConditionPatchValidator = v.object({
+  afterValueIds: v.array(v.string()),
+  beforeValueIds: v.array(v.string()),
+  conditionId: v.id("ruleConditions"),
+});
+
+const practitionerDependencySnapshotValidator = v.object({
+  appointmentTypePatches: v.array(practitionerAppointmentTypePatchValidator),
+  baseSchedules: v.array(practitionerBaseScheduleSnapshotValidator),
+  practitioner: practitionerSnapshotValidator,
+  practitionerConditionPatches: v.array(practitionerConditionPatchValidator),
+});
+
+const deletePractitionerWithDependenciesResultValidator = v.object({
+  ruleSetId: v.id("ruleSets"),
+  snapshot: practitionerDependencySnapshotValidator,
+});
+
+const restorePractitionerWithDependenciesResultValidator = v.object({
+  restoredPractitionerId: v.id("practitioners"),
+  ruleSetId: v.id("ruleSets"),
+});
+
 // ================================
 // SHARED HELPER FUNCTIONS
 // ================================
@@ -187,6 +240,43 @@ async function resolvePractitionerIdInRuleSet(
   }
 
   return practitionerCopy._id;
+}
+
+/**
+ * Resolve practitioner entity in the target unsaved rule set.
+ */
+async function resolvePractitionerEntityInRuleSet(
+  db: DatabaseReader,
+  practitionerId: Id<"practitioners">,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+) {
+  const practitionerEntity = await db.get("practitioners", practitionerId);
+  if (!practitionerEntity) {
+    throw new Error("Practitioner not found");
+  }
+  if (practitionerEntity.practiceId !== practiceId) {
+    throw new Error("Practitioner does not belong to this practice");
+  }
+
+  if (practitionerEntity.ruleSetId === ruleSetId) {
+    return practitionerEntity;
+  }
+
+  const practitionerCopy = await db
+    .query("practitioners")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", practitionerEntity._id).eq("ruleSetId", ruleSetId),
+    )
+    .first();
+
+  if (!practitionerCopy) {
+    throw new Error(
+      "Practitioner not found in unsaved rule set. This should not happen.",
+    );
+  }
+
+  return practitionerCopy;
 }
 
 /**
@@ -576,31 +666,12 @@ export const updatePractitioner = mutation({
       args.sourceRuleSetId,
     );
 
-    // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get("practitioners", args.practitionerId);
-    if (!entity) {
-      throw new Error("Practitioner not found");
-    }
-
-    // If it's already in the unsaved rule set, use it directly
-    // Otherwise, find the copy by parentId
-    let practitioner;
-    if (entity.ruleSetId === ruleSetId) {
-      practitioner = entity;
-    } else {
-      practitioner = await ctx.db
-        .query("practitioners")
-        .withIndex("by_parentId_ruleSetId", (q) =>
-          q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
-        )
-        .first();
-
-      if (!practitioner) {
-        throw new Error(
-          "Practitioner not found in unsaved rule set. This should not happen.",
-        );
-      }
-    }
+    const practitioner = await resolvePractitionerEntityInRuleSet(
+      ctx.db,
+      args.practitionerId,
+      args.practiceId,
+      ruleSetId,
+    );
 
     // Check name uniqueness if changing name
     if (args.name !== undefined && args.name !== practitioner.name) {
@@ -716,6 +787,343 @@ export const deletePractitioner = mutation({
     return { entityId: practitioner._id, ruleSetId };
   },
   returns: createResultValidator,
+});
+
+/**
+ * Delete a practitioner and dependent references atomically.
+ *
+ * This mutation snapshots and updates all practitioner references so undo can
+ * restore the previous state safely in a single transaction.
+ */
+export const deletePractitionerWithDependencies = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    practitionerId: v.id("practitioners"),
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+
+    const practitioner = await resolvePractitionerEntityInRuleSet(
+      ctx.db,
+      args.practitionerId,
+      args.practiceId,
+      ruleSetId,
+    );
+
+    const practitionerIdAsString = practitioner._id as string;
+    const now = BigInt(Date.now());
+
+    const baseSchedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId_practitionerId", (q) =>
+        q.eq("ruleSetId", ruleSetId).eq("practitionerId", practitioner._id),
+      )
+      .collect();
+
+    const baseScheduleSnapshots = baseSchedules.map((schedule) => ({
+      ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+      dayOfWeek: schedule.dayOfWeek,
+      endTime: schedule.endTime,
+      locationId: schedule.locationId,
+      startTime: schedule.startTime,
+    }));
+
+    const appointmentTypes = await ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+
+    const appointmentTypePatches: {
+      action: "delete" | "patch";
+      afterAllowedPractitionerIds: Id<"practitioners">[];
+      appointmentTypeId: Id<"appointmentTypes">;
+      beforeAllowedPractitionerIds: Id<"practitioners">[];
+      duration?: number;
+      name?: string;
+    }[] = appointmentTypes
+      .filter((appointmentType) =>
+        appointmentType.allowedPractitionerIds.includes(practitioner._id),
+      )
+      .map((appointmentType) => {
+        const afterAllowedPractitionerIds =
+          appointmentType.allowedPractitionerIds.filter(
+            (id) => id !== practitioner._id,
+          );
+        const action: "delete" | "patch" = "patch";
+
+        return {
+          action,
+          afterAllowedPractitionerIds,
+          appointmentTypeId: appointmentType._id,
+          beforeAllowedPractitionerIds: appointmentType.allowedPractitionerIds,
+        };
+      });
+
+    for (const patch of appointmentTypePatches) {
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        patch.appointmentTypeId,
+      );
+      if (appointmentType?.ruleSetId !== ruleSetId) {
+        throw new Error(
+          "Die Terminart wurde zwischenzeitlich geändert und kann nicht konsistent aktualisiert werden.",
+        );
+      }
+
+      await ctx.db.patch("appointmentTypes", appointmentType._id, {
+        allowedPractitionerIds: patch.afterAllowedPractitionerIds,
+        lastModified: now,
+      });
+    }
+
+    const ruleConditions = await ctx.db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+
+    const practitionerConditionPatches = ruleConditions.flatMap((condition) => {
+      if (
+        condition.nodeType !== "CONDITION" ||
+        condition.conditionType !== "PRACTITIONER"
+      ) {
+        return [];
+      }
+
+      const beforeValueIds = condition.valueIds ?? [];
+      if (!beforeValueIds.includes(practitionerIdAsString)) {
+        return [];
+      }
+
+      const afterValueIds = beforeValueIds.filter(
+        (valueId) => valueId !== practitionerIdAsString,
+      );
+
+      return [
+        {
+          afterValueIds,
+          beforeValueIds,
+          conditionId: condition._id,
+        },
+      ];
+    });
+
+    for (const patch of practitionerConditionPatches) {
+      const condition = await ctx.db.get("ruleConditions", patch.conditionId);
+      if (condition?.ruleSetId !== ruleSetId) {
+        throw new Error(
+          "Regelbedingungen wurden zwischenzeitlich geändert und können nicht konsistent aktualisiert werden.",
+        );
+      }
+
+      await ctx.db.patch("ruleConditions", condition._id, {
+        lastModified: now,
+        valueIds: patch.afterValueIds,
+      });
+    }
+
+    for (const schedule of baseSchedules) {
+      await ctx.db.delete("baseSchedules", schedule._id);
+    }
+
+    await ctx.db.delete("practitioners", practitioner._id);
+
+    return {
+      ruleSetId,
+      snapshot: {
+        appointmentTypePatches,
+        baseSchedules: baseScheduleSnapshots,
+        practitioner: {
+          id: practitioner._id,
+          name: practitioner.name,
+          ...(practitioner.tags && { tags: practitioner.tags }),
+        },
+        practitionerConditionPatches,
+      },
+    };
+  },
+  returns: deletePractitionerWithDependenciesResultValidator,
+});
+
+/**
+ * Restore a previously deleted practitioner and dependent references atomically.
+ */
+export const restorePractitionerWithDependencies = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    snapshot: practitionerDependencySnapshotValidator,
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+    const now = BigInt(Date.now());
+    const previousPractitionerId = args.snapshot.practitioner.id;
+    const previousPractitionerIdAsString = previousPractitionerId as string;
+
+    const duplicateName = await ctx.db
+      .query("practitioners")
+      .withIndex("by_ruleSetId_name", (q) =>
+        q
+          .eq("ruleSetId", ruleSetId)
+          .eq("name", args.snapshot.practitioner.name),
+      )
+      .first();
+    if (duplicateName) {
+      throw new Error(
+        `Der Arzt "${args.snapshot.practitioner.name}" kann nicht wiederhergestellt werden, weil bereits ein Arzt mit diesem Namen existiert.`,
+      );
+    }
+
+    const restoredPractitionerId = await ctx.db.insert("practitioners", {
+      name: args.snapshot.practitioner.name,
+      practiceId: args.practiceId,
+      ruleSetId,
+      ...(args.snapshot.practitioner.tags && {
+        tags: args.snapshot.practitioner.tags,
+      }),
+    });
+
+    for (const schedule of args.snapshot.baseSchedules) {
+      const resolvedLocationId = await resolveLocationIdInRuleSet(
+        ctx.db,
+        schedule.locationId,
+        args.practiceId,
+        ruleSetId,
+      );
+
+      await ctx.db.insert("baseSchedules", {
+        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        locationId: resolvedLocationId,
+        practiceId: args.practiceId,
+        practitionerId: restoredPractitionerId,
+        ruleSetId,
+        startTime: schedule.startTime,
+      });
+    }
+
+    for (const patch of args.snapshot.appointmentTypePatches) {
+      const restoredAllowedPractitionerIds =
+        patch.beforeAllowedPractitionerIds.map((practitionerId) =>
+          practitionerId === previousPractitionerId
+            ? restoredPractitionerId
+            : practitionerId,
+        );
+
+      if (restoredAllowedPractitionerIds.length === 0) {
+        throw new Error(
+          "Eine Terminart kann nicht ohne Behandler wiederhergestellt werden.",
+        );
+      }
+
+      for (const practitionerId of restoredAllowedPractitionerIds) {
+        if (practitionerId === restoredPractitionerId) {
+          continue;
+        }
+
+        const practitionerDoc = await ctx.db.get(
+          "practitioners",
+          practitionerId,
+        );
+        if (
+          practitionerDoc?.practiceId !== args.practiceId ||
+          practitionerDoc.ruleSetId !== ruleSetId
+        ) {
+          throw new Error(
+            "Die Terminart kann nicht vollständig wiederhergestellt werden, weil ein referenzierter Behandler fehlt.",
+          );
+        }
+      }
+
+      if (patch.action === "delete") {
+        const patchName = patch.name;
+        if (!patchName) {
+          throw new Error(
+            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlender Name).",
+          );
+        }
+        const patchDuration = patch.duration;
+        if (patchDuration === undefined) {
+          throw new Error(
+            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlende Dauer).",
+          );
+        }
+
+        const existingByName = await ctx.db
+          .query("appointmentTypes")
+          .withIndex("by_ruleSetId_name", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("name", patchName),
+          )
+          .first();
+        if (existingByName) {
+          throw new Error(
+            `Die Terminart "${patchName}" kann nicht wiederhergestellt werden, weil bereits eine Terminart mit diesem Namen existiert.`,
+          );
+        }
+
+        await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerIds: restoredAllowedPractitionerIds,
+          createdAt: now,
+          duration: patchDuration,
+          lastModified: now,
+          name: patchName,
+          practiceId: args.practiceId,
+          ruleSetId,
+        });
+        continue;
+      }
+
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        patch.appointmentTypeId,
+      );
+      if (appointmentType?.ruleSetId !== ruleSetId) {
+        throw new Error(
+          "Eine Terminart wurde zwischenzeitlich geändert und kann nicht wiederhergestellt werden.",
+        );
+      }
+
+      await ctx.db.patch("appointmentTypes", appointmentType._id, {
+        allowedPractitionerIds: restoredAllowedPractitionerIds,
+        lastModified: now,
+      });
+    }
+
+    for (const patch of args.snapshot.practitionerConditionPatches) {
+      const condition = await ctx.db.get("ruleConditions", patch.conditionId);
+      if (condition?.ruleSetId !== ruleSetId) {
+        throw new Error(
+          "Regelbedingungen wurden zwischenzeitlich geändert und können nicht wiederhergestellt werden.",
+        );
+      }
+
+      const restoredValueIds = patch.beforeValueIds.map((valueId) =>
+        valueId === previousPractitionerIdAsString
+          ? (restoredPractitionerId as string)
+          : valueId,
+      );
+
+      await ctx.db.patch("ruleConditions", condition._id, {
+        lastModified: now,
+        valueIds: restoredValueIds,
+      });
+    }
+
+    return {
+      restoredPractitionerId,
+      ruleSetId,
+    };
+  },
+  returns: restorePractitionerWithDependenciesResultValidator,
 });
 
 /**

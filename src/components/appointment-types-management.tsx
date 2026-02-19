@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,20 +64,20 @@ const formSchema = z.object({
     .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
 });
 
-const normalizeIds = (ids: Id<"practitioners">[]) => ids.toSorted();
+interface PractitionerHistorySnapshot {
+  id: Id<"practitioners">;
+  name: null | string;
+}
 
-const samePractitionerIds = (
-  left: Id<"practitioners">[],
-  right: Id<"practitioners">[],
-) => {
-  const leftSorted = normalizeIds(left);
-  const rightSorted = normalizeIds(right);
+const toSnapshotNames = (snapshots: PractitionerHistorySnapshot[]) =>
+  snapshots.map((snapshot) => snapshot.name ?? snapshot.id).toSorted();
 
-  if (leftSorted.length !== rightSorted.length) {
+const samePractitionerNames = (left: string[], right: string[]) => {
+  if (left.length !== right.length) {
     return false;
   }
 
-  return leftSorted.every((id, index) => id === rightSorted[index]);
+  return left.every((name, index) => name === right[index]);
 };
 
 export function AppointmentTypesManagement({
@@ -110,11 +110,93 @@ export function AppointmentTypesManagement({
     () => appointmentTypesQuery ?? [],
     [appointmentTypesQuery],
   );
-  const practitioners = practitionersQuery ?? [];
+  const practitioners = useMemo(
+    () => practitionersQuery ?? [],
+    [practitionersQuery],
+  );
   const appointmentTypesRef = useRef<AppointmentType[]>(appointmentTypes);
   useEffect(() => {
     appointmentTypesRef.current = appointmentTypes;
   }, [appointmentTypes]);
+  const practitionersRef = useRef<Doc<"practitioners">[]>(practitioners);
+  useEffect(() => {
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
+
+  const createPractitionerSnapshots = (
+    practitionerIds: Id<"practitioners">[],
+  ): PractitionerHistorySnapshot[] => {
+    const nameById = new Map(
+      practitionersRef.current.map((practitioner) => [
+        practitioner._id,
+        practitioner.name,
+      ]),
+    );
+
+    return practitionerIds.map((id) => ({
+      id,
+      name: nameById.get(id) ?? null,
+    }));
+  };
+
+  const practitionerNamesForCurrentIds = (
+    practitionerIds: Id<"practitioners">[],
+  ) => {
+    const nameById = new Map(
+      practitionersRef.current.map((practitioner) => [
+        practitioner._id,
+        practitioner.name,
+      ]),
+    );
+
+    return practitionerIds.map((id) => nameById.get(id) ?? id).toSorted();
+  };
+
+  const resolvePractitionerIdsFromSnapshots = (
+    snapshots: PractitionerHistorySnapshot[],
+  ):
+    | { ids: Id<"practitioners">[] }
+    | { message: string; status: "conflict" } => {
+    const resolvedIds: Id<"practitioners">[] = [];
+    const seen = new Set<Id<"practitioners">>();
+
+    for (const snapshot of snapshots) {
+      const directMatch = practitionersRef.current.find(
+        (practitioner) => practitioner._id === snapshot.id,
+      );
+      const byNameMatch =
+        !directMatch && snapshot.name
+          ? practitionersRef.current.find(
+              (practitioner) => practitioner.name === snapshot.name,
+            )
+          : undefined;
+      const resolvedPractitionerId = directMatch?._id ?? byNameMatch?._id;
+
+      if (!resolvedPractitionerId) {
+        return {
+          message:
+            snapshot.name === null
+              ? "Mindestens ein ausgewählter Behandler existiert nicht mehr."
+              : `Der Behandler "${snapshot.name}" existiert nicht mehr.`,
+          status: "conflict",
+        };
+      }
+
+      if (!seen.has(resolvedPractitionerId)) {
+        seen.add(resolvedPractitionerId);
+        resolvedIds.push(resolvedPractitionerId);
+      }
+    }
+
+    if (resolvedIds.length === 0) {
+      return {
+        message: "Mindestens ein Behandler muss ausgewählt werden.",
+        status: "conflict",
+      };
+    }
+
+    return { ids: resolvedIds };
+  };
 
   const form = useForm({
     defaultValues: {
@@ -127,6 +209,18 @@ export function AppointmentTypesManagement({
         const trimmedName = value.name.trim();
         const formPractitionerIds =
           value.practitionerIds as Id<"practitioners">[];
+        const formPractitionerSnapshots =
+          createPractitionerSnapshots(formPractitionerIds);
+        const resolvedFormPractitionerIds = resolvePractitionerIdsFromSnapshots(
+          formPractitionerSnapshots,
+        );
+
+        if ("status" in resolvedFormPractitionerIds) {
+          toast.error("Fehler beim Speichern", {
+            description: resolvedFormPractitionerIds.message,
+          });
+          return;
+        }
 
         if (editingAppointmentType) {
           const beforeState = {
@@ -137,8 +231,14 @@ export function AppointmentTypesManagement({
           const afterState = {
             duration: value.duration,
             name: trimmedName,
-            practitionerIds: formPractitionerIds,
+            practitionerIds: resolvedFormPractitionerIds.ids,
           };
+          const beforePractitionerSnapshots = createPractitionerSnapshots(
+            beforeState.practitionerIds,
+          );
+          const afterPractitionerSnapshots = createPractitionerSnapshots(
+            afterState.practitionerIds,
+          );
 
           // Update existing appointment type
           const { ruleSetId: newRuleSetId } =
@@ -147,7 +247,7 @@ export function AppointmentTypesManagement({
               duration: value.duration,
               name: trimmedName,
               practiceId,
-              practitionerIds: formPractitionerIds,
+              practitionerIds: afterState.practitionerIds,
               sourceRuleSetId: ruleSetId,
             });
 
@@ -161,9 +261,11 @@ export function AppointmentTypesManagement({
               if (
                 current?.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
-                !samePractitionerIds(
-                  current.allowedPractitionerIds,
-                  beforeState.practitionerIds,
+                !samePractitionerNames(
+                  practitionerNamesForCurrentIds(
+                    current.allowedPractitionerIds,
+                  ),
+                  toSnapshotNames(beforePractitionerSnapshots),
                 )
               ) {
                 return {
@@ -173,12 +275,18 @@ export function AppointmentTypesManagement({
                 };
               }
 
+              const resolvedRedoPractitionerIds =
+                resolvePractitionerIdsFromSnapshots(afterPractitionerSnapshots);
+              if ("status" in resolvedRedoPractitionerIds) {
+                return resolvedRedoPractitionerIds;
+              }
+
               await updateAppointmentTypeMutation({
                 appointmentTypeId: editingAppointmentType._id,
                 duration: afterState.duration,
                 name: afterState.name,
                 practiceId,
-                practitionerIds: afterState.practitionerIds,
+                practitionerIds: resolvedRedoPractitionerIds.ids,
                 sourceRuleSetId: newRuleSetId,
               });
 
@@ -192,9 +300,11 @@ export function AppointmentTypesManagement({
               if (
                 current?.name !== afterState.name ||
                 current.duration !== afterState.duration ||
-                !samePractitionerIds(
-                  current.allowedPractitionerIds,
-                  afterState.practitionerIds,
+                !samePractitionerNames(
+                  practitionerNamesForCurrentIds(
+                    current.allowedPractitionerIds,
+                  ),
+                  toSnapshotNames(afterPractitionerSnapshots),
                 )
               ) {
                 return {
@@ -204,12 +314,20 @@ export function AppointmentTypesManagement({
                 };
               }
 
+              const resolvedUndoPractitionerIds =
+                resolvePractitionerIdsFromSnapshots(
+                  beforePractitionerSnapshots,
+                );
+              if ("status" in resolvedUndoPractitionerIds) {
+                return resolvedUndoPractitionerIds;
+              }
+
               await updateAppointmentTypeMutation({
                 appointmentTypeId: editingAppointmentType._id,
                 duration: beforeState.duration,
                 name: beforeState.name,
                 practiceId,
-                practitionerIds: beforeState.practitionerIds,
+                practitionerIds: resolvedUndoPractitionerIds.ids,
                 sourceRuleSetId: newRuleSetId,
               });
 
@@ -236,7 +354,7 @@ export function AppointmentTypesManagement({
               duration: value.duration,
               name: trimmedName,
               practiceId,
-              practitionerIds: formPractitionerIds,
+              practitionerIds: resolvedFormPractitionerIds.ids,
               sourceRuleSetId: ruleSetId,
             });
 
@@ -260,7 +378,7 @@ export function AppointmentTypesManagement({
                 duration: value.duration,
                 name: trimmedName,
                 practiceId,
-                practitionerIds: formPractitionerIds,
+                practitionerIds: resolvedFormPractitionerIds.ids,
                 sourceRuleSetId: newRuleSetId,
               });
               currentAppointmentTypeId =
@@ -329,13 +447,27 @@ export function AppointmentTypesManagement({
   };
 
   const openEditDialog = (appointmentType: AppointmentType) => {
+    const availablePractitionerIds = new Set(
+      practitioners.map((practitioner) => practitioner._id),
+    );
+    const validPractitionerIds = appointmentType.allowedPractitionerIds.filter(
+      (practitionerId) => availablePractitionerIds.has(practitionerId),
+    );
+
     setEditingAppointmentType(appointmentType);
     form.setFieldValue("name", appointmentType.name);
     form.setFieldValue("duration", appointmentType.duration);
-    form.setFieldValue(
-      "practitionerIds",
-      appointmentType.allowedPractitionerIds,
-    );
+    form.setFieldValue("practitionerIds", validPractitionerIds);
+
+    if (
+      validPractitionerIds.length !==
+      appointmentType.allowedPractitionerIds.length
+    ) {
+      toast.info(
+        "Mindestens ein zuvor zugeordneter Behandler existiert nicht mehr und wurde entfernt.",
+      );
+    }
+
     setIsDialogOpen(true);
   };
 
@@ -346,6 +478,9 @@ export function AppointmentTypesManagement({
         name: appointmentType.name,
         practitionerIds: appointmentType.allowedPractitionerIds,
       };
+      const deletedPractitionerSnapshots = createPractitionerSnapshots(
+        deletedSnapshot.practitionerIds,
+      );
 
       const { ruleSetId: newRuleSetId } = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
@@ -387,11 +522,17 @@ export function AppointmentTypesManagement({
             };
           }
 
+          const resolvedUndoPractitionerIds =
+            resolvePractitionerIdsFromSnapshots(deletedPractitionerSnapshots);
+          if ("status" in resolvedUndoPractitionerIds) {
+            return resolvedUndoPractitionerIds;
+          }
+
           const recreateResult = await createAppointmentTypeMutation({
             duration: deletedSnapshot.duration,
             name: deletedSnapshot.name,
             practiceId,
-            practitionerIds: deletedSnapshot.practitionerIds,
+            practitionerIds: resolvedUndoPractitionerIds.ids,
             sourceRuleSetId: newRuleSetId,
           });
           currentAppointmentTypeId =

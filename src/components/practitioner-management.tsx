@@ -63,8 +63,12 @@ export default function PractitionerManagement({
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
-  const createMutation = useMutation(api.entities.createPractitioner);
-  const deleteMutation = useMutation(api.entities.deletePractitioner);
+  const deleteWithDependenciesMutation = useMutation(
+    api.entities.deletePractitionerWithDependencies,
+  );
+  const restoreWithDependenciesMutation = useMutation(
+    api.entities.restorePractitionerWithDependencies,
+  );
 
   const handleEdit = (practitioner: Doc<"practitioners">) => {
     setEditingPractitioner(practitioner);
@@ -77,64 +81,47 @@ export default function PractitionerManagement({
     }
 
     try {
-      const deletedPractitioner = practitionersRef.current.find(
-        (practitioner) => practitioner._id === practitionerId,
-      );
-
-      const { ruleSetId: newRuleSetId } = await deleteMutation({
+      const deleteResult = await deleteWithDependenciesMutation({
         practiceId,
         practitionerId,
         sourceRuleSetId: ruleSetId,
       });
+      const newRuleSetId = deleteResult.ruleSetId;
+      let currentSnapshot = deleteResult.snapshot;
+      let currentPractitionerId = currentSnapshot.practitioner.id;
+      onRegisterHistoryAction?.({
+        label: "Arzt gelöscht",
+        redo: async () => {
+          const existing = practitionersRef.current.find(
+            (practitioner) => practitioner._id === currentPractitionerId,
+          );
+          if (!existing) {
+            return {
+              message: "Der Arzt ist bereits gelöscht.",
+              status: "conflict" as const,
+            };
+          }
 
-      if (deletedPractitioner) {
-        let currentPractitionerId = deletedPractitioner._id;
-        onRegisterHistoryAction?.({
-          label: "Arzt gelöscht",
-          redo: async () => {
-            const existing = practitionersRef.current.find(
-              (practitioner) => practitioner._id === currentPractitionerId,
-            );
-            if (!existing) {
-              return {
-                message: "Der Arzt ist bereits gelöscht.",
-                status: "conflict" as const,
-              };
-            }
+          const redoResult = await deleteWithDependenciesMutation({
+            practiceId,
+            practitionerId: currentPractitionerId,
+            sourceRuleSetId: newRuleSetId,
+          });
+          currentSnapshot = redoResult.snapshot;
+          currentPractitionerId = currentSnapshot.practitioner.id;
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          const restoreResult = await restoreWithDependenciesMutation({
+            practiceId,
+            snapshot: currentSnapshot,
+            sourceRuleSetId: newRuleSetId,
+          });
+          currentPractitionerId = restoreResult.restoredPractitionerId;
 
-            await deleteMutation({
-              practiceId,
-              practitionerId: currentPractitionerId,
-              sourceRuleSetId: newRuleSetId,
-            });
-            return { status: "applied" as const };
-          },
-          undo: async () => {
-            const duplicate = practitionersRef.current.find(
-              (practitioner) => practitioner.name === deletedPractitioner.name,
-            );
-            if (duplicate) {
-              return {
-                message:
-                  "Der Arzt kann nicht wiederhergestellt werden, weil bereits ein Arzt mit diesem Namen existiert.",
-                status: "conflict" as const,
-              };
-            }
-
-            const recreateResult = await createMutation({
-              name: deletedPractitioner.name,
-              practiceId,
-              sourceRuleSetId: newRuleSetId,
-              ...(deletedPractitioner.tags && {
-                tags: deletedPractitioner.tags,
-              }),
-            });
-            currentPractitionerId =
-              recreateResult.entityId as Id<"practitioners">;
-            return { status: "applied" as const };
-          },
-        });
-      }
+          return { status: "applied" as const };
+        },
+      });
       toast.success("Arzt gelöscht");
 
       // Notify parent if rule set changed (new unsaved rule set was created)
