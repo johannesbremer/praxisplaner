@@ -204,10 +204,12 @@ export function CalendarSelectionStep({
       )
     : availableSlots;
 
-  // Sort slots by time
+  // Sort slots by time and keep only the first free slot for the selected day.
+  // This behavior is specific to /buchung.
   const sortedSlots = filteredSlots.toSorted(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
   );
+  const displayedSlots = sortedSlots[0] ? [sortedSlots[0]] : [];
 
   // Calculate booking window (e.g., next 4 weeks)
   const today = Temporal.Now.plainDateISO(TIMEZONE);
@@ -360,14 +362,14 @@ export function CalendarSelectionStep({
                     <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-10 w-full" />
                   </div>
-                ) : sortedSlots.length === 0 ? (
+                ) : displayedSlots.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     Keine Termine an diesem Tag verfügbar. Bitte wählen Sie ein
                     anderes Datum.
                   </p>
                 ) : (
                   <div className="grid gap-2 max-h-80 overflow-y-auto">
-                    {sortedSlots.map((slot) => {
+                    {displayedSlots.map((slot) => {
                       const isSelected =
                         selectedSlot?.startTime === slot.startTime &&
                         selectedSlot.practitionerId === slot.practitionerId;
