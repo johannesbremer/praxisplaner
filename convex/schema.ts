@@ -374,6 +374,8 @@ export default defineSchema({
     // Additional fields
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
+    cancelledAt: v.optional(v.int64()),
+    cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")), // Real patient from PVS
@@ -394,7 +396,8 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_userId_start", ["userId", "start"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)

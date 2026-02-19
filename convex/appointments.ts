@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -6,11 +7,37 @@ import type { DatabaseReader } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
+import {
+  ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQuery,
+} from "./userIdentity";
 
 type AppointmentDoc = Doc<"appointments">;
 type AppointmentScope = "all" | "real" | "simulation";
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
+
+function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
+  return appointment.cancelledAt !== undefined;
+}
+
+function isAppointmentInFuture(
+  appointment: AppointmentDoc,
+  nowEpochMilliseconds: number,
+): boolean {
+  try {
+    return (
+      Temporal.ZonedDateTime.from(appointment.start).epochMilliseconds >
+      nowEpochMilliseconds
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isVisibleAppointment(appointment: AppointmentDoc): boolean {
+  return !isAppointmentCancelled(appointment);
+}
 
 /**
  * Remaps entity IDs in blocked slots from source rule set to target rule set.
@@ -164,10 +191,13 @@ export const getAppointments = query({
   handler: async (ctx, args) => {
     const scope: AppointmentScope = args.scope ?? "real";
 
-    let appointments = await ctx.db
+    const appointmentDocs = await ctx.db
       .query("appointments")
       .order("asc")
       .collect();
+    let appointments = appointmentDocs.filter((appointment) =>
+      isVisibleAppointment(appointment),
+    );
 
     // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
     // from active rule set to selected rule set BEFORE combining with simulation data
@@ -250,7 +280,8 @@ export const getAppointmentsInRange = query({
 
     // Filter in code for end date (more efficient than .filter())
     const filteredAppointments = appointments.filter(
-      (a) => a.start <= args.end,
+      (appointment) =>
+        appointment.start <= args.end && isVisibleAppointment(appointment),
     );
 
     const scope: AppointmentScope = args.scope ?? "real";
@@ -428,6 +459,99 @@ export const deleteAppointment = mutation({
   returns: v.null(),
 });
 
+// Mutation for user self-service cancellation (soft-delete)
+export const cancelOwnAppointment = mutation({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await ensureAuthenticatedUserId(ctx);
+    const appointment = await ctx.db.get("appointments", args.appointmentId);
+
+    if (!appointment) {
+      throw new Error("Appointment not found");
+    }
+
+    if (appointment.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
+    if (appointment.isSimulation === true) {
+      throw new Error("Simulation appointments cannot be cancelled");
+    }
+
+    if (isAppointmentCancelled(appointment)) {
+      return null;
+    }
+
+    const nowEpochMilliseconds = Date.now();
+    if (!isAppointmentInFuture(appointment, nowEpochMilliseconds)) {
+      throw new Error("Only future appointments can be cancelled");
+    }
+
+    const now = BigInt(nowEpochMilliseconds);
+    await ctx.db.patch("appointments", args.appointmentId, {
+      cancelledAt: now,
+      cancelledByUserId: userId,
+      lastModified: now,
+    });
+
+    return null;
+  },
+  returns: v.null(),
+});
+
+// Query to get the authenticated user's next booked appointment (future only)
+export const getBookedAppointmentForCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!userId) {
+      return null;
+    }
+
+    const nowEpochMilliseconds = Date.now();
+    const userAppointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_userId_start", (q) => q.eq("userId", userId))
+      .collect();
+
+    const nextAppointment =
+      userAppointments
+        .filter(
+          (appointment) =>
+            appointment.isSimulation !== true &&
+            isVisibleAppointment(appointment) &&
+            isAppointmentInFuture(appointment, nowEpochMilliseconds),
+        )
+        .toSorted((a, b) => a.start.localeCompare(b.start))
+        .at(0) ?? null;
+
+    return nextAppointment;
+  },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("appointments"),
+      appointmentTypeId: v.id("appointmentTypes"),
+      appointmentTypeTitle: v.string(),
+      createdAt: v.int64(),
+      end: v.string(),
+      isSimulation: v.optional(v.boolean()),
+      lastModified: v.int64(),
+      locationId: v.id("locations"),
+      patientId: v.optional(v.id("patients")),
+      practiceId: v.id("practices"),
+      practitionerId: v.optional(v.id("practitioners")),
+      replacesAppointmentId: v.optional(v.id("appointments")),
+      start: v.string(),
+      title: v.string(),
+      userId: v.optional(v.id("users")),
+    }),
+    v.null(),
+  ),
+});
+
 // Query to get all appointments for a patient (past, present, and future)
 export const getAppointmentsForPatient = query({
   args: {
@@ -464,9 +588,9 @@ export const getAppointmentsForPatient = query({
       ...new Map(appointments.map((appt) => [appt._id, appt])).values(),
     ];
 
-    return uniqueAppointments.toSorted((a, b) =>
-      a.start.localeCompare(b.start),
-    );
+    return uniqueAppointments
+      .filter((appointment) => isVisibleAppointment(appointment))
+      .toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(
     v.object({

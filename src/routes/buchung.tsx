@@ -6,6 +6,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -56,6 +57,21 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "booking",
   "confirmation",
 ];
+
+const APPOINTMENT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", {
+  dateStyle: "full",
+  timeStyle: "short",
+});
+
+function formatAppointmentStart(start: string): string {
+  try {
+    const startEpochMilliseconds =
+      Temporal.ZonedDateTime.from(start).epochMilliseconds;
+    return APPOINTMENT_DATE_TIME_FORMATTER.format(startEpochMilliseconds);
+  } catch {
+    return start;
+  }
+}
 
 /**
  * Main booking page component.
@@ -167,6 +183,7 @@ function AuthenticatedBookingFlow() {
   const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
     null,
   );
+  const [isCancellingAppointment, setIsCancellingAppointment] = useState(false);
   const [sessionError, setSessionError] = useState<null | string>(null);
   const isCreatingSessionRef = useRef(false);
 
@@ -191,8 +208,15 @@ function AuthenticatedBookingFlow() {
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
+  const bookedAppointment = useQuery(
+    api.appointments.getBookedAppointmentForCurrentUser,
+    {},
+  );
 
   // Mutations
+  const cancelOwnAppointment = useMutation(
+    api.appointments.cancelOwnAppointment,
+  );
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
   const goBackMutation = useMutation(api.bookingSessions.goBack);
@@ -205,6 +229,7 @@ function AuthenticatedBookingFlow() {
       !resolvedSessionId &&
       !isCreatingSessionRef.current &&
       !sessionError &&
+      bookedAppointment === null &&
       existingSession !== undefined &&
       !existingSession
     ) {
@@ -234,6 +259,7 @@ function AuthenticatedBookingFlow() {
     sessionId,
     createSession,
     sessionError,
+    bookedAppointment,
     existingSession,
     resolvedSessionId,
   ]);
@@ -284,6 +310,47 @@ function AuthenticatedBookingFlow() {
     }
   }, [signOut]);
 
+  const handleCancelBookedAppointment = useCallback(async () => {
+    if (!bookedAppointment || isCancellingAppointment) {
+      return;
+    }
+
+    setIsCancellingAppointment(true);
+    try {
+      await cancelOwnAppointment({ appointmentId: bookedAppointment._id });
+
+      if (resolvedSessionId) {
+        try {
+          await removeSession({ sessionId: resolvedSessionId });
+        } catch (error) {
+          console.error(
+            "Failed to clear booking session after cancellation:",
+            error,
+          );
+        }
+      }
+
+      setSessionId(null);
+      toast.success("Termin wurde storniert");
+    } catch (error) {
+      console.error("Failed to cancel appointment:", error);
+      toast.error("Termin konnte nicht storniert werden", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Bitte versuchen Sie es erneut.",
+      });
+    } finally {
+      setIsCancellingAppointment(false);
+    }
+  }, [
+    bookedAppointment,
+    cancelOwnAppointment,
+    isCancellingAppointment,
+    removeSession,
+    resolvedSessionId,
+  ]);
+
   // Loading state
   if (!practicesQuery) {
     return (
@@ -329,6 +396,55 @@ function AuthenticatedBookingFlow() {
               kontaktieren Sie die Praxis telefonisch.
             </CardDescription>
           </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading state for upcoming appointment lookup
+  if (bookedAppointment === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-96">
+          <CardContent className="py-6">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Laden...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (bookedAppointment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle>Sie haben bereits einen gebuchten Termin</CardTitle>
+            <CardDescription>
+              Ihr nächster Termin ist am{" "}
+              {formatAppointmentStart(bookedAppointment.start)}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              className="w-full"
+              disabled={isCancellingAppointment}
+              onClick={() => void handleCancelBookedAppointment()}
+              variant="destructive"
+            >
+              {isCancellingAppointment ? "Storniere..." : "Termin stornieren"}
+            </Button>
+            <Button
+              className="w-full"
+              onClick={handleSignOut}
+              variant="outline"
+            >
+              Abmelden
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );
