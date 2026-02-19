@@ -42,18 +42,18 @@ import { modules } from "./test.setup";
  * Wrapper around convexTest that includes our modules.
  */
 function createTestContext() {
-  return convexTest(schema, modules);
+  return convexTest(schema, modules).withIdentity({
+    email: "ruleengine@example.com",
+    subject: "workos_ruleengine",
+  }) as ReturnType<typeof convexTest>;
 }
 
 /**
  * Helper to create a practice and return its ID.
  */
 async function createPractice(t: ReturnType<typeof convexTest>) {
-  return await t.run(async (ctx) => {
-    const practiceId = await ctx.db.insert("practices", {
-      name: "Test Practice",
-    });
-    return practiceId;
+  return await t.mutation(api.practices.createPractice, {
+    name: "Test Practice",
   });
 }
 

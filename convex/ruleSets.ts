@@ -13,6 +13,11 @@ import {
   getOrCreateUnsavedRuleSet,
   validateRuleSet,
 } from "./copyOnWrite";
+import {
+  ensurePracticeAccessForMutation,
+  ensurePracticeAccessForQuery,
+  ensureRuleSetAccessForQuery,
+} from "./practiceAccess";
 import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
 // ================================
@@ -417,6 +422,7 @@ export const saveUnsavedRuleSet = mutation({
     setAsActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const trimmedDescription = args.description.trim();
 
     // Get existing saved descriptions for validation
@@ -474,6 +480,7 @@ export const discardUnsavedRuleSet = mutation({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Find the unsaved rule set
     const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
 
@@ -505,6 +512,7 @@ export const getUnsavedRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     return await findUnsavedRuleSet(ctx.db, args.practiceId);
   },
   returns: v.union(
@@ -531,6 +539,7 @@ export const getSavedRuleSets = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     return await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId_saved", (q) =>
@@ -550,6 +559,7 @@ export const getAllRuleSets = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     return await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
@@ -565,6 +575,7 @@ export const getRuleSet = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db.get("ruleSets", args.ruleSetId);
   },
 });
@@ -578,6 +589,7 @@ export const setActiveRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Validate the rule set exists and belongs to practice
     const ruleSet = await validateRuleSet(
       ctx.db,
@@ -605,6 +617,7 @@ export const getActiveRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return null;
@@ -627,6 +640,7 @@ export const getVersionHistory = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const ruleSets = await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
@@ -667,6 +681,7 @@ export const deleteUnsavedRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
 
     if (!ruleSet) {
@@ -707,6 +722,7 @@ export const ensureUnsavedRuleSet = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     return await getOrCreateUnsavedRuleSet(
       ctx.db,
       args.practiceId,
@@ -726,6 +742,7 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
 
     if (!ruleSet) {

@@ -205,8 +205,13 @@ function LogicView() {
   const performClearSimulatedAppointments = useCallback(
     async (options: { silent?: boolean }) => {
       const { silent = false } = options;
+      if (!currentPractice) {
+        return 0;
+      }
       try {
-        const result = await deleteAllSimulatedDataMutation({});
+        const result = await deleteAllSimulatedDataMutation({
+          practiceId: currentPractice._id,
+        });
         const totalDeleted = result.total;
 
         if (!silent) {
@@ -243,7 +248,7 @@ function LogicView() {
         throw error;
       }
     },
-    [captureError, deleteAllSimulatedDataMutation],
+    [captureError, currentPractice, deleteAllSimulatedDataMutation],
   );
 
   const handleClearSimulatedAppointments = useCallback(async () => {

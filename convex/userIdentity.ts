@@ -4,20 +4,35 @@ import type {
   GenericQueryCtx,
 } from "convex/server";
 
+import { ConvexError } from "convex/values";
+
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+type AuthCtx = MutationCtx | QueryCtx;
+type AuthenticatedIdentity = NonNullable<
+  Awaited<ReturnType<MutationCtx["auth"]["getUserIdentity"]>>
+>;
 type MutationCtx = GenericMutationCtx<DataModel>;
 type QueryCtx = GenericQueryCtx<DataModel>;
 type Reader = GenericDatabaseReader<DataModel>;
 
+export async function ensureAuthenticatedIdentity(
+  ctx: AuthCtx,
+): Promise<AuthenticatedIdentity> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Authentication required",
+    });
+  }
+  return identity;
+}
+
 export async function ensureAuthenticatedUserId(
   ctx: MutationCtx,
 ): Promise<Id<"users">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Authentication required");
-  }
-
+  const identity = await ensureAuthenticatedIdentity(ctx);
   const authId = identity.subject;
   const existing = await findUserByAuthId(ctx.db, authId);
   if (existing) {

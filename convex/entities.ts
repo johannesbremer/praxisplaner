@@ -32,11 +32,17 @@ import {
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
 import {
+  ensurePracticeAccessForMutation,
+  ensurePracticeAccessForQuery,
+  ensureRuleSetAccessForQuery,
+} from "./practiceAccess";
+import {
   type ConditionTreeNode,
   conditionTreeNodeValidator,
   getTypedChildren,
   isLogicalNode,
 } from "./ruleEngine";
+import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
@@ -375,6 +381,8 @@ export const createAppointmentType = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -433,6 +441,8 @@ export const updateAppointmentType = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -535,6 +545,8 @@ export const deleteAppointmentType = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -590,6 +602,8 @@ export const getAppointmentTypes = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -613,6 +627,8 @@ export const createPractitioner = mutation({
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -659,6 +675,8 @@ export const updatePractitioner = mutation({
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -724,6 +742,8 @@ export const deletePractitioner = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -802,6 +822,8 @@ export const deletePractitionerWithDependencies = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
       args.practiceId,
@@ -959,6 +981,8 @@ export const restorePractitionerWithDependencies = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
       args.practiceId,
@@ -1134,6 +1158,8 @@ export const getPractitioners = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1156,6 +1182,8 @@ export const createLocation = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1200,6 +1228,8 @@ export const updateLocation = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1270,6 +1300,8 @@ export const deleteLocation = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1337,6 +1369,8 @@ export const getLocations = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1371,6 +1405,8 @@ export const createBaseSchedule = mutation({
     startTime: v.string(),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1471,6 +1507,8 @@ export const updateBaseSchedule = mutation({
     startTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1576,6 +1614,8 @@ export const deleteBaseSchedule = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -1638,6 +1678,8 @@ export const replaceBaseScheduleSet = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
       args.practiceId,
@@ -1757,6 +1799,8 @@ export const getBaseSchedules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1773,6 +1817,8 @@ export const getBaseSchedulesByPractitioner = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     return await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId_practitionerId", (q) =>
@@ -2110,6 +2156,8 @@ export const createRule = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -2187,6 +2235,8 @@ export const deleteRule = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -2254,6 +2304,8 @@ export const updateRule = mutation({
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     // Get or create unsaved rule set automatically
     const ruleSetId = await getOrCreateUnsavedRuleSet(
       ctx.db,
@@ -2376,6 +2428,8 @@ export const getRules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     // Get all root nodes (rules)
     const roots = await ctx.db
       .query("ruleConditions")
@@ -2436,6 +2490,8 @@ export const getPractitionersFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
@@ -2456,6 +2512,8 @@ export const getLocationsFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
@@ -2476,6 +2534,8 @@ export const getBaseSchedulesFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];
@@ -2496,6 +2556,8 @@ export const getAppointmentTypesFromActive = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return [];

@@ -461,6 +461,7 @@ export default defineSchema({
     lastModified: v.int64(),
   })
     .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_practiceId", ["practiceId"])
     .index("by_start", ["start"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
@@ -735,6 +736,20 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
+
+  /**
+   * Practice membership and role assignments.
+   * Roles are ordered by privilege: owner > admin > staff.
+   */
+  practiceMembers: defineTable({
+    createdAt: v.int64(),
+    practiceId: v.id("practices"),
+    role: v.union(v.literal("staff"), v.literal("admin"), v.literal("owner")),
+    userId: v.id("users"),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_userId", ["practiceId", "userId"])
+    .index("by_userId", ["userId"]),
 
   practitioners: defineTable({
     name: v.string(),

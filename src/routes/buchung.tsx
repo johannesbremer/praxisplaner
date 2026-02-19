@@ -170,9 +170,13 @@ function AuthenticatedBookingFlow() {
   );
   const [sessionError, setSessionError] = useState<null | string>(null);
   const isCreatingSessionRef = useRef(false);
+  const isInitializingPracticeRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
+  const initializeDefaultPractice = useMutation(
+    api.practices.initializeDefaultPractice,
+  );
   const currentPractice = practicesQuery?.[0];
 
   // Get active rule set for the practice
@@ -197,6 +201,24 @@ function AuthenticatedBookingFlow() {
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
   const goBackMutation = useMutation(api.bookingSessions.goBack);
+
+  useEffect(() => {
+    if (
+      !practicesQuery ||
+      practicesQuery.length > 0 ||
+      isInitializingPracticeRef.current
+    ) {
+      return;
+    }
+    isInitializingPracticeRef.current = true;
+    initializeDefaultPractice()
+      .catch((error: unknown) => {
+        console.error("Failed to initialize practice membership:", error);
+      })
+      .finally(() => {
+        isInitializingPracticeRef.current = false;
+      });
+  }, [initializeDefaultPractice, practicesQuery]);
 
   // Create session on mount
   useEffect(() => {
