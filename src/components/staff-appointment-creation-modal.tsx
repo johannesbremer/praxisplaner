@@ -102,6 +102,7 @@ export function StaffAppointmentCreationModal({
     open && appointmentTypeId && locationId
       ? {
           date: today.toString(),
+          limitToFirstAvailableSlot: true,
           practiceId,
           ruleSetId,
           simulatedContext: {

@@ -244,6 +244,7 @@ export const getAvailableDates = query({
 export const getSlotsForDay = query({
   args: {
     date: v.string(), // ISO date string for the specific day (e.g., "2025-10-21")
+    limitToFirstAvailableSlot: v.optional(v.boolean()),
     practiceId: v.id("practices"),
     ruleSetId: v.optional(v.id("ruleSets")),
     simulatedContext: simulatedContextValidator,
@@ -542,6 +543,35 @@ export const getSlotsForDay = query({
       log.push("No rule set active - all slots remain available");
     }
 
+    if (args.limitToFirstAvailableSlot) {
+      const availableSlots = candidateSlots
+        .filter((slot) => slot.status === "AVAILABLE")
+        .toSorted(
+          (slotA, slotB) =>
+            slotA.startTime.localeCompare(slotB.startTime) ||
+            slotA.practitionerId.localeCompare(slotB.practitionerId),
+        );
+
+      const firstAvailableSlot = availableSlots[0];
+      if (firstAvailableSlot) {
+        for (const slot of candidateSlots) {
+          if (
+            slot.status === "AVAILABLE" &&
+            (slot.startTime !== firstAvailableSlot.startTime ||
+              slot.practitionerId !== firstAvailableSlot.practitionerId)
+          ) {
+            slot.status = "BLOCKED";
+          }
+        }
+
+        log.push(
+          `Limited availability to first free slot: ${firstAvailableSlot.startTime} (${firstAvailableSlot.practitionerName ?? "Unknown Practitioner"})`,
+        );
+      } else {
+        log.push("No available slots to limit for first-free-slot mode");
+      }
+    }
+
     // Return final results
     const finalSlots: SchedulingResultSlot[] = candidateSlots.map((slot) => {
       const slotResult: SchedulingResultSlot = {
@@ -623,6 +653,9 @@ export const getSlotsForDay = query({
           slot.reason =
             ruleDescriptionCache.get(slot.blockedByRuleId) ||
             "Dieser Zeitfenster ist durch eine Regel blockiert.";
+        } else if (args.limitToFirstAvailableSlot) {
+          slot.reason =
+            "Für Mitarbeitende ist nur der erste freie Termin des Tages buchbar.";
         }
       }
     }

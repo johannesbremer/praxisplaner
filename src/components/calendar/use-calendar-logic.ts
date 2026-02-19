@@ -307,6 +307,7 @@ export function useCalendarLogic({
       ruleSetId
       ? {
           date: selectedDate.toString(),
+          limitToFirstAvailableSlot: true,
           practiceId,
           ruleSetId,
           simulatedContext,
@@ -318,6 +319,7 @@ export function useCalendarLogic({
           ruleSetId
         ? {
             date: selectedDate.toString(),
+            limitToFirstAvailableSlot: true,
             practiceId,
             ruleSetId,
             simulatedContext: createSimulatedContext({

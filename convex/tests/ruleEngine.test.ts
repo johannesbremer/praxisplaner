@@ -2936,6 +2936,61 @@ async function createBaseSchedule(
 }
 
 describe("E2E: Slot Generation with Rules", () => {
+  test("limitToFirstAvailableSlot exposes only the earliest free slot of the day", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+    const generalTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "General",
+      [practitionerId],
+    );
+
+    await createBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      practitionerId,
+      locationId,
+      1,
+      "08:00",
+      "09:00",
+    ); // Monday, 12 five-minute slots
+
+    const mondaySlots = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2025-10-27", // Monday
+      limitToFirstAvailableSlot: true,
+      practiceId,
+      ruleSetId,
+      simulatedContext: {
+        appointmentTypeId: generalTypeId,
+        locationId,
+        patient: { isNew: false },
+      },
+    });
+
+    const availableSlots = mondaySlots.slots.filter(
+      (slot) => slot.status === "AVAILABLE",
+    );
+    const blockedSlots = mondaySlots.slots.filter(
+      (slot) => slot.status === "BLOCKED",
+    );
+
+    expect(availableSlots).toHaveLength(1);
+    expect(blockedSlots.length).toBeGreaterThan(0);
+    expect(availableSlots[0]?.startTime).toContain("T08:00:00");
+  });
+
   test("DAY_OF_WEEK rule blocks all slots on Monday", async () => {
     const t = createTestContext();
 
