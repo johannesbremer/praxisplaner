@@ -608,6 +608,10 @@ async function hasValidStepEntryUserAssociation(
   ctx: QueryCtx,
   session: Doc<"bookingSessions">,
 ): Promise<boolean> {
+  // "Datenweitergabe" contacts are value objects (name/address/etc.) and
+  // intentionally do not reference users. The user ownership guarantee applies
+  // to the persisted step row itself (`booking*Steps.userId`), which must match
+  // the booking session owner.
   const tableName = STEP_TABLE_BY_STEP[session.state.step];
   if (!tableName) {
     return true;

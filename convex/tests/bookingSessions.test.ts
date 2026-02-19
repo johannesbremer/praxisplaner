@@ -351,7 +351,7 @@ describe("bookingSessions user identity handling", () => {
     expect(session).toBeNull();
   });
 
-  test("get returns null when current step entry is linked to another user", async () => {
+  test("get returns null when new data-sharing step row is linked to another user", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
       await createBookingEntities(t);
@@ -416,6 +416,143 @@ describe("bookingSessions user identity handling", () => {
 
     const session = await authed.query(api.bookingSessions.get, { sessionId });
     expect(session).toBeNull();
+  });
+
+  test("get returns null when existing data-sharing step row is linked to another user", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "step_row_owner_existing");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+    await authed.mutation(api.bookingSessions.selectExistingPatient, {
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.selectDoctor, {
+      practitionerId,
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("bookingSessions", sessionId);
+      if (!session) {
+        throw new Error("Expected booking session to exist");
+      }
+      if (session.state.step !== "existing-data-sharing") {
+        throw new Error("Expected session to be at existing-data-sharing");
+      }
+      const currentState = session.state;
+
+      const wrongUserId = await ctx.db.insert("users", {
+        authId: "workos_step_row_wrong_user_existing",
+        createdAt: BigInt(Date.now()),
+        email: "wrong-existing-user@example.com",
+      });
+
+      await ctx.db.insert("bookingExistingDataSharingSteps", {
+        createdAt: BigInt(Date.now()),
+        dataSharingContacts: makeDataSharingContacts(),
+        isNewPatient: false,
+        lastModified: BigInt(Date.now()),
+        locationId: currentState.locationId,
+        personalData: currentState.personalData,
+        practiceId: session.practiceId,
+        practitionerId: currentState.practitionerId,
+        ruleSetId: session.ruleSetId,
+        sessionId,
+        userId: wrongUserId,
+      });
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    expect(session).toBeNull();
+  });
+
+  test("getActiveForUser returns null when current step row is linked to another user", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "step_row_owner_active_query");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+    await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+    await authed.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "gkv",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.confirmGkvDetails, {
+      hzvStatus: "has-contract",
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: {
+        dateOfBirth: "1980-01-01",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("bookingSessions", sessionId);
+      if (!session) {
+        throw new Error("Expected booking session to exist");
+      }
+      if (session.state.step !== "new-data-sharing") {
+        throw new Error("Expected session to be at new-data-sharing");
+      }
+      const currentState = session.state;
+
+      const wrongUserId = await ctx.db.insert("users", {
+        authId: "workos_step_row_wrong_user_active_query",
+        createdAt: BigInt(Date.now()),
+        email: "wrong-active-query-user@example.com",
+      });
+
+      await ctx.db.insert("bookingNewDataSharingSteps", {
+        createdAt: BigInt(Date.now()),
+        dataSharingContacts: makeDataSharingContacts(),
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        lastModified: BigInt(Date.now()),
+        locationId: currentState.locationId,
+        personalData: currentState.personalData,
+        practiceId: session.practiceId,
+        ruleSetId: session.ruleSetId,
+        sessionId,
+        userId: wrongUserId,
+      });
+    });
+
+    const activeSession = await authed.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId,
+        ruleSetId,
+      },
+    );
+    expect(activeSession).toBeNull();
   });
 });
 
