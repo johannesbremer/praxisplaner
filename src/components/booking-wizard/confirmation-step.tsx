@@ -35,15 +35,17 @@ interface AppointmentConfirmationCardProps {
 
 interface BookedAppointmentSummaryProps {
   appointment: Doc<"appointments">;
+  onCancelled?: () => Promise<void> | void;
   practitionerName?: string;
 }
 
 export function BookedAppointmentSummary({
   appointment,
+  onCancelled,
   practitionerName,
 }: BookedAppointmentSummaryProps) {
   const { cancelAppointment, isCancelled, isCancelling } =
-    useAppointmentCancellation();
+    useAppointmentCancellation(onCancelled);
 
   const resolvedPractitionerName = practitionerName ?? "Behandlungsteam";
   const duration = getDurationMinutes(appointment.end, appointment.start);
@@ -65,9 +67,14 @@ export function BookedAppointmentSummary({
   );
 }
 
-export function ConfirmationStep({ state }: StepComponentProps) {
+export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
+  const returnToCalendarSelection = useMutation(
+    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+  );
   const { cancelAppointment, isCancelled, isCancelling } =
-    useAppointmentCancellation();
+    useAppointmentCancellation(async () => {
+      await returnToCalendarSelection({ sessionId });
+    });
 
   const selectedSlot =
     "selectedSlot" in state
@@ -296,7 +303,7 @@ function getDurationMinutes(endTime: string, startTime: string): number {
   return Math.max(1, duration);
 }
 
-function useAppointmentCancellation() {
+function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
   const cancelOwnAppointment = useMutation(
     api.appointments.cancelOwnAppointment,
   );
@@ -311,6 +318,9 @@ function useAppointmentCancellation() {
     setIsCancelling(true);
     try {
       await cancelOwnAppointment({ appointmentId });
+      if (onCancelled) {
+        await onCancelled();
+      }
       setIsCancelled(true);
       toast.success("Termin wurde storniert");
     } catch (error) {

@@ -1040,6 +1040,44 @@ export const goBack = mutation({
   returns: v.string(),
 });
 
+/**
+ * Move a confirmation session back to calendar selection after appointment cancellation.
+ * Keeps the previously entered data and clears confirmation-only fields.
+ */
+export const returnToCalendarSelectionAfterCancellation = mutation({
+  args: { sessionId: v.id("bookingSessions") },
+  handler: async (ctx, args) => {
+    const session = await getVerifiedSession(ctx, args.sessionId);
+    const state = session.state;
+
+    let targetStep: BookingSessionState["step"] | null = null;
+    if (state.step === "new-confirmation") {
+      targetStep = "new-calendar-selection";
+    } else if (state.step === "existing-confirmation") {
+      targetStep = "existing-calendar-selection";
+    }
+
+    if (!targetStep) {
+      throw new Error(
+        `Cannot return to calendar selection from step '${state.step}'`,
+      );
+    }
+
+    const targetState = sanitizeState(targetStep, {
+      ...state,
+      step: targetStep,
+    } as BookingSessionState);
+
+    await ctx.db.patch("bookingSessions", args.sessionId, {
+      state: targetState,
+    });
+
+    await refreshSession(ctx, args.sessionId);
+    return null;
+  },
+  returns: v.null(),
+});
+
 // ============================================================================
 // STEP TRANSITIONS - MAIN FLOW
 // ============================================================================

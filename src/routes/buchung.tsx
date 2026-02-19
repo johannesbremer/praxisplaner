@@ -204,6 +204,9 @@ function AuthenticatedBookingFlow() {
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
+  const returnToCalendarSelectionAfterCancellation = useMutation(
+    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+  );
   const goBackMutation = useMutation(api.bookingSessions.goBack);
 
   // Create session on mount
@@ -368,12 +371,27 @@ function AuthenticatedBookingFlow() {
             practitioner._id === bookedAppointment.practitionerId,
         )?.name
       : undefined;
+    const handleBookedAppointmentCancelled = async () => {
+      if (
+        !resolvedSessionId ||
+        !session ||
+        (session.state.step !== "existing-confirmation" &&
+          session.state.step !== "new-confirmation")
+      ) {
+        return;
+      }
+
+      await returnToCalendarSelectionAfterCancellation({
+        sessionId: resolvedSessionId,
+      });
+    };
 
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-2xl space-y-3">
           <BookedAppointmentSummary
             appointment={bookedAppointment}
+            onCancelled={handleBookedAppointmentCancelled}
             {...(practitionerName ? { practitionerName } : {})}
           />
           <Button className="w-full" onClick={handleSignOut} variant="outline">
