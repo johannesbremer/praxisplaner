@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { RefreshCw, Save, Trash2 } from "lucide-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -145,6 +145,7 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const {
+    clear: clearRegelnHistoryAction,
     pushAction: pushRegelnHistoryAction,
     redo: redoRegelnHistoryAction,
     undo: undoRegelnHistoryAction,
@@ -429,6 +430,17 @@ function LogicView() {
     () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
     [unsavedRuleSet, selectedRuleSet, activeRuleSet],
   );
+  const historyScopeKey = `${activeTab}:${currentWorkingRuleSet?._id ?? "none"}:${unsavedRuleSet ? "unsaved" : "saved"}`;
+  const lastHistoryScopeRef = useRef(historyScopeKey);
+
+  React.useEffect(() => {
+    if (lastHistoryScopeRef.current === historyScopeKey) {
+      return;
+    }
+
+    clearRegelnHistoryAction();
+    lastHistoryScopeRef.current = historyScopeKey;
+  }, [clearRegelnHistoryAction, historyScopeKey]);
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed

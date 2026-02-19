@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface LocalHistoryAction {
   label: string;
@@ -22,6 +22,7 @@ interface LocalHistoryState {
 }
 
 interface UseLocalHistoryOptions {
+  maxDepth?: number;
   onConflict?: (action: LocalHistoryAction, result: LocalHistoryResult) => void;
   onError?: (
     action: LocalHistoryAction,
@@ -41,13 +42,21 @@ const DEFAULT_STATE: LocalHistoryState = {
   isRunning: false,
 };
 
+const EMPTY_OPTIONS: UseLocalHistoryOptions = {};
 const DEFAULT_ERROR_MESSAGE = "Aktion konnte nicht ausgeführt werden.";
+const DEFAULT_MAX_DEPTH = 100;
 
-export function useLocalHistory(options: UseLocalHistoryOptions = {}) {
+export function useLocalHistory(options?: UseLocalHistoryOptions) {
+  const resolvedOptions = options ?? EMPTY_OPTIONS;
+  const optionsRef = useRef(resolvedOptions);
   const historyRef = useRef<LocalHistoryAction[]>([]);
   const redoRef = useRef<LocalHistoryAction[]>([]);
   const isRunningRef = useRef(false);
   const [state, setState] = useState<LocalHistoryState>(DEFAULT_STATE);
+
+  useEffect(() => {
+    optionsRef.current = resolvedOptions;
+  }, [resolvedOptions]);
 
   const syncState = useCallback(() => {
     setState({
@@ -59,7 +68,13 @@ export function useLocalHistory(options: UseLocalHistoryOptions = {}) {
 
   const pushAction = useCallback(
     (action: LocalHistoryAction) => {
-      historyRef.current = [...historyRef.current, action];
+      const maxDepthRaw = optionsRef.current.maxDepth ?? DEFAULT_MAX_DEPTH;
+      const maxDepth =
+        Number.isFinite(maxDepthRaw) && maxDepthRaw > 0
+          ? Math.floor(maxDepthRaw)
+          : DEFAULT_MAX_DEPTH;
+      const nextHistory = [...historyRef.current, action];
+      historyRef.current = nextHistory.slice(-maxDepth);
       redoRef.current = [];
       syncState();
     },
@@ -97,14 +112,14 @@ export function useLocalHistory(options: UseLocalHistoryOptions = {}) {
         if (result.status === "applied" || result.status === "noop") {
           from.current = from.current.slice(0, -1);
           to.current = [...to.current, action];
-          options.onSuccess?.(action, operation, result);
+          optionsRef.current.onSuccess?.(action, operation, result);
         } else {
-          options.onConflict?.(action, result);
+          optionsRef.current.onConflict?.(action, result);
         }
 
         return result;
       } catch (error) {
-        options.onError?.(action, operation, error);
+        optionsRef.current.onError?.(action, operation, error);
         return {
           message:
             error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE,
@@ -115,7 +130,7 @@ export function useLocalHistory(options: UseLocalHistoryOptions = {}) {
         syncState();
       }
     },
-    [options, syncState],
+    [syncState],
   );
 
   const undo = useCallback(
