@@ -9,6 +9,8 @@ export interface LocalHistoryAction {
 }
 
 export interface LocalHistoryResult {
+  canRedoAfter?: boolean;
+  canUndoAfter?: boolean;
   message?: string;
   status: LocalHistoryStatus;
 }
@@ -45,13 +47,15 @@ const DEFAULT_STATE: LocalHistoryState = {
 const EMPTY_OPTIONS: UseLocalHistoryOptions = {};
 const DEFAULT_ERROR_MESSAGE = "Aktion konnte nicht ausgeführt werden.";
 const DEFAULT_MAX_DEPTH = 100;
+const clearQueueResult = () => null;
 
 export function useLocalHistory(options?: UseLocalHistoryOptions) {
   const resolvedOptions = options ?? EMPTY_OPTIONS;
   const optionsRef = useRef(resolvedOptions);
   const historyRef = useRef<LocalHistoryAction[]>([]);
   const redoRef = useRef<LocalHistoryAction[]>([]);
-  const isRunningRef = useRef(false);
+  const queuedOperationCountRef = useRef(0);
+  const operationQueueRef = useRef(Promise.resolve<null>(null));
   const [state, setState] = useState<LocalHistoryState>(DEFAULT_STATE);
 
   useEffect(() => {
@@ -62,7 +66,7 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
     setState({
       canRedo: redoRef.current.length > 0,
       canUndo: historyRef.current.length > 0,
-      isRunning: isRunningRef.current,
+      isRunning: queuedOperationCountRef.current > 0,
     });
   }, []);
 
@@ -88,47 +92,62 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
   }, [syncState]);
 
   const execute = useCallback(
-    async (
+    (
       operation: "redo" | "undo",
       from: RefObject<LocalHistoryAction[]>,
       to: RefObject<LocalHistoryAction[]>,
     ): Promise<LocalHistoryResult> => {
-      if (isRunningRef.current) {
-        return { status: "noop" };
-      }
-
-      const action = from.current.at(-1);
-      if (!action) {
-        return { status: "noop" };
-      }
-
-      isRunningRef.current = true;
+      queuedOperationCountRef.current += 1;
       syncState();
 
-      try {
-        const rawResult = await action[operation]();
-        const result = toResult(rawResult);
-
-        if (result.status === "applied" || result.status === "noop") {
-          from.current = from.current.slice(0, -1);
-          to.current = [...to.current, action];
-          optionsRef.current.onSuccess?.(action, operation, result);
-        } else {
-          optionsRef.current.onConflict?.(action, result);
+      const executeOperation = async (): Promise<LocalHistoryResult> => {
+        const action = from.current.at(-1);
+        if (!action) {
+          return withHistoryState({ status: "noop" }, historyRef, redoRef);
         }
 
-        return result;
-      } catch (error) {
-        optionsRef.current.onError?.(action, operation, error);
-        return {
-          message:
-            error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE,
-          status: "conflict",
-        };
-      } finally {
-        isRunningRef.current = false;
+        try {
+          const rawResult = await action[operation]();
+          const result = toResult(rawResult);
+
+          if (result.status === "applied") {
+            from.current = from.current.slice(0, -1);
+            to.current = [...to.current, action];
+            optionsRef.current.onSuccess?.(action, operation, result);
+          } else if (result.status === "conflict") {
+            optionsRef.current.onConflict?.(action, result);
+          } else {
+            optionsRef.current.onSuccess?.(action, operation, result);
+          }
+
+          return withHistoryState(result, historyRef, redoRef);
+        } catch (error) {
+          optionsRef.current.onError?.(action, operation, error);
+          return withHistoryState(
+            {
+              message:
+                error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE,
+              status: "conflict",
+            },
+            historyRef,
+            redoRef,
+          );
+        }
+      };
+
+      const queued = operationQueueRef.current.then(executeOperation);
+      operationQueueRef.current = queued.then(
+        clearQueueResult,
+        clearQueueResult,
+      );
+
+      return queued.finally(() => {
+        queuedOperationCountRef.current = Math.max(
+          0,
+          queuedOperationCountRef.current - 1,
+        );
         syncState();
-      }
+      });
     },
     [syncState],
   );
@@ -162,5 +181,17 @@ function toResult(result: LocalHistoryResult): LocalHistoryResult {
   return {
     message: result.message ?? DEFAULT_ERROR_MESSAGE,
     status: "conflict",
+  };
+}
+
+function withHistoryState(
+  result: LocalHistoryResult,
+  historyRef: RefObject<LocalHistoryAction[]>,
+  redoRef: RefObject<LocalHistoryAction[]>,
+): LocalHistoryResult {
+  return {
+    ...result,
+    canRedoAfter: redoRef.current.length > 0,
+    canUndoAfter: historyRef.current.length > 0,
   };
 }

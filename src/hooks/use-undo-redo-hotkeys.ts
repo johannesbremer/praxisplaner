@@ -11,41 +11,47 @@ export function useUndoRedoHotkeys({
   onRedo,
   onUndo,
 }: UseUndoRedoHotkeysOptions) {
-  const conflictBehavior = enabled ? "replace" : "allow";
+  const conflictBehavior = "replace";
 
   useHotkey(
     "Mod+Z",
-    () => {
+    (event) => {
+      if (event.repeat) {
+        return;
+      }
       void onUndo();
     },
     {
       conflictBehavior,
       enabled,
-      requireReset: true,
     },
   );
 
   useHotkey(
     "Mod+Shift+Z",
-    () => {
+    (event) => {
+      if (event.repeat) {
+        return;
+      }
       void onRedo();
     },
     {
       conflictBehavior,
       enabled,
-      requireReset: true,
     },
   );
 
   useHotkey(
     "Mod+Y",
-    () => {
+    (event) => {
+      if (event.repeat) {
+        return;
+      }
       void onRedo();
     },
     {
       conflictBehavior,
       enabled,
-      requireReset: true,
     },
   );
 }

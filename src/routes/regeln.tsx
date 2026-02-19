@@ -151,32 +151,6 @@ function LogicView() {
     undo: undoRegelnHistoryAction,
   } = useLocalHistory();
 
-  const runRegelnUndo = useCallback(async () => {
-    const result = await undoRegelnHistoryAction();
-    if (result.status === "conflict") {
-      toast.error("Änderung konnte nicht rückgängig gemacht werden", {
-        description: result.message,
-      });
-      return;
-    }
-    if (result.status === "applied") {
-      toast.success("Änderung rückgängig gemacht");
-    }
-  }, [undoRegelnHistoryAction]);
-
-  const runRegelnRedo = useCallback(async () => {
-    const result = await redoRegelnHistoryAction();
-    if (result.status === "conflict") {
-      toast.error("Änderung konnte nicht wiederhergestellt werden", {
-        description: result.message,
-      });
-      return;
-    }
-    if (result.status === "applied") {
-      toast.success("Änderung wiederhergestellt");
-    }
-  }, [redoRegelnHistoryAction]);
-
   const registerRegelnHistoryAction = useCallback(
     (action: LocalHistoryAction) => {
       pushRegelnHistoryAction(action);
@@ -334,6 +308,12 @@ function LogicView() {
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
   );
+  const discardUnsavedIfEquivalentMutation = useMutation(
+    api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+  );
+  const ensureUnsavedRuleSetMutation = useMutation(
+    api.ruleSets.ensureUnsavedRuleSet,
+  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -357,6 +337,7 @@ function LogicView() {
       _id: rawUnsaved._id,
       description: rawUnsaved.description,
       isActive: currentPractice.currentActiveRuleSetId === rawUnsaved._id,
+      parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
   }, [
@@ -413,12 +394,6 @@ function LogicView() {
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
 
-  useUndoRedoHotkeys({
-    enabled: activeTab === "rule-management",
-    onRedo: runRegelnRedo,
-    onUndo: runRegelnUndo,
-  });
-
   // Determine current working rule set based on the properly computed ruleSetIdFromUrl
   const selectedRuleSet = useMemo(
     () => ruleSetsWithActive?.find((rs) => rs._id === ruleSetIdFromUrl),
@@ -430,7 +405,9 @@ function LogicView() {
     () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
     [unsavedRuleSet, selectedRuleSet, activeRuleSet],
   );
-  const historyScopeKey = `${activeTab}:${currentWorkingRuleSet?._id ?? "none"}:${unsavedRuleSet ? "unsaved" : "saved"}`;
+  const historyScopeRootRuleSetId =
+    unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? "none";
+  const historyScopeKey = `${activeTab}:${historyScopeRootRuleSetId}`;
   const lastHistoryScopeRef = useRef(historyScopeKey);
 
   React.useEffect(() => {
@@ -441,6 +418,111 @@ function LogicView() {
     clearRegelnHistoryAction();
     lastHistoryScopeRef.current = historyScopeKey;
   }, [clearRegelnHistoryAction, historyScopeKey]);
+
+  const runRegelnUndo = useCallback(async () => {
+    const result = await undoRegelnHistoryAction();
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht rückgängig gemacht werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung rückgängig gemacht");
+    }
+
+    if (
+      result.status !== "applied" ||
+      result.canUndoAfter ||
+      activeTab !== "rule-management" ||
+      !currentPractice ||
+      !unsavedRuleSet
+    ) {
+      return;
+    }
+
+    try {
+      const discardResult = await discardUnsavedIfEquivalentMutation({
+        practiceId: currentPractice._id,
+        ruleSetId: unsavedRuleSet._id,
+      });
+
+      if (!discardResult.deleted || !discardResult.parentRuleSetId) {
+        return;
+      }
+
+      setUnsavedRuleSetId(null);
+      pushUrl({ ruleSetId: discardResult.parentRuleSetId });
+    } catch (error: unknown) {
+      captureError(error, {
+        context: "ruleset_auto_discard_after_undo",
+        practiceId: currentPractice._id,
+        ruleSetId: unsavedRuleSet._id,
+      });
+    }
+  }, [
+    activeTab,
+    captureError,
+    currentPractice,
+    discardUnsavedIfEquivalentMutation,
+    pushUrl,
+    undoRegelnHistoryAction,
+    unsavedRuleSet,
+  ]);
+
+  const runRegelnRedo = useCallback(async () => {
+    let result = await redoRegelnHistoryAction();
+    const shouldRecoverMissingSource =
+      result.status === "conflict" &&
+      result.message?.includes("Source rule set not found") &&
+      activeTab === "rule-management" &&
+      !unsavedRuleSet &&
+      currentPractice &&
+      currentWorkingRuleSet;
+
+    if (shouldRecoverMissingSource) {
+      try {
+        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+        setUnsavedRuleSetId(ensuredRuleSetId);
+        pushUrl({ ruleSetId: ensuredRuleSetId });
+        result = await redoRegelnHistoryAction();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "ruleset_ensure_unsaved_before_redo",
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+      }
+    }
+
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht wiederhergestellt werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung wiederhergestellt");
+    }
+  }, [
+    activeTab,
+    captureError,
+    currentPractice,
+    currentWorkingRuleSet,
+    ensureUnsavedRuleSetMutation,
+    pushUrl,
+    redoRegelnHistoryAction,
+    unsavedRuleSet,
+  ]);
+
+  useUndoRedoHotkeys({
+    enabled: activeTab === "rule-management",
+    onRedo: runRegelnRedo,
+    onUndo: runRegelnUndo,
+  });
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed

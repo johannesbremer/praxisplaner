@@ -5,10 +5,14 @@ import type {
 
 import { v } from "convex/values";
 
-import type { DataModel, Id } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
-import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+import {
+  findUnsavedRuleSet,
+  getOrCreateUnsavedRuleSet,
+  validateRuleSet,
+} from "./copyOnWrite";
 import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
 // ================================
@@ -136,6 +140,151 @@ async function deleteBaseSchedulesByRuleSet(
 /**
  * Delete rule conditions by ruleSetId in batches.
  */
+interface CanonicalRuleConditionNode {
+  childOrder: number;
+  children: CanonicalRuleConditionNode[];
+  conditionType: null | string;
+  enabled: boolean | null;
+  nodeType: null | string;
+  operator: null | string;
+  scope: null | string;
+  valueIds: null | string[];
+  valueNumber: null | number;
+}
+
+interface RuleSetCanonicalSnapshot {
+  appointmentTypes: string[];
+  baseSchedules: string[];
+  locations: string[];
+  practitioners: string[];
+  rules: string[];
+}
+
+async function buildRuleSetCanonicalSnapshot(
+  db: DatabaseReader,
+  ruleSetId: Id<"ruleSets">,
+): Promise<RuleSetCanonicalSnapshot> {
+  const [appointmentTypes, baseSchedules, locations, practitioners, rules] =
+    await Promise.all([
+      db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      db
+        .query("locations")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      db
+        .query("practitioners")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      db
+        .query("ruleConditions")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+    ]);
+
+  const practitionerNameById = new Map(
+    practitioners.map((practitioner) => [practitioner._id, practitioner.name]),
+  );
+  const locationNameById = new Map(
+    locations.map((location) => [location._id, location.name]),
+  );
+  const appointmentTypeNameById = new Map(
+    appointmentTypes.map((appointmentType) => [
+      appointmentType._id,
+      appointmentType.name,
+    ]),
+  );
+
+  const canonicalPractitioners = practitioners
+    .map((practitioner) =>
+      JSON.stringify({
+        name: practitioner.name,
+        tags: toSortedStrings(practitioner.tags ?? []),
+      }),
+    )
+    .toSorted();
+
+  const canonicalLocations = locations
+    .map((location) => JSON.stringify({ name: location.name }))
+    .toSorted();
+
+  const canonicalAppointmentTypes = appointmentTypes
+    .map((appointmentType) =>
+      JSON.stringify({
+        allowedPractitioners: toSortedStrings(
+          appointmentType.allowedPractitionerIds.map(
+            (id) => practitionerNameById.get(id) ?? id,
+          ),
+        ),
+        duration: appointmentType.duration,
+        name: appointmentType.name,
+      }),
+    )
+    .toSorted();
+
+  const canonicalBaseSchedules = baseSchedules
+    .map((baseSchedule) =>
+      JSON.stringify({
+        breakTimes: normalizeBreakTimes(baseSchedule.breakTimes),
+        dayOfWeek: baseSchedule.dayOfWeek,
+        endTime: baseSchedule.endTime,
+        locationName:
+          locationNameById.get(baseSchedule.locationId) ??
+          baseSchedule.locationId,
+        practitionerName:
+          practitionerNameById.get(baseSchedule.practitionerId) ??
+          baseSchedule.practitionerId,
+        startTime: baseSchedule.startTime,
+      }),
+    )
+    .toSorted();
+
+  const childrenByParentId = new Map<
+    Id<"ruleConditions">,
+    Doc<"ruleConditions">[]
+  >();
+  for (const rule of rules) {
+    if (!rule.parentConditionId) {
+      continue;
+    }
+    const siblings = childrenByParentId.get(rule.parentConditionId) ?? [];
+    siblings.push(rule);
+    childrenByParentId.set(rule.parentConditionId, siblings);
+  }
+
+  const rootRules = rules
+    .filter((rule) => rule.isRoot && !rule.parentConditionId)
+    .toSorted((a, b) => a._id.localeCompare(b._id));
+
+  const canonicalRules = rootRules
+    .map((rootRule) =>
+      JSON.stringify(
+        serializeRuleConditionTree(
+          rootRule,
+          childrenByParentId,
+          appointmentTypeNameById,
+          locationNameById,
+          practitionerNameById,
+        ),
+      ),
+    )
+    .toSorted();
+
+  return {
+    appointmentTypes: canonicalAppointmentTypes,
+    baseSchedules: canonicalBaseSchedules,
+    locations: canonicalLocations,
+    practitioners: canonicalPractitioners,
+    rules: canonicalRules,
+  };
+}
+
 async function deleteRuleConditionsByRuleSet(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
@@ -155,6 +304,97 @@ async function deleteRuleConditionsByRuleSet(
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .take(batchSize);
   }
+}
+
+function normalizeBreakTimes(
+  breakTimes: undefined | { end: string; start: string }[],
+): { end: string; start: string }[] {
+  if (!breakTimes || breakTimes.length === 0) {
+    return [];
+  }
+
+  return [...breakTimes].toSorted((a, b) =>
+    `${a.start}|${a.end}`.localeCompare(`${b.start}|${b.end}`),
+  );
+}
+
+function normalizeValueIds(
+  node: Doc<"ruleConditions">,
+  appointmentTypeNameById: Map<string, string>,
+  locationNameById: Map<string, string>,
+  practitionerNameById: Map<string, string>,
+): null | string[] {
+  if (!node.valueIds || node.valueIds.length === 0) {
+    return null;
+  }
+
+  const lookupMapped = (id: string, map: Map<string, string>) =>
+    map.get(id) ?? id;
+
+  switch (node.conditionType) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY": {
+      return toSortedStrings(
+        node.valueIds.map((id) => lookupMapped(id, appointmentTypeNameById)),
+      );
+    }
+    case "LOCATION": {
+      return toSortedStrings(
+        node.valueIds.map((id) => lookupMapped(id, locationNameById)),
+      );
+    }
+    case "PRACTITIONER": {
+      return toSortedStrings(
+        node.valueIds.map((id) => lookupMapped(id, practitionerNameById)),
+      );
+    }
+    default: {
+      return toSortedStrings(node.valueIds);
+    }
+  }
+}
+
+function serializeRuleConditionTree(
+  node: Doc<"ruleConditions">,
+  childrenByParentId: Map<Id<"ruleConditions">, Doc<"ruleConditions">[]>,
+  appointmentTypeNameById: Map<string, string>,
+  locationNameById: Map<string, string>,
+  practitionerNameById: Map<string, string>,
+): CanonicalRuleConditionNode {
+  const children = childrenByParentId.get(node._id) ?? [];
+  const orderedChildren = [...children].toSorted(
+    (a, b) => a.childOrder - b.childOrder,
+  );
+
+  return {
+    childOrder: node.childOrder,
+    children: orderedChildren.map((child) =>
+      serializeRuleConditionTree(
+        child,
+        childrenByParentId,
+        appointmentTypeNameById,
+        locationNameById,
+        practitionerNameById,
+      ),
+    ),
+    conditionType: node.conditionType ?? null,
+    enabled: node.isRoot ? (node.enabled ?? true) : null,
+    nodeType: node.nodeType ?? null,
+    operator: node.operator ?? null,
+    scope: node.scope ?? null,
+    valueIds: normalizeValueIds(
+      node,
+      appointmentTypeNameById,
+      locationNameById,
+      practitionerNameById,
+    ),
+    valueNumber: node.valueNumber ?? null,
+  };
+}
+
+function toSortedStrings(values: string[]): string[] {
+  return [...values].toSorted();
 }
 
 // ================================
@@ -455,4 +695,107 @@ export const deleteUnsavedRuleSet = mutation({
     // Finally, delete the rule set itself
     await ctx.db.delete("ruleSets", args.ruleSetId);
   },
+});
+
+/**
+ * Ensure there is an unsaved rule set for the given source.
+ * Useful when redo needs a writable draft after the previous draft was discarded.
+ */
+export const ensureUnsavedRuleSet = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    sourceRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    return await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      args.sourceRuleSetId,
+    );
+  },
+  returns: v.id("ruleSets"),
+});
+
+/**
+ * Discard an unsaved rule set only when it is semantically equivalent to its parent.
+ * This prevents accidental deletion of drafts that still contain changes.
+ */
+export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+
+    if (!ruleSet) {
+      throw new Error("Rule set not found");
+    }
+
+    if (ruleSet.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+
+    if (ruleSet.saved) {
+      return {
+        deleted: false,
+        reason: "not_unsaved" as const,
+      };
+    }
+
+    if (!ruleSet.parentVersion) {
+      return {
+        deleted: false,
+        reason: "no_parent" as const,
+      };
+    }
+
+    const parentRuleSet = await ctx.db.get("ruleSets", ruleSet.parentVersion);
+    if (parentRuleSet?.practiceId !== args.practiceId) {
+      return {
+        deleted: false,
+        reason: "parent_missing" as const,
+      };
+    }
+
+    const [unsavedSnapshot, parentSnapshot] = await Promise.all([
+      buildRuleSetCanonicalSnapshot(ctx.db, ruleSet._id),
+      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
+    ]);
+
+    const isEquivalent =
+      JSON.stringify(unsavedSnapshot) === JSON.stringify(parentSnapshot);
+
+    if (!isEquivalent) {
+      return {
+        deleted: false,
+        parentRuleSetId: parentRuleSet._id,
+        reason: "has_changes" as const,
+      };
+    }
+
+    await deleteRuleConditionsByRuleSet(ctx.db, ruleSet._id);
+    await deletePractitionersByRuleSet(ctx.db, ruleSet._id);
+    await deleteLocationsByRuleSet(ctx.db, ruleSet._id);
+    await deleteAppointmentTypesByRuleSet(ctx.db, ruleSet._id);
+    await deleteBaseSchedulesByRuleSet(ctx.db, ruleSet._id);
+    await ctx.db.delete("ruleSets", ruleSet._id);
+
+    return {
+      deleted: true,
+      parentRuleSetId: parentRuleSet._id,
+      reason: "discarded" as const,
+    };
+  },
+  returns: v.object({
+    deleted: v.boolean(),
+    parentRuleSetId: v.optional(v.id("ruleSets")),
+    reason: v.union(
+      v.literal("discarded"),
+      v.literal("has_changes"),
+      v.literal("no_parent"),
+      v.literal("not_unsaved"),
+      v.literal("parent_missing"),
+    ),
+  }),
 });
