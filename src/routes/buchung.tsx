@@ -58,16 +58,12 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "confirmation",
 ];
 
-const APPOINTMENT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", {
-  dateStyle: "full",
-  timeStyle: "short",
-});
-
 function formatAppointmentStart(start: string): string {
   try {
-    const startEpochMilliseconds =
-      Temporal.ZonedDateTime.from(start).epochMilliseconds;
-    return APPOINTMENT_DATE_TIME_FORMATTER.format(startEpochMilliseconds);
+    return Temporal.ZonedDateTime.from(start).toLocaleString("de-DE", {
+      dateStyle: "full",
+      timeStyle: "short",
+    });
   } catch {
     return start;
   }

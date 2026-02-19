@@ -16,6 +16,7 @@ type AppointmentDoc = Doc<"appointments">;
 type AppointmentScope = "all" | "real" | "simulation";
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
+const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
   return appointment.cancelledAt !== undefined;
@@ -484,7 +485,7 @@ export const cancelOwnAppointment = mutation({
       return null;
     }
 
-    const nowEpochMilliseconds = Date.now();
+    const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
     if (!isAppointmentInFuture(appointment, nowEpochMilliseconds)) {
       throw new Error("Only future appointments can be cancelled");
     }
@@ -510,24 +511,39 @@ export const getBookedAppointmentForCurrentUser = query({
       return null;
     }
 
-    const nowEpochMilliseconds = Date.now();
-    const userAppointments = await ctx.db
-      .query("appointments")
-      .withIndex("by_userId_start", (q) => q.eq("userId", userId))
-      .collect();
+    const nowInstant = Temporal.Now.instant();
+    const nowEpochMilliseconds = nowInstant.epochMilliseconds;
+    const nowStartLowerBound = nowInstant
+      .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
+      .toString();
 
-    const nextAppointment =
-      userAppointments
-        .filter(
-          (appointment) =>
-            appointment.isSimulation !== true &&
-            isVisibleAppointment(appointment) &&
-            isAppointmentInFuture(appointment, nowEpochMilliseconds),
+    let cursor: null | string = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await ctx.db
+        .query("appointments")
+        .withIndex("by_userId_start", (q) =>
+          q.eq("userId", userId).gte("start", nowStartLowerBound),
         )
-        .toSorted((a, b) => a.start.localeCompare(b.start))
-        .at(0) ?? null;
+        .paginate({ cursor, numItems: 32 });
 
-    return nextAppointment;
+      const nextAppointment = page.page.find(
+        (appointment) =>
+          appointment.isSimulation !== true &&
+          isVisibleAppointment(appointment) &&
+          isAppointmentInFuture(appointment, nowEpochMilliseconds),
+      );
+
+      if (nextAppointment) {
+        return nextAppointment;
+      }
+
+      isDone = page.isDone;
+      cursor = page.continueCursor;
+    }
+
+    return null;
   },
   returns: v.union(
     v.object({
