@@ -58,6 +58,10 @@ async function bootstrapToExistingCalendarSelection(
     },
     sessionId,
   });
+  await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
+    dataSharingContacts: makeDataSharingContacts(),
+    sessionId,
+  });
 }
 
 async function bootstrapToNewCalendarSelection(
@@ -82,6 +86,10 @@ async function bootstrapToNewCalendarSelection(
       lastName: "Lovelace",
       phoneNumber: "+491701234567",
     },
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitNewDataSharing, {
+    dataSharingContacts: makeDataSharingContacts(),
     sessionId,
   });
 }
@@ -212,6 +220,23 @@ function makeAuthedClient(
   });
 }
 
+function makeDataSharingContacts() {
+  return [
+    {
+      city: "Berlin",
+      dateOfBirth: "1970-01-01",
+      email: "contact@example.com",
+      firstName: "Maria",
+      gender: "female" as const,
+      lastName: "Muster",
+      phoneNumber: "+491701234568",
+      postalCode: "10115",
+      street: "Musterweg 3",
+      title: "Frau",
+    },
+  ];
+}
+
 function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
@@ -302,6 +327,28 @@ describe("bookingSessions user identity handling", () => {
     expect(expectedUserId).toBeDefined();
     expect(session?._id).toBe(sessionId);
     expect(session?.userId).toBe(expectedUserId);
+  });
+
+  test("get returns null when the session owner user no longer exists", async () => {
+    const t = createTestContext();
+    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const authed = makeAuthedClient(t, "missing_owner");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("bookingSessions", sessionId);
+      if (!session) {
+        throw new Error("Expected booking session to exist");
+      }
+      await ctx.db.delete("users", session.userId);
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    expect(session).toBeNull();
   });
 });
 
@@ -452,7 +499,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     expect(updated.state.pkvTariff).toBe("standard");
   });
 
-  test("new patient data-input step stays pending before submit and calendar step cannot go back", async () => {
+  test("new patient data-input step stays pending before submit and requires data sharing before calendar", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
       await createBookingEntities(t);
@@ -498,12 +545,28 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
+    const atDataSharing = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      atDataSharing,
+      "session should exist at data-sharing step",
+    );
+    assertStateStep(atDataSharing.state, "new-data-sharing");
+    expect("reasonDescription" in atDataSharing.state).toBe(false);
+    expect(atDataSharing.state.personalData.firstName).toBe("Ada");
+
+    await authed.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: makeDataSharingContacts(),
+      sessionId,
+    });
+
     const atCalendar = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
     assertSessionExists(atCalendar, "session should exist at calendar step");
     assertStateStep(atCalendar.state, "new-calendar-selection");
-    expect("reasonDescription" in atCalendar.state).toBe(false);
+    expect(atCalendar.state.dataSharingContacts).toHaveLength(1);
     expect(atCalendar.state.personalData.firstName).toBe("Ada");
 
     await expect(
@@ -518,7 +581,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should still exist at calendar step after failed back",
     );
     assertStateStep(completed.state, "new-calendar-selection");
-    expect("reasonDescription" in completed.state).toBe(false);
+    expect(completed.state.dataSharingContacts).toHaveLength(1);
     expect(completed.state.personalData.lastName).toBe("Lovelace");
   });
 
@@ -560,6 +623,22 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
+    const atDataSharing = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      atDataSharing,
+      "session should exist at existing data-sharing step",
+    );
+    assertStateStep(atDataSharing.state, "existing-data-sharing");
+    expect("reasonDescription" in atDataSharing.state).toBe(false);
+    expect(atDataSharing.state.personalData.firstName).toBe("Grace");
+
+    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
+      dataSharingContacts: makeDataSharingContacts(),
+      sessionId,
+    });
+
     const atCalendar = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
@@ -568,7 +647,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at existing calendar-selection step",
     );
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect("reasonDescription" in atCalendar.state).toBe(false);
+    expect(atCalendar.state.dataSharingContacts).toHaveLength(1);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
 });

@@ -32,9 +32,11 @@ describe("getStepGroup", () => {
     const infoSteps: BookingSessionState["step"][] = [
       "existing-data-input",
       "existing-data-input-complete",
+      "existing-data-sharing",
       "existing-doctor-selection",
       "new-data-input",
       "new-data-input-complete",
+      "new-data-sharing",
       "new-gkv-details",
       "new-gkv-details-complete",
       "new-insurance-type",
@@ -113,6 +115,10 @@ describe("canGoBack", () => {
       expect(canGoBack("existing-data-input-complete")).toBe(false);
     });
 
+    it("can go back from existing-data-sharing", () => {
+      expect(canGoBack("existing-data-sharing")).toBe(true);
+    });
+
     it("can go back from existing-doctor-selection", () => {
       expect(canGoBack("existing-doctor-selection")).toBe(true);
     });
@@ -133,6 +139,10 @@ describe("canGoBack", () => {
 
     it("can go back from new-data-input-complete", () => {
       expect(canGoBack("new-data-input-complete")).toBe(true);
+    });
+
+    it("can go back from new-data-sharing", () => {
+      expect(canGoBack("new-data-sharing")).toBe(true);
     });
 
     it("can go back from new-gkv-details", () => {
