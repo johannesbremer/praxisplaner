@@ -517,30 +517,20 @@ export const getBookedAppointmentForCurrentUser = query({
       .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
       .toString();
 
-    let cursor: null | string = null;
-    let isDone = false;
-
-    while (!isDone) {
-      const page = await ctx.db
-        .query("appointments")
-        .withIndex("by_userId_start", (q) =>
-          q.eq("userId", userId).gte("start", nowStartLowerBound),
-        )
-        .paginate({ cursor, numItems: 32 });
-
-      const nextAppointment = page.page.find(
-        (appointment) =>
-          appointment.isSimulation !== true &&
-          isVisibleAppointment(appointment) &&
-          isAppointmentInFuture(appointment, nowEpochMilliseconds),
+    const futureAppointments = ctx.db
+      .query("appointments")
+      .withIndex("by_userId_start", (q) =>
+        q.eq("userId", userId).gte("start", nowStartLowerBound),
       );
 
-      if (nextAppointment) {
-        return nextAppointment;
+    for await (const appointment of futureAppointments) {
+      if (
+        appointment.isSimulation !== true &&
+        isVisibleAppointment(appointment) &&
+        isAppointmentInFuture(appointment, nowEpochMilliseconds)
+      ) {
+        return appointment;
       }
-
-      isDone = page.isDone;
-      cursor = page.continueCursor;
     }
 
     return null;
