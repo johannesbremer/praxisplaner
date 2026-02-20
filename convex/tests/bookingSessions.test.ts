@@ -1210,7 +1210,9 @@ describe("bookingSessions slot selection validation", () => {
     if (!contactWithTitle) {
       throw new Error("Expected data-sharing contact fixture");
     }
-    const contactWithoutTitle: DataSharingContactInput = { ...contactWithTitle };
+    const contactWithoutTitle: DataSharingContactInput = {
+      ...contactWithTitle,
+    };
     delete contactWithoutTitle.title;
 
     await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
