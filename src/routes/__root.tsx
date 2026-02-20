@@ -3,6 +3,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
+import { formatForDisplay } from "@tanstack/react-hotkeys";
+import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
   ClientOnly,
@@ -55,10 +57,11 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { CalendarPlus, Clock, Settings } from "lucide-react";
+import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -66,6 +69,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"; // Ensure this path is correct
+
+import {
+  UndoRedoControlsProvider,
+  useGlobalUndoRedoControls,
+} from "../hooks/use-global-undo-redo-controls";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -233,14 +241,11 @@ function RootComponent() {
   return (
     <RootDocument>
       <ThemeProvider defaultTheme="system" storageKey="praxisplaner-theme">
-        <PostHogWrapper>
-          <div className="min-h-screen">
-            <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-              <ModeToggle />
-            </div>
-            <Outlet />
-          </div>
-        </PostHogWrapper>
+        <UndoRedoControlsProvider>
+          <PostHogWrapper>
+            <RootLayout />
+          </PostHogWrapper>
+        </UndoRedoControlsProvider>
       </ThemeProvider>
     </RootDocument>
   );
@@ -265,6 +270,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <TanStackDevtools
             eventBusConfig={{ debug: false }}
             plugins={[
+              hotkeysDevtoolsPlugin(),
               {
                 name: "TanStack Query",
                 render: <ReactQueryDevtoolsPanel />,
@@ -288,5 +294,50 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
+  );
+}
+
+function RootLayout() {
+  const controls = useGlobalUndoRedoControls();
+
+  return (
+    <div className="min-h-screen">
+      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
+        {controls ? (
+          <>
+            <Button
+              disabled={!controls.canUndo}
+              onClick={() => {
+                void controls.onUndo();
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Undo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Undo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Z")}
+              </kbd>
+            </Button>
+            <Button
+              disabled={!controls.canRedo}
+              onClick={() => {
+                void controls.onRedo();
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Redo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Redo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Y")}
+              </kbd>
+            </Button>
+          </>
+        ) : null}
+        <ModeToggle />
+      </div>
+      <Outlet />
+    </div>
   );
 }

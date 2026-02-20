@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit2, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -21,15 +21,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
+import type { LocalHistoryAction } from "../hooks/use-local-history";
+
 import { useErrorTracking } from "../utils/error-tracking";
 
 interface LocationsManagementProps {
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
 
 export function LocationsManagement({
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   ruleSetId,
@@ -45,6 +49,10 @@ export function LocationsManagement({
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
+  const locationsRef = useRef(locationsQuery ?? []);
+  useEffect(() => {
+    locationsRef.current = locationsQuery ?? [];
+  }, [locationsQuery]);
 
   const form = useForm({
     defaultValues: {
@@ -52,23 +60,117 @@ export function LocationsManagement({
     },
     onSubmit: async ({ value }) => {
       try {
+        const trimmedName = value.name.trim();
+
         if (editingLocation) {
+          const previousName = editingLocation.name;
+
           await updateLocationMutation({
             locationId: editingLocation._id,
-            name: value.name.trim(),
+            name: trimmedName,
             practiceId,
             sourceRuleSetId: ruleSetId,
           });
+
+          onRegisterHistoryAction?.({
+            label: "Standort aktualisiert",
+            redo: async () => {
+              const current = locationsRef.current.find(
+                (location) => location._id === editingLocation._id,
+              );
+              if (current?.name !== previousName) {
+                return {
+                  message:
+                    "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateLocationMutation({
+                locationId: editingLocation._id,
+                name: trimmedName,
+                practiceId,
+                sourceRuleSetId: ruleSetId,
+              });
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const current = locationsRef.current.find(
+                (location) => location._id === editingLocation._id,
+              );
+              if (current?.name !== trimmedName) {
+                return {
+                  message:
+                    "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateLocationMutation({
+                locationId: editingLocation._id,
+                name: previousName,
+                practiceId,
+                sourceRuleSetId: ruleSetId,
+              });
+              return { status: "applied" as const };
+            },
+          });
+
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
           });
           setEditingLocation(null);
         } else {
-          const { ruleSetId: newRuleSetId } = await createLocationMutation({
-            name: value.name.trim(),
-            practiceId,
-            sourceRuleSetId: ruleSetId,
+          const { entityId, ruleSetId: newRuleSetId } =
+            await createLocationMutation({
+              name: trimmedName,
+              practiceId,
+              sourceRuleSetId: ruleSetId,
+            });
+
+          let currentLocationId = entityId as Id<"locations">;
+          onRegisterHistoryAction?.({
+            label: "Standort erstellt",
+            redo: async () => {
+              const duplicate = locationsRef.current.find(
+                (location) => location.name === trimmedName,
+              );
+              if (duplicate) {
+                return {
+                  message:
+                    "Der Standort existiert bereits und kann nicht erneut erstellt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              const recreateResult = await createLocationMutation({
+                name: trimmedName,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              currentLocationId = recreateResult.entityId as Id<"locations">;
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const current = locationsRef.current.find(
+                (location) => location._id === currentLocationId,
+              );
+              if (!current) {
+                return {
+                  message: "Der Standort wurde bereits gelöscht.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await deleteLocationMutation({
+                locationId: currentLocationId,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            },
           });
+
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
           });
@@ -113,11 +215,61 @@ export function LocationsManagement({
     name: string,
   ) => {
     try {
+      const deletedSnapshot = locationsRef.current.find(
+        (location) => location._id === locationId,
+      );
+
       const { ruleSetId: newRuleSetId } = await deleteLocationMutation({
         locationId,
         practiceId,
         sourceRuleSetId: ruleSetId,
       });
+
+      if (deletedSnapshot) {
+        let currentLocationId = locationId;
+        onRegisterHistoryAction?.({
+          label: "Standort gelöscht",
+          redo: async () => {
+            const current = locationsRef.current.find(
+              (location) => location._id === currentLocationId,
+            );
+            if (!current) {
+              return {
+                message: "Der Standort ist bereits gelöscht.",
+                status: "conflict" as const,
+              };
+            }
+
+            await deleteLocationMutation({
+              locationId: currentLocationId,
+              practiceId,
+              sourceRuleSetId: newRuleSetId,
+            });
+            return { status: "applied" as const };
+          },
+          undo: async () => {
+            const duplicate = locationsRef.current.find(
+              (location) => location.name === deletedSnapshot.name,
+            );
+            if (duplicate) {
+              return {
+                message:
+                  "Der Standort kann nicht wiederhergestellt werden, weil bereits ein Standort mit diesem Namen existiert.",
+                status: "conflict" as const,
+              };
+            }
+
+            const recreateResult = await createLocationMutation({
+              name: deletedSnapshot.name,
+              practiceId,
+              sourceRuleSetId: newRuleSetId,
+            });
+            currentLocationId = recreateResult.entityId as Id<"locations">;
+            return { status: "applied" as const };
+          },
+        });
+      }
+
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,
       });

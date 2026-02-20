@@ -2,7 +2,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -20,11 +20,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
+import type { LocalHistoryAction } from "../hooks/use-local-history";
+
 import { useErrorTracking } from "../utils/error-tracking";
 
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   practitioner?: Doc<"practitioners"> | undefined;
@@ -32,12 +35,14 @@ interface PractitionerDialogProps {
 }
 
 interface PractitionerManagementProps {
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
 
 export default function PractitionerManagement({
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   ruleSetId,
@@ -52,7 +57,18 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const deleteMutation = useMutation(api.entities.deletePractitioner);
+  const practitionersRef = useRef<Doc<"practitioners">[]>(
+    practitionersQuery ?? [],
+  );
+  useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+  const deleteWithDependenciesMutation = useMutation(
+    api.entities.deletePractitionerWithDependencies,
+  );
+  const restoreWithDependenciesMutation = useMutation(
+    api.entities.restorePractitionerWithDependencies,
+  );
 
   const handleEdit = (practitioner: Doc<"practitioners">) => {
     setEditingPractitioner(practitioner);
@@ -65,10 +81,46 @@ export default function PractitionerManagement({
     }
 
     try {
-      const { ruleSetId: newRuleSetId } = await deleteMutation({
+      const deleteResult = await deleteWithDependenciesMutation({
         practiceId,
         practitionerId,
         sourceRuleSetId: ruleSetId,
+      });
+      const newRuleSetId = deleteResult.ruleSetId;
+      let currentSnapshot = deleteResult.snapshot;
+      let currentPractitionerId = currentSnapshot.practitioner.id;
+      onRegisterHistoryAction?.({
+        label: "Arzt gelöscht",
+        redo: async () => {
+          const existing = practitionersRef.current.find(
+            (practitioner) => practitioner._id === currentPractitionerId,
+          );
+          if (!existing) {
+            return {
+              message: "Der Arzt ist bereits gelöscht.",
+              status: "conflict" as const,
+            };
+          }
+
+          const redoResult = await deleteWithDependenciesMutation({
+            practiceId,
+            practitionerId: currentPractitionerId,
+            sourceRuleSetId: newRuleSetId,
+          });
+          currentSnapshot = redoResult.snapshot;
+          currentPractitionerId = currentSnapshot.practitioner.id;
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          const restoreResult = await restoreWithDependenciesMutation({
+            practiceId,
+            snapshot: currentSnapshot,
+            sourceRuleSetId: newRuleSetId,
+          });
+          currentPractitionerId = restoreResult.restoredPractitionerId;
+
+          return { status: "applied" as const };
+        },
       });
       toast.success("Arzt gelöscht");
 
@@ -184,6 +236,7 @@ export default function PractitionerManagement({
         practiceId={practiceId}
         practitioner={editingPractitioner}
         ruleSetId={ruleSetId}
+        {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
@@ -193,6 +246,7 @@ export default function PractitionerManagement({
 function PractitionerDialog({
   isOpen,
   onClose,
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   practitioner,
@@ -200,7 +254,18 @@ function PractitionerDialog({
 }: PractitionerDialogProps) {
   const { captureError } = useErrorTracking();
 
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
+  });
+  const practitionersRef = useRef<Doc<"practitioners">[]>(
+    practitionersQuery ?? [],
+  );
+  useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+
   const createMutation = useMutation(api.entities.createPractitioner);
+  const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
 
   const form = useForm({
@@ -209,14 +274,62 @@ function PractitionerDialog({
     },
     onSubmit: async ({ value }) => {
       try {
+        const trimmedName = value.name.trim();
+
         if (practitioner) {
+          const beforeName = practitioner.name;
           // Update existing practitioner - extract ruleSetId
           const { ruleSetId: newRuleSetId } = await updateMutation({
-            name: value.name,
+            name: trimmedName,
             practiceId,
             practitionerId: practitioner._id,
             sourceRuleSetId: ruleSetId,
           });
+
+          onRegisterHistoryAction?.({
+            label: "Arzt aktualisiert",
+            redo: async () => {
+              const current = practitionersRef.current.find(
+                (entry) => entry._id === practitioner._id,
+              );
+              if (current?.name !== beforeName) {
+                return {
+                  message:
+                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateMutation({
+                name: trimmedName,
+                practiceId,
+                practitionerId: practitioner._id,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const current = practitionersRef.current.find(
+                (entry) => entry._id === practitioner._id,
+              );
+              if (current?.name !== trimmedName) {
+                return {
+                  message:
+                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await updateMutation({
+                name: beforeName,
+                practiceId,
+                practitionerId: practitioner._id,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            },
+          });
+
           toast.success("Arzt aktualisiert");
 
           // Notify parent if rule set changed (new unsaved rule set was created)
@@ -225,10 +338,54 @@ function PractitionerDialog({
           }
         } else {
           // Create new practitioner - extract both entityId and ruleSetId
-          const { ruleSetId: newRuleSetId } = await createMutation({
-            name: value.name,
+          const { entityId, ruleSetId: newRuleSetId } = await createMutation({
+            name: trimmedName,
             practiceId,
             sourceRuleSetId: ruleSetId,
+          });
+
+          let currentPractitionerId = entityId as Id<"practitioners">;
+          onRegisterHistoryAction?.({
+            label: "Arzt erstellt",
+            redo: async () => {
+              const duplicate = practitionersRef.current.find(
+                (entry) => entry.name === trimmedName,
+              );
+              if (duplicate) {
+                return {
+                  message:
+                    "Der Arzt existiert bereits und kann nicht erneut erstellt werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              const recreateResult = await createMutation({
+                name: trimmedName,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              currentPractitionerId =
+                recreateResult.entityId as Id<"practitioners">;
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const existing = practitionersRef.current.find(
+                (entry) => entry._id === currentPractitionerId,
+              );
+              if (!existing) {
+                return {
+                  message: "Der Arzt wurde bereits gelöscht.",
+                  status: "conflict" as const,
+                };
+              }
+
+              await deleteMutation({
+                practiceId,
+                practitionerId: currentPractitionerId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            },
           });
           toast.success("Arzt erstellt");
 

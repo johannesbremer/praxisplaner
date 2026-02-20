@@ -6,6 +6,11 @@ import type { DatabaseReader } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
+import {
+  ensurePracticeAccessForMutation,
+  getAccessiblePracticeIdsForQuery,
+} from "./practiceAccess";
+import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 type AppointmentDoc = Doc<"appointments">;
 type AppointmentScope = "all" | "real" | "simulation";
@@ -162,12 +167,19 @@ export const getAppointments = query({
     selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     const scope: AppointmentScope = args.scope ?? "real";
 
     let appointments = await ctx.db
       .query("appointments")
       .order("asc")
       .collect();
+    appointments = appointments.filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
+    );
 
     // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
     // from active rule set to selected rule set BEFORE combining with simulation data
@@ -242,6 +254,10 @@ export const getAppointmentsInRange = query({
     start: v.string(),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     // Use index range query instead of filter for better performance
     const appointments = await ctx.db
       .query("appointments")
@@ -250,7 +266,7 @@ export const getAppointmentsInRange = query({
 
     // Filter in code for end date (more efficient than .filter())
     const filteredAppointments = appointments.filter(
-      (a) => a.start <= args.end,
+      (a) => a.start <= args.end && accessiblePracticeIds.has(a.practiceId),
     );
 
     const scope: AppointmentScope = args.scope ?? "real";
@@ -307,6 +323,8 @@ export const createAppointment = mutation({
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const now = BigInt(Date.now());
     const { isSimulation, patientId, replacesAppointmentId, userId, ...rest } =
       args;
@@ -381,7 +399,13 @@ export const updateAppointment = mutation({
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
     const { id, ...updateData } = args;
+    const existingAppointment = await ctx.db.get("appointments", id);
+    if (!existingAppointment) {
+      throw new Error("Appointment not found");
+    }
+    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
 
     // Filter out undefined values
 
@@ -422,6 +446,12 @@ export const deleteAppointment = mutation({
     id: v.id("appointments"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const existingAppointment = await ctx.db.get("appointments", args.id);
+    if (!existingAppointment) {
+      throw new Error("Appointment not found");
+    }
+    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
     await ctx.db.delete("appointments", args.id);
     return null;
   },
@@ -435,6 +465,10 @@ export const getAppointmentsForPatient = query({
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     // Need at least one patient ID
     if (!args.patientId && !args.userId) {
       return [];
@@ -462,7 +496,9 @@ export const getAppointmentsForPatient = query({
     // Dedupe in case both queries return the same appointment, then sort by start time (ascending)
     const uniqueAppointments = [
       ...new Map(appointments.map((appt) => [appt._id, appt])).values(),
-    ];
+    ].filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
+    );
 
     return uniqueAppointments.toSorted((a, b) =>
       a.start.localeCompare(b.start),
@@ -492,12 +528,16 @@ export const getAppointmentsForPatient = query({
 
 // Internal mutation to delete all simulated appointments
 export const deleteAllSimulatedAppointments = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const simulatedAppointments = await ctx.db
+  args: { practiceId: v.id("practices") },
+  handler: async (ctx, args) => {
+    const practiceAppointments = await ctx.db
       .query("appointments")
-      .withIndex("by_isSimulation", (q) => q.eq("isSimulation", true))
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
+
+    const simulatedAppointments = practiceAppointments.filter(
+      (appointment) => appointment.isSimulation === true,
+    );
 
     for (const appointment of simulatedAppointments) {
       await ctx.db.delete("appointments", appointment._id);
@@ -518,12 +558,19 @@ export const getBlockedSlots = query({
     selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     const scope: AppointmentScope = args.scope ?? "real";
 
     let blockedSlots = await ctx.db
       .query("blockedSlots")
       .order("asc")
       .collect();
+    blockedSlots = blockedSlots.filter((blockedSlot) =>
+      accessiblePracticeIds.has(blockedSlot.practiceId),
+    );
 
     // If both rule set IDs are provided and different, remap entity IDs in REAL blocked slots
     // from active rule set to selected rule set BEFORE combining with simulation data
@@ -595,6 +642,8 @@ export const createBlockedSlot = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const { isSimulation, replacesBlockedSlotId, ...rest } = args;
 
     if (replacesBlockedSlotId && isSimulation !== true) {
@@ -629,7 +678,13 @@ export const updateBlockedSlot = mutation({
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
     const { id, ...updates } = args;
+    const existingBlockedSlot = await ctx.db.get("blockedSlots", id);
+    if (!existingBlockedSlot) {
+      throw new Error("Blocked slot not found");
+    }
+    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
 
     await ctx.db.patch("blockedSlots", id, {
       ...updates,
@@ -647,6 +702,12 @@ export const deleteBlockedSlot = mutation({
     id: v.id("blockedSlots"),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const existingBlockedSlot = await ctx.db.get("blockedSlots", args.id);
+    if (!existingBlockedSlot) {
+      throw new Error("Blocked slot not found");
+    }
+    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
     await ctx.db.delete("blockedSlots", args.id);
     return null;
   },
@@ -655,12 +716,16 @@ export const deleteBlockedSlot = mutation({
 
 // Internal mutation to delete all simulated blocked slots
 export const deleteAllSimulatedBlockedSlots = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const simulatedBlockedSlots = await ctx.db
+  args: { practiceId: v.id("practices") },
+  handler: async (ctx, args) => {
+    const practiceBlockedSlots = await ctx.db
       .query("blockedSlots")
-      .withIndex("by_isSimulation", (q) => q.eq("isSimulation", true))
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
+
+    const simulatedBlockedSlots = practiceBlockedSlots.filter(
+      (blockedSlot) => blockedSlot.isSimulation === true,
+    );
 
     for (const blockedSlot of simulatedBlockedSlots) {
       await ctx.db.delete("blockedSlots", blockedSlot._id);
@@ -673,19 +738,26 @@ export const deleteAllSimulatedBlockedSlots = internalMutation({
 
 // Combined mutation to delete all simulated appointments and blocked slots
 export const deleteAllSimulatedData = mutation({
-  args: {},
+  args: {
+    practiceId: v.id("practices"),
+  },
   handler: async (
     ctx,
+    args,
   ): Promise<{
     appointmentsDeleted: number;
     blockedSlotsDeleted: number;
     total: number;
   }> => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const appointmentsDeleted: number = await ctx.runMutation(
       internal.appointments.deleteAllSimulatedAppointments,
+      { practiceId: args.practiceId },
     );
     const blockedSlotsDeleted: number = await ctx.runMutation(
       internal.appointments.deleteAllSimulatedBlockedSlots,
+      { practiceId: args.practiceId },
     );
 
     return {

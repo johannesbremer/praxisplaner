@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
+import type { LocalHistoryAction } from "../hooks/use-local-history";
+
 import { useErrorTracking } from "../utils/error-tracking";
 
 const DAYS_OF_WEEK = [
@@ -68,6 +70,7 @@ const formSchema = z.object({
 interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
@@ -75,6 +78,7 @@ interface BaseScheduleDialogProps {
 }
 
 interface BaseScheduleManagementProps {
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
@@ -90,6 +94,7 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
 
 // Helper functions
 export default function BaseScheduleManagement({
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   ruleSetId,
@@ -106,7 +111,12 @@ export default function BaseScheduleManagement({
     ruleSetId,
   });
 
+  const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
+  const schedulesRef = React.useRef(schedulesQuery ?? []);
+  React.useEffect(() => {
+    schedulesRef.current = schedulesQuery ?? [];
+  }, [schedulesQuery]);
 
   const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
@@ -167,6 +177,10 @@ export default function BaseScheduleManagement({
     }
 
     try {
+      const deletedSchedules = schedulesRef.current.filter((schedule) =>
+        scheduleIds.includes(schedule._id),
+      );
+
       // Track if rule set changed
       let newRuleSetId: Id<"ruleSets"> | undefined;
 
@@ -183,6 +197,57 @@ export default function BaseScheduleManagement({
       toast.success(
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
       );
+
+      if (deletedSchedules.length > 0 && newRuleSetId) {
+        let currentScheduleIds: Id<"baseSchedules">[] = [...scheduleIds];
+
+        onRegisterHistoryAction?.({
+          label: "Arbeitszeiten gelöscht",
+          redo: async () => {
+            const existingIds = new Set(
+              schedulesRef.current.map((schedule) => schedule._id),
+            );
+            const idsToDelete = currentScheduleIds.filter((id) =>
+              existingIds.has(id),
+            );
+            if (idsToDelete.length === 0) {
+              return {
+                message: "Die Arbeitszeiten sind bereits gelöscht.",
+                status: "conflict" as const,
+              };
+            }
+
+            for (const scheduleId of idsToDelete) {
+              await deleteScheduleMutation({
+                baseScheduleId: scheduleId,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+            }
+
+            return { status: "applied" as const };
+          },
+          undo: async () => {
+            const recreatedIds: Id<"baseSchedules">[] = [];
+            for (const schedule of deletedSchedules) {
+              const result = await createScheduleMutation({
+                dayOfWeek: schedule.dayOfWeek,
+                endTime: schedule.endTime,
+                locationId: schedule.locationId,
+                practiceId,
+                practitionerId: schedule.practitionerId,
+                sourceRuleSetId: newRuleSetId,
+                startTime: schedule.startTime,
+                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+              });
+              recreatedIds.push(result.entityId as Id<"baseSchedules">);
+            }
+
+            currentScheduleIds = recreatedIds;
+            return { status: "applied" as const };
+          },
+        });
+      }
 
       // Notify parent if rule set changed (new unsaved rule set was created)
       if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
@@ -384,6 +449,7 @@ export default function BaseScheduleManagement({
         practiceId={practiceId}
         ruleSetId={ruleSetId}
         schedule={editingSchedule}
+        {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
@@ -393,6 +459,7 @@ export default function BaseScheduleManagement({
 function BaseScheduleDialog({
   isOpen,
   onClose,
+  onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
   ruleSetId,
@@ -407,9 +474,19 @@ function BaseScheduleDialog({
   const locationsQuery = useQuery(api.entities.getLocations, {
     ruleSetId,
   });
+  const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
+    ruleSetId,
+  });
+  const schedulesRef = React.useRef(schedulesQuery ?? []);
+  React.useEffect(() => {
+    schedulesRef.current = schedulesQuery ?? [];
+  }, [schedulesQuery]);
 
   const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
+  const replaceScheduleSetMutation = useMutation(
+    api.entities.replaceBaseScheduleSet,
+  );
 
   const form = useForm({
     defaultValues: {
@@ -428,6 +505,16 @@ function BaseScheduleDialog({
       try {
         // Track if a new rule set is created during this operation
         let newRuleSetId: Id<"ruleSets"> | undefined;
+        const createdScheduleIds: Id<"baseSchedules">[] = [];
+        const createdSchedulePayloads: {
+          breakTimes?: { end: string; start: string }[];
+          dayOfWeek: number;
+          endTime: string;
+          locationId: Id<"locations">;
+          practitionerId: Id<"practitioners">;
+          startTime: string;
+        }[] = [];
+        const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -435,6 +522,14 @@ function BaseScheduleDialog({
           const scheduleIdsToDelete = isGroupEdit
             ? (schedule._groupScheduleIds ?? [])
             : [schedule._id];
+          for (const scheduleId of scheduleIdsToDelete) {
+            const snapshot = schedulesRef.current.find(
+              (s) => s._id === scheduleId,
+            );
+            if (snapshot) {
+              deletedScheduleSnapshots.push(snapshot);
+            }
+          }
 
           const selectedDays = value.daysOfWeek;
 
@@ -491,6 +586,17 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            createdSchedulePayloads.push({
+              ...(createData.breakTimes && {
+                breakTimes: createData.breakTimes,
+              }),
+              dayOfWeek: createData.dayOfWeek,
+              endTime: createData.endTime,
+              locationId: createData.locationId,
+              practitionerId: createData.practitionerId,
+              startTime: createData.startTime,
+            });
+            createdScheduleIds.push(result.entityId as Id<"baseSchedules">);
             // Capture the rule set ID from the first created schedule
             newRuleSetId ||= result.ruleSetId;
           }
@@ -571,6 +677,17 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            createdSchedulePayloads.push({
+              ...(createData.breakTimes && {
+                breakTimes: createData.breakTimes,
+              }),
+              dayOfWeek: createData.dayOfWeek,
+              endTime: createData.endTime,
+              locationId: createData.locationId,
+              practitionerId: createData.practitionerId,
+              startTime: createData.startTime,
+            });
+            createdScheduleIds.push(result.entityId as Id<"baseSchedules">);
             // Capture the rule set ID from the first created schedule
             newRuleSetId ||= result.ruleSetId;
           }
@@ -583,6 +700,100 @@ function BaseScheduleDialog({
           toast.success(
             `Arbeitszeit${value.daysOfWeek.length > 1 ? "en" : ""} erfolgreich erstellt`,
           );
+        }
+
+        if (newRuleSetId) {
+          if (!schedule && createdSchedulePayloads.length > 0) {
+            let currentCreatedIds = [...createdScheduleIds];
+            onRegisterHistoryAction?.({
+              label: "Arbeitszeiten erstellt",
+              redo: async () => {
+                const recreatedIds: Id<"baseSchedules">[] = [];
+                for (const payload of createdSchedulePayloads) {
+                  const result = await createScheduleMutation({
+                    ...payload,
+                    practiceId,
+                    sourceRuleSetId: newRuleSetId,
+                  });
+                  recreatedIds.push(result.entityId as Id<"baseSchedules">);
+                }
+                currentCreatedIds = recreatedIds;
+                return { status: "applied" as const };
+              },
+              undo: async () => {
+                for (const id of currentCreatedIds) {
+                  const exists = schedulesRef.current.some((s) => s._id === id);
+                  if (exists) {
+                    await deleteScheduleMutation({
+                      baseScheduleId: id,
+                      practiceId,
+                      sourceRuleSetId: newRuleSetId,
+                    });
+                  }
+                }
+                return { status: "applied" as const };
+              },
+            });
+          }
+
+          if (schedule && createdSchedulePayloads.length > 0) {
+            let currentNewIds = [...createdScheduleIds];
+            let currentOldIds: Id<"baseSchedules">[] = [];
+            const oldSchedulePayloads = deletedScheduleSnapshots.map(
+              (previous) => ({
+                ...(previous.breakTimes && { breakTimes: previous.breakTimes }),
+                dayOfWeek: previous.dayOfWeek,
+                endTime: previous.endTime,
+                locationId: previous.locationId,
+                practitionerId: previous.practitionerId,
+                startTime: previous.startTime,
+              }),
+            );
+
+            onRegisterHistoryAction?.({
+              label: "Arbeitszeiten aktualisiert",
+              redo: async () => {
+                if (currentOldIds.length === 0) {
+                  return {
+                    message:
+                      "Die Änderung ist bereits aktiv und kann nicht erneut angewendet werden.",
+                    status: "conflict" as const,
+                  };
+                }
+
+                const result = await replaceScheduleSetMutation({
+                  expectedAbsentIds: currentNewIds,
+                  expectedPresentIds: currentOldIds,
+                  practiceId,
+                  replacementSchedules: createdSchedulePayloads,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentOldIds = result.deletedScheduleIds;
+                currentNewIds = result.createdScheduleIds;
+                return { status: "applied" as const };
+              },
+              undo: async () => {
+                if (currentNewIds.length === 0) {
+                  return {
+                    message:
+                      "Die Änderung wurde bereits zurückgesetzt und kann nicht erneut rückgängig gemacht werden.",
+                    status: "conflict" as const,
+                  };
+                }
+
+                const result = await replaceScheduleSetMutation({
+                  expectedAbsentIds: currentOldIds,
+                  expectedPresentIds: currentNewIds,
+                  practiceId,
+                  replacementSchedules: oldSchedulePayloads,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentNewIds = result.deletedScheduleIds;
+                currentOldIds = result.createdScheduleIds;
+                return { status: "applied" as const };
+              },
+            });
+          }
         }
         onClose();
       } catch (error: unknown) {
