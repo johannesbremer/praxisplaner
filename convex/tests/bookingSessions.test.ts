@@ -1206,11 +1206,15 @@ describe("bookingSessions slot selection validation", () => {
       practitionerId,
       sessionId,
     );
+    const contactWithTitle = makeDataSharingContactsWithOverrides({})[0];
+    if (!contactWithTitle) {
+      throw new Error("Expected data-sharing contact fixture");
+    }
+    const contactWithoutTitle: DataSharingContactInput = { ...contactWithTitle };
+    delete contactWithoutTitle.title;
 
     await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-      dataSharingContacts: makeDataSharingContactsWithOverrides({
-        title: undefined,
-      }),
+      dataSharingContacts: [contactWithoutTitle],
       sessionId,
     });
 

@@ -65,11 +65,7 @@ const dataSharingPersonSchema = z.object({
   phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
   postalCode: z.string().trim().min(1, "PLZ ist erforderlich"),
   street: z.string().trim().min(1, "Straße ist erforderlich"),
-  title: z
-    .string()
-    .trim()
-    .optional()
-    .transform((value) => (value && value.length > 0 ? value : undefined)),
+  title: z.string().trim(),
 });
 
 const dataSharingContactsSchema = z.array(dataSharingPersonSchema);
