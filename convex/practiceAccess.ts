@@ -4,10 +4,9 @@ import { ConvexError, v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
-import { findUserByAuthId } from "./userIdentity";
 import {
-  ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -148,12 +147,7 @@ function forbiddenError(message: string): ConvexError<{
 }
 
 async function getQueryUserId(ctx: QueryCtx): Promise<Id<"users"> | null> {
-  const identity = await ensureAuthenticatedIdentity(ctx);
-  const user = await findUserByAuthId(ctx.db, identity.subject);
-  if (!user) {
-    return null;
-  }
-  return user._id;
+  return await getAuthenticatedUserIdForQuery(ctx);
 }
 
 function roleSatisfiesMinimum(
