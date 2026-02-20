@@ -442,6 +442,7 @@ function LogicView() {
     if (
       result.status !== "applied" ||
       result.canUndoAfter ||
+      result.canRedoAfter ||
       activeTab !== "rule-management" ||
       !currentPractice ||
       !unsavedRuleSet
