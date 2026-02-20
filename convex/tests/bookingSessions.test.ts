@@ -10,10 +10,15 @@ import schema from "../schema";
 import { modules } from "./test.setup";
 
 type BookingSessionState = Doc<"bookingSessions">["state"];
+type DataSharingContactInput =
+  NewPatientDataSharingArgs["dataSharingContacts"][number];
 type ExistingPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectExistingPatientSlot
 >;
 type IsAssignable<From, To> = [From] extends [To] ? true : false;
+type NewPatientDataSharingArgs = FunctionArgs<
+  typeof api.bookingSessions.submitNewDataSharing
+>;
 type NewPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectNewPatientSlot
 >;
@@ -64,6 +69,31 @@ async function bootstrapToExistingCalendarSelection(
   });
 }
 
+async function bootstrapToExistingDataSharing(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  practitionerId: Id<"practitioners">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectExistingPatient, {
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.selectDoctor, {
+    practitionerId,
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitExistingPatientData, {
+    personalData: {
+      dateOfBirth: "1975-05-20",
+      firstName: "Grace",
+      lastName: "Hopper",
+      phoneNumber: "+491709999999",
+    },
+    sessionId,
+  });
+}
+
 async function bootstrapToNewCalendarSelection(
   authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
   locationId: Id<"locations">,
@@ -90,6 +120,32 @@ async function bootstrapToNewCalendarSelection(
   });
   await authed.mutation(api.bookingSessions.submitNewDataSharing, {
     dataSharingContacts: makeDataSharingContacts(),
+    sessionId,
+  });
+}
+
+async function bootstrapToNewDataSharing(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+  await authed.mutation(api.bookingSessions.selectInsuranceType, {
+    insuranceType: "gkv",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.confirmGkvDetails, {
+    hzvStatus: "has-contract",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitNewPatientData, {
+    personalData: {
+      dateOfBirth: "1980-01-01",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phoneNumber: "+491701234567",
+    },
     sessionId,
   });
 }
@@ -220,7 +276,7 @@ function makeAuthedClient(
   });
 }
 
-function makeDataSharingContacts() {
+function makeDataSharingContacts(): DataSharingContactInput[] {
   return [
     {
       city: "Berlin",
@@ -235,6 +291,17 @@ function makeDataSharingContacts() {
       title: "Frau",
     },
   ];
+}
+
+function makeDataSharingContactsWithOverrides(
+  overrides: Partial<DataSharingContactInput>,
+): DataSharingContactInput[] {
+  const [baseContact] = makeDataSharingContacts();
+  const contact: DataSharingContactInput = {
+    ...baseContact,
+    ...overrides,
+  } as DataSharingContactInput;
+  return [contact];
 }
 
 function makeSelectedSlot(
@@ -942,6 +1009,74 @@ describe("bookingSessions atomic pending/completed step states", () => {
 });
 
 describe("bookingSessions slot selection validation", () => {
+  test("submitNewDataSharing rejects invalid email format", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "data_sharing_invalid_email");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewDataSharing(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.submitNewDataSharing, {
+        dataSharingContacts: makeDataSharingContactsWithOverrides({
+          email: "not-an-email",
+        }),
+        sessionId,
+      }),
+    ).rejects.toThrow("E-Mail format");
+  });
+
+  test("submitNewDataSharing rejects invalid date format", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "data_sharing_invalid_date");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewDataSharing(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.submitNewDataSharing, {
+        dataSharingContacts: makeDataSharingContactsWithOverrides({
+          dateOfBirth: "01-01-1970",
+        }),
+        sessionId,
+      }),
+    ).rejects.toThrow("Geburtsdatum format");
+  });
+
+  test("submitExistingDataSharing rejects empty title", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "data_sharing_empty_title");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingDataSharing(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await expect(
+      authed.mutation(api.bookingSessions.submitExistingDataSharing, {
+        dataSharingContacts: makeDataSharingContactsWithOverrides({
+          title: " ",
+        }),
+        sessionId,
+      }),
+    ).rejects.toThrow("Titel");
+  });
+
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
     const {

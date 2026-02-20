@@ -17,7 +17,6 @@ import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
   dataSharingPersonValidator,
-  emergencyContactValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
   medicalHistoryValidator,
@@ -36,12 +35,16 @@ import {
 // ============================================================================
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/;
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 // ============================================================================
 // TYPE HELPERS
 // ============================================================================
 
 type BookingSessionState = Doc<"bookingSessions">["state"];
+type DataSharingContact =
+  Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
 
 // Helper to narrow state to a specific step
 type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -697,6 +700,47 @@ function assertStep<S extends BookingSessionState["step"]>(
  * Calculate end time from start time and duration.
  * Handles ZonedDateTime format strings.
  */
+function assertValidDataSharingContacts(contacts: DataSharingContact[]): void {
+  for (const [index, contact] of contacts.entries()) {
+    const requiredTextFields: [keyof DataSharingContact, string][] = [
+      ["city", "Ort"],
+      ["email", "E-Mail"],
+      ["firstName", "Vorname"],
+      ["lastName", "Nachname"],
+      ["phoneNumber", "Telefonnummer"],
+      ["postalCode", "PLZ"],
+      ["street", "Straße"],
+      ["title", "Titel"],
+    ];
+
+    for (const [field, label] of requiredTextFields) {
+      if (contact[field].trim().length === 0) {
+        throw new Error(`Invalid data-sharing contact #${index + 1}: ${label}`);
+      }
+    }
+
+    if (!SIMPLE_EMAIL_REGEX.test(contact.email)) {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: E-Mail format`,
+      );
+    }
+
+    if (!ISO_DATE_REGEX.test(contact.dateOfBirth)) {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum format`,
+      );
+    }
+
+    try {
+      Temporal.PlainDate.from(contact.dateOfBirth);
+    } catch {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum`,
+      );
+    }
+  }
+}
+
 function calculateEndTime(startTime: string, durationMinutes: number): string {
   const start = Temporal.ZonedDateTime.from(startTime);
   return start.add({ minutes: durationMinutes }).toString();
@@ -1556,7 +1600,6 @@ export const confirmPkvDetails = mutation({
  */
 export const submitNewPatientData = mutation({
   args: {
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
     sessionId: v.id("bookingSessions"),
@@ -1637,9 +1680,6 @@ export const submitNewPatientData = mutation({
       ...(args.medicalHistory === undefined
         ? {}
         : { medicalHistory: args.medicalHistory }),
-      ...(args.emergencyContacts === undefined
-        ? {}
-        : { emergencyContacts: args.emergencyContacts }),
       ...(state.insuranceType === "gkv" ? { hzvStatus: state.hzvStatus } : {}),
       ...(state.insuranceType === "pkv" && state.pkvTariff !== undefined
         ? { pkvTariff: state.pkvTariff }
@@ -1671,6 +1711,7 @@ export const submitNewDataSharing = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-data-sharing");
+    assertValidDataSharingContacts(args.dataSharingContacts);
 
     if (state.insuranceType === "gkv") {
       type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
@@ -1757,7 +1798,7 @@ export const submitNewDataSharing = mutation({
 });
 
 /**
- * A6 → A7: Select slot and create appointment (new patient).
+ * A7 → A8: Select slot and create appointment (new patient).
  * Requires authentication.
  */
 export const selectNewPatientSlot = mutation({
@@ -2084,6 +2125,7 @@ export const submitExistingDataSharing = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-data-sharing");
+    assertValidDataSharingContacts(args.dataSharingContacts);
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {

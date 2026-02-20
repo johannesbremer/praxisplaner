@@ -51,8 +51,16 @@ function createEmptyContact(): ContactFormValue {
 
 const dataSharingPersonSchema = z.object({
   city: z.string().trim().min(1, "Ort ist erforderlich"),
-  dateOfBirth: z.string().min(1, "Geburtsdatum ist erforderlich"),
-  email: z.string().trim().min(1, "E-Mail ist erforderlich"),
+  dateOfBirth: z
+    .string()
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/,
+      "Geburtsdatum muss im Format YYYY-MM-DD sein",
+    ),
+  email: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim() : value),
+    z.email("Bitte eine gültige E-Mail-Adresse eingeben"),
+  ),
   firstName: z.string().trim().min(1, "Vorname ist erforderlich"),
   gender: z.enum(["male", "female", "diverse"], {
     error: "Geschlecht ist erforderlich",
