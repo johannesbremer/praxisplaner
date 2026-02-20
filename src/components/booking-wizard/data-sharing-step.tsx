@@ -27,12 +27,13 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-type ContactField = keyof DataSharingContact;
-type ContactFormValue = Omit<DataSharingContact, "gender"> & {
+type ContactField = keyof ContactFormValue;
+type ContactFormValue = Omit<DataSharingContact, "gender" | "userId"> & {
   gender: "" | DataSharingContact["gender"];
 };
 type DataSharingContact =
   Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
+type DataSharingContactInput = Omit<DataSharingContact, "userId">;
 
 function createEmptyContact(): ContactFormValue {
   return {
@@ -189,7 +190,7 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
     setErrors({});
 
     try {
-      const dataSharingContacts: DataSharingContact[] = parsed.data;
+      const dataSharingContacts: DataSharingContactInput[] = parsed.data;
       if (isNewPatient) {
         await submitNewDataSharing({
           dataSharingContacts,

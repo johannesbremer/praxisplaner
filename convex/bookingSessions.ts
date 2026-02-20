@@ -16,7 +16,7 @@ interface StepReadCtx {
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
-  dataSharingPersonValidator,
+  dataSharingContactInputValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
   medicalHistoryValidator,
@@ -45,6 +45,7 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 type BookingSessionState = Doc<"bookingSessions">["state"];
 type DataSharingContact =
   Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
+type DataSharingContactInput = Omit<DataSharingContact, "userId">;
 
 // Helper to narrow state to a specific step
 type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -611,10 +612,9 @@ async function hasValidStepEntryUserAssociation(
   ctx: QueryCtx,
   session: Doc<"bookingSessions">,
 ): Promise<boolean> {
-  // "Datenweitergabe" contacts are value objects (name/address/etc.) and
-  // intentionally do not reference users. The user ownership guarantee applies
-  // to the persisted step row itself (`booking*Steps.userId`), which must match
-  // the booking session owner.
+  // The persisted step row owner (`booking*Steps.userId`) must match the
+  // booking session owner. For data-sharing steps, each contact also carries
+  // an owner `userId` which must match the authenticated session user.
   const tableName = STEP_TABLE_BY_STEP[session.state.step];
   if (!tableName) {
     return true;
@@ -625,7 +625,17 @@ async function hasValidStepEntryUserAssociation(
     return true;
   }
 
-  return row.userId === session.userId;
+  if (row.userId !== session.userId) {
+    return false;
+  }
+
+  if ("dataSharingContacts" in row) {
+    return row.dataSharingContacts.every(
+      (contact) => contact.userId === session.userId,
+    );
+  }
+
+  return true;
 }
 
 async function refreshSession(
@@ -697,12 +707,13 @@ function assertStep<S extends BookingSessionState["step"]>(
 }
 
 /**
- * Calculate end time from start time and duration.
- * Handles ZonedDateTime format strings.
+ * Validates data-sharing contact payload semantics.
  */
-function assertValidDataSharingContacts(contacts: DataSharingContact[]): void {
+function assertValidDataSharingContacts(
+  contacts: DataSharingContactInput[],
+): void {
   for (const [index, contact] of contacts.entries()) {
-    const requiredTextFields: [keyof DataSharingContact, string][] = [
+    const requiredTextFields: [keyof DataSharingContactInput, string][] = [
       ["city", "Ort"],
       ["email", "E-Mail"],
       ["firstName", "Vorname"],
@@ -741,6 +752,20 @@ function assertValidDataSharingContacts(contacts: DataSharingContact[]): void {
   }
 }
 
+function attachOwnerToDataSharingContacts(
+  contacts: DataSharingContactInput[],
+  userId: Id<"users">,
+): DataSharingContact[] {
+  return contacts.map((contact) => ({
+    ...contact,
+    userId,
+  }));
+}
+
+/**
+ * Calculate end time from start time and duration.
+ * Handles ZonedDateTime format strings.
+ */
 function calculateEndTime(startTime: string, durationMinutes: number): string {
   const start = Temporal.ZonedDateTime.from(startTime);
   return start.add({ minutes: durationMinutes }).toString();
@@ -1705,20 +1730,24 @@ export const submitNewPatientData = mutation({
  */
 export const submitNewDataSharing = mutation({
   args: {
-    dataSharingContacts: v.array(dataSharingPersonValidator),
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-data-sharing");
     assertValidDataSharingContacts(args.dataSharingContacts);
+    const ownedContacts = attachOwnerToDataSharingContacts(
+      args.dataSharingContacts,
+      session.userId,
+    );
 
     if (state.insuranceType === "gkv") {
       type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
         insuranceType: "gkv";
       };
       const newState: GkvCalendar = {
-        dataSharingContacts: args.dataSharingContacts,
+        dataSharingContacts: ownedContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
@@ -1739,7 +1768,7 @@ export const submitNewDataSharing = mutation({
         insuranceType: "pkv";
       };
       const newState: PkvCalendar = {
-        dataSharingContacts: args.dataSharingContacts,
+        dataSharingContacts: ownedContacts,
         insuranceType: "pkv" as const,
         isNewPatient: true as const,
         locationId: state.locationId,
@@ -1769,7 +1798,7 @@ export const submitNewDataSharing = mutation({
     const base = getStepBase(session);
     const stepData: StepTableInput<"bookingNewDataSharingSteps"> = {
       ...base,
-      dataSharingContacts: args.dataSharingContacts,
+      dataSharingContacts: ownedContacts,
       insuranceType: state.insuranceType,
       isNewPatient: true,
       locationId: state.locationId,
@@ -2119,17 +2148,21 @@ export const submitExistingPatientData = mutation({
  */
 export const submitExistingDataSharing = mutation({
   args: {
-    dataSharingContacts: v.array(dataSharingPersonValidator),
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-data-sharing");
     assertValidDataSharingContacts(args.dataSharingContacts);
+    const ownedContacts = attachOwnerToDataSharingContacts(
+      args.dataSharingContacts,
+      session.userId,
+    );
 
     await ctx.db.patch("bookingSessions", args.sessionId, {
       state: {
-        dataSharingContacts: args.dataSharingContacts,
+        dataSharingContacts: ownedContacts,
         isNewPatient: false as const,
         locationId: state.locationId,
         personalData: state.personalData,
@@ -2141,7 +2174,7 @@ export const submitExistingDataSharing = mutation({
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
       ...base,
-      dataSharingContacts: args.dataSharingContacts,
+      dataSharingContacts: ownedContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: state.personalData,

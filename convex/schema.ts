@@ -59,6 +59,19 @@ export const personalDataValidator = v.object({
   title: v.optional(v.string()),
 });
 
+export const dataSharingContactInputValidator = v.object({
+  city: v.string(),
+  dateOfBirth: v.string(),
+  email: v.string(),
+  firstName: v.string(),
+  gender: genderValidator,
+  lastName: v.string(),
+  phoneNumber: v.string(),
+  postalCode: v.string(),
+  street: v.string(),
+  title: v.string(),
+});
+
 export const dataSharingPersonValidator = v.object({
   city: v.string(),
   dateOfBirth: v.string(),
@@ -70,6 +83,7 @@ export const dataSharingPersonValidator = v.object({
   postalCode: v.string(),
   street: v.string(),
   title: v.string(),
+  userId: v.id("users"),
 });
 
 export const medicalHistoryValidator = v.object({
