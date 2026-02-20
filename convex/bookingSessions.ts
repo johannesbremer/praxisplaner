@@ -1,4 +1,4 @@
-import type { GenericMutationCtx } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -9,10 +9,14 @@ import { internalMutation, mutation, query } from "./_generated/server";
 
 // Context types for helper functions
 type MutationCtx = GenericMutationCtx<DataModel>;
+type QueryCtx = GenericQueryCtx<DataModel>;
+interface StepReadCtx {
+  db: MutationCtx["db"] | QueryCtx["db"];
+}
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
-  emergencyContactValidator,
+  dataSharingContactInputValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
   medicalHistoryValidator,
@@ -31,12 +35,16 @@ import {
 // ============================================================================
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 // ============================================================================
 // TYPE HELPERS
 // ============================================================================
 
 type BookingSessionState = Doc<"bookingSessions">["state"];
+type DataSharingContact =
+  Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
+type DataSharingContactInput = Omit<DataSharingContact, "userId">;
 
 // Helper to narrow state to a specific step
 type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -61,7 +69,7 @@ type StepPatchMap = {
 
 type StepQueryMap = {
   [K in StepTableName]: (
-    ctx: MutationCtx,
+    ctx: StepReadCtx,
     sessionId: Id<"bookingSessions">,
   ) => Promise<StepTableDocMap[K][]>;
 };
@@ -79,11 +87,13 @@ type StepSnapshotMetaKeys =
 interface StepTableDocMap {
   bookingExistingCalendarSelectionSteps: Doc<"bookingExistingCalendarSelectionSteps">;
   bookingExistingConfirmationSteps: Doc<"bookingExistingConfirmationSteps">;
+  bookingExistingDataSharingSteps: Doc<"bookingExistingDataSharingSteps">;
   bookingExistingDoctorSelectionSteps: Doc<"bookingExistingDoctorSelectionSteps">;
   bookingExistingPersonalDataSteps: Doc<"bookingExistingPersonalDataSteps">;
   bookingLocationSteps: Doc<"bookingLocationSteps">;
   bookingNewCalendarSelectionSteps: Doc<"bookingNewCalendarSelectionSteps">;
   bookingNewConfirmationSteps: Doc<"bookingNewConfirmationSteps">;
+  bookingNewDataSharingSteps: Doc<"bookingNewDataSharingSteps">;
   bookingNewGkvDetailSteps: Doc<"bookingNewGkvDetailSteps">;
   bookingNewInsuranceTypeSteps: Doc<"bookingNewInsuranceTypeSteps">;
   bookingNewPersonalDataSteps: Doc<"bookingNewPersonalDataSteps">;
@@ -107,11 +117,13 @@ type StepTableName = keyof Pick<
   DataModel,
   | "bookingExistingCalendarSelectionSteps"
   | "bookingExistingConfirmationSteps"
+  | "bookingExistingDataSharingSteps"
   | "bookingExistingDoctorSelectionSteps"
   | "bookingExistingPersonalDataSteps"
   | "bookingLocationSteps"
   | "bookingNewCalendarSelectionSteps"
   | "bookingNewConfirmationSteps"
+  | "bookingNewDataSharingSteps"
   | "bookingNewGkvDetailSteps"
   | "bookingNewInsuranceTypeSteps"
   | "bookingNewPersonalDataSteps"
@@ -130,6 +142,11 @@ const STEP_QUERY_MAP: StepQueryMap = {
   bookingExistingConfirmationSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingExistingConfirmationSteps")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .take(1),
+  bookingExistingDataSharingSteps: (ctx, sessionId) =>
+    ctx.db
+      .query("bookingExistingDataSharingSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
   bookingExistingDoctorSelectionSteps: (ctx, sessionId) =>
@@ -155,6 +172,11 @@ const STEP_QUERY_MAP: StepQueryMap = {
   bookingNewConfirmationSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingNewConfirmationSteps")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .take(1),
+  bookingNewDataSharingSteps: (ctx, sessionId) =>
+    ctx.db
+      .query("bookingNewDataSharingSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
   bookingNewGkvDetailSteps: (ctx, sessionId) =>
@@ -199,6 +221,8 @@ const STEP_INSERT_MAP: StepInsertMap = {
     ctx.db.insert("bookingExistingCalendarSelectionSteps", data),
   bookingExistingConfirmationSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingConfirmationSteps", data),
+  bookingExistingDataSharingSteps: (ctx, data) =>
+    ctx.db.insert("bookingExistingDataSharingSteps", data),
   bookingExistingDoctorSelectionSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingDoctorSelectionSteps", data),
   bookingExistingPersonalDataSteps: (ctx, data) =>
@@ -209,6 +233,8 @@ const STEP_INSERT_MAP: StepInsertMap = {
     ctx.db.insert("bookingNewCalendarSelectionSteps", data),
   bookingNewConfirmationSteps: (ctx, data) =>
     ctx.db.insert("bookingNewConfirmationSteps", data),
+  bookingNewDataSharingSteps: (ctx, data) =>
+    ctx.db.insert("bookingNewDataSharingSteps", data),
   bookingNewGkvDetailSteps: (ctx, data) =>
     ctx.db.insert("bookingNewGkvDetailSteps", data),
   bookingNewInsuranceTypeSteps: (ctx, data) =>
@@ -230,6 +256,8 @@ const STEP_PATCH_MAP: StepPatchMap = {
     ctx.db.patch("bookingExistingCalendarSelectionSteps", id, data),
   bookingExistingConfirmationSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingConfirmationSteps", id, data),
+  bookingExistingDataSharingSteps: (ctx, id, data) =>
+    ctx.db.patch("bookingExistingDataSharingSteps", id, data),
   bookingExistingDoctorSelectionSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingDoctorSelectionSteps", id, data),
   bookingExistingPersonalDataSteps: (ctx, id, data) =>
@@ -240,6 +268,8 @@ const STEP_PATCH_MAP: StepPatchMap = {
     ctx.db.patch("bookingNewCalendarSelectionSteps", id, data),
   bookingNewConfirmationSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewConfirmationSteps", id, data),
+  bookingNewDataSharingSteps: (ctx, id, data) =>
+    ctx.db.patch("bookingNewDataSharingSteps", id, data),
   bookingNewGkvDetailSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewGkvDetailSteps", id, data),
   bookingNewInsuranceTypeSteps: (ctx, id, data) =>
@@ -280,6 +310,19 @@ export const get = query({
 
     // Check session ownership
     if (session.userId !== userId) {
+      return null;
+    }
+
+    const sessionUser = await ctx.db.get("users", session.userId);
+    if (!sessionUser) {
+      return null;
+    }
+
+    const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
+      ctx,
+      session,
+    );
+    if (!hasValidStepAssociation) {
       return null;
     }
 
@@ -336,6 +379,19 @@ export const getActiveForUser = query({
 
     const session = sessions[0];
     if (!session) {
+      return null;
+    }
+
+    const sessionUser = await ctx.db.get("users", session.userId);
+    if (!sessionUser) {
+      return null;
+    }
+
+    const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
+      ctx,
+      session,
+    );
+    if (!hasValidStepAssociation) {
       return null;
     }
 
@@ -517,12 +573,68 @@ function getStepBase(session: Doc<"bookingSessions">) {
 }
 
 async function getStepRow<T extends StepTableName>(
-  ctx: MutationCtx,
+  ctx: StepReadCtx,
   tableName: T,
   sessionId: Id<"bookingSessions">,
 ): Promise<null | StepTableDocMap[T]> {
   const rows = await STEP_QUERY_MAP[tableName](ctx, sessionId);
   return rows[0] ?? null;
+}
+
+const STEP_TABLE_BY_STEP: Record<
+  BookingSessionState["step"],
+  null | StepTableName
+> = {
+  "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
+  "existing-confirmation": "bookingExistingConfirmationSteps",
+  "existing-data-input": "bookingExistingPersonalDataSteps",
+  "existing-data-input-complete": "bookingExistingPersonalDataSteps",
+  "existing-data-sharing": "bookingExistingDataSharingSteps",
+  "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
+  location: "bookingLocationSteps",
+  "new-calendar-selection": "bookingNewCalendarSelectionSteps",
+  "new-confirmation": "bookingNewConfirmationSteps",
+  "new-data-input": "bookingNewPersonalDataSteps",
+  "new-data-input-complete": "bookingNewPersonalDataSteps",
+  "new-data-sharing": "bookingNewDataSharingSteps",
+  "new-gkv-details": "bookingNewGkvDetailSteps",
+  "new-gkv-details-complete": "bookingNewGkvDetailSteps",
+  "new-insurance-type": "bookingNewInsuranceTypeSteps",
+  "new-pkv-details": "bookingNewPkvDetailSteps",
+  "new-pkv-details-complete": "bookingNewPkvDetailSteps",
+  "new-pvs-consent": "bookingNewPkvConsentSteps",
+  "patient-status": "bookingPatientStatusSteps",
+  privacy: "bookingPrivacySteps",
+};
+
+async function hasValidStepEntryUserAssociation(
+  ctx: QueryCtx,
+  session: Doc<"bookingSessions">,
+): Promise<boolean> {
+  // The persisted step row owner (`booking*Steps.userId`) must match the
+  // booking session owner. For data-sharing steps, each contact also carries
+  // an owner `userId` which must match the authenticated session user.
+  const tableName = STEP_TABLE_BY_STEP[session.state.step];
+  if (!tableName) {
+    return true;
+  }
+
+  const row = await getStepRow(ctx, tableName, session._id);
+  if (!row) {
+    return true;
+  }
+
+  if (row.userId !== session.userId) {
+    return false;
+  }
+
+  if ("dataSharingContacts" in row) {
+    return row.dataSharingContacts.every(
+      (contact) => contact.userId === session.userId,
+    );
+  }
+
+  return true;
 }
 
 async function refreshSession(
@@ -552,6 +664,11 @@ async function upsertStep<T extends StepTableName>(
 
   if ("userId" in data && data.userId !== expectedUserId) {
     throw new Error("Invalid userId for step data");
+  }
+
+  const user = await ctx.db.get("users", expectedUserId);
+  if (!user) {
+    throw new Error("Invalid user for step data");
   }
 
   const existingRow = await getStepRow(ctx, tableName, expectedSessionId);
@@ -589,6 +706,55 @@ function assertStep<S extends BookingSessionState["step"]>(
 }
 
 /**
+ * Validates data-sharing contact payload semantics.
+ */
+function assertValidDataSharingContacts(
+  contacts: DataSharingContactInput[],
+): void {
+  for (const [index, contact] of contacts.entries()) {
+    const requiredTextFields: [keyof DataSharingContactInput, string][] = [
+      ["city", "Ort"],
+      ["firstName", "Vorname"],
+      ["lastName", "Nachname"],
+      ["phoneNumber", "Telefonnummer"],
+      ["postalCode", "PLZ"],
+      ["street", "Straße"],
+    ];
+
+    for (const [field, label] of requiredTextFields) {
+      const value = contact[field];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        throw new Error(`Invalid data-sharing contact #${index + 1}: ${label}`);
+      }
+    }
+
+    if (!ISO_DATE_REGEX.test(contact.dateOfBirth)) {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum format`,
+      );
+    }
+
+    try {
+      Temporal.PlainDate.from(contact.dateOfBirth);
+    } catch {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum`,
+      );
+    }
+  }
+}
+
+function attachOwnerToDataSharingContacts(
+  contacts: DataSharingContactInput[],
+  userId: Id<"users">,
+): DataSharingContact[] {
+  return contacts.map((contact) => ({
+    ...contact,
+    userId,
+  }));
+}
+
+/**
  * Calculate end time from start time and duration.
  * Handles ZonedDateTime format strings.
  */
@@ -602,28 +768,7 @@ async function loadStepSnapshot(
   sessionId: Id<"bookingSessions">,
   step: BookingSessionState["step"],
 ): Promise<null | Record<string, unknown>> {
-  const tableMap: Record<BookingSessionState["step"], null | StepTableName> = {
-    "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
-    "existing-confirmation": "bookingExistingConfirmationSteps",
-    "existing-data-input": "bookingExistingPersonalDataSteps",
-    "existing-data-input-complete": "bookingExistingPersonalDataSteps",
-    "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
-    location: "bookingLocationSteps",
-    "new-calendar-selection": "bookingNewCalendarSelectionSteps",
-    "new-confirmation": "bookingNewConfirmationSteps",
-    "new-data-input": "bookingNewPersonalDataSteps",
-    "new-data-input-complete": "bookingNewPersonalDataSteps",
-    "new-gkv-details": "bookingNewGkvDetailSteps",
-    "new-gkv-details-complete": "bookingNewGkvDetailSteps",
-    "new-insurance-type": "bookingNewInsuranceTypeSteps",
-    "new-pkv-details": "bookingNewPkvDetailSteps",
-    "new-pkv-details-complete": "bookingNewPkvDetailSteps",
-    "new-pvs-consent": "bookingNewPkvConsentSteps",
-    "patient-status": "bookingPatientStatusSteps",
-    privacy: "bookingPrivacySteps",
-  };
-
-  const tableName = tableMap[step];
+  const tableName = STEP_TABLE_BY_STEP[step];
   if (!tableName) {
     return null;
   }
@@ -673,6 +818,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "locationId",
     "practitionerId",
     "personalData",
+    "dataSharingContacts",
   ],
   "existing-confirmation": [
     "appointmentId",
@@ -681,6 +827,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "locationId",
     "practitionerId",
     "personalData",
+    "dataSharingContacts",
     "reasonDescription",
     "selectedSlot",
     "patientId",
@@ -691,6 +838,13 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "locationId",
     "practitionerId",
     "personalData",
+  ],
+  "existing-data-sharing": [
+    "isNewPatient",
+    "locationId",
+    "practitionerId",
+    "personalData",
+    "dataSharingContacts",
   ],
   "existing-doctor-selection": ["isNewPatient", "locationId"],
   location: [],
@@ -705,7 +859,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "beihilfeStatus",
     "personalData",
     "medicalHistory",
-    "emergencyContacts",
+    "dataSharingContacts",
   ],
   "new-confirmation": [
     "appointmentId",
@@ -720,6 +874,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "beihilfeStatus",
     "personalData",
     "medicalHistory",
+    "dataSharingContacts",
     "reasonDescription",
     "emergencyContacts",
     "selectedSlot",
@@ -746,6 +901,19 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "beihilfeStatus",
     "personalData",
     "medicalHistory",
+  ],
+  "new-data-sharing": [
+    "insuranceType",
+    "isNewPatient",
+    "locationId",
+    "hzvStatus",
+    "pvsConsent",
+    "pkvInsuranceType",
+    "pkvTariff",
+    "beihilfeStatus",
+    "personalData",
+    "medicalHistory",
+    "dataSharingContacts",
   ],
   "new-gkv-details": ["insuranceType", "isNewPatient", "locationId"],
   "new-gkv-details-complete": [
@@ -849,6 +1017,7 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
         : "new-gkv-details-complete",
     prev: "new-gkv-details-complete",
   },
+  "new-data-sharing": { canGoBack: true, prev: "new-data-input-complete" },
   "new-gkv-details": { canGoBack: true, prev: "new-insurance-type" },
   "new-gkv-details-complete": { canGoBack: true, prev: "new-insurance-type" },
   "new-insurance-type": { canGoBack: true, prev: "patient-status" },
@@ -861,6 +1030,10 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-confirmation": { canGoBack: false, prev: null },
   "existing-data-input": { canGoBack: false, prev: null },
   "existing-data-input-complete": { canGoBack: false, prev: null },
+  "existing-data-sharing": {
+    canGoBack: true,
+    prev: "existing-data-input-complete",
+  },
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
 };
 
@@ -889,8 +1062,73 @@ function computePreviousState(
 
   // Build the previous state based on what step we're going back to
   switch (prevStep) {
+    case "existing-data-input-complete": {
+      const currentState = assertStep(state, "existing-data-sharing");
+
+      return {
+        isNewPatient: false,
+        locationId: currentState.locationId,
+        personalData: currentState.personalData,
+        practitionerId: currentState.practitionerId,
+        step: "existing-data-input-complete",
+      };
+    }
+
     case "location": {
       return { step: "location" };
+    }
+
+    case "new-data-input-complete": {
+      const currentState = assertStep(state, "new-data-sharing");
+
+      if (currentState.insuranceType === "gkv") {
+        type GkvDataInputComplete = Extract<
+          StateAtStep<"new-data-input-complete">,
+          { insuranceType: "gkv" }
+        >;
+        const previousState: GkvDataInputComplete = {
+          hzvStatus: currentState.hzvStatus,
+          insuranceType: "gkv",
+          isNewPatient: true,
+          locationId: currentState.locationId,
+          personalData: currentState.personalData,
+          step: "new-data-input-complete",
+        };
+
+        if (currentState.medicalHistory !== undefined) {
+          previousState.medicalHistory = currentState.medicalHistory;
+        }
+
+        return previousState;
+      }
+
+      type PkvDataInputComplete = Extract<
+        StateAtStep<"new-data-input-complete">,
+        { insuranceType: "pkv" }
+      >;
+      const previousState: PkvDataInputComplete = {
+        insuranceType: "pkv",
+        isNewPatient: true,
+        locationId: currentState.locationId,
+        personalData: currentState.personalData,
+        pvsConsent: true,
+        step: "new-data-input-complete",
+      };
+
+      if (currentState.medicalHistory !== undefined) {
+        previousState.medicalHistory = currentState.medicalHistory;
+      }
+      if (currentState.pkvTariff !== undefined) {
+        previousState.pkvTariff = currentState.pkvTariff;
+      }
+      if (currentState.pkvInsuranceType !== undefined) {
+        previousState.pkvInsuranceType = currentState.pkvInsuranceType;
+      }
+      if (currentState.beihilfeStatus !== undefined) {
+        previousState.beihilfeStatus = currentState.beihilfeStatus;
+      }
+
+      return previousState;
     }
 
     case "new-gkv-details": {
@@ -1375,11 +1613,10 @@ export const confirmPkvDetails = mutation({
 });
 
 /**
- * A5 → A6: Submit personal data and proceed to calendar selection.
+ * A5 → A6: Submit personal data and proceed to Datenweitergabe.
  */
 export const submitNewPatientData = mutation({
   args: {
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
     sessionId: v.id("bookingSessions"),
@@ -1398,25 +1635,21 @@ export const submitNewPatientData = mutation({
 
     const state = session.state;
 
-    // Build calendar state based on insurance type
     if (state.insuranceType === "gkv") {
-      type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
+      type GkvDataSharing = StateAtStep<"new-data-sharing"> & {
         insuranceType: "gkv";
       };
-      const newState: GkvCalendar = {
+      const newState: GkvDataSharing = {
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
         locationId: state.locationId,
         personalData: args.personalData,
-        step: "new-calendar-selection" as const,
+        step: "new-data-sharing" as const,
       };
 
       if (args.medicalHistory !== undefined) {
         newState.medicalHistory = args.medicalHistory;
-      }
-      if (args.emergencyContacts !== undefined) {
-        newState.emergencyContacts = args.emergencyContacts;
       }
 
       await ctx.db.patch("bookingSessions", args.sessionId, {
@@ -1424,23 +1657,20 @@ export const submitNewPatientData = mutation({
       });
     } else {
       // PKV path
-      type PkvCalendar = StateAtStep<"new-calendar-selection"> & {
+      type PkvDataSharing = StateAtStep<"new-data-sharing"> & {
         insuranceType: "pkv";
       };
-      const newState: PkvCalendar = {
+      const newState: PkvDataSharing = {
         insuranceType: "pkv" as const,
         isNewPatient: true as const,
         locationId: state.locationId,
         personalData: args.personalData,
         pvsConsent: true as const,
-        step: "new-calendar-selection" as const,
+        step: "new-data-sharing" as const,
       };
 
       if (args.medicalHistory !== undefined) {
         newState.medicalHistory = args.medicalHistory;
-      }
-      if (args.emergencyContacts !== undefined) {
-        newState.emergencyContacts = args.emergencyContacts;
       }
       if (state.pkvTariff !== undefined) {
         newState.pkvTariff = state.pkvTariff;
@@ -1467,9 +1697,6 @@ export const submitNewPatientData = mutation({
       ...(args.medicalHistory === undefined
         ? {}
         : { medicalHistory: args.medicalHistory }),
-      ...(args.emergencyContacts === undefined
-        ? {}
-        : { emergencyContacts: args.emergencyContacts }),
       ...(state.insuranceType === "gkv" ? { hzvStatus: state.hzvStatus } : {}),
       ...(state.insuranceType === "pkv" && state.pkvTariff !== undefined
         ? { pkvTariff: state.pkvTariff }
@@ -1491,7 +1718,108 @@ export const submitNewPatientData = mutation({
 });
 
 /**
- * A6 → A7: Select slot and create appointment (new patient).
+ * A6 → A7: Submit Datenweitergabe and proceed to calendar selection.
+ */
+export const submitNewDataSharing = mutation({
+  args: {
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
+    sessionId: v.id("bookingSessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await getVerifiedSession(ctx, args.sessionId);
+    const state = assertStep(session.state, "new-data-sharing");
+    assertValidDataSharingContacts(args.dataSharingContacts);
+    const ownedContacts = attachOwnerToDataSharingContacts(
+      args.dataSharingContacts,
+      session.userId,
+    );
+
+    if (state.insuranceType === "gkv") {
+      type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
+        insuranceType: "gkv";
+      };
+      const newState: GkvCalendar = {
+        dataSharingContacts: ownedContacts,
+        hzvStatus: state.hzvStatus,
+        insuranceType: "gkv" as const,
+        isNewPatient: true as const,
+        locationId: state.locationId,
+        personalData: state.personalData,
+        step: "new-calendar-selection" as const,
+      };
+
+      if (state.medicalHistory !== undefined) {
+        newState.medicalHistory = state.medicalHistory;
+      }
+
+      await ctx.db.patch("bookingSessions", args.sessionId, {
+        state: newState,
+      });
+    } else {
+      type PkvCalendar = StateAtStep<"new-calendar-selection"> & {
+        insuranceType: "pkv";
+      };
+      const newState: PkvCalendar = {
+        dataSharingContacts: ownedContacts,
+        insuranceType: "pkv" as const,
+        isNewPatient: true as const,
+        locationId: state.locationId,
+        personalData: state.personalData,
+        pvsConsent: true as const,
+        step: "new-calendar-selection" as const,
+      };
+
+      if (state.medicalHistory !== undefined) {
+        newState.medicalHistory = state.medicalHistory;
+      }
+      if (state.pkvTariff !== undefined) {
+        newState.pkvTariff = state.pkvTariff;
+      }
+      if (state.pkvInsuranceType !== undefined) {
+        newState.pkvInsuranceType = state.pkvInsuranceType;
+      }
+      if (state.beihilfeStatus !== undefined) {
+        newState.beihilfeStatus = state.beihilfeStatus;
+      }
+
+      await ctx.db.patch("bookingSessions", args.sessionId, {
+        state: newState,
+      });
+    }
+
+    const base = getStepBase(session);
+    const stepData: StepTableInput<"bookingNewDataSharingSteps"> = {
+      ...base,
+      dataSharingContacts: ownedContacts,
+      insuranceType: state.insuranceType,
+      isNewPatient: true,
+      locationId: state.locationId,
+      personalData: state.personalData,
+      ...(state.medicalHistory === undefined
+        ? {}
+        : { medicalHistory: state.medicalHistory }),
+      ...(state.insuranceType === "gkv" ? { hzvStatus: state.hzvStatus } : {}),
+      ...(state.insuranceType === "pkv" && state.pkvTariff !== undefined
+        ? { pkvTariff: state.pkvTariff }
+        : {}),
+      ...(state.insuranceType === "pkv" && state.pkvInsuranceType !== undefined
+        ? { pkvInsuranceType: state.pkvInsuranceType }
+        : {}),
+      ...(state.insuranceType === "pkv" && state.beihilfeStatus !== undefined
+        ? { beihilfeStatus: state.beihilfeStatus }
+        : {}),
+    };
+
+    await upsertStep(ctx, "bookingNewDataSharingSteps", session, stepData);
+
+    await refreshSession(ctx, args.sessionId);
+    return null;
+  },
+  returns: v.null(),
+});
+
+/**
+ * A7 → A8: Select slot and create appointment (new patient).
  * Requires authentication.
  */
 export const selectNewPatientSlot = mutation({
@@ -1530,6 +1858,7 @@ export const selectNewPatientSlot = mutation({
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
       ...base,
       appointmentTypeId: args.appointmentTypeId,
+      dataSharingContacts: state.dataSharingContacts,
       insuranceType: state.insuranceType,
       isNewPatient: true,
       locationId: state.locationId,
@@ -1587,6 +1916,7 @@ export const selectNewPatientSlot = mutation({
       const confirmState: GkvConfirm = {
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        dataSharingContacts: state.dataSharingContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
@@ -1612,6 +1942,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        dataSharingContacts: state.dataSharingContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
@@ -1634,6 +1965,7 @@ export const selectNewPatientSlot = mutation({
       const confirmState: PkvConfirm = {
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        dataSharingContacts: state.dataSharingContacts,
         insuranceType: "pkv" as const,
         isNewPatient: true as const,
         locationId: state.locationId,
@@ -1668,6 +2000,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        dataSharingContacts: state.dataSharingContacts,
         insuranceType: "pkv",
         isNewPatient: true,
         locationId: state.locationId,
@@ -1756,7 +2089,7 @@ export const selectDoctor = mutation({
 });
 
 /**
- * B3 → B4: Submit personal data and proceed to calendar selection.
+ * B3 → B4: Submit personal data and proceed to Datenweitergabe.
  * Requires authentication.
  */
 export const submitExistingPatientData = mutation({
@@ -1782,7 +2115,7 @@ export const submitExistingPatientData = mutation({
         locationId: state.locationId,
         personalData: args.personalData,
         practitionerId: state.practitionerId,
-        step: "existing-calendar-selection" as const,
+        step: "existing-data-sharing" as const,
       },
     });
 
@@ -1802,7 +2135,52 @@ export const submitExistingPatientData = mutation({
 });
 
 /**
- * B4 → B5: Select slot and create appointment (existing patient).
+ * B4 → B5: Submit Datenweitergabe and proceed to calendar selection.
+ * Requires authentication.
+ */
+export const submitExistingDataSharing = mutation({
+  args: {
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
+    sessionId: v.id("bookingSessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await getVerifiedSession(ctx, args.sessionId);
+    const state = assertStep(session.state, "existing-data-sharing");
+    assertValidDataSharingContacts(args.dataSharingContacts);
+    const ownedContacts = attachOwnerToDataSharingContacts(
+      args.dataSharingContacts,
+      session.userId,
+    );
+
+    await ctx.db.patch("bookingSessions", args.sessionId, {
+      state: {
+        dataSharingContacts: ownedContacts,
+        isNewPatient: false as const,
+        locationId: state.locationId,
+        personalData: state.personalData,
+        practitionerId: state.practitionerId,
+        step: "existing-calendar-selection" as const,
+      },
+    });
+
+    const base = getStepBase(session);
+    await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
+      ...base,
+      dataSharingContacts: ownedContacts,
+      isNewPatient: false as const,
+      locationId: state.locationId,
+      personalData: state.personalData,
+      practitionerId: state.practitionerId,
+    });
+
+    await refreshSession(ctx, args.sessionId);
+    return null;
+  },
+  returns: v.null(),
+});
+
+/**
+ * B5 → B6: Select slot and create appointment (existing patient).
  * Requires authentication.
  */
 export const selectExistingPatientSlot = mutation({
@@ -1853,6 +2231,7 @@ export const selectExistingPatientSlot = mutation({
       state: {
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        dataSharingContacts: state.dataSharingContacts,
         isNewPatient: false as const,
         locationId: state.locationId,
         personalData: state.personalData,
@@ -1867,6 +2246,7 @@ export const selectExistingPatientSlot = mutation({
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {
       ...base,
       appointmentTypeId: args.appointmentTypeId,
+      dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: state.personalData,
@@ -1879,6 +2259,7 @@ export const selectExistingPatientSlot = mutation({
       ...base,
       appointmentId,
       appointmentTypeId: args.appointmentTypeId,
+      dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: state.personalData,
