@@ -1,4 +1,4 @@
-import type { GenericMutationCtx } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -6,11 +6,9 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
-
-// Context types for helper functions
-type MutationCtx = GenericMutationCtx<DataModel>;
 import {
   beihilfeStatusValidator,
+  type BookingSessionStep,
   bookingSessionStepValidator,
   emergencyContactValidator,
   hzvStatusValidator,
@@ -26,6 +24,15 @@ import {
   getAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
+// Context types for helper functions
+interface DbReadCtx {
+  db: GenericQueryCtx<DataModel>["db"];
+}
+type MutationCtx = GenericMutationCtx<DataModel>;
+type QueryCtx = GenericQueryCtx<DataModel>;
+type SessionDoc = Doc<"bookingSessions">;
+type SessionWithState = SessionDoc & { state: BookingSessionState };
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -36,7 +43,7 @@ const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 // TYPE HELPERS
 // ============================================================================
 
-type BookingSessionState = Doc<"bookingSessions">["state"];
+type BookingSessionState = BookingSessionStep;
 
 // Helper to narrow state to a specific step
 type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -61,7 +68,7 @@ type StepPatchMap = {
 
 type StepQueryMap = {
   [K in StepTableName]: (
-    ctx: MutationCtx,
+    ctx: DbReadCtx,
     sessionId: Id<"bookingSessions">,
   ) => Promise<StepTableDocMap[K][]>;
 };
@@ -120,6 +127,84 @@ type StepTableName = keyof Pick<
   | "bookingPatientStatusSteps"
   | "bookingPrivacySteps"
 >;
+
+function getCalendarStepForConfirmationState(
+  state: Extract<
+    BookingSessionState,
+    { step: "existing-confirmation" | "new-confirmation" }
+  >,
+): "existing-calendar-selection" | "new-calendar-selection" {
+  return state.step === "new-confirmation"
+    ? "new-calendar-selection"
+    : "existing-calendar-selection";
+}
+
+async function hasUpcomingVisibleAppointmentForConfirmationState(
+  ctx: MutationCtx | QueryCtx,
+  state: Extract<
+    BookingSessionState,
+    { step: "existing-confirmation" | "new-confirmation" }
+  >,
+): Promise<boolean> {
+  const appointment = await ctx.db.get("appointments", state.appointmentId);
+  if (!appointment) {
+    return false;
+  }
+
+  if (
+    appointment.cancelledAt !== undefined ||
+    appointment.isSimulation === true
+  ) {
+    return false;
+  }
+
+  try {
+    return (
+      Temporal.ZonedDateTime.from(appointment.start).epochMilliseconds >
+      Temporal.Now.instant().epochMilliseconds
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function hydrateSessionState(
+  ctx: MutationCtx | QueryCtx,
+  session: SessionDoc,
+): Promise<BookingSessionState> {
+  const step = session.state.step;
+  const snapshot = await loadStepSnapshot(ctx, session._id, step);
+  if (STEP_SNAPSHOT_TABLES_BY_STEP[step].length > 0 && snapshot === null) {
+    throw new Error(`Missing snapshot for booking session step '${step}'`);
+  }
+
+  const mergedState =
+    snapshot === null
+      ? ({ step } as BookingSessionState)
+      : ({ step, ...snapshot } as BookingSessionState);
+  return sanitizeState(step, mergedState);
+}
+
+function isConfirmationState(
+  state: BookingSessionState,
+): state is Extract<
+  BookingSessionState,
+  { step: "existing-confirmation" | "new-confirmation" }
+> {
+  return (
+    state.step === "existing-confirmation" || state.step === "new-confirmation"
+  );
+}
+
+function withHydratedState(
+  session: SessionDoc,
+  state: BookingSessionState,
+): SessionWithState {
+  return {
+    ...session,
+    state,
+  };
+}
 
 const STEP_QUERY_MAP: StepQueryMap = {
   bookingExistingCalendarSelectionSteps: (ctx, sessionId) =>
@@ -289,7 +374,8 @@ export const get = query({
       return null;
     }
 
-    return session;
+    const state = await hydrateSessionState(ctx, session);
+    return withHydratedState(session, state);
   },
   returns: v.union(
     v.object({
@@ -332,19 +418,29 @@ export const getActiveForUser = query({
           .eq("ruleSetId", args.ruleSetId),
       )
       .order("desc")
-      .take(1);
-
-    const session = sessions[0];
-    if (!session) {
-      return null;
-    }
+      .collect();
 
     const now = BigInt(Date.now());
-    if (session.expiresAt < now) {
-      return null;
+    for (const session of sessions) {
+      if (session.expiresAt < now) {
+        continue;
+      }
+
+      const hydratedState = await hydrateSessionState(ctx, session);
+      if (
+        isConfirmationState(hydratedState) &&
+        !(await hasUpcomingVisibleAppointmentForConfirmationState(
+          ctx,
+          hydratedState,
+        ))
+      ) {
+        return null;
+      }
+
+      return withHydratedState(session, hydratedState);
     }
 
-    return session;
+    return null;
   },
   returns: v.union(
     v.object({
@@ -393,9 +489,22 @@ export const create = mutation({
 
     for (const session of sessions) {
       if (session.expiresAt >= now) {
+        const hydratedState = await hydrateSessionState(ctx, session);
+        let nextStep = hydratedState.step;
+        if (
+          isConfirmationState(hydratedState) &&
+          !(await hasUpcomingVisibleAppointmentForConfirmationState(
+            ctx,
+            hydratedState,
+          ))
+        ) {
+          nextStep = getCalendarStepForConfirmationState(hydratedState);
+        }
+
         await ctx.db.patch("bookingSessions", session._id, {
           expiresAt: now + BigInt(SESSION_TTL_MS),
           lastModified: now,
+          state: { step: nextStep },
         });
         return session._id;
       }
@@ -483,7 +592,7 @@ async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
 async function getVerifiedSession(
   ctx: MutationCtx,
   sessionId: Id<"bookingSessions">,
-): Promise<Doc<"bookingSessions">> {
+): Promise<SessionWithState> {
   const userId = await getAuthenticatedUserId(ctx);
 
   const session = await ctx.db.get("bookingSessions", sessionId);
@@ -501,7 +610,8 @@ async function getVerifiedSession(
     throw new Error("Session has expired");
   }
 
-  return session;
+  const state = await hydrateSessionState(ctx, session);
+  return withHydratedState(session, state);
 }
 
 /**
@@ -517,7 +627,7 @@ function getStepBase(session: Doc<"bookingSessions">) {
 }
 
 async function getStepRow<T extends StepTableName>(
-  ctx: MutationCtx,
+  ctx: DbReadCtx,
   tableName: T,
   sessionId: Id<"bookingSessions">,
 ): Promise<null | StepTableDocMap[T]> {
@@ -533,6 +643,16 @@ async function refreshSession(
   await ctx.db.patch("bookingSessions", sessionId, {
     expiresAt: now + BigInt(SESSION_TTL_MS),
     lastModified: now,
+  });
+}
+
+async function setSessionStep(
+  ctx: MutationCtx,
+  sessionId: Id<"bookingSessions">,
+  step: BookingSessionState["step"],
+) {
+  await ctx.db.patch("bookingSessions", sessionId, {
+    state: { step },
   });
 }
 
@@ -598,44 +718,51 @@ function calculateEndTime(startTime: string, durationMinutes: number): string {
 }
 
 async function loadStepSnapshot(
-  ctx: MutationCtx,
+  ctx: DbReadCtx,
   sessionId: Id<"bookingSessions">,
   step: BookingSessionState["step"],
 ): Promise<null | Record<string, unknown>> {
-  const tableMap: Record<BookingSessionState["step"], null | StepTableName> = {
-    "existing-calendar-selection": "bookingExistingCalendarSelectionSteps",
-    "existing-confirmation": "bookingExistingConfirmationSteps",
-    "existing-data-input": "bookingExistingPersonalDataSteps",
-    "existing-data-input-complete": "bookingExistingPersonalDataSteps",
-    "existing-doctor-selection": "bookingExistingDoctorSelectionSteps",
-    location: "bookingLocationSteps",
-    "new-calendar-selection": "bookingNewCalendarSelectionSteps",
-    "new-confirmation": "bookingNewConfirmationSteps",
-    "new-data-input": "bookingNewPersonalDataSteps",
-    "new-data-input-complete": "bookingNewPersonalDataSteps",
-    "new-gkv-details": "bookingNewGkvDetailSteps",
-    "new-gkv-details-complete": "bookingNewGkvDetailSteps",
-    "new-insurance-type": "bookingNewInsuranceTypeSteps",
-    "new-pkv-details": "bookingNewPkvDetailSteps",
-    "new-pkv-details-complete": "bookingNewPkvDetailSteps",
-    "new-pvs-consent": "bookingNewPkvConsentSteps",
-    "patient-status": "bookingPatientStatusSteps",
-    privacy: "bookingPrivacySteps",
-  };
-
-  const tableName = tableMap[step];
-  if (!tableName) {
+  const tableNames = STEP_SNAPSHOT_TABLES_BY_STEP[step];
+  if (tableNames.length === 0) {
     return null;
   }
 
-  const row = await getStepRow(ctx, tableName, sessionId);
-  if (!row) {
-    return null;
+  for (const tableName of tableNames) {
+    const row = await getStepRow(ctx, tableName, sessionId);
+    if (!row) {
+      continue;
+    }
+
+    const snapshot = stripStepSnapshotFields(row) as Record<string, unknown>;
+    return filterStepSnapshot(step, snapshot);
   }
 
-  const snapshot = stripStepSnapshotFields(row) as Record<string, unknown>;
-  return filterStepSnapshot(step, snapshot);
+  return null;
 }
+
+const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
+  BookingSessionState["step"],
+  StepTableName[]
+> = {
+  "existing-calendar-selection": ["bookingExistingPersonalDataSteps"],
+  "existing-confirmation": ["bookingExistingConfirmationSteps"],
+  "existing-data-input": ["bookingExistingDoctorSelectionSteps"],
+  "existing-data-input-complete": ["bookingExistingPersonalDataSteps"],
+  "existing-doctor-selection": ["bookingPatientStatusSteps"],
+  location: [],
+  "new-calendar-selection": ["bookingNewPersonalDataSteps"],
+  "new-confirmation": ["bookingNewConfirmationSteps"],
+  "new-data-input": ["bookingNewGkvDetailSteps", "bookingNewPkvDetailSteps"],
+  "new-data-input-complete": ["bookingNewPersonalDataSteps"],
+  "new-gkv-details": ["bookingNewInsuranceTypeSteps"],
+  "new-gkv-details-complete": ["bookingNewGkvDetailSteps"],
+  "new-insurance-type": ["bookingPatientStatusSteps"],
+  "new-pkv-details": ["bookingNewPkvConsentSteps"],
+  "new-pkv-details-complete": ["bookingNewPkvDetailSteps"],
+  "new-pvs-consent": ["bookingNewInsuranceTypeSteps"],
+  "patient-status": ["bookingLocationSteps"],
+  privacy: [],
+};
 
 function stripStepSnapshotFields<T extends StepTableName>(
   row: StepTableDocMap[T],
@@ -1020,24 +1147,43 @@ export const goBack = mutation({
       );
     }
 
-    const snapshot = await loadStepSnapshot(
-      ctx,
-      session._id,
-      previousState.step,
-    );
-    const mergedState: BookingSessionState = snapshot
-      ? ({ ...previousState, ...snapshot } as BookingSessionState)
-      : previousState;
-    const sanitizedState = sanitizeState(previousState.step, mergedState);
-
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: sanitizedState,
-    });
+    await setSessionStep(ctx, args.sessionId, previousState.step);
 
     await refreshSession(ctx, args.sessionId);
     return previousState.step;
   },
   returns: v.string(),
+});
+
+/**
+ * Move a confirmation session back to calendar selection after appointment cancellation.
+ * Keeps the previously entered data and clears confirmation-only fields.
+ */
+export const returnToCalendarSelectionAfterCancellation = mutation({
+  args: { sessionId: v.id("bookingSessions") },
+  handler: async (ctx, args) => {
+    const session = await getVerifiedSession(ctx, args.sessionId);
+    const state = session.state;
+
+    let targetStep: BookingSessionState["step"] | null = null;
+    if (state.step === "new-confirmation") {
+      targetStep = "new-calendar-selection";
+    } else if (state.step === "existing-confirmation") {
+      targetStep = "existing-calendar-selection";
+    }
+
+    if (!targetStep) {
+      throw new Error(
+        `Cannot return to calendar selection from step '${state.step}'`,
+      );
+    }
+
+    await setSessionStep(ctx, args.sessionId, targetStep);
+
+    await refreshSession(ctx, args.sessionId);
+    return null;
+  },
+  returns: v.null(),
 });
 
 // ============================================================================
@@ -1054,9 +1200,7 @@ export const acceptPrivacy = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     assertStep(session.state, "privacy");
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: { step: "location" as const },
-    });
+    await setSessionStep(ctx, args.sessionId, "location");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingPrivacySteps", session, {
@@ -1089,12 +1233,7 @@ export const selectLocation = mutation({
       throw new Error("Invalid location");
     }
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        locationId: args.locationId,
-        step: "patient-status" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "patient-status");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingLocationSteps", session, {
@@ -1117,13 +1256,7 @@ export const selectNewPatient = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "patient-status");
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        step: "new-insurance-type" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "new-insurance-type");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingPatientStatusSteps", session, {
@@ -1149,13 +1282,7 @@ export const selectExistingPatient = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "patient-status");
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        isNewPatient: false as const,
-        locationId: state.locationId,
-        step: "existing-doctor-selection" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "existing-doctor-selection");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingPatientStatusSteps", session, {
@@ -1188,23 +1315,9 @@ export const selectInsuranceType = mutation({
     const state = assertStep(session.state, "new-insurance-type");
 
     if (args.insuranceType === "gkv") {
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: {
-          insuranceType: "gkv" as const,
-          isNewPatient: true as const,
-          locationId: state.locationId,
-          step: "new-gkv-details" as const,
-        },
-      });
+      await setSessionStep(ctx, args.sessionId, "new-gkv-details");
     } else {
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: {
-          insuranceType: "pkv" as const,
-          isNewPatient: true as const,
-          locationId: state.locationId,
-          step: "new-pvs-consent" as const,
-        },
-      });
+      await setSessionStep(ctx, args.sessionId, "new-pvs-consent");
     }
 
     const base = getStepBase(session);
@@ -1241,15 +1354,7 @@ export const confirmGkvDetails = mutation({
     }
     const state = session.state;
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        hzvStatus: args.hzvStatus,
-        insuranceType: "gkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        step: "new-data-input" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "new-data-input");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingNewGkvDetailSteps", session, {
@@ -1278,15 +1383,7 @@ export const acceptPvsConsent = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-pvs-consent");
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        insuranceType: "pkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        pvsConsent: true as const,
-        step: "new-pkv-details" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "new-pkv-details");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingNewPkvConsentSteps", session, {
@@ -1327,29 +1424,7 @@ export const confirmPkvDetails = mutation({
     }
     const state = session.state;
 
-    // Build state object - include optional fields only if defined
-    type PkvDataInput = StateAtStep<"new-data-input"> & {
-      insuranceType: "pkv";
-    };
-    const newState: PkvDataInput = {
-      insuranceType: "pkv" as const,
-      isNewPatient: true as const,
-      locationId: state.locationId,
-      pvsConsent: true as const,
-      step: "new-data-input" as const,
-    };
-
-    if (args.pkvTariff !== undefined) {
-      newState.pkvTariff = args.pkvTariff;
-    }
-    if (args.pkvInsuranceType !== undefined) {
-      newState.pkvInsuranceType = args.pkvInsuranceType;
-    }
-    if (args.beihilfeStatus !== undefined) {
-      newState.beihilfeStatus = args.beihilfeStatus;
-    }
-
-    await ctx.db.patch("bookingSessions", args.sessionId, { state: newState });
+    await setSessionStep(ctx, args.sessionId, "new-data-input");
 
     const base = getStepBase(session);
     const stepData: StepTableInput<"bookingNewPkvDetailSteps"> = {
@@ -1398,64 +1473,7 @@ export const submitNewPatientData = mutation({
 
     const state = session.state;
 
-    // Build calendar state based on insurance type
-    if (state.insuranceType === "gkv") {
-      type GkvCalendar = StateAtStep<"new-calendar-selection"> & {
-        insuranceType: "gkv";
-      };
-      const newState: GkvCalendar = {
-        hzvStatus: state.hzvStatus,
-        insuranceType: "gkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        personalData: args.personalData,
-        step: "new-calendar-selection" as const,
-      };
-
-      if (args.medicalHistory !== undefined) {
-        newState.medicalHistory = args.medicalHistory;
-      }
-      if (args.emergencyContacts !== undefined) {
-        newState.emergencyContacts = args.emergencyContacts;
-      }
-
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: newState,
-      });
-    } else {
-      // PKV path
-      type PkvCalendar = StateAtStep<"new-calendar-selection"> & {
-        insuranceType: "pkv";
-      };
-      const newState: PkvCalendar = {
-        insuranceType: "pkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        personalData: args.personalData,
-        pvsConsent: true as const,
-        step: "new-calendar-selection" as const,
-      };
-
-      if (args.medicalHistory !== undefined) {
-        newState.medicalHistory = args.medicalHistory;
-      }
-      if (args.emergencyContacts !== undefined) {
-        newState.emergencyContacts = args.emergencyContacts;
-      }
-      if (state.pkvTariff !== undefined) {
-        newState.pkvTariff = state.pkvTariff;
-      }
-      if (state.pkvInsuranceType !== undefined) {
-        newState.pkvInsuranceType = state.pkvInsuranceType;
-      }
-      if (state.beihilfeStatus !== undefined) {
-        newState.beihilfeStatus = state.beihilfeStatus;
-      }
-
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: newState,
-      });
-    }
+    await setSessionStep(ctx, args.sessionId, "new-calendar-selection");
 
     const base = getStepBase(session);
     const stepData: StepTableInput<"bookingNewPersonalDataSteps"> = {
@@ -1581,33 +1599,6 @@ export const selectNewPatientSlot = mutation({
 
     // Build confirmation state based on insurance type
     if (state.insuranceType === "gkv") {
-      type GkvConfirm = StateAtStep<"new-confirmation"> & {
-        insuranceType: "gkv";
-      };
-      const confirmState: GkvConfirm = {
-        appointmentId,
-        appointmentTypeId: args.appointmentTypeId,
-        hzvStatus: state.hzvStatus,
-        insuranceType: "gkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        personalData: state.personalData,
-        reasonDescription,
-        selectedSlot: args.selectedSlot,
-        step: "new-confirmation" as const,
-      };
-
-      if (state.medicalHistory !== undefined) {
-        confirmState.medicalHistory = state.medicalHistory;
-      }
-      if (state.emergencyContacts !== undefined) {
-        confirmState.emergencyContacts = state.emergencyContacts;
-      }
-
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: confirmState,
-      });
-
       await upsertStep(ctx, "bookingNewConfirmationSteps", session, {
         ...base,
         appointmentId,
@@ -1628,42 +1619,6 @@ export const selectNewPatientSlot = mutation({
       });
     } else {
       // PKV path
-      type PkvConfirm = StateAtStep<"new-confirmation"> & {
-        insuranceType: "pkv";
-      };
-      const confirmState: PkvConfirm = {
-        appointmentId,
-        appointmentTypeId: args.appointmentTypeId,
-        insuranceType: "pkv" as const,
-        isNewPatient: true as const,
-        locationId: state.locationId,
-        personalData: state.personalData,
-        pvsConsent: true as const,
-        reasonDescription,
-        selectedSlot: args.selectedSlot,
-        step: "new-confirmation" as const,
-      };
-
-      if (state.medicalHistory !== undefined) {
-        confirmState.medicalHistory = state.medicalHistory;
-      }
-      if (state.emergencyContacts !== undefined) {
-        confirmState.emergencyContacts = state.emergencyContacts;
-      }
-      if (state.pkvTariff !== undefined) {
-        confirmState.pkvTariff = state.pkvTariff;
-      }
-      if (state.pkvInsuranceType !== undefined) {
-        confirmState.pkvInsuranceType = state.pkvInsuranceType;
-      }
-      if (state.beihilfeStatus !== undefined) {
-        confirmState.beihilfeStatus = state.beihilfeStatus;
-      }
-
-      await ctx.db.patch("bookingSessions", args.sessionId, {
-        state: confirmState,
-      });
-
       const confirmStep: StepTableInput<"bookingNewConfirmationSteps"> = {
         ...base,
         appointmentId,
@@ -1699,6 +1654,7 @@ export const selectNewPatientSlot = mutation({
       );
     }
 
+    await setSessionStep(ctx, args.sessionId, "new-confirmation");
     await refreshSession(ctx, args.sessionId);
 
     return { appointmentId };
@@ -1732,14 +1688,7 @@ export const selectDoctor = mutation({
       throw new Error("Practitioner not found");
     }
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        isNewPatient: false as const,
-        locationId: state.locationId,
-        practitionerId: args.practitionerId,
-        step: "existing-data-input" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "existing-data-input");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingDoctorSelectionSteps", session, {
@@ -1776,15 +1725,7 @@ export const submitExistingPatientData = mutation({
     }
     const state = session.state;
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        isNewPatient: false as const,
-        locationId: state.locationId,
-        personalData: args.personalData,
-        practitionerId: state.practitionerId,
-        step: "existing-calendar-selection" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "existing-calendar-selection");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingPersonalDataSteps", session, {
@@ -1849,19 +1790,7 @@ export const selectExistingPatientSlot = mutation({
       userId: session.userId,
     });
 
-    await ctx.db.patch("bookingSessions", args.sessionId, {
-      state: {
-        appointmentId,
-        appointmentTypeId: args.appointmentTypeId,
-        isNewPatient: false as const,
-        locationId: state.locationId,
-        personalData: state.personalData,
-        practitionerId: state.practitionerId,
-        reasonDescription,
-        selectedSlot: args.selectedSlot,
-        step: "existing-confirmation" as const,
-      },
-    });
+    await setSessionStep(ctx, args.sessionId, "existing-confirmation");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {

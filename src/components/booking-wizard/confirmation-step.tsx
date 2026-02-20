@@ -1,8 +1,13 @@
 // Confirmation step component (Final step for both paths)
 
+import { useMutation } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
+
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,33 +17,65 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-// Helper to format time from ISO string
-function formatTime(isoString: string): string {
-  const zdt = Temporal.ZonedDateTime.from(isoString);
-  return zdt.toPlainTime().toString({ smallestUnit: "minute" });
+interface AppointmentConfirmationCardProps {
+  appointmentId: Id<"appointments">;
+  description: string;
+  duration: number;
+  isCancelled: boolean;
+  isCancelling: boolean;
+  onCancel: () => void;
+  practitionerName: string;
+  startTime: string;
+  title: string;
 }
 
-// Helper to format date from ISO string
-function formatDate(isoString: string): string {
-  const zdt = Temporal.ZonedDateTime.from(isoString);
-  const date = zdt.toPlainDate();
-
-  // Format as "Montag, 15. Januar 2025"
-  const jsDate = new Date(date.year, date.month - 1, date.day);
-  return jsDate.toLocaleDateString("de-DE", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-    year: "numeric",
-  });
+interface BookedAppointmentSummaryProps {
+  appointment: Doc<"appointments">;
+  onCancelled?: () => Promise<void> | void;
+  practitionerName?: string;
 }
 
-// Generate ICS calendar file content
-export function ConfirmationStep({ state }: StepComponentProps) {
-  // Extract data from confirmation state
+export function BookedAppointmentSummary({
+  appointment,
+  onCancelled,
+  practitionerName,
+}: BookedAppointmentSummaryProps) {
+  const { cancelAppointment, isCancelled, isCancelling } =
+    useAppointmentCancellation(onCancelled);
+
+  const resolvedPractitionerName = practitionerName ?? "Behandlungsteam";
+  const duration = getDurationMinutes(appointment.end, appointment.start);
+
+  return (
+    <AppointmentConfirmationCard
+      appointmentId={appointment._id}
+      description="Sie können den Termin in Ihren Kalender übernehmen oder direkt stornieren."
+      duration={duration}
+      isCancelled={isCancelled}
+      isCancelling={isCancelling}
+      onCancel={() => {
+        void cancelAppointment(appointment._id);
+      }}
+      practitionerName={resolvedPractitionerName}
+      startTime={appointment.start}
+      title="Sie haben bereits einen gebuchten Termin"
+    />
+  );
+}
+
+export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
+  const returnToCalendarSelection = useMutation(
+    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+  );
+  const { cancelAppointment, isCancelled, isCancelling } =
+    useAppointmentCancellation(async () => {
+      await returnToCalendarSelection({ sessionId });
+    });
+
   const selectedSlot =
     "selectedSlot" in state
       ? (state.selectedSlot as {
@@ -57,8 +94,7 @@ export function ConfirmationStep({ state }: StepComponentProps) {
         })
       : null;
 
-  const appointmentId =
-    "appointmentId" in state ? (state.appointmentId as string) : null;
+  const appointmentId = "appointmentId" in state ? state.appointmentId : null;
 
   if (!selectedSlot || !personalData || !appointmentId) {
     return (
@@ -74,39 +110,58 @@ export function ConfirmationStep({ state }: StepComponentProps) {
   }
 
   return (
+    <AppointmentConfirmationCard
+      appointmentId={appointmentId}
+      description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
+      duration={selectedSlot.duration}
+      isCancelled={isCancelled}
+      isCancelling={isCancelling}
+      onCancel={() => {
+        void cancelAppointment(appointmentId);
+      }}
+      practitionerName={selectedSlot.practitionerName}
+      startTime={selectedSlot.startTime}
+      title="Termin erfolgreich gebucht!"
+    />
+  );
+}
+
+function AppointmentConfirmationCard({
+  appointmentId,
+  description,
+  duration,
+  isCancelled,
+  isCancelling,
+  onCancel,
+  practitionerName,
+  startTime,
+  title,
+}: AppointmentConfirmationCardProps) {
+  return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader className="text-center">
         <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
           <CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
         </div>
-        <CardTitle className="text-2xl">Termin erfolgreich gebucht!</CardTitle>
-        <CardDescription>
-          Vielen Dank, {personalData.firstName}. Wir freuen uns auf Ihren
-          Besuch.
-        </CardDescription>
+        <CardTitle className="text-2xl">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Appointment details */}
         <div className="rounded-lg border p-4 space-y-3">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Datum</span>
-            <span className="font-medium">
-              {formatDate(selectedSlot.startTime)}
-            </span>
+            <span className="font-medium">{formatDate(startTime)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Uhrzeit</span>
-            <span className="font-medium">
-              {formatTime(selectedSlot.startTime)} Uhr
-            </span>
+            <span className="font-medium">{formatTime(startTime)} Uhr</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Behandler/in</span>
-            <span className="font-medium">{selectedSlot.practitionerName}</span>
+            <span className="font-medium">{practitionerName}</span>
           </div>
         </div>
 
-        {/* Important notes */}
         <div className="rounded-lg bg-muted/50 p-4 space-y-2">
           <h4 className="font-medium">Wichtige Hinweise:</h4>
           <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
@@ -123,18 +178,17 @@ export function ConfirmationStep({ state }: StepComponentProps) {
           </ul>
         </div>
 
-        {/* Action buttons */}
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             className="flex-1"
             onClick={() => {
               downloadICS(
-                appointmentId,
-                selectedSlot.startTime,
-                selectedSlot.duration,
+                String(appointmentId),
+                startTime,
+                duration,
                 "Arzttermin",
-                "Praxis", // TODO: Add actual location name from state
-                selectedSlot.practitionerName,
+                "Praxis",
+                practitionerName,
               );
             }}
             variant="outline"
@@ -154,7 +208,19 @@ export function ConfirmationStep({ state }: StepComponentProps) {
           </Button>
         </div>
 
-        {/* Final confirmation note */}
+        <Button
+          className="w-full"
+          disabled={isCancelled || isCancelling}
+          onClick={onCancel}
+          variant="destructive"
+        >
+          {isCancelled
+            ? "Termin storniert"
+            : isCancelling
+              ? "Storniere..."
+              : "Termin stornieren"}
+        </Button>
+
         <div className="text-center pt-4 border-t">
           <p className="text-sm text-muted-foreground mb-4">
             Sie erhalten in Kürze eine Bestätigung per E-Mail (falls angegeben).
@@ -208,4 +274,66 @@ function downloadICS(
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function formatDate(isoString: string): string {
+  return Temporal.ZonedDateTime.from(isoString).toLocaleString("de-DE", {
+    day: "numeric",
+    month: "long",
+    weekday: "long",
+    year: "numeric",
+  });
+}
+
+function formatTime(isoString: string): string {
+  return Temporal.ZonedDateTime.from(isoString).toLocaleString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getDurationMinutes(endTime: string, startTime: string): number {
+  const endEpochMilliseconds =
+    Temporal.ZonedDateTime.from(endTime).epochMilliseconds;
+  const startEpochMilliseconds =
+    Temporal.ZonedDateTime.from(startTime).epochMilliseconds;
+  const duration = Math.round(
+    (endEpochMilliseconds - startEpochMilliseconds) / 60_000,
+  );
+  return Math.max(1, duration);
+}
+
+function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
+  const cancelOwnAppointment = useMutation(
+    api.appointments.cancelOwnAppointment,
+  );
+  const [isCancelled, setIsCancelled] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  const cancelAppointment = async (appointmentId: Id<"appointments">) => {
+    if (isCancelled || isCancelling) {
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      await cancelOwnAppointment({ appointmentId });
+      if (onCancelled) {
+        await onCancelled();
+      }
+      setIsCancelled(true);
+      toast.success("Termin wurde storniert");
+    } catch (error) {
+      toast.error("Termin konnte nicht storniert werden", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Bitte versuchen Sie es erneut.",
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  return { cancelAppointment, isCancelled, isCancelling };
 }

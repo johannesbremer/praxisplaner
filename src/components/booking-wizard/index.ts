@@ -2,7 +2,10 @@
 // Export all step components for the multi-step booking wizard
 
 export { CalendarSelectionStep } from "./calendar-selection-step";
-export { ConfirmationStep } from "./confirmation-step";
+export {
+  BookedAppointmentSummary,
+  ConfirmationStep,
+} from "./confirmation-step";
 export { DataInputStep } from "./data-input-step";
 export { DoctorSelectionStep } from "./doctor-selection-step";
 export { GkvDetailsStep } from "./gkv-details-step";

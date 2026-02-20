@@ -4,7 +4,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -20,6 +26,7 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
+  BookedAppointmentSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -191,6 +198,14 @@ function AuthenticatedBookingFlow() {
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
+  const bookedAppointment = useQuery(
+    api.appointments.getBookedAppointmentForCurrentUser,
+    {},
+  );
+  const practitioners = useQuery(
+    api.entities.getPractitioners,
+    activeRuleSetId ? { ruleSetId: activeRuleSetId } : "skip",
+  );
 
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
@@ -205,6 +220,7 @@ function AuthenticatedBookingFlow() {
       !resolvedSessionId &&
       !isCreatingSessionRef.current &&
       !sessionError &&
+      bookedAppointment === null &&
       existingSession !== undefined &&
       !existingSession
     ) {
@@ -234,6 +250,7 @@ function AuthenticatedBookingFlow() {
     sessionId,
     createSession,
     sessionError,
+    bookedAppointment,
     existingSession,
     resolvedSessionId,
   ]);
@@ -334,8 +351,26 @@ function AuthenticatedBookingFlow() {
     );
   }
 
+  // Loading state for upcoming appointment lookup
+  if (bookedAppointment === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-96">
+          <CardContent className="py-6">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Laden...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const isShowingBookedAppointment = bookedAppointment !== null;
+
   // Session creation error
-  if (sessionError) {
+  if (!isShowingBookedAppointment && sessionError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -357,8 +392,10 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  // Session loading
-  if (!resolvedSessionId || session === undefined) {
+  if (
+    !isShowingBookedAppointment &&
+    (!resolvedSessionId || session === undefined)
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -374,7 +411,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // Session expired or not found
-  if (session === null) {
+  if (!isShowingBookedAppointment && session === null) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -395,16 +432,48 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  const currentGroup = getStepGroup(session.state.step);
-  const showBackButton = canGoBack(session.state.step);
+  let currentGroup: ReturnType<typeof getStepGroup>;
+  let showBackButton: boolean;
+  let stepContent: ReactElement;
 
-  // Prepare props for step components
-  const stepProps: StepComponentProps = {
-    practiceId: currentPractice._id,
-    ruleSetId: activeRuleSetId,
-    sessionId: resolvedSessionId,
-    state: session.state,
-  };
+  if (isShowingBookedAppointment) {
+    const bookedPractitionerName = bookedAppointment.practitionerId
+      ? practitioners?.find(
+          (practitioner) =>
+            practitioner._id === bookedAppointment.practitionerId,
+        )?.name
+      : undefined;
+
+    currentGroup = "confirmation";
+    showBackButton = false;
+    stepContent = (
+      <BookedAppointmentSummary
+        appointment={bookedAppointment}
+        {...(bookedPractitionerName
+          ? { practitionerName: bookedPractitionerName }
+          : {})}
+      />
+    );
+  } else {
+    if (!resolvedSessionId || !session) {
+      throw new Error("Session missing while rendering booking wizard");
+    }
+
+    currentGroup = getStepGroup(session.state.step);
+    showBackButton = canGoBack(session.state.step);
+    stepContent = (
+      <StepRenderer
+        onStartOver={handleStartOver}
+        step={session.state.step}
+        stepProps={{
+          practiceId: currentPractice._id,
+          ruleSetId: activeRuleSetId,
+          sessionId: resolvedSessionId,
+          state: session.state,
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-b from-background to-muted/20">
@@ -478,13 +547,7 @@ function AuthenticatedBookingFlow() {
         )}
 
         {/* Step content */}
-        <div className="max-w-2xl mx-auto">
-          <StepRenderer
-            onStartOver={handleStartOver}
-            step={session.state.step}
-            stepProps={stepProps}
-          />
-        </div>
+        <div className="max-w-2xl mx-auto">{stepContent}</div>
       </main>
     </div>
   );

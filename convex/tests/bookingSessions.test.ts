@@ -3,13 +3,13 @@ import type { FunctionArgs } from "convex/server";
 import { convexTest } from "convex-test";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
-import schema from "../schema";
+import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
 
-type BookingSessionState = Doc<"bookingSessions">["state"];
+type BookingSessionState = BookingSessionStep;
 type ExistingPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectExistingPatientSlot
 >;
@@ -574,6 +574,63 @@ describe("bookingSessions atomic pending/completed step states", () => {
 });
 
 describe("bookingSessions slot selection validation", () => {
+  test("returnToCalendarSelectionAfterCancellation resets existing-confirmation to existing-calendar-selection", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "return_to_calendar_existing");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+      appointmentTypeId,
+      reasonDescription: "Kontrolle",
+      selectedSlot: makeSelectedSlot(practitionerId),
+      sessionId,
+    });
+
+    const confirmed = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      confirmed,
+      "session should exist at existing confirmation step",
+    );
+    assertStateStep(confirmed.state, "existing-confirmation");
+
+    await authed.mutation(
+      api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+      { sessionId },
+    );
+
+    const atCalendar = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      atCalendar,
+      "session should exist at existing calendar-selection step",
+    );
+    assertStateStep(atCalendar.state, "existing-calendar-selection");
+    expect("appointmentId" in atCalendar.state).toBe(false);
+    expect("reasonDescription" in atCalendar.state).toBe(false);
+    expect("selectedSlot" in atCalendar.state).toBe(false);
+    expect(atCalendar.state.personalData.firstName).toBe("Grace");
+  });
+
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
     const {
