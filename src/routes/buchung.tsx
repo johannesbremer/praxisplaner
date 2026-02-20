@@ -4,7 +4,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -204,9 +210,6 @@ function AuthenticatedBookingFlow() {
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
-  const returnToCalendarSelectionAfterCancellation = useMutation(
-    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
-  );
   const goBackMutation = useMutation(api.bookingSessions.goBack);
 
   // Create session on mount
@@ -364,46 +367,10 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (bookedAppointment) {
-    const practitionerName = bookedAppointment.practitionerId
-      ? practitioners?.find(
-          (practitioner) =>
-            practitioner._id === bookedAppointment.practitionerId,
-        )?.name
-      : undefined;
-    const handleBookedAppointmentCancelled = async () => {
-      if (
-        !resolvedSessionId ||
-        !session ||
-        (session.state.step !== "existing-confirmation" &&
-          session.state.step !== "new-confirmation")
-      ) {
-        return;
-      }
-
-      await returnToCalendarSelectionAfterCancellation({
-        sessionId: resolvedSessionId,
-      });
-    };
-
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl space-y-3">
-          <BookedAppointmentSummary
-            appointment={bookedAppointment}
-            onCancelled={handleBookedAppointmentCancelled}
-            {...(practitionerName ? { practitionerName } : {})}
-          />
-          <Button className="w-full" onClick={handleSignOut} variant="outline">
-            Abmelden
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const isShowingBookedAppointment = bookedAppointment !== null;
 
   // Session creation error
-  if (sessionError) {
+  if (!isShowingBookedAppointment && sessionError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -425,7 +392,10 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (!resolvedSessionId || session === undefined) {
+  if (
+    !isShowingBookedAppointment &&
+    (!resolvedSessionId || session === undefined)
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -441,7 +411,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // Session expired or not found
-  if (session === null) {
+  if (!isShowingBookedAppointment && session === null) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -462,16 +432,48 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  const currentGroup = getStepGroup(session.state.step);
-  const showBackButton = canGoBack(session.state.step);
+  let currentGroup: ReturnType<typeof getStepGroup>;
+  let showBackButton: boolean;
+  let stepContent: ReactElement;
 
-  // Prepare props for step components
-  const stepProps: StepComponentProps = {
-    practiceId: currentPractice._id,
-    ruleSetId: activeRuleSetId,
-    sessionId: resolvedSessionId,
-    state: session.state,
-  };
+  if (isShowingBookedAppointment) {
+    const bookedPractitionerName = bookedAppointment.practitionerId
+      ? practitioners?.find(
+          (practitioner) =>
+            practitioner._id === bookedAppointment.practitionerId,
+        )?.name
+      : undefined;
+
+    currentGroup = "confirmation";
+    showBackButton = false;
+    stepContent = (
+      <BookedAppointmentSummary
+        appointment={bookedAppointment}
+        {...(bookedPractitionerName
+          ? { practitionerName: bookedPractitionerName }
+          : {})}
+      />
+    );
+  } else {
+    if (!resolvedSessionId || !session) {
+      throw new Error("Session missing while rendering booking wizard");
+    }
+
+    currentGroup = getStepGroup(session.state.step);
+    showBackButton = canGoBack(session.state.step);
+    stepContent = (
+      <StepRenderer
+        onStartOver={handleStartOver}
+        step={session.state.step}
+        stepProps={{
+          practiceId: currentPractice._id,
+          ruleSetId: activeRuleSetId,
+          sessionId: resolvedSessionId,
+          state: session.state,
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-b from-background to-muted/20">
@@ -545,13 +547,7 @@ function AuthenticatedBookingFlow() {
         )}
 
         {/* Step content */}
-        <div className="max-w-2xl mx-auto">
-          <StepRenderer
-            onStartOver={handleStartOver}
-            step={session.state.step}
-            stepProps={stepProps}
-          />
-        </div>
+        <div className="max-w-2xl mx-auto">{stepContent}</div>
       </main>
     </div>
   );

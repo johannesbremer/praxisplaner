@@ -523,14 +523,26 @@ export const getBookedAppointmentForCurrentUser = query({
         q.eq("userId", userId).gte("start", nowStartLowerBound),
       );
 
-    for await (const appointment of futureAppointments) {
-      if (
-        appointment.isSimulation !== true &&
-        isVisibleAppointment(appointment) &&
-        isAppointmentInFuture(appointment, nowEpochMilliseconds)
-      ) {
-        return appointment;
+    let cursor: null | string = null;
+    let isDone = false;
+    while (!isDone) {
+      const page = await futureAppointments.paginate({
+        cursor,
+        numItems: 32,
+      });
+
+      for (const appointment of page.page) {
+        if (
+          appointment.isSimulation !== true &&
+          isVisibleAppointment(appointment) &&
+          isAppointmentInFuture(appointment, nowEpochMilliseconds)
+        ) {
+          return appointment;
+        }
       }
+
+      isDone = page.isDone;
+      cursor = page.continueCursor;
     }
 
     return null;

@@ -3,13 +3,13 @@ import type { FunctionArgs } from "convex/server";
 import { convexTest } from "convex-test";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
-import schema from "../schema";
+import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
 
-type BookingSessionState = Doc<"bookingSessions">["state"];
+type BookingSessionState = BookingSessionStep;
 type ExistingPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectExistingPatientSlot
 >;
