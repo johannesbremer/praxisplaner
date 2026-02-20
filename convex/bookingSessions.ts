@@ -35,7 +35,6 @@ import {
 // ============================================================================
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/;
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 // ============================================================================
@@ -715,25 +714,18 @@ function assertValidDataSharingContacts(
   for (const [index, contact] of contacts.entries()) {
     const requiredTextFields: [keyof DataSharingContactInput, string][] = [
       ["city", "Ort"],
-      ["email", "E-Mail"],
       ["firstName", "Vorname"],
       ["lastName", "Nachname"],
       ["phoneNumber", "Telefonnummer"],
       ["postalCode", "PLZ"],
       ["street", "Straße"],
-      ["title", "Titel"],
     ];
 
     for (const [field, label] of requiredTextFields) {
-      if (contact[field].trim().length === 0) {
+      const value = contact[field];
+      if (typeof value !== "string" || value.trim().length === 0) {
         throw new Error(`Invalid data-sharing contact #${index + 1}: ${label}`);
       }
-    }
-
-    if (!SIMPLE_EMAIL_REGEX.test(contact.email)) {
-      throw new Error(
-        `Invalid data-sharing contact #${index + 1}: E-Mail format`,
-      );
     }
 
     if (!ISO_DATE_REGEX.test(contact.dateOfBirth)) {

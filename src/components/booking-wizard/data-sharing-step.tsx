@@ -39,7 +39,6 @@ function createEmptyContact(): ContactFormValue {
   return {
     city: "",
     dateOfBirth: "",
-    email: "",
     firstName: "",
     gender: "",
     lastName: "",
@@ -58,10 +57,6 @@ const dataSharingPersonSchema = z.object({
       /^\d{4}-\d{2}-\d{2}$/,
       "Geburtsdatum muss im Format YYYY-MM-DD sein",
     ),
-  email: z.preprocess(
-    (value) => (typeof value === "string" ? value.trim() : value),
-    z.email("Bitte eine gültige E-Mail-Adresse eingeben"),
-  ),
   firstName: z.string().trim().min(1, "Vorname ist erforderlich"),
   gender: z.enum(["male", "female", "diverse"], {
     error: "Geschlecht ist erforderlich",
@@ -70,7 +65,11 @@ const dataSharingPersonSchema = z.object({
   phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
   postalCode: z.string().trim().min(1, "PLZ ist erforderlich"),
   street: z.string().trim().min(1, "Straße ist erforderlich"),
-  title: z.string().trim().min(1, "Titel ist erforderlich"),
+  title: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
 const dataSharingContactsSchema = z.array(dataSharingPersonSchema);
@@ -93,14 +92,13 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
       ? initialContacts.map((contact) => ({
           city: contact.city,
           dateOfBirth: contact.dateOfBirth,
-          email: contact.email,
           firstName: contact.firstName,
           gender: contact.gender,
           lastName: contact.lastName,
           phoneNumber: contact.phoneNumber,
           postalCode: contact.postalCode,
           street: contact.street,
-          title: contact.title,
+          title: contact.title ?? "",
         }))
       : [],
   );
@@ -260,7 +258,7 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
                     className="text-sm font-medium"
                     htmlFor={`title-${index}`}
                   >
-                    Titel *
+                    Titel (optional)
                   </label>
                   <Input
                     id={`title-${index}`}
@@ -404,29 +402,6 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
                     </p>
                   )}
                 </div>
-              </div>
-
-              <div className="space-y-1">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor={`email-${index}`}
-                >
-                  E-Mail *
-                </label>
-                <Input
-                  id={`email-${index}`}
-                  onChange={(event) => {
-                    updateContactField(index, "email", event.target.value);
-                  }}
-                  placeholder="max@beispiel.de"
-                  type="email"
-                  value={contact.email}
-                />
-                {errors[index]?.email && (
-                  <p className="text-sm text-destructive">
-                    {errors[index].email}
-                  </p>
-                )}
               </div>
 
               <div className="space-y-1">

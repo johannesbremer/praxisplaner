@@ -281,7 +281,6 @@ function makeDataSharingContacts(): DataSharingContactInput[] {
     {
       city: "Berlin",
       dateOfBirth: "1970-01-01",
-      email: "contact@example.com",
       firstName: "Maria",
       gender: "female" as const,
       lastName: "Muster",
@@ -1171,27 +1170,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
 });
 
 describe("bookingSessions slot selection validation", () => {
-  test("submitNewDataSharing rejects invalid email format", async () => {
-    const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
-    const authed = makeAuthedClient(t, "data_sharing_invalid_email");
-    const sessionId = await authed.mutation(api.bookingSessions.create, {
-      practiceId,
-      ruleSetId,
-    });
-    await bootstrapToNewDataSharing(authed, locationId, sessionId);
-
-    await expect(
-      authed.mutation(api.bookingSessions.submitNewDataSharing, {
-        dataSharingContacts: makeDataSharingContactsWithOverrides({
-          email: "not-an-email",
-        }),
-        sessionId,
-      }),
-    ).rejects.toThrow("E-Mail format");
-  });
-
   test("submitNewDataSharing rejects invalid date format", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
@@ -1213,7 +1191,7 @@ describe("bookingSessions slot selection validation", () => {
     ).rejects.toThrow("Geburtsdatum format");
   });
 
-  test("submitExistingDataSharing rejects empty title", async () => {
+  test("submitExistingDataSharing allows empty title", async () => {
     const t = createTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBookingEntities(t);
@@ -1229,14 +1207,19 @@ describe("bookingSessions slot selection validation", () => {
       sessionId,
     );
 
-    await expect(
-      authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-        dataSharingContacts: makeDataSharingContactsWithOverrides({
-          title: " ",
-        }),
-        sessionId,
+    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
+      dataSharingContacts: makeDataSharingContactsWithOverrides({
+        title: undefined,
       }),
-    ).rejects.toThrow("Titel");
+      sessionId,
+    });
+
+    const atCalendar = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(atCalendar, "session should exist at calendar step");
+    assertStateStep(atCalendar.state, "existing-calendar-selection");
+    expect(atCalendar.state.dataSharingContacts[0]?.title).toBeUndefined();
   });
 
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
