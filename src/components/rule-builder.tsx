@@ -65,11 +65,30 @@ type ConditionType =
   | "PRACTITIONER";
 
 // Validation helper
+interface NamedEntity {
+  _id: string;
+  name: string;
+}
+
 interface RuleBuilderProps {
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
+}
+
+type RuleConditionTreePreparation =
+  | RuleConditionTreePreparationConflict
+  | RuleConditionTreePreparationSuccess;
+
+interface RuleConditionTreePreparationConflict {
+  message: string;
+  status: "conflict";
+}
+
+interface RuleConditionTreePreparationSuccess {
+  conditionTree: unknown;
+  status: "ok";
 }
 
 interface RuleFromDB {
@@ -81,6 +100,17 @@ interface RuleFromDB {
   lastModified: bigint;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
+}
+
+interface RuleReferenceEntry {
+  id: string;
+  name: null | string;
+}
+
+interface RuleReferenceSnapshot {
+  appointmentTypes: RuleReferenceEntry[];
+  locations: RuleReferenceEntry[];
+  practitioners: RuleReferenceEntry[];
 }
 
 export function RuleBuilder({
@@ -99,7 +129,19 @@ export function RuleBuilder({
   const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
   const existingRules = useQuery(api.entities.getRules, { ruleSetId });
+  const appointmentTypesRef = useRef(appointmentTypes ?? []);
+  const practitionersRef = useRef(practitioners ?? []);
+  const locationsRef = useRef(locations ?? []);
   const rulesRef = useRef(existingRules ?? []);
+  useEffect(() => {
+    appointmentTypesRef.current = appointmentTypes ?? [];
+  }, [appointmentTypes]);
+  useEffect(() => {
+    practitionersRef.current = practitioners ?? [];
+  }, [practitioners]);
+  useEffect(() => {
+    locationsRef.current = locations ?? [];
+  }, [locations]);
   useEffect(() => {
     rulesRef.current = existingRules ?? [];
   }, [existingRules]);
@@ -148,6 +190,16 @@ export function RuleBuilder({
 
       if (deletedRule) {
         let currentRuleId = ruleId;
+        const deletedRuleState = serializeRuleState(
+          deletedRule.conditionTree,
+          deletedRule.enabled,
+        );
+        const deletedRuleReferenceSnapshot = createRuleReferenceSnapshot(
+          deletedRule.conditionTree,
+          appointmentTypesRef.current,
+          practitionersRef.current,
+          locationsRef.current,
+        );
         onRegisterHistoryAction?.({
           label: "Regel gelöscht",
           redo: async () => {
@@ -160,6 +212,16 @@ export function RuleBuilder({
                 status: "conflict" as const,
               };
             }
+            if (
+              serializeRuleState(existing.conditionTree, existing.enabled) !==
+              deletedRuleState
+            ) {
+              return {
+                message:
+                  "Die Regel wurde zwischenzeitlich geändert und kann nicht erneut gelöscht werden.",
+                status: "conflict" as const,
+              };
+            }
 
             await deleteRuleMutation({
               practiceId,
@@ -169,8 +231,21 @@ export function RuleBuilder({
             return { status: "applied" as const };
           },
           undo: async () => {
+            const preparedRule = prepareRuleConditionTreeForReplay(
+              deletedRule.conditionTree,
+              deletedRuleReferenceSnapshot,
+              appointmentTypesRef.current,
+              practitionersRef.current,
+              locationsRef.current,
+            );
+            if (preparedRule.status === "conflict") {
+              return {
+                message: preparedRule.message,
+                status: "conflict" as const,
+              };
+            }
             const recreateResult = await createRuleMutation({
-              conditionTree: deletedRule.conditionTree as Parameters<
+              conditionTree: preparedRule.conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
               enabled: deletedRule.enabled,
@@ -300,10 +375,27 @@ export function RuleBuilder({
               });
 
             let currentRuleId = entityId as Id<"ruleConditions">;
+            const currentRuleState = serializeRuleState(conditionTree, true);
 
             if (previousRule) {
               const previousRuleName = generateRuleName(
                 conditionTreeToConditions(previousRule.conditionTree),
+                appointmentTypes,
+                practitioners,
+                locations,
+              );
+              const previousRuleState = serializeRuleState(
+                previousRule.conditionTree,
+                previousRule.enabled,
+              );
+              const currentRuleReferenceSnapshot = createRuleReferenceSnapshot(
+                conditionTree,
+                appointmentTypes,
+                practitioners,
+                locations,
+              );
+              const previousRuleReferenceSnapshot = createRuleReferenceSnapshot(
+                previousRule.conditionTree,
                 appointmentTypes,
                 practitioners,
                 locations,
@@ -322,6 +414,31 @@ export function RuleBuilder({
                       status: "conflict" as const,
                     };
                   }
+                  if (
+                    serializeRuleState(
+                      existing.conditionTree,
+                      existing.enabled,
+                    ) !== previousRuleState
+                  ) {
+                    return {
+                      message:
+                        "Die vorherige Regel wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+                      status: "conflict" as const,
+                    };
+                  }
+                  const preparedRule = prepareRuleConditionTreeForReplay(
+                    conditionTree,
+                    currentRuleReferenceSnapshot,
+                    appointmentTypesRef.current,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  );
+                  if (preparedRule.status === "conflict") {
+                    return {
+                      message: preparedRule.message,
+                      status: "conflict" as const,
+                    };
+                  }
 
                   await deleteRuleMutation({
                     practiceId,
@@ -330,7 +447,7 @@ export function RuleBuilder({
                   });
 
                   const recreateResult = await createRuleMutation({
-                    conditionTree: conditionTree as Parameters<
+                    conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
@@ -353,6 +470,31 @@ export function RuleBuilder({
                       status: "conflict" as const,
                     };
                   }
+                  if (
+                    serializeRuleState(
+                      existing.conditionTree,
+                      existing.enabled,
+                    ) !== currentRuleState
+                  ) {
+                    return {
+                      message:
+                        "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                      status: "conflict" as const,
+                    };
+                  }
+                  const preparedRule = prepareRuleConditionTreeForReplay(
+                    previousRule.conditionTree,
+                    previousRuleReferenceSnapshot,
+                    appointmentTypesRef.current,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  );
+                  if (preparedRule.status === "conflict") {
+                    return {
+                      message: preparedRule.message,
+                      status: "conflict" as const,
+                    };
+                  }
 
                   await deleteRuleMutation({
                     practiceId,
@@ -361,7 +503,7 @@ export function RuleBuilder({
                   });
 
                   const recreatePrevious = await createRuleMutation({
-                    conditionTree: previousRule.conditionTree as Parameters<
+                    conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: previousRule.enabled,
@@ -375,11 +517,30 @@ export function RuleBuilder({
                 },
               });
             } else {
+              const createdRuleReferenceSnapshot = createRuleReferenceSnapshot(
+                conditionTree,
+                appointmentTypes,
+                practitioners,
+                locations,
+              );
               onRegisterHistoryAction?.({
                 label: "Regel erstellt",
                 redo: async () => {
+                  const preparedRule = prepareRuleConditionTreeForReplay(
+                    conditionTree,
+                    createdRuleReferenceSnapshot,
+                    appointmentTypesRef.current,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  );
+                  if (preparedRule.status === "conflict") {
+                    return {
+                      message: preparedRule.message,
+                      status: "conflict" as const,
+                    };
+                  }
                   const recreateResult = await createRuleMutation({
-                    conditionTree: conditionTree as Parameters<
+                    conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
@@ -423,6 +584,271 @@ export function RuleBuilder({
         />
       )}
     </div>
+  );
+}
+
+function collectRuleReferenceIds(conditionTree: unknown): {
+  appointmentTypeIds: Set<string>;
+  locationIds: Set<string>;
+  practitionerIds: Set<string>;
+} {
+  const appointmentTypeIds = new Set<string>();
+  const practitionerIds = new Set<string>();
+  const locationIds = new Set<string>();
+  const conditions = conditionTreeToConditions(
+    conditionTree as ConditionTreeNode,
+  );
+
+  for (const condition of conditions) {
+    switch (condition.type) {
+      case "APPOINTMENT_TYPE": {
+        for (const id of condition.valueIds ?? []) {
+          appointmentTypeIds.add(id);
+        }
+        break;
+      }
+      case "CONCURRENT_COUNT":
+      case "DAILY_CAPACITY": {
+        for (const id of condition.appointmentTypes ?? []) {
+          appointmentTypeIds.add(id);
+        }
+        break;
+      }
+      case "LOCATION": {
+        for (const id of condition.valueIds ?? []) {
+          locationIds.add(id);
+        }
+        break;
+      }
+      case "PRACTITIONER": {
+        for (const id of condition.valueIds ?? []) {
+          practitionerIds.add(id);
+        }
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+
+  return {
+    appointmentTypeIds,
+    locationIds,
+    practitionerIds,
+  };
+}
+
+function createReferenceResolver(
+  entities: NamedEntity[],
+  snapshotEntries: RuleReferenceEntry[],
+  missingLabel: string,
+  missingGroups: Set<string>,
+): (id: string) => null | string {
+  const entityIds = new Set(entities.map((entry) => entry._id));
+  const entitiesByName = new Map(
+    entities.map((entry) => [entry.name, entry._id]),
+  );
+  const snapshotNamesById = new Map(
+    snapshotEntries.map((entry) => [entry.id, entry.name]),
+  );
+
+  return (id) => {
+    if (entityIds.has(id)) {
+      return id;
+    }
+
+    const snapshotName = snapshotNamesById.get(id);
+    if (snapshotName) {
+      const remappedId = entitiesByName.get(snapshotName);
+      if (remappedId) {
+        return remappedId;
+      }
+    }
+
+    missingGroups.add(missingLabel);
+    return null;
+  };
+}
+
+function createRuleReferenceSnapshot(
+  conditionTree: unknown,
+  appointmentTypes: NamedEntity[],
+  practitioners: NamedEntity[],
+  locations: NamedEntity[],
+): RuleReferenceSnapshot {
+  const referencedIds = collectRuleReferenceIds(conditionTree);
+  const appointmentTypeNameById = new Map(
+    appointmentTypes.map((entry) => [entry._id, entry.name]),
+  );
+  const practitionerNameById = new Map(
+    practitioners.map((entry) => [entry._id, entry.name]),
+  );
+  const locationNameById = new Map(
+    locations.map((entry) => [entry._id, entry.name]),
+  );
+
+  return {
+    appointmentTypes: [...referencedIds.appointmentTypeIds].map((id) => ({
+      id,
+      name: appointmentTypeNameById.get(id) ?? null,
+    })),
+    locations: [...referencedIds.locationIds].map((id) => ({
+      id,
+      name: locationNameById.get(id) ?? null,
+    })),
+    practitioners: [...referencedIds.practitionerIds].map((id) => ({
+      id,
+      name: practitionerNameById.get(id) ?? null,
+    })),
+  };
+}
+
+function prepareRuleConditionTreeForReplay(
+  conditionTree: unknown,
+  referenceSnapshot: RuleReferenceSnapshot,
+  appointmentTypes: NamedEntity[],
+  practitioners: NamedEntity[],
+  locations: NamedEntity[],
+): RuleConditionTreePreparation {
+  const missingGroups = new Set<string>();
+  const remapAppointmentTypeId = createReferenceResolver(
+    appointmentTypes,
+    referenceSnapshot.appointmentTypes,
+    "Termintypen",
+    missingGroups,
+  );
+  const remapPractitionerId = createReferenceResolver(
+    practitioners,
+    referenceSnapshot.practitioners,
+    "Behandler",
+    missingGroups,
+  );
+  const remapLocationId = createReferenceResolver(
+    locations,
+    referenceSnapshot.locations,
+    "Standorte",
+    missingGroups,
+  );
+
+  const remappedConditionTree = remapConditionTreeReferences(
+    conditionTree,
+    remapAppointmentTypeId,
+    remapPractitionerId,
+    remapLocationId,
+  );
+
+  if (missingGroups.size > 0) {
+    return {
+      message: `Die Regel kann nicht wiederhergestellt werden, weil referenzierte ${[...missingGroups].join(", ")} nicht mehr existieren.`,
+      status: "conflict",
+    };
+  }
+
+  return {
+    conditionTree: remappedConditionTree,
+    status: "ok",
+  };
+}
+
+function remapConditionTreeReferences(
+  conditionTree: unknown,
+  remapAppointmentTypeId: (id: string) => null | string,
+  remapPractitionerId: (id: string) => null | string,
+  remapLocationId: (id: string) => null | string,
+): unknown {
+  if (!conditionTree || typeof conditionTree !== "object") {
+    return conditionTree;
+  }
+
+  if (Array.isArray(conditionTree)) {
+    return conditionTree.map((node) =>
+      remapConditionTreeReferences(
+        node,
+        remapAppointmentTypeId,
+        remapPractitionerId,
+        remapLocationId,
+      ),
+    );
+  }
+
+  const node = conditionTree as Record<string, unknown>;
+  const nodeType = node["nodeType"];
+  const valueIds = node["valueIds"];
+  const conditionType = node["conditionType"];
+  const children = node["children"];
+
+  if (
+    nodeType === "CONDITION" &&
+    Array.isArray(valueIds) &&
+    typeof conditionType === "string"
+  ) {
+    const remapId =
+      conditionType === "APPOINTMENT_TYPE" ||
+      conditionType === "CONCURRENT_COUNT" ||
+      conditionType === "DAILY_CAPACITY"
+        ? remapAppointmentTypeId
+        : conditionType === "PRACTITIONER"
+          ? remapPractitionerId
+          : conditionType === "LOCATION"
+            ? remapLocationId
+            : null;
+
+    if (!remapId) {
+      return node;
+    }
+
+    const remappedValueIds: string[] = [];
+    for (const valueId of valueIds) {
+      if (typeof valueId !== "string") {
+        continue;
+      }
+      const remappedId = remapId(valueId);
+      if (remappedId) {
+        remappedValueIds.push(remappedId);
+      }
+    }
+
+    return {
+      ...node,
+      valueIds: remappedValueIds,
+    };
+  }
+
+  if ((nodeType === "AND" || nodeType === "NOT") && Array.isArray(children)) {
+    return {
+      ...node,
+      children: children.map((child) =>
+        remapConditionTreeReferences(
+          child,
+          remapAppointmentTypeId,
+          remapPractitionerId,
+          remapLocationId,
+        ),
+      ),
+    };
+  }
+
+  return node;
+}
+
+function serializeRuleState(conditionTree: unknown, enabled: boolean): string {
+  return JSON.stringify(
+    {
+      conditionTree,
+      enabled,
+    },
+    (_, value: unknown) => {
+      if (!value || Array.isArray(value) || typeof value !== "object") {
+        return value;
+      }
+
+      const objectValue = value as Record<string, unknown>;
+      const sortedEntries = Object.entries(objectValue).toSorted(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      return Object.fromEntries(sortedEntries);
+    },
   );
 }
 

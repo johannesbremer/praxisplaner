@@ -170,6 +170,7 @@ function AuthenticatedBookingFlow() {
   );
   const [sessionError, setSessionError] = useState<null | string>(null);
   const isCreatingSessionRef = useRef(false);
+  const stepContainerRef = useRef<HTMLDivElement>(null);
   const isInitializingPracticeRef = useRef(false);
 
   // Fetch practice data
@@ -309,19 +310,20 @@ function AuthenticatedBookingFlow() {
   const currentStep = session?.state.step;
 
   const handleForward = useCallback(() => {
-    const main = document.querySelector("main");
-    if (!main) {
+    const container = stepContainerRef.current;
+    if (!container) {
       return;
     }
 
     const submitButtons = [
-      ...main.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
+      ...container.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
         'button[type="submit"], input[type="submit"]',
       ),
     ];
     const firstEnabled = submitButtons.find((button) => {
+      const isVisible = button.offsetParent !== null;
       const ariaDisabled = button.getAttribute("aria-disabled") === "true";
-      return !button.disabled && !ariaDisabled;
+      return isVisible && !button.disabled && !ariaDisabled;
     });
 
     firstEnabled?.click();
@@ -585,7 +587,7 @@ function AuthenticatedBookingFlow() {
         )}
 
         {/* Step content */}
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto" ref={stepContainerRef}>
           <StepRenderer
             onStartOver={handleStartOver}
             step={session.state.step}

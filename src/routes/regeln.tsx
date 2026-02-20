@@ -415,7 +415,7 @@ function LogicView() {
   );
   const historyScopeRootRuleSetId =
     unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? "none";
-  const historyScopeKey = `${activeTab}:${historyScopeRootRuleSetId}`;
+  const historyScopeKey = `${historyScopeRootRuleSetId}`;
   const lastHistoryScopeRef = useRef(historyScopeKey);
 
   React.useEffect(() => {
