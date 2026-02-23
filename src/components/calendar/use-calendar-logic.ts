@@ -1036,10 +1036,7 @@ export function useCalendarLogic({
             await runDeleteAppointmentInternal({ id: currentAppointmentId });
             return { status: "applied" };
           } catch {
-            return {
-              message: "Der Termin ist bereits gelöscht.",
-              status: "conflict",
-            };
+            return { status: "applied" };
           }
         },
         undo: async () => {
@@ -1287,10 +1284,7 @@ export function useCalendarLogic({
             await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
             return { status: "applied" };
           } catch {
-            return {
-              message: "Die Sperrung ist bereits gelöscht.",
-              status: "conflict",
-            };
+            return { status: "applied" };
           }
         },
         undo: async () => {

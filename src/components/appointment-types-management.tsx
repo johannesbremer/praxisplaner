@@ -390,10 +390,7 @@ export function AppointmentTypesManagement({
                 (type) => type._id === currentAppointmentTypeId,
               );
               if (!existing) {
-                return {
-                  message: "Die Terminart wurde bereits gelöscht.",
-                  status: "conflict" as const,
-                };
+                return { status: "applied" as const };
               }
 
               await deleteAppointmentTypeMutation({
@@ -497,10 +494,7 @@ export function AppointmentTypesManagement({
             (type) => type._id === currentAppointmentTypeId,
           );
           if (!existing) {
-            return {
-              message: "Die Terminart ist bereits gelöscht.",
-              status: "conflict" as const,
-            };
+            return { status: "applied" as const };
           }
 
           await deleteAppointmentTypeMutation({

@@ -156,10 +156,7 @@ export function LocationsManagement({
                 (location) => location._id === currentLocationId,
               );
               if (!current) {
-                return {
-                  message: "Der Standort wurde bereits gelöscht.",
-                  status: "conflict" as const,
-                };
+                return { status: "applied" as const };
               }
 
               await deleteLocationMutation({
@@ -234,10 +231,7 @@ export function LocationsManagement({
               (location) => location._id === currentLocationId,
             );
             if (!current) {
-              return {
-                message: "Der Standort ist bereits gelöscht.",
-                status: "conflict" as const,
-              };
+              return { status: "applied" as const };
             }
 
             await deleteLocationMutation({

@@ -96,10 +96,7 @@ export default function PractitionerManagement({
             (practitioner) => practitioner._id === currentPractitionerId,
           );
           if (!existing) {
-            return {
-              message: "Der Arzt ist bereits gelöscht.",
-              status: "conflict" as const,
-            };
+            return { status: "applied" as const };
           }
 
           const redoResult = await deleteWithDependenciesMutation({
@@ -373,10 +370,7 @@ function PractitionerDialog({
                 (entry) => entry._id === currentPractitionerId,
               );
               if (!existing) {
-                return {
-                  message: "Der Arzt wurde bereits gelöscht.",
-                  status: "conflict" as const,
-                };
+                return { status: "applied" as const };
               }
 
               await deleteMutation({

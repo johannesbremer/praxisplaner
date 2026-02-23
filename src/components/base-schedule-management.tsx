@@ -211,10 +211,7 @@ export default function BaseScheduleManagement({
               existingIds.has(id),
             );
             if (idsToDelete.length === 0) {
-              return {
-                message: "Die Arbeitszeiten sind bereits gelöscht.",
-                status: "conflict" as const,
-              };
+              return { status: "applied" as const };
             }
 
             for (const scheduleId of idsToDelete) {
@@ -708,6 +705,13 @@ function BaseScheduleDialog({
             onRegisterHistoryAction?.({
               label: "Arbeitszeiten erstellt",
               redo: async () => {
+                const hasExistingCurrentIds = currentCreatedIds.some((id) =>
+                  schedulesRef.current.some((schedule) => schedule._id === id),
+                );
+                if (hasExistingCurrentIds) {
+                  return { status: "applied" as const };
+                }
+
                 const recreatedIds: Id<"baseSchedules">[] = [];
                 for (const payload of createdSchedulePayloads) {
                   const result = await createScheduleMutation({
@@ -722,13 +726,14 @@ function BaseScheduleDialog({
               },
               undo: async () => {
                 for (const id of currentCreatedIds) {
-                  const exists = schedulesRef.current.some((s) => s._id === id);
-                  if (exists) {
+                  try {
                     await deleteScheduleMutation({
                       baseScheduleId: id,
                       practiceId,
                       sourceRuleSetId: newRuleSetId,
                     });
+                  } catch {
+                    // If another action already removed this ID, desired state is still satisfied.
                   }
                 }
                 return { status: "applied" as const };
@@ -754,11 +759,7 @@ function BaseScheduleDialog({
               label: "Arbeitszeiten aktualisiert",
               redo: async () => {
                 if (currentOldIds.length === 0) {
-                  return {
-                    message:
-                      "Die Änderung ist bereits aktiv und kann nicht erneut angewendet werden.",
-                    status: "conflict" as const,
-                  };
+                  return { status: "applied" as const };
                 }
 
                 const result = await replaceScheduleSetMutation({
@@ -774,11 +775,7 @@ function BaseScheduleDialog({
               },
               undo: async () => {
                 if (currentNewIds.length === 0) {
-                  return {
-                    message:
-                      "Die Änderung wurde bereits zurückgesetzt und kann nicht erneut rückgängig gemacht werden.",
-                    status: "conflict" as const,
-                  };
+                  return { status: "applied" as const };
                 }
 
                 const result = await replaceScheduleSetMutation({

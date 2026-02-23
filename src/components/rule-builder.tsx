@@ -207,10 +207,7 @@ export function RuleBuilder({
               (rule) => rule._id === currentRuleId,
             );
             if (!existing) {
-              return {
-                message: "Die Regel ist bereits gelöscht.",
-                status: "conflict" as const,
-              };
+              return { status: "applied" as const };
             }
             if (
               serializeRuleState(existing.conditionTree, existing.enabled) !==
@@ -557,10 +554,7 @@ export function RuleBuilder({
                     (rule) => rule._id === currentRuleId,
                   );
                   if (!existing) {
-                    return {
-                      message: "Die Regel wurde bereits gelöscht.",
-                      status: "conflict" as const,
-                    };
+                    return { status: "applied" as const };
                   }
 
                   await deleteRuleMutation({

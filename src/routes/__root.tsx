@@ -290,7 +290,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             ]}
           />
         </ClientOnly>
-        <Toaster position="top-right" richColors />
+        <Toaster offset={72} position="top-right" richColors />
         <Scripts />
       </body>
     </html>
@@ -302,7 +302,7 @@ function RootLayout() {
 
   return (
     <div className="min-h-screen">
-      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
+      <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2">
         {controls ? (
           <>
             <Button
