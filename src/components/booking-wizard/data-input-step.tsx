@@ -658,7 +658,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
                   <Button className="w-full" disabled={isSubmitting}>
                     {isSubmitting
                       ? "Wird verarbeitet..."
-                      : "Weiter zur Terminauswahl"}
+                      : "Weiter zur Datenweitergabe"}
                   </Button>
                 )}
               </form.Subscribe>

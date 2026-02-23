@@ -4,6 +4,7 @@
 export { CalendarSelectionStep } from "./calendar-selection-step";
 export { ConfirmationStep } from "./confirmation-step";
 export { DataInputStep } from "./data-input-step";
+export { DataSharingStep } from "./data-sharing-step";
 export { DoctorSelectionStep } from "./doctor-selection-step";
 export { GkvDetailsStep } from "./gkv-details-step";
 export { InsuranceTypeStep } from "./insurance-type-step";
