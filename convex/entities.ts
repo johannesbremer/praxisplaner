@@ -883,6 +883,8 @@ export const deletePractitionerWithDependencies = mutation({
           afterAllowedPractitionerIds,
           appointmentTypeId: appointmentType._id,
           beforeAllowedPractitionerIds: appointmentType.allowedPractitionerIds,
+          duration: appointmentType.duration,
+          name: appointmentType.name,
         };
       });
 
@@ -1036,37 +1038,44 @@ export const restorePractitionerWithDependencies = mutation({
     }
 
     for (const patch of args.snapshot.appointmentTypePatches) {
-      const restoredAllowedPractitionerIds =
-        patch.beforeAllowedPractitionerIds.map((practitionerId) =>
-          practitionerId === previousPractitionerId
-            ? restoredPractitionerId
-            : practitionerId,
-        );
+      const resolvedAllowedPractitionerIds = new Set<Id<"practitioners">>([
+        restoredPractitionerId,
+      ]);
 
-      if (restoredAllowedPractitionerIds.length === 0) {
-        throw new Error(
-          "Eine Terminart kann nicht ohne Behandler wiederhergestellt werden.",
-        );
-      }
-
-      for (const practitionerId of restoredAllowedPractitionerIds) {
-        if (practitionerId === restoredPractitionerId) {
+      for (const practitionerId of patch.beforeAllowedPractitionerIds) {
+        if (practitionerId === previousPractitionerId) {
           continue;
         }
 
-        const practitionerDoc = await ctx.db.get(
+        const existingPractitioner = await ctx.db.get(
           "practitioners",
           practitionerId,
         );
         if (
-          practitionerDoc?.practiceId !== args.practiceId ||
-          practitionerDoc.ruleSetId !== ruleSetId
+          existingPractitioner?.practiceId === args.practiceId &&
+          existingPractitioner.ruleSetId === ruleSetId
         ) {
-          throw new Error(
-            "Die Terminart kann nicht vollständig wiederhergestellt werden, weil ein referenzierter Behandler fehlt.",
+          resolvedAllowedPractitionerIds.add(existingPractitioner._id);
+          continue;
+        }
+
+        try {
+          const remappedPractitionerId = await resolvePractitionerIdInRuleSet(
+            ctx.db,
+            practitionerId,
+            args.practiceId,
+            ruleSetId,
           );
+          resolvedAllowedPractitionerIds.add(remappedPractitionerId);
+        } catch {
+          // Another practitioner reference may have been deleted in a later action.
+          // Keep restoring what is still resolvable.
         }
       }
+
+      const restoredAllowedPractitionerIds = [
+        ...resolvedAllowedPractitionerIds,
+      ];
 
       if (patch.action === "delete") {
         const patchName = patch.name;
@@ -1110,14 +1119,33 @@ export const restorePractitionerWithDependencies = mutation({
         "appointmentTypes",
         patch.appointmentTypeId,
       );
-      if (appointmentType?.ruleSetId !== ruleSetId) {
+      let targetAppointmentType = appointmentType;
+
+      const patchName = patch.name;
+      if (targetAppointmentType?.ruleSetId !== ruleSetId && patchName) {
+        targetAppointmentType = await ctx.db
+          .query("appointmentTypes")
+          .withIndex("by_ruleSetId_name", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("name", patchName),
+          )
+          .first();
+      }
+
+      if (targetAppointmentType?.ruleSetId !== ruleSetId) {
         throw new Error(
           "Eine Terminart wurde zwischenzeitlich geändert und kann nicht wiederhergestellt werden.",
         );
       }
 
-      await ctx.db.patch("appointmentTypes", appointmentType._id, {
-        allowedPractitionerIds: restoredAllowedPractitionerIds,
+      const mergedAllowedPractitionerIds = [
+        ...new Set<Id<"practitioners">>([
+          ...targetAppointmentType.allowedPractitionerIds,
+          ...restoredAllowedPractitionerIds,
+        ]),
+      ];
+
+      await ctx.db.patch("appointmentTypes", targetAppointmentType._id, {
+        allowedPractitionerIds: mergedAllowedPractitionerIds,
         lastModified: now,
       });
     }
