@@ -142,6 +142,10 @@ const restorePractitionerWithDependenciesResultValidator = v.object({
   ruleSetId: v.id("ruleSets"),
 });
 
+const normalizeBaseScheduleBreakTimes = (
+  breakTimes: undefined | { end: string; start: string }[],
+) => JSON.stringify(breakTimes ?? []);
+
 // ================================
 // SHARED HELPER FUNCTIONS
 // ================================
@@ -994,7 +998,7 @@ export const restorePractitionerWithDependencies = mutation({
     const previousPractitionerId = args.snapshot.practitioner.id;
     const previousPractitionerIdAsString = previousPractitionerId as string;
 
-    const duplicateName = await ctx.db
+    const existingByName = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId_name", (q) =>
         q
@@ -1002,20 +1006,25 @@ export const restorePractitionerWithDependencies = mutation({
           .eq("name", args.snapshot.practitioner.name),
       )
       .first();
-    if (duplicateName) {
-      throw new Error(
-        `Der Arzt "${args.snapshot.practitioner.name}" kann nicht wiederhergestellt werden, weil bereits ein Arzt mit diesem Namen existiert.`,
-      );
-    }
+    const restoredPractitionerId =
+      existingByName?._id ??
+      (await ctx.db.insert("practitioners", {
+        name: args.snapshot.practitioner.name,
+        practiceId: args.practiceId,
+        ruleSetId,
+        ...(args.snapshot.practitioner.tags && {
+          tags: args.snapshot.practitioner.tags,
+        }),
+      }));
 
-    const restoredPractitionerId = await ctx.db.insert("practitioners", {
-      name: args.snapshot.practitioner.name,
-      practiceId: args.practiceId,
-      ruleSetId,
-      ...(args.snapshot.practitioner.tags && {
-        tags: args.snapshot.practitioner.tags,
-      }),
-    });
+    const existingSchedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId_practitionerId", (q) =>
+        q
+          .eq("ruleSetId", ruleSetId)
+          .eq("practitionerId", restoredPractitionerId),
+      )
+      .collect();
 
     for (const schedule of args.snapshot.baseSchedules) {
       const resolvedLocationId = await resolveLocationIdInRuleSet(
@@ -1024,6 +1033,19 @@ export const restorePractitionerWithDependencies = mutation({
         args.practiceId,
         ruleSetId,
       );
+
+      const duplicateSchedule = existingSchedules.find(
+        (existingSchedule) =>
+          existingSchedule.dayOfWeek === schedule.dayOfWeek &&
+          existingSchedule.startTime === schedule.startTime &&
+          existingSchedule.endTime === schedule.endTime &&
+          existingSchedule.locationId === resolvedLocationId &&
+          normalizeBaseScheduleBreakTimes(existingSchedule.breakTimes) ===
+            normalizeBaseScheduleBreakTimes(schedule.breakTimes),
+      );
+      if (duplicateSchedule) {
+        continue;
+      }
 
       await ctx.db.insert("baseSchedules", {
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
@@ -1098,9 +1120,17 @@ export const restorePractitionerWithDependencies = mutation({
           )
           .first();
         if (existingByName) {
-          throw new Error(
-            `Die Terminart "${patchName}" kann nicht wiederhergestellt werden, weil bereits eine Terminart mit diesem Namen existiert.`,
-          );
+          const mergedAllowedPractitionerIds = [
+            ...new Set<Id<"practitioners">>([
+              ...existingByName.allowedPractitionerIds,
+              ...restoredAllowedPractitionerIds,
+            ]),
+          ];
+          await ctx.db.patch("appointmentTypes", existingByName._id, {
+            allowedPractitionerIds: mergedAllowedPractitionerIds,
+            lastModified: now,
+          });
+          continue;
         }
 
         await ctx.db.insert("appointmentTypes", {
