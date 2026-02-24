@@ -207,7 +207,9 @@ export function CalendarSelectionStep({
   // Sort slots by time and keep only the first free slot for the selected day.
   // This behavior is specific to /buchung.
   const sortedSlots = filteredSlots.toSorted(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+    (a, b) =>
+      Temporal.ZonedDateTime.from(a.startTime).epochMilliseconds -
+      Temporal.ZonedDateTime.from(b.startTime).epochMilliseconds,
   );
   const displayedSlots = sortedSlots[0] ? [sortedSlots[0]] : [];
 

@@ -1,3 +1,5 @@
+import type { Infer } from "convex/values";
+
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -433,6 +435,35 @@ export const bookingSessionStepValidator = v.union(
   }),
 );
 
+export type BookingSessionStep = Infer<typeof bookingSessionStepValidator>;
+
+export const bookingSessionStepNameValidator = v.union(
+  v.literal("existing-calendar-selection"),
+  v.literal("existing-confirmation"),
+  v.literal("existing-data-input"),
+  v.literal("existing-data-input-complete"),
+  v.literal("existing-data-sharing"),
+  v.literal("existing-doctor-selection"),
+  v.literal("location"),
+  v.literal("new-calendar-selection"),
+  v.literal("new-confirmation"),
+  v.literal("new-data-input"),
+  v.literal("new-data-input-complete"),
+  v.literal("new-data-sharing"),
+  v.literal("new-gkv-details"),
+  v.literal("new-gkv-details-complete"),
+  v.literal("new-insurance-type"),
+  v.literal("new-pkv-details"),
+  v.literal("new-pkv-details-complete"),
+  v.literal("new-pvs-consent"),
+  v.literal("patient-status"),
+  v.literal("privacy"),
+);
+
+export const bookingSessionStorageStateValidator = v.object({
+  step: bookingSessionStepNameValidator,
+});
+
 export default defineSchema({
   appointments: defineTable({
     // Core appointment fields
@@ -443,6 +474,8 @@ export default defineSchema({
     // Additional fields
     appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
+    cancelledAt: v.optional(v.int64()),
+    cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")), // Real patient from PVS
@@ -463,7 +496,8 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_userId_start", ["userId", "start"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)
@@ -647,6 +681,7 @@ export default defineSchema({
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
+    pvsConsent: v.optional(v.literal(true)),
     reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     selectedSlot: selectedSlotValidator,
@@ -673,6 +708,7 @@ export default defineSchema({
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
+    pvsConsent: v.optional(v.literal(true)),
     reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     selectedSlot: selectedSlotValidator,
@@ -746,6 +782,7 @@ export default defineSchema({
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
+    pvsConsent: v.optional(v.literal(true)),
     ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
@@ -1047,8 +1084,8 @@ export default defineSchema({
     // User who owns this session (required - no anonymous bookings)
     userId: v.id("users"),
 
-    // The discriminated union state - contains step + all data for that step
-    state: bookingSessionStepValidator,
+    // Persist only the current step; step payload is stored in per-step tables
+    state: bookingSessionStorageStateValidator,
 
     // Metadata
     createdAt: v.int64(),

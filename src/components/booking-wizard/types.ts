@@ -1,9 +1,10 @@
 // Types for the booking wizard components
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { BookingSessionStep } from "@/convex/schema";
 
 // The session state from Convex
-export type BookingSessionState = Doc<"bookingSessions">["state"];
+export type BookingSessionState = BookingSessionStep;
 
 // Type helper to extract state at a specific step
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<

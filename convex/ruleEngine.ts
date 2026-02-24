@@ -117,7 +117,7 @@ export async function buildPreloadedDayData(
 
   // Query appointments for this practice and day only
   // Use compound index by_practiceId_start with both bounds for efficient filtering
-  const appointments = await db
+  const rawAppointments = await db
     .query("appointments")
     .withIndex("by_practiceId_start", (q) =>
       q
@@ -126,6 +126,9 @@ export async function buildPreloadedDayData(
         .lt("start", dayEndStr),
     )
     .collect();
+  const appointments = rawAppointments.filter(
+    (appointment) => appointment.cancelledAt === undefined,
+  );
 
   // Build parsed appointments with pre-computed epoch times for fast overlap detection
   // Group by scope for efficient CONCURRENT_COUNT filtering
