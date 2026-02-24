@@ -313,7 +313,6 @@ function RootLayout() {
     {
       conflictBehavior: "replace",
       enabled: !!controls,
-      requireReset: true,
     },
   );
 
@@ -328,7 +327,6 @@ function RootLayout() {
     {
       conflictBehavior: "replace",
       enabled: !!controls,
-      requireReset: true,
     },
   );
 
@@ -343,7 +341,6 @@ function RootLayout() {
     {
       conflictBehavior: "replace",
       enabled: !!controls,
-      requireReset: true,
     },
   );
 
