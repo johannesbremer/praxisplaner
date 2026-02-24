@@ -24,6 +24,7 @@ export function useUndoRedoHotkeys({
     {
       conflictBehavior,
       enabled,
+      requireReset: true,
     },
   );
 
@@ -38,6 +39,7 @@ export function useUndoRedoHotkeys({
     {
       conflictBehavior,
       enabled,
+      requireReset: true,
     },
   );
 
@@ -52,6 +54,7 @@ export function useUndoRedoHotkeys({
     {
       conflictBehavior,
       enabled,
+      requireReset: true,
     },
   );
 }

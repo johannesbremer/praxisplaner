@@ -80,6 +80,12 @@ const samePractitionerNames = (left: string[], right: string[]) => {
   return left.every((name, index) => name === right[index]);
 };
 
+const isMissingEntityError = (error: unknown) =>
+  error instanceof Error &&
+  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+    error.message,
+  );
+
 export function AppointmentTypesManagement({
   onRegisterHistoryAction,
   onRuleSetCreated,
@@ -386,19 +392,25 @@ export function AppointmentTypesManagement({
               return { status: "applied" as const };
             },
             undo: async () => {
-              const existing = appointmentTypesRef.current.find(
-                (type) => type._id === currentAppointmentTypeId,
-              );
-              if (!existing) {
+              try {
+                await deleteAppointmentTypeMutation({
+                  appointmentTypeId: currentAppointmentTypeId,
+                  practiceId,
+                  sourceRuleSetId: newRuleSetId,
+                });
                 return { status: "applied" as const };
+              } catch (error: unknown) {
+                if (isMissingEntityError(error)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Die Terminart konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
               }
-
-              await deleteAppointmentTypeMutation({
-                appointmentTypeId: currentAppointmentTypeId,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              return { status: "applied" as const };
             },
           });
 
@@ -490,19 +502,25 @@ export function AppointmentTypesManagement({
       onRegisterHistoryAction?.({
         label: "Terminart gelöscht",
         redo: async () => {
-          const existing = appointmentTypesRef.current.find(
-            (type) => type._id === currentAppointmentTypeId,
-          );
-          if (!existing) {
+          try {
+            await deleteAppointmentTypeMutation({
+              appointmentTypeId: currentAppointmentTypeId,
+              practiceId,
+              sourceRuleSetId: newRuleSetId,
+            });
             return { status: "applied" as const };
+          } catch (error: unknown) {
+            if (isMissingEntityError(error)) {
+              return { status: "applied" as const };
+            }
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Die Terminart konnte nicht gelöscht werden.",
+              status: "conflict" as const,
+            };
           }
-
-          await deleteAppointmentTypeMutation({
-            appointmentTypeId: currentAppointmentTypeId,
-            practiceId,
-            sourceRuleSetId: newRuleSetId,
-          });
-          return { status: "applied" as const };
         },
         undo: async () => {
           const existingByName = appointmentTypesRef.current.find(

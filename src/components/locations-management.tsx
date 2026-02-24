@@ -25,6 +25,12 @@ import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { useErrorTracking } from "../utils/error-tracking";
 
+const isMissingEntityError = (error: unknown) =>
+  error instanceof Error &&
+  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+    error.message,
+  );
+
 interface LocationsManagementProps {
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
@@ -152,19 +158,25 @@ export function LocationsManagement({
               return { status: "applied" as const };
             },
             undo: async () => {
-              const current = locationsRef.current.find(
-                (location) => location._id === currentLocationId,
-              );
-              if (!current) {
+              try {
+                await deleteLocationMutation({
+                  locationId: currentLocationId,
+                  practiceId,
+                  sourceRuleSetId: newRuleSetId,
+                });
                 return { status: "applied" as const };
+              } catch (error: unknown) {
+                if (isMissingEntityError(error)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Der Standort konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
               }
-
-              await deleteLocationMutation({
-                locationId: currentLocationId,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              return { status: "applied" as const };
             },
           });
 
@@ -227,19 +239,25 @@ export function LocationsManagement({
         onRegisterHistoryAction?.({
           label: "Standort gelöscht",
           redo: async () => {
-            const current = locationsRef.current.find(
-              (location) => location._id === currentLocationId,
-            );
-            if (!current) {
+            try {
+              await deleteLocationMutation({
+                locationId: currentLocationId,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
               return { status: "applied" as const };
+            } catch (error: unknown) {
+              if (isMissingEntityError(error)) {
+                return { status: "applied" as const };
+              }
+              return {
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Der Standort konnte nicht gelöscht werden.",
+                status: "conflict" as const,
+              };
             }
-
-            await deleteLocationMutation({
-              locationId: currentLocationId,
-              practiceId,
-              sourceRuleSetId: newRuleSetId,
-            });
-            return { status: "applied" as const };
           },
           undo: async () => {
             const duplicate = locationsRef.current.find(

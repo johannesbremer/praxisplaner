@@ -92,6 +92,31 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
   _isGroup?: boolean;
 }
 
+interface SchedulePayload {
+  breakTimes?: { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  locationId: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+  startTime: string;
+}
+
+const normalizeBreakTimes = (
+  value: undefined | { end: string; start: string }[],
+) => JSON.stringify(value ?? []);
+
+const matchesSchedulePayload = (
+  schedule: Doc<"baseSchedules">,
+  payload: SchedulePayload,
+) =>
+  schedule.dayOfWeek === payload.dayOfWeek &&
+  schedule.startTime === payload.startTime &&
+  schedule.endTime === payload.endTime &&
+  schedule.practitionerId === payload.practitionerId &&
+  schedule.locationId === payload.locationId &&
+  normalizeBreakTimes(schedule.breakTimes) ===
+    normalizeBreakTimes(payload.breakTimes);
+
 // Helper functions
 export default function BaseScheduleManagement({
   onRegisterHistoryAction,
@@ -204,22 +229,16 @@ export default function BaseScheduleManagement({
         onRegisterHistoryAction?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
-            const existingIds = new Set(
-              schedulesRef.current.map((schedule) => schedule._id),
-            );
-            const idsToDelete = currentScheduleIds.filter((id) =>
-              existingIds.has(id),
-            );
-            if (idsToDelete.length === 0) {
-              return { status: "applied" as const };
-            }
-
-            for (const scheduleId of idsToDelete) {
-              await deleteScheduleMutation({
-                baseScheduleId: scheduleId,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
+            for (const scheduleId of currentScheduleIds) {
+              try {
+                await deleteScheduleMutation({
+                  baseScheduleId: scheduleId,
+                  practiceId,
+                  sourceRuleSetId: newRuleSetId,
+                });
+              } catch {
+                // If already absent, desired state is still satisfied.
+              }
             }
 
             return { status: "applied" as const };
@@ -227,15 +246,25 @@ export default function BaseScheduleManagement({
           undo: async () => {
             const recreatedIds: Id<"baseSchedules">[] = [];
             for (const schedule of deletedSchedules) {
-              const result = await createScheduleMutation({
+              const payload: SchedulePayload = {
+                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
                 dayOfWeek: schedule.dayOfWeek,
                 endTime: schedule.endTime,
                 locationId: schedule.locationId,
-                practiceId,
                 practitionerId: schedule.practitionerId,
-                sourceRuleSetId: newRuleSetId,
                 startTime: schedule.startTime,
-                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+              };
+              const existing = schedulesRef.current.find((currentSchedule) =>
+                matchesSchedulePayload(currentSchedule, payload),
+              );
+              if (existing) {
+                recreatedIds.push(existing._id);
+                continue;
+              }
+              const result = await createScheduleMutation({
+                ...payload,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
               });
               recreatedIds.push(result.entityId as Id<"baseSchedules">);
             }
@@ -503,14 +532,7 @@ function BaseScheduleDialog({
         // Track if a new rule set is created during this operation
         let newRuleSetId: Id<"ruleSets"> | undefined;
         const createdScheduleIds: Id<"baseSchedules">[] = [];
-        const createdSchedulePayloads: {
-          breakTimes?: { end: string; start: string }[];
-          dayOfWeek: number;
-          endTime: string;
-          locationId: Id<"locations">;
-          practitionerId: Id<"practitioners">;
-          startTime: string;
-        }[] = [];
+        const createdSchedulePayloads: SchedulePayload[] = [];
         const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
 
         if (schedule) {
@@ -705,15 +727,15 @@ function BaseScheduleDialog({
             onRegisterHistoryAction?.({
               label: "Arbeitszeiten erstellt",
               redo: async () => {
-                const hasExistingCurrentIds = currentCreatedIds.some((id) =>
-                  schedulesRef.current.some((schedule) => schedule._id === id),
-                );
-                if (hasExistingCurrentIds) {
-                  return { status: "applied" as const };
-                }
-
                 const recreatedIds: Id<"baseSchedules">[] = [];
                 for (const payload of createdSchedulePayloads) {
+                  const existing = schedulesRef.current.find((scheduleItem) =>
+                    matchesSchedulePayload(scheduleItem, payload),
+                  );
+                  if (existing) {
+                    recreatedIds.push(existing._id);
+                    continue;
+                  }
                   const result = await createScheduleMutation({
                     ...payload,
                     practiceId,

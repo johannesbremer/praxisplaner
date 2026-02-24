@@ -24,6 +24,12 @@ import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { useErrorTracking } from "../utils/error-tracking";
 
+const isMissingEntityError = (error: unknown) =>
+  error instanceof Error &&
+  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+    error.message,
+  );
+
 interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -92,21 +98,27 @@ export default function PractitionerManagement({
       onRegisterHistoryAction?.({
         label: "Arzt gelöscht",
         redo: async () => {
-          const existing = practitionersRef.current.find(
-            (practitioner) => practitioner._id === currentPractitionerId,
-          );
-          if (!existing) {
+          try {
+            const redoResult = await deleteWithDependenciesMutation({
+              practiceId,
+              practitionerId: currentPractitionerId,
+              sourceRuleSetId: newRuleSetId,
+            });
+            currentSnapshot = redoResult.snapshot;
+            currentPractitionerId = currentSnapshot.practitioner.id;
             return { status: "applied" as const };
+          } catch (error: unknown) {
+            if (isMissingEntityError(error)) {
+              return { status: "applied" as const };
+            }
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Der Arzt konnte nicht gelöscht werden.",
+              status: "conflict" as const,
+            };
           }
-
-          const redoResult = await deleteWithDependenciesMutation({
-            practiceId,
-            practitionerId: currentPractitionerId,
-            sourceRuleSetId: newRuleSetId,
-          });
-          currentSnapshot = redoResult.snapshot;
-          currentPractitionerId = currentSnapshot.practitioner.id;
-          return { status: "applied" as const };
         },
         undo: async () => {
           const restoreResult = await restoreWithDependenciesMutation({
@@ -366,19 +378,25 @@ function PractitionerDialog({
               return { status: "applied" as const };
             },
             undo: async () => {
-              const existing = practitionersRef.current.find(
-                (entry) => entry._id === currentPractitionerId,
-              );
-              if (!existing) {
+              try {
+                await deleteMutation({
+                  practiceId,
+                  practitionerId: currentPractitionerId,
+                  sourceRuleSetId: newRuleSetId,
+                });
                 return { status: "applied" as const };
+              } catch (error: unknown) {
+                if (isMissingEntityError(error)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Der Arzt konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
               }
-
-              await deleteMutation({
-                practiceId,
-                practitionerId: currentPractitionerId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              return { status: "applied" as const };
             },
           });
           toast.success("Arzt erstellt");

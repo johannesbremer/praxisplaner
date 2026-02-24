@@ -113,6 +113,12 @@ interface RuleReferenceSnapshot {
   practitioners: RuleReferenceEntry[];
 }
 
+const isMissingEntityError = (error: unknown) =>
+  error instanceof Error &&
+  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+    error.message,
+  );
+
 export function RuleBuilder({
   onRegisterHistoryAction,
   onRuleCreated,
@@ -206,12 +212,10 @@ export function RuleBuilder({
             const existing = rulesRef.current.find(
               (rule) => rule._id === currentRuleId,
             );
-            if (!existing) {
-              return { status: "applied" as const };
-            }
             if (
+              existing &&
               serializeRuleState(existing.conditionTree, existing.enabled) !==
-              deletedRuleState
+                deletedRuleState
             ) {
               return {
                 message:
@@ -220,12 +224,25 @@ export function RuleBuilder({
               };
             }
 
-            await deleteRuleMutation({
-              practiceId,
-              ruleId: currentRuleId,
-              sourceRuleSetId: newRuleSetId,
-            });
-            return { status: "applied" as const };
+            try {
+              await deleteRuleMutation({
+                practiceId,
+                ruleId: currentRuleId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              return { status: "applied" as const };
+            } catch (error: unknown) {
+              if (isMissingEntityError(error)) {
+                return { status: "applied" as const };
+              }
+              return {
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Die Regel konnte nicht gelöscht werden.",
+                status: "conflict" as const,
+              };
+            }
           },
           undo: async () => {
             const preparedRule = prepareRuleConditionTreeForReplay(
@@ -550,19 +567,25 @@ export function RuleBuilder({
                   return { status: "applied" as const };
                 },
                 undo: async () => {
-                  const existing = rulesRef.current.find(
-                    (rule) => rule._id === currentRuleId,
-                  );
-                  if (!existing) {
+                  try {
+                    await deleteRuleMutation({
+                      practiceId,
+                      ruleId: currentRuleId,
+                      sourceRuleSetId: createRuleSetId,
+                    });
                     return { status: "applied" as const };
+                  } catch (error: unknown) {
+                    if (isMissingEntityError(error)) {
+                      return { status: "applied" as const };
+                    }
+                    return {
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : "Die Regel konnte nicht gelöscht werden.",
+                      status: "conflict" as const,
+                    };
                   }
-
-                  await deleteRuleMutation({
-                    practiceId,
-                    ruleId: currentRuleId,
-                    sourceRuleSetId: createRuleSetId,
-                  });
-                  return { status: "applied" as const };
                 },
               });
             }
