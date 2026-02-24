@@ -82,7 +82,8 @@ const samePractitionerNames = (left: string[], right: string[]) => {
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
-  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+  !/source rule set not found/i.test(error.message) &&
+  /already deleted|bereits gelöscht|appointment type not found|terminart.*nicht gefunden/i.test(
     error.message,
   );
 

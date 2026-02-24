@@ -470,7 +470,7 @@ function LogicView() {
     let result = await undoRegelnHistoryAction();
     const shouldRecoverMissingSource =
       result.status === "conflict" &&
-      result.message?.includes("Source rule set not found") &&
+      /source rule set not found/i.test(result.message ?? "") &&
       activeTab === "rule-management" &&
       !unsavedRuleSet &&
       currentPractice &&
@@ -520,7 +520,7 @@ function LogicView() {
     let result = await redoRegelnHistoryAction();
     const shouldRecoverMissingSource =
       result.status === "conflict" &&
-      result.message?.includes("Source rule set not found") &&
+      /source rule set not found/i.test(result.message ?? "") &&
       activeTab === "rule-management" &&
       !unsavedRuleSet &&
       currentPractice &&

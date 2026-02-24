@@ -115,7 +115,8 @@ interface RuleReferenceSnapshot {
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
-  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+  !/source rule set not found/i.test(error.message) &&
+  /already deleted|bereits gelöscht|rule not found|regel.*nicht gefunden/i.test(
     error.message,
   );
 

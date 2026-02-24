@@ -117,6 +117,13 @@ const matchesSchedulePayload = (
   normalizeBreakTimes(schedule.breakTimes) ===
     normalizeBreakTimes(payload.breakTimes);
 
+const isBaseScheduleMissingError = (error: unknown) =>
+  error instanceof Error &&
+  !/source rule set not found/i.test(error.message) &&
+  /already deleted|bereits gelöscht|base schedule not found|arbeitszeit.*nicht gefunden/i.test(
+    error.message,
+  );
+
 // Helper functions
 export default function BaseScheduleManagement({
   onRegisterHistoryAction,
@@ -236,8 +243,12 @@ export default function BaseScheduleManagement({
                   practiceId,
                   sourceRuleSetId: newRuleSetId,
                 });
-              } catch {
-                // If already absent, desired state is still satisfied.
+              } catch (error: unknown) {
+                if (isBaseScheduleMissingError(error)) {
+                  // If already absent, desired state is still satisfied.
+                  continue;
+                }
+                throw error;
               }
             }
 
@@ -754,8 +765,12 @@ function BaseScheduleDialog({
                       practiceId,
                       sourceRuleSetId: newRuleSetId,
                     });
-                  } catch {
-                    // If another action already removed this ID, desired state is still satisfied.
+                  } catch (error: unknown) {
+                    if (isBaseScheduleMissingError(error)) {
+                      // If another action already removed this ID, desired state is still satisfied.
+                      continue;
+                    }
+                    throw error;
                   }
                 }
                 return { status: "applied" as const };

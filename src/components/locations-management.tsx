@@ -27,7 +27,8 @@ import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
-  /already deleted|bereits gelöscht|not found|nicht gefunden/i.test(
+  !/source rule set not found/i.test(error.message) &&
+  /already deleted|bereits gelöscht|location not found|standort.*nicht gefunden/i.test(
     error.message,
   );
 
