@@ -59,7 +59,6 @@ import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../hooks/use-local-history";
-import { useUndoRedoHotkeys } from "../hooks/use-undo-redo-hotkeys";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -427,8 +426,74 @@ function LogicView() {
     lastHistoryScopeRef.current = historyScopeKey;
   }, [clearRegelnHistoryAction, historyScopeKey]);
 
+  const maybeDiscardEquivalentUnsavedRuleSet = useCallback(
+    async (reason: "redo" | "undo") => {
+      if (
+        activeTab !== "rule-management" ||
+        !currentPractice ||
+        !unsavedRuleSet
+      ) {
+        return;
+      }
+
+      try {
+        const discardResult = await discardUnsavedIfEquivalentMutation({
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        });
+
+        if (!discardResult.deleted || !discardResult.parentRuleSetId) {
+          return;
+        }
+
+        setUnsavedRuleSetId(null);
+        pushUrl({ ruleSetId: discardResult.parentRuleSetId });
+      } catch (error: unknown) {
+        captureError(error, {
+          context: `ruleset_auto_discard_after_${reason}`,
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        });
+      }
+    },
+    [
+      activeTab,
+      captureError,
+      currentPractice,
+      discardUnsavedIfEquivalentMutation,
+      pushUrl,
+      unsavedRuleSet,
+    ],
+  );
+
   const runRegelnUndo = useCallback(async () => {
-    const result = await undoRegelnHistoryAction();
+    let result = await undoRegelnHistoryAction();
+    const shouldRecoverMissingSource =
+      result.status === "conflict" &&
+      result.message?.includes("Source rule set not found") &&
+      activeTab === "rule-management" &&
+      !unsavedRuleSet &&
+      currentPractice &&
+      currentWorkingRuleSet;
+
+    if (shouldRecoverMissingSource) {
+      try {
+        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+        setUnsavedRuleSetId(ensuredRuleSetId);
+        pushUrl({ ruleSetId: ensuredRuleSetId });
+        result = await undoRegelnHistoryAction();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "ruleset_ensure_unsaved_before_undo",
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+      }
+    }
+
     if (result.status === "conflict") {
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
         description: result.message,
@@ -437,43 +502,15 @@ function LogicView() {
     }
     if (result.status === "applied") {
       toast.success("Änderung rückgängig gemacht");
-    }
-
-    if (
-      result.status !== "applied" ||
-      result.canUndoAfter ||
-      result.canRedoAfter ||
-      activeTab !== "rule-management" ||
-      !currentPractice ||
-      !unsavedRuleSet
-    ) {
-      return;
-    }
-
-    try {
-      const discardResult = await discardUnsavedIfEquivalentMutation({
-        practiceId: currentPractice._id,
-        ruleSetId: unsavedRuleSet._id,
-      });
-
-      if (!discardResult.deleted || !discardResult.parentRuleSetId) {
-        return;
-      }
-
-      setUnsavedRuleSetId(null);
-      pushUrl({ ruleSetId: discardResult.parentRuleSetId });
-    } catch (error: unknown) {
-      captureError(error, {
-        context: "ruleset_auto_discard_after_undo",
-        practiceId: currentPractice._id,
-        ruleSetId: unsavedRuleSet._id,
-      });
+      await maybeDiscardEquivalentUnsavedRuleSet("undo");
     }
   }, [
     activeTab,
     captureError,
     currentPractice,
-    discardUnsavedIfEquivalentMutation,
+    currentWorkingRuleSet,
+    ensureUnsavedRuleSetMutation,
+    maybeDiscardEquivalentUnsavedRuleSet,
     pushUrl,
     undoRegelnHistoryAction,
     unsavedRuleSet,
@@ -515,6 +552,7 @@ function LogicView() {
     }
     if (result.status === "applied") {
       toast.success("Änderung wiederhergestellt");
+      await maybeDiscardEquivalentUnsavedRuleSet("redo");
     }
   }, [
     activeTab,
@@ -522,16 +560,11 @@ function LogicView() {
     currentPractice,
     currentWorkingRuleSet,
     ensureUnsavedRuleSetMutation,
+    maybeDiscardEquivalentUnsavedRuleSet,
     pushUrl,
     redoRegelnHistoryAction,
     unsavedRuleSet,
   ]);
-
-  useUndoRedoHotkeys({
-    enabled: activeTab === "rule-management",
-    onRedo: runRegelnRedo,
-    onUndo: runRegelnUndo,
-  });
 
   const regelnUndoRedoControls = useMemo(
     () =>

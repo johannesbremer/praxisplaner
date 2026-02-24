@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface UndoRedoControls {
   canRedo: boolean;
@@ -8,8 +16,9 @@ interface UndoRedoControls {
 }
 
 interface UndoRedoControlsContextValue {
+  clearControls: (ownerId: symbol) => void;
   controls: null | UndoRedoControls;
-  setControls: (controls: null | UndoRedoControls) => void;
+  setControls: (controls: null | UndoRedoControls, ownerId: symbol) => void;
 }
 
 const UndoRedoControlsContext =
@@ -20,14 +29,43 @@ export function UndoRedoControlsProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [controls, setControls] = useState<null | UndoRedoControls>(null);
+  const [state, setState] = useState<{
+    controls: null | UndoRedoControls;
+    ownerId: null | symbol;
+  }>({
+    controls: null,
+    ownerId: null,
+  });
+
+  const setControls = useCallback(
+    (controls: null | UndoRedoControls, ownerId: symbol) => {
+      setState({
+        controls,
+        ownerId,
+      });
+    },
+    [],
+  );
+
+  const clearControls = useCallback((ownerId: symbol) => {
+    setState((current) => {
+      if (current.ownerId !== ownerId) {
+        return current;
+      }
+      return {
+        controls: null,
+        ownerId: null,
+      };
+    });
+  }, []);
 
   const contextValue = useMemo(
     () => ({
-      controls,
+      clearControls,
+      controls: state.controls,
       setControls,
     }),
-    [controls],
+    [clearControls, setControls, state.controls],
   );
 
   return (
@@ -52,16 +90,25 @@ export function useRegisterGlobalUndoRedoControls(
   controls: null | UndoRedoControls,
 ) {
   const context = useContext(UndoRedoControlsContext);
+  const ownerIdRef = useRef(Symbol("undo-redo-controls-owner"));
   if (!context) {
     throw new Error(
       "useRegisterGlobalUndoRedoControls must be used within UndoRedoControlsProvider",
     );
   }
 
+  const { clearControls, setControls } = context;
+
   useEffect(() => {
-    context.setControls(controls);
+    const ownerId = ownerIdRef.current;
+
+    if (controls) {
+      setControls(controls, ownerId);
+    } else {
+      clearControls(ownerId);
+    }
     return () => {
-      context.setControls(null);
+      clearControls(ownerId);
     };
-  }, [context, controls]);
+  }, [clearControls, controls, setControls]);
 }

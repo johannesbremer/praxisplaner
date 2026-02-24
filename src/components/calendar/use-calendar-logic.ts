@@ -11,7 +11,6 @@ import { createSimulatedContext } from "../../../lib/utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
-import { useUndoRedoHotkeys } from "../../hooks/use-undo-redo-hotkeys";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   formatTime,
@@ -499,11 +498,6 @@ export function useCalendarLogic({
       });
     }
   }, [redoHistoryAction]);
-
-  useUndoRedoHotkeys({
-    onRedo: runRedo,
-    onUndo: runUndo,
-  });
 
   const calendarUndoRedoControls = useMemo(
     () =>

@@ -3,7 +3,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
-import { formatForDisplay } from "@tanstack/react-hotkeys";
+import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
 import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
@@ -299,6 +299,53 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
 function RootLayout() {
   const controls = useGlobalUndoRedoControls();
+  const canUndo = controls?.canUndo ?? false;
+  const canRedo = controls?.canRedo ?? false;
+
+  useHotkey(
+    "Mod+Z",
+    (event) => {
+      if (event.repeat || !canUndo || !controls) {
+        return;
+      }
+      void controls.onUndo();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Shift+Z",
+    (event) => {
+      if (event.repeat || !canRedo || !controls) {
+        return;
+      }
+      void controls.onRedo();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Y",
+    (event) => {
+      if (event.repeat || !canRedo || !controls) {
+        return;
+      }
+      void controls.onRedo();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+      requireReset: true,
+    },
+  );
 
   return (
     <div className="min-h-screen">
@@ -306,7 +353,7 @@ function RootLayout() {
         {controls ? (
           <>
             <Button
-              disabled={!controls.canUndo}
+              disabled={!canUndo}
               onClick={() => {
                 void controls.onUndo();
               }}
@@ -320,7 +367,7 @@ function RootLayout() {
               </kbd>
             </Button>
             <Button
-              disabled={!controls.canRedo}
+              disabled={!canRedo}
               onClick={() => {
                 void controls.onRedo();
               }}
