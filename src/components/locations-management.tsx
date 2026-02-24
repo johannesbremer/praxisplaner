@@ -249,6 +249,18 @@ export function LocationsManagement({
               return { status: "applied" as const };
             } catch (error: unknown) {
               if (isMissingEntityError(error)) {
+                const byName = locationsRef.current.find(
+                  (location) => location.name === deletedSnapshot.name,
+                );
+                if (!byName) {
+                  return { status: "applied" as const };
+                }
+                await deleteLocationMutation({
+                  locationId: byName._id,
+                  practiceId,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentLocationId = byName._id;
                 return { status: "applied" as const };
               }
               return {

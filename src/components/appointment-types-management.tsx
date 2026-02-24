@@ -512,6 +512,18 @@ export function AppointmentTypesManagement({
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
+              const byName = appointmentTypesRef.current.find(
+                (type) => type.name === deletedSnapshot.name,
+              );
+              if (!byName) {
+                return { status: "applied" as const };
+              }
+              await deleteAppointmentTypeMutation({
+                appointmentTypeId: byName._id,
+                practiceId,
+                sourceRuleSetId: newRuleSetId,
+              });
+              currentAppointmentTypeId = byName._id;
               return { status: "applied" as const };
             }
             return {

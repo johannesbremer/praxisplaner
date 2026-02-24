@@ -110,6 +110,20 @@ export default function PractitionerManagement({
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
+              const byName = practitionersRef.current.find(
+                (entry) => entry.name === currentSnapshot.practitioner.name,
+              );
+              if (!byName) {
+                return { status: "applied" as const };
+              }
+
+              const redoResult = await deleteWithDependenciesMutation({
+                practiceId,
+                practitionerId: byName._id,
+                sourceRuleSetId: newRuleSetId,
+              });
+              currentSnapshot = redoResult.snapshot;
+              currentPractitionerId = currentSnapshot.practitioner.id;
               return { status: "applied" as const };
             }
             return {
@@ -122,14 +136,38 @@ export default function PractitionerManagement({
           }
         },
         undo: async () => {
-          const restoreResult = await restoreWithDependenciesMutation({
-            practiceId,
-            snapshot: currentSnapshot,
-            sourceRuleSetId: newRuleSetId,
-          });
-          currentPractitionerId = restoreResult.restoredPractitionerId;
+          try {
+            const restoreResult = await restoreWithDependenciesMutation({
+              practiceId,
+              snapshot: currentSnapshot,
+              sourceRuleSetId: newRuleSetId,
+            });
+            currentPractitionerId = restoreResult.restoredPractitionerId;
 
-          return { status: "applied" as const };
+            return { status: "applied" as const };
+          } catch (error: unknown) {
+            if (
+              error instanceof Error &&
+              /kann nicht wiederhergestellt werden, weil bereits ein arzt mit diesem namen existiert/i.test(
+                error.message,
+              )
+            ) {
+              const byName = practitionersRef.current.find(
+                (entry) => entry.name === currentSnapshot.practitioner.name,
+              );
+              if (byName) {
+                currentPractitionerId = byName._id;
+                return { status: "applied" as const };
+              }
+            }
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Der Arzt konnte nicht wiederhergestellt werden.",
+              status: "conflict" as const,
+            };
+          }
         },
       });
       toast.success("Arzt gelöscht");

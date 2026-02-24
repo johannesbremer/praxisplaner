@@ -231,21 +231,34 @@ export default function BaseScheduleManagement({
       );
 
       if (deletedSchedules.length > 0 && newRuleSetId) {
-        let currentScheduleIds: Id<"baseSchedules">[] = [...scheduleIds];
-
         onRegisterHistoryAction?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
-            for (const scheduleId of currentScheduleIds) {
+            const deletedIds: Id<"baseSchedules">[] = [];
+            for (const schedule of deletedSchedules) {
+              const payload: SchedulePayload = {
+                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+                dayOfWeek: schedule.dayOfWeek,
+                endTime: schedule.endTime,
+                locationId: schedule.locationId,
+                practitionerId: schedule.practitionerId,
+                startTime: schedule.startTime,
+              };
+              const existing = schedulesRef.current.find((currentSchedule) =>
+                matchesSchedulePayload(currentSchedule, payload),
+              );
+              if (!existing) {
+                continue;
+              }
               try {
                 await deleteScheduleMutation({
-                  baseScheduleId: scheduleId,
+                  baseScheduleId: existing._id,
                   practiceId,
                   sourceRuleSetId: newRuleSetId,
                 });
+                deletedIds.push(existing._id);
               } catch (error: unknown) {
                 if (isBaseScheduleMissingError(error)) {
-                  // If already absent, desired state is still satisfied.
                   continue;
                 }
                 throw error;
@@ -280,7 +293,6 @@ export default function BaseScheduleManagement({
               recreatedIds.push(result.entityId as Id<"baseSchedules">);
             }
 
-            currentScheduleIds = recreatedIds;
             return { status: "applied" as const };
           },
         });
@@ -734,7 +746,6 @@ function BaseScheduleDialog({
 
         if (newRuleSetId) {
           if (!schedule && createdSchedulePayloads.length > 0) {
-            let currentCreatedIds = [...createdScheduleIds];
             onRegisterHistoryAction?.({
               label: "Arbeitszeiten erstellt",
               redo: async () => {
@@ -754,17 +765,24 @@ function BaseScheduleDialog({
                   });
                   recreatedIds.push(result.entityId as Id<"baseSchedules">);
                 }
-                currentCreatedIds = recreatedIds;
                 return { status: "applied" as const };
               },
               undo: async () => {
-                for (const id of currentCreatedIds) {
+                const deletedIds: Id<"baseSchedules">[] = [];
+                for (const payload of createdSchedulePayloads) {
+                  const existing = schedulesRef.current.find((scheduleItem) =>
+                    matchesSchedulePayload(scheduleItem, payload),
+                  );
+                  if (!existing) {
+                    continue;
+                  }
                   try {
                     await deleteScheduleMutation({
-                      baseScheduleId: id,
+                      baseScheduleId: existing._id,
                       practiceId,
                       sourceRuleSetId: newRuleSetId,
                     });
+                    deletedIds.push(existing._id);
                   } catch (error: unknown) {
                     if (isBaseScheduleMissingError(error)) {
                       // If another action already removed this ID, desired state is still satisfied.
@@ -772,6 +790,13 @@ function BaseScheduleDialog({
                     }
                     throw error;
                   }
+                }
+                if (deletedIds.length > 0) {
+                  createdScheduleIds.splice(
+                    0,
+                    createdScheduleIds.length,
+                    ...deletedIds,
+                  );
                 }
                 return { status: "applied" as const };
               },

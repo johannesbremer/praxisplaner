@@ -210,9 +210,13 @@ export function RuleBuilder({
         onRegisterHistoryAction?.({
           label: "Regel gelöscht",
           redo: async () => {
-            const existing = rulesRef.current.find(
-              (rule) => rule._id === currentRuleId,
-            );
+            const existing =
+              rulesRef.current.find((rule) => rule._id === currentRuleId) ??
+              rulesRef.current.find(
+                (rule) =>
+                  serializeRuleState(rule.conditionTree, rule.enabled) ===
+                  deletedRuleState,
+              );
             if (
               existing &&
               serializeRuleState(existing.conditionTree, existing.enabled) !==
@@ -224,6 +228,12 @@ export function RuleBuilder({
                 status: "conflict" as const,
               };
             }
+
+            if (!existing) {
+              return { status: "applied" as const };
+            }
+
+            currentRuleId = existing._id;
 
             try {
               await deleteRuleMutation({
