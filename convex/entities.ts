@@ -839,6 +839,7 @@ export const deletePractitionerWithDependencies = mutation({
   args: {
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    practitionerName: v.optional(v.string()),
     sourceRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -850,12 +851,36 @@ export const deletePractitionerWithDependencies = mutation({
       args.sourceRuleSetId,
     );
 
-    const practitioner = await resolvePractitionerEntityInRuleSet(
-      ctx.db,
-      args.practitionerId,
-      args.practiceId,
-      ruleSetId,
-    );
+    let practitioner: Awaited<
+      ReturnType<typeof resolvePractitionerEntityInRuleSet>
+    > | null = null;
+
+    try {
+      practitioner = await resolvePractitionerEntityInRuleSet(
+        ctx.db,
+        args.practitionerId,
+        args.practiceId,
+        ruleSetId,
+      );
+    } catch (error) {
+      const practitionerName = args.practitionerName;
+      if (!practitionerName) {
+        throw error;
+      }
+
+      const practitionerByName = await ctx.db
+        .query("practitioners")
+        .withIndex("by_ruleSetId_name", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("name", practitionerName),
+        )
+        .first();
+
+      if (practitionerByName?.practiceId !== args.practiceId) {
+        throw error;
+      }
+
+      practitioner = practitionerByName;
+    }
 
     const practitionerIdAsString = practitioner._id as string;
     const now = BigInt(Date.now());

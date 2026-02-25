@@ -88,9 +88,13 @@ export default function PractitionerManagement({
     }
 
     try {
+      const practitionerName =
+        practitionersRef.current.find((entry) => entry._id === practitionerId)
+          ?.name ?? "";
       const deleteResult = await deleteWithDependenciesMutation({
         practiceId,
         practitionerId,
+        ...(practitionerName && { practitionerName }),
         sourceRuleSetId: ruleSetId,
       });
       const newRuleSetId = deleteResult.ruleSetId;
@@ -103,6 +107,7 @@ export default function PractitionerManagement({
             const redoResult = await deleteWithDependenciesMutation({
               practiceId,
               practitionerId: currentPractitionerId,
+              practitionerName: currentSnapshot.practitioner.name,
               sourceRuleSetId: newRuleSetId,
             });
             currentSnapshot = redoResult.snapshot;
@@ -110,16 +115,10 @@ export default function PractitionerManagement({
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
-              const byName = practitionersRef.current.find(
-                (entry) => entry.name === currentSnapshot.practitioner.name,
-              );
-              if (!byName) {
-                return { status: "applied" as const };
-              }
-
               const redoResult = await deleteWithDependenciesMutation({
                 practiceId,
-                practitionerId: byName._id,
+                practitionerId: currentSnapshot.practitioner.id,
+                practitionerName: currentSnapshot.practitioner.name,
                 sourceRuleSetId: newRuleSetId,
               });
               currentSnapshot = redoResult.snapshot;

@@ -629,19 +629,13 @@ function LogicView() {
     if (
       unsavedRuleSet &&
       !raw.ruleSet &&
+      ruleSetIdFromUrl !== unsavedRuleSet._id &&
       // Avoid navigating before we know the date from URL/state
       selectedDate instanceof Date
     ) {
       pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
     }
-  }, [
-    unsavedRuleSet,
-    raw.ruleSet,
-    activeTab,
-    simulatedContext.patient.isNew,
-    selectedDate,
-    pushUrl,
-  ]);
+  }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = useCallback(async () => {
@@ -668,10 +662,19 @@ function LogicView() {
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
-    if (existingUnsavedRuleSet && !unsavedRuleSetId) {
+    if (!existingUnsavedRuleSet) {
+      return;
+    }
+
+    // Respect explicit URL selection of a saved rule set.
+    if (raw.ruleSet && raw.ruleSet !== "ungespeichert") {
+      return;
+    }
+
+    if (!unsavedRuleSetId || unsavedRuleSetId !== existingUnsavedRuleSet._id) {
       setUnsavedRuleSetId(existingUnsavedRuleSet._id);
     }
-  }, [existingUnsavedRuleSet, unsavedRuleSetId]);
+  }, [existingUnsavedRuleSet, raw.ruleSet, unsavedRuleSetId]);
 
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
