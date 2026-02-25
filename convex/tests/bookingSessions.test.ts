@@ -711,7 +711,8 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitNewDataSharing preserves pvsConsent on PKV path", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } = await createBookingEntities(t);
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "data_sharing_pkv_pvs_consent");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
