@@ -301,14 +301,66 @@ function RootLayout() {
   const controls = useGlobalUndoRedoControls();
   const canUndo = controls?.canUndo ?? false;
   const canRedo = controls?.canRedo ?? false;
+  const lastHotkeySignatureRef = React.useRef<string>("");
+  const isHistoryOperationRunningRef = React.useRef(false);
+
+  const alreadyHandledThisKeyEvent = (event: KeyboardEvent) => {
+    const signature = [
+      event.type,
+      event.timeStamp,
+      event.key,
+      event.code,
+      event.metaKey ? "1" : "0",
+      event.ctrlKey ? "1" : "0",
+      event.shiftKey ? "1" : "0",
+      event.altKey ? "1" : "0",
+    ].join("|");
+
+    if (lastHotkeySignatureRef.current === signature) {
+      return true;
+    }
+
+    lastHotkeySignatureRef.current = signature;
+    return false;
+  };
+
+  const runHistoryAction = React.useCallback(
+    (action: "redo" | "undo") => {
+      if (!controls || isHistoryOperationRunningRef.current) {
+        return;
+      }
+
+      if (action === "undo" && !canUndo) {
+        return;
+      }
+      if (action === "redo" && !canRedo) {
+        return;
+      }
+
+      isHistoryOperationRunningRef.current = true;
+
+      let result: Promise<void> | void;
+      try {
+        result = action === "undo" ? controls.onUndo() : controls.onRedo();
+      } catch {
+        isHistoryOperationRunningRef.current = false;
+        return;
+      }
+
+      void Promise.resolve(result).finally(() => {
+        isHistoryOperationRunningRef.current = false;
+      });
+    },
+    [canRedo, canUndo, controls],
+  );
 
   useHotkey(
     "Mod+Z",
     (event) => {
-      if (event.repeat || !canUndo || !controls) {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
         return;
       }
-      void controls.onUndo();
+      runHistoryAction("undo");
     },
     {
       conflictBehavior: "replace",
@@ -319,10 +371,10 @@ function RootLayout() {
   useHotkey(
     "Mod+Shift+Z",
     (event) => {
-      if (event.repeat || !canRedo || !controls) {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
         return;
       }
-      void controls.onRedo();
+      runHistoryAction("redo");
     },
     {
       conflictBehavior: "replace",
@@ -333,10 +385,10 @@ function RootLayout() {
   useHotkey(
     "Mod+Y",
     (event) => {
-      if (event.repeat || !canRedo || !controls) {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
         return;
       }
-      void controls.onRedo();
+      runHistoryAction("redo");
     },
     {
       conflictBehavior: "replace",
@@ -352,7 +404,7 @@ function RootLayout() {
             <Button
               disabled={!canUndo}
               onClick={() => {
-                void controls.onUndo();
+                runHistoryAction("undo");
               }}
               size="sm"
               variant="outline"
@@ -366,7 +418,7 @@ function RootLayout() {
             <Button
               disabled={!canRedo}
               onClick={() => {
-                void controls.onRedo();
+                runHistoryAction("redo");
               }}
               size="sm"
               variant="outline"
