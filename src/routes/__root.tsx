@@ -304,36 +304,32 @@ function RootLayout() {
   const lastHotkeySignatureRef = React.useRef<string>("");
   const isHistoryOperationRunningRef = React.useRef(false);
 
-  const alreadyHandledThisKeyEvent = (event: KeyboardEvent) => {
-    const signature = [
-      event.type,
-      event.timeStamp,
-      event.key,
-      event.code,
-      event.metaKey ? "1" : "0",
-      event.ctrlKey ? "1" : "0",
-      event.shiftKey ? "1" : "0",
-      event.altKey ? "1" : "0",
-    ].join("|");
+  const alreadyHandledThisKeyEvent = React.useCallback(
+    (event: KeyboardEvent) => {
+      const signature = [
+        event.type,
+        event.timeStamp,
+        event.key,
+        event.code,
+        event.metaKey ? "1" : "0",
+        event.ctrlKey ? "1" : "0",
+        event.shiftKey ? "1" : "0",
+        event.altKey ? "1" : "0",
+      ].join("|");
 
-    if (lastHotkeySignatureRef.current === signature) {
-      return true;
-    }
+      if (lastHotkeySignatureRef.current === signature) {
+        return true;
+      }
 
-    lastHotkeySignatureRef.current = signature;
-    return false;
-  };
+      lastHotkeySignatureRef.current = signature;
+      return false;
+    },
+    [],
+  );
 
   const runHistoryAction = React.useCallback(
     (action: "redo" | "undo") => {
       if (!controls || isHistoryOperationRunningRef.current) {
-        return;
-      }
-
-      if (action === "undo" && !canUndo) {
-        return;
-      }
-      if (action === "redo" && !canRedo) {
         return;
       }
 
@@ -351,7 +347,7 @@ function RootLayout() {
         isHistoryOperationRunningRef.current = false;
       });
     },
-    [canRedo, canUndo, controls],
+    [controls],
   );
 
   useHotkey(
@@ -395,6 +391,35 @@ function RootLayout() {
       enabled: !!controls,
     },
   );
+
+  React.useEffect(() => {
+    if (!controls) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod || event.shiftKey || key !== "y") {
+        return;
+      }
+      if (alreadyHandledThisKeyEvent(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      runHistoryAction("redo");
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [alreadyHandledThisKeyEvent, controls, runHistoryAction]);
 
   return (
     <div className="min-h-screen">

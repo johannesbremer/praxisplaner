@@ -101,6 +101,7 @@ const practitionerBaseScheduleSnapshotValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   locationId: v.id("locations"),
+  locationOriginId: v.optional(v.id("locations")),
   startTime: v.string(),
 });
 
@@ -145,6 +146,21 @@ const restorePractitionerWithDependenciesResultValidator = v.object({
 const normalizeBaseScheduleBreakTimes = (
   breakTimes: undefined | { end: string; start: string }[],
 ) => JSON.stringify(breakTimes ?? []);
+
+const buildBaseScheduleSignature = (params: {
+  breakTimes: undefined | { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  locationId: Id<"locations">;
+  startTime: string;
+}) =>
+  [
+    params.locationId,
+    params.dayOfWeek,
+    params.startTime,
+    params.endTime,
+    normalizeBaseScheduleBreakTimes(params.breakTimes),
+  ].join("|");
 
 // ================================
 // SHARED HELPER FUNCTIONS
@@ -851,11 +867,21 @@ export const deletePractitionerWithDependencies = mutation({
       )
       .collect();
 
+    const locationsInRuleSet = await ctx.db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+    const locationById = new Map(
+      locationsInRuleSet.map((location) => [location._id, location]),
+    );
+
     const baseScheduleSnapshots = baseSchedules.map((schedule) => ({
       ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
       dayOfWeek: schedule.dayOfWeek,
       endTime: schedule.endTime,
       locationId: schedule.locationId,
+      locationOriginId:
+        locationById.get(schedule.locationId)?.parentId ?? schedule.locationId,
       startTime: schedule.startTime,
     }));
 
@@ -1025,25 +1051,68 @@ export const restorePractitionerWithDependencies = mutation({
           .eq("practitionerId", restoredPractitionerId),
       )
       .collect();
+    const existingScheduleSignatures = new Set(
+      existingSchedules.map((existingSchedule) =>
+        buildBaseScheduleSignature({
+          breakTimes: existingSchedule.breakTimes,
+          dayOfWeek: existingSchedule.dayOfWeek,
+          endTime: existingSchedule.endTime,
+          locationId: existingSchedule.locationId,
+          startTime: existingSchedule.startTime,
+        }),
+      ),
+    );
 
     for (const schedule of args.snapshot.baseSchedules) {
-      const resolvedLocationId = await resolveLocationIdInRuleSet(
-        ctx.db,
-        schedule.locationId,
-        args.practiceId,
-        ruleSetId,
-      );
+      let resolvedLocationId: Id<"locations"> | null = null;
 
-      const duplicateSchedule = existingSchedules.find(
-        (existingSchedule) =>
-          existingSchedule.dayOfWeek === schedule.dayOfWeek &&
-          existingSchedule.startTime === schedule.startTime &&
-          existingSchedule.endTime === schedule.endTime &&
-          existingSchedule.locationId === resolvedLocationId &&
-          normalizeBaseScheduleBreakTimes(existingSchedule.breakTimes) ===
-            normalizeBaseScheduleBreakTimes(schedule.breakTimes),
-      );
-      if (duplicateSchedule) {
+      try {
+        resolvedLocationId = await resolveLocationIdInRuleSet(
+          ctx.db,
+          schedule.locationId,
+          args.practiceId,
+          ruleSetId,
+        );
+      } catch {
+        const locationOriginId = schedule.locationOriginId;
+        if (locationOriginId) {
+          const directLocation = await ctx.db.get(
+            "locations",
+            locationOriginId,
+          );
+          if (
+            directLocation?.practiceId === args.practiceId &&
+            directLocation.ruleSetId === ruleSetId
+          ) {
+            resolvedLocationId = directLocation._id;
+          } else {
+            const copiedLocation = await ctx.db
+              .query("locations")
+              .withIndex("by_parentId_ruleSetId", (q) =>
+                q.eq("parentId", locationOriginId).eq("ruleSetId", ruleSetId),
+              )
+              .first();
+            if (copiedLocation?.practiceId === args.practiceId) {
+              resolvedLocationId = copiedLocation._id;
+            }
+          }
+        }
+      }
+
+      if (!resolvedLocationId) {
+        throw new Error(
+          "Die Arbeitszeit kann nicht wiederhergestellt werden, weil der referenzierte Standort nicht verfügbar ist.",
+        );
+      }
+
+      const scheduleSignature = buildBaseScheduleSignature({
+        breakTimes: schedule.breakTimes,
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        locationId: resolvedLocationId,
+        startTime: schedule.startTime,
+      });
+      if (existingScheduleSignatures.has(scheduleSignature)) {
         continue;
       }
 
@@ -1057,6 +1126,7 @@ export const restorePractitionerWithDependencies = mutation({
         ruleSetId,
         startTime: schedule.startTime,
       });
+      existingScheduleSignatures.add(scheduleSignature);
     }
 
     for (const patch of args.snapshot.appointmentTypePatches) {
