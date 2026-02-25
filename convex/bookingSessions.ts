@@ -5,6 +5,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
   beihilfeStatusValidator,
@@ -39,6 +40,7 @@ interface StepReadCtx {
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 // ============================================================================
 // TYPE HELPERS
@@ -884,17 +886,46 @@ function attachOwnerToDataSharingContacts(
  * Calculate end time from start time and duration.
  * Handles ZonedDateTime format strings.
  */
-function assertSlotStartIsAtLeastOneHourInFuture(startTime: string): void {
-  let slotStartInstant: Temporal.Instant;
-  try {
-    slotStartInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
-  } catch {
-    throw new Error("Invalid slot start time");
-  }
+async function assertSlotAllowedByRules(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    patientDateOfBirth: string;
+    practiceId: Id<"practices">;
+    practitionerId: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+    startTime: string;
+  },
+): Promise<void> {
+  const ruleCheckResult = await ctx.runQuery(
+    internal.ruleEngine.checkRulesForAppointment,
+    {
+      context: {
+        appointmentTypeId: args.appointmentTypeId,
+        dateTime: args.startTime,
+        locationId: args.locationId,
+        patientDateOfBirth: args.patientDateOfBirth,
+        practiceId: args.practiceId,
+        practitionerId: args.practitionerId,
+        requestedAt: Temporal.Now.instant()
+          .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
+          .toString(),
+      },
+      ruleSetId: args.ruleSetId,
+    },
+  );
 
-  const minimumAllowedStart = Temporal.Now.instant().add({ hours: 1 });
-  if (Temporal.Instant.compare(slotStartInstant, minimumAllowedStart) < 0) {
-    throw new Error("Appointments must be booked at least 1 hour in advance");
+  if (ruleCheckResult.isBlocked) {
+    throw new Error("Selected slot is no longer available");
+  }
+}
+
+function assertSlotStartIsInFuture(startTime: string): void {
+  const slotStartInstant = parseSlotStartInstant(startTime);
+  const now = Temporal.Now.instant();
+  if (Temporal.Instant.compare(slotStartInstant, now) <= 0) {
+    throw new Error("Appointments must be booked in the future");
   }
 }
 
@@ -924,6 +955,14 @@ async function loadStepSnapshot(
   }
 
   return null;
+}
+
+function parseSlotStartInstant(startTime: string): Temporal.Instant {
+  try {
+    return Temporal.ZonedDateTime.from(startTime).toInstant();
+  } catch {
+    throw new Error("Invalid slot start time");
+  }
 }
 
 const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
@@ -1899,7 +1938,7 @@ export const selectNewPatientSlot = mutation({
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsAtLeastOneHourInFuture(args.selectedSlot.startTime);
+    assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
     const selectedAppointmentType = await ctx.db.get(
       "appointmentTypes",
@@ -1908,6 +1947,15 @@ export const selectNewPatientSlot = mutation({
     if (selectedAppointmentType?.ruleSetId !== session.ruleSetId) {
       throw new Error("Invalid appointment type");
     }
+    await assertSlotAllowedByRules(ctx, {
+      appointmentTypeId: args.appointmentTypeId,
+      locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
+      practiceId: session.practiceId,
+      practitionerId: args.selectedSlot.practitionerId,
+      ruleSetId: session.ruleSetId,
+      startTime: args.selectedSlot.startTime,
+    });
 
     const base = getStepBase(session);
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
@@ -2167,7 +2215,7 @@ export const selectExistingPatientSlot = mutation({
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsAtLeastOneHourInFuture(args.selectedSlot.startTime);
+    assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
     const now = BigInt(Date.now());
 
@@ -2178,6 +2226,15 @@ export const selectExistingPatientSlot = mutation({
     if (appointmentType?.ruleSetId !== session.ruleSetId) {
       throw new Error("Invalid appointment type");
     }
+    await assertSlotAllowedByRules(ctx, {
+      appointmentTypeId: args.appointmentTypeId,
+      locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
+      practiceId: session.practiceId,
+      practitionerId: state.practitionerId,
+      ruleSetId: session.ruleSetId,
+      startTime: args.selectedSlot.startTime,
+    });
 
     // Create the appointment
     const appointmentId = await ctx.db.insert("appointments", {

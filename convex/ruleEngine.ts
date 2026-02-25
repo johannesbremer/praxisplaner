@@ -245,7 +245,7 @@ export const appointmentContextValidator = v.object({
   patientDateOfBirth: v.optional(v.string()),
   practiceId: v.id("practices"),
   practitionerId: v.id("practitioners"),
-  // For DAYS_AHEAD conditions: when was this appointment requested?
+  // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested?
   requestedAt: v.optional(v.string()), // ISO datetime string
 });
 
@@ -267,6 +267,7 @@ export type AppointmentContext = Infer<typeof appointmentContextValidator>;
  *
  * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
  * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
+ * - HOURS_AHEAD: Depends on exact slot timestamp, so it can vary within a day
  * - DAILY_CAPACITY: Queries appointments table to count existing appointments
  * - PRACTITIONER_TAG: Queries practitioner document to check tags
  * - CONCURRENT_COUNT: Queries appointments table (also time-variant)
@@ -582,6 +583,26 @@ function evaluateCondition(
       const daysAhead = appointmentDate.since(requestDate).days;
 
       return compareValue(daysAhead, valueNumber);
+    }
+
+    case "HOURS_AHEAD": {
+      // Check how many hours ahead the appointment is being booked
+      if (valueNumber === undefined || !context.requestedAt) {
+        return false;
+      }
+
+      const appointmentInstant = Temporal.ZonedDateTime.from(
+        context.dateTime,
+      ).toInstant();
+      const requestedInstant = Temporal.ZonedDateTime.from(
+        context.requestedAt,
+      ).toInstant();
+      const hoursAhead =
+        (appointmentInstant.epochMilliseconds -
+          requestedInstant.epochMilliseconds) /
+        (60 * 60 * 1000);
+
+      return compareValue(hoursAhead, valueNumber);
     }
 
     case "LOCATION": {
@@ -998,6 +1019,7 @@ export type ConditionType =
   | "DATE_RANGE"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
+  | "HOURS_AHEAD"
   | "LOCATION"
   | "PATIENT_AGE"
   | "PRACTITIONER"
@@ -1063,6 +1085,7 @@ export const conditionTreeNodeValidator = v.union(
       v.literal("DATE_RANGE"),
       v.literal("TIME_RANGE"),
       v.literal("DAYS_AHEAD"),
+      v.literal("HOURS_AHEAD"),
       v.literal("DAILY_CAPACITY"),
       v.literal("CONCURRENT_COUNT"),
       v.literal("CLIENT_TYPE"),

@@ -25,6 +25,42 @@ type NewPatientSlotArgs = FunctionArgs<
 >;
 type SelectedSlotInput = NewPatientSlotArgs["selectedSlot"];
 
+async function addHoursAheadBlockingRule(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    minimumHours: number;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    const rootRuleId = await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      createdAt: now,
+      enabled: true,
+      isRoot: true,
+      lastModified: now,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+
+    await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      conditionType: "HOURS_AHEAD",
+      createdAt: now,
+      isRoot: false,
+      lastModified: now,
+      nodeType: "CONDITION",
+      operator: "LESS_THAN",
+      parentConditionId: rootRuleId,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      valueNumber: args.minimumHours,
+    });
+  });
+}
+
 function assertSessionExists<T>(
   session: null | T,
   message: string,
@@ -339,6 +375,20 @@ function makeOwnedDataSharingContacts(
     ...contact,
     userId,
   }));
+}
+
+function makePastSelectedSlot(
+  practitionerId: Id<"practitioners">,
+): SelectedSlotInput {
+  return {
+    duration: 30,
+    practitionerId,
+    practitionerName: "Dr. Test",
+    startTime: Temporal.Now.instant()
+      .subtract({ minutes: 5 })
+      .toZonedDateTimeISO("Europe/Berlin")
+      .toString(),
+  };
 }
 
 function makeSelectedSlot(
@@ -1419,7 +1469,7 @@ describe("bookingSessions slot selection validation", () => {
     ).rejects.toThrow("Invalid appointment type");
   });
 
-  test("selectNewPatientSlot rejects slots less than one hour in the future", async () => {
+  test("selectNewPatientSlot rejects slots in the past", async () => {
     const t = createTestContext();
     const {
       appointmentTypeId,
@@ -1439,10 +1489,41 @@ describe("bookingSessions slot selection validation", () => {
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
         appointmentTypeId,
         reasonDescription: "Kontrolle",
+        selectedSlot: makePastSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("in the future");
+  });
+
+  test("selectNewPatientSlot enforces configurable HOURS_AHEAD minimum notice rules", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    await addHoursAheadBlockingRule(t, {
+      minimumHours: 1,
+      practiceId,
+      ruleSetId,
+    });
+    const authed = makeAuthedClient(t, "slot_validation_new_minimum_notice");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("at least 1 hour");
+    ).rejects.toThrow("Selected slot is no longer available");
   });
 
   test("selectExistingPatientSlot rejects empty reason descriptions", async () => {
@@ -1505,7 +1586,7 @@ describe("bookingSessions slot selection validation", () => {
     ).rejects.toThrow("Invalid appointment type");
   });
 
-  test("selectExistingPatientSlot rejects slots less than one hour in the future", async () => {
+  test("selectExistingPatientSlot rejects slots in the past", async () => {
     const t = createTestContext();
     const {
       appointmentTypeId,
@@ -1533,10 +1614,49 @@ describe("bookingSessions slot selection validation", () => {
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
         appointmentTypeId,
         reasonDescription: "Kontrolle",
+        selectedSlot: makePastSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("in the future");
+  });
+
+  test("selectExistingPatientSlot enforces configurable HOURS_AHEAD minimum notice rules", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    await addHoursAheadBlockingRule(t, {
+      minimumHours: 1,
+      practiceId,
+      ruleSetId,
+    });
+    const authed = makeAuthedClient(
+      t,
+      "slot_validation_existing_minimum_notice",
+    );
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("at least 1 hour");
+    ).rejects.toThrow("Selected slot is no longer available");
   });
 });
 

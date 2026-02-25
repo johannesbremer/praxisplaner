@@ -60,6 +60,7 @@ type ConditionType =
   | "DAILY_CAPACITY"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
+  | "HOURS_AHEAD"
   | "LOCATION"
   | "PATIENT_AGE"
   | "PRACTITIONER";
@@ -909,7 +910,8 @@ function validateCondition(condition: Condition): string[] {
       }
       break;
     }
-    case "DAYS_AHEAD": {
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD": {
       if (!condition.valueNumber || condition.valueNumber < 1) {
         invalidFields.push("valueNumber");
       }
@@ -973,6 +975,12 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
     case "DAYS_AHEAD": {
       if (invalidField === "valueNumber") {
         return "Bitte geben Sie eine Anzahl von mindestens 1 Tag ein.";
+      }
+      return "";
+    }
+    case "HOURS_AHEAD": {
+      if (invalidField === "valueNumber") {
+        return "Bitte geben Sie eine Anzahl von mindestens 1 Stunde ein.";
       }
       return "";
     }
@@ -1234,6 +1242,7 @@ function ConditionEditor({
     { label: "Patientenalter", value: "PATIENT_AGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
     { label: "Tage im Voraus", value: "DAYS_AHEAD" },
+    { label: "Stunden im Voraus", value: "HOURS_AHEAD" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
     { label: "Termine am gleichen Tag", value: "DAILY_CAPACITY" },
   ];
@@ -1245,16 +1254,19 @@ function ConditionEditor({
           {/* Condition Type Selector */}
           <Select
             onValueChange={(value) => {
+              const nextOperator: Condition["operator"] =
+                value === "HOURS_AHEAD"
+                  ? "LESS_THAN"
+                  : value === "DAYS_AHEAD" ||
+                      value === "PATIENT_AGE" ||
+                      value === "CONCURRENT_COUNT" ||
+                      value === "DAILY_CAPACITY"
+                    ? "GREATER_THAN_OR_EQUAL"
+                    : "IS";
               onUpdate({
                 type: value as ConditionType,
                 // Reset other values when type changes
-                operator:
-                  value === "DAYS_AHEAD" ||
-                  value === "PATIENT_AGE" ||
-                  value === "CONCURRENT_COUNT" ||
-                  value === "DAILY_CAPACITY"
-                    ? "GREATER_THAN_OR_EQUAL"
-                    : "IS",
+                operator: nextOperator,
                 valueIds: [],
                 valueNumber: null,
               });
@@ -1297,6 +1309,14 @@ function ConditionEditor({
 
           {condition.type === "DAYS_AHEAD" && (
             <DaysAheadCondition
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
+            />
+          )}
+
+          {condition.type === "HOURS_AHEAD" && (
+            <HoursAheadCondition
               condition={condition}
               invalidFields={invalidFields}
               onUpdate={onUpdate}
@@ -1503,6 +1523,29 @@ function DaysAheadCondition({
         });
       }}
       placeholder="z.B. 7"
+      type="number"
+      value={condition.valueNumber || ""}
+    />
+  );
+}
+
+function HoursAheadCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: DaysAheadConditionProps) {
+  return (
+    <Input
+      aria-invalid={invalidFields?.has("valueNumber")}
+      className="w-auto min-w-[120px]"
+      min="1"
+      onChange={(e) => {
+        const parsed = Number.parseInt(e.target.value);
+        onUpdate({
+          valueNumber: Number.isNaN(parsed) ? null : parsed,
+        });
+      }}
+      placeholder="z.B. 1"
       type="number"
       value={condition.valueNumber || ""}
     />
@@ -1773,6 +1816,17 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
             conditionType: "DAYS_AHEAD",
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
+            valueNumber: condition.valueNumber,
+          });
+        }
+        break;
+      }
+      case "HOURS_AHEAD": {
+        if (condition.valueNumber) {
+          nodes.push({
+            conditionType: "HOURS_AHEAD",
+            nodeType: "CONDITION",
+            operator: "LESS_THAN",
             valueNumber: condition.valueNumber,
           });
         }

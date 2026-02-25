@@ -1,10 +1,13 @@
 // Types for the booking wizard components
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { BookingSessionStep } from "@/convex/schema";
+
+import { api } from "@/convex/_generated/api";
 
 // The session state from Convex
-export type BookingSessionState = BookingSessionStep;
+export type BookingSessionState = NonNullable<ActiveBookingSession>["state"];
+type ActiveBookingSession =
+  (typeof api.bookingSessions.getActiveForUser)["_returnType"];
 
 // Type helper to extract state at a specific step
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
