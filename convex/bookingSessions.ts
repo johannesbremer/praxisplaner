@@ -190,7 +190,9 @@ async function hydrateSessionState(
     snapshot === null
       ? ({ step } as BookingSessionState)
       : ({ step, ...snapshot } as BookingSessionState);
-  return sanitizeState(step, mergedState);
+  const sanitizedState = sanitizeState(step, mergedState);
+  assertHydratedStateConsistency(step, sanitizedState);
+  return sanitizedState;
 }
 
 function isConfirmationState(
@@ -1143,6 +1145,30 @@ function sanitizeState(
   return sanitized as BookingSessionState;
 }
 
+const PKV_STEPS_REQUIRING_PVS_CONSENT = new Set<BookingSessionState["step"]>([
+  "new-calendar-selection",
+  "new-confirmation",
+  "new-data-input",
+  "new-data-input-complete",
+  "new-data-sharing",
+  "new-pkv-details",
+  "new-pkv-details-complete",
+]);
+
+function assertHydratedStateConsistency(
+  step: BookingSessionState["step"],
+  state: BookingSessionState,
+): void {
+  if (
+    "insuranceType" in state &&
+    state.insuranceType === "pkv" &&
+    PKV_STEPS_REQUIRING_PVS_CONSENT.has(step) &&
+    !("pvsConsent" in state)
+  ) {
+    throw new Error(`Missing snapshot for booking session step '${step}'`);
+  }
+}
+
 // ============================================================================
 // NAVIGATION GRAPH
 // ============================================================================
@@ -1835,6 +1861,7 @@ export const submitNewDataSharing = mutation({
       ...(state.insuranceType === "pkv" && state.beihilfeStatus !== undefined
         ? { beihilfeStatus: state.beihilfeStatus }
         : {}),
+      ...(state.insuranceType === "pkv" ? { pvsConsent: true } : {}),
     };
 
     await upsertStep(ctx, "bookingNewDataSharingSteps", session, stepData);

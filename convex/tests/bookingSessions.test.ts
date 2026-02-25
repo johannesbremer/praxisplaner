@@ -151,6 +151,33 @@ async function bootstrapToNewDataSharing(
   });
 }
 
+async function bootstrapToNewDataSharingPkv(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+  await authed.mutation(api.bookingSessions.selectInsuranceType, {
+    insuranceType: "pkv",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.acceptPvsConsent, { sessionId });
+  await authed.mutation(api.bookingSessions.confirmPkvDetails, {
+    pvsConsent: true,
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitNewPatientData, {
+    personalData: {
+      dateOfBirth: "1980-01-01",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phoneNumber: "+491701234567",
+    },
+    sessionId,
+  });
+}
+
 async function bootstrapToPatientStatus(
   authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
   sessionId: Id<"bookingSessions">,
@@ -680,6 +707,31 @@ describe("bookingSessions user identity handling", () => {
     assertStateStep(session.state, "new-calendar-selection");
     expect(session.state.dataSharingContacts).toHaveLength(1);
     expect(session.state.dataSharingContacts[0]?.userId).toBe(session.userId);
+  });
+
+  test("submitNewDataSharing preserves pvsConsent on PKV path", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "data_sharing_pkv_pvs_consent");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await bootstrapToNewDataSharingPkv(authed, locationId, sessionId);
+    await authed.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: makeDataSharingContacts(),
+      sessionId,
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    assertSessionExists(session, "session should exist");
+    assertStateStep(session.state, "new-calendar-selection");
+    if (session.state.insuranceType !== "pkv") {
+      throw new Error("Expected PKV calendar-selection state");
+    }
+    expect(session.state.pvsConsent).toBe(true);
   });
 
   test("submitExistingDataSharing stores owner userId on each contact", async () => {
