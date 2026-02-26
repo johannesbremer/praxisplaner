@@ -504,4 +504,98 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     // valueIds only contains appointment type IDs
     expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
   });
+
+  test("should delete base schedules even when sourceRuleSetId points to a discarded draft", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+    const initialRuleSetId = practice.currentActiveRuleSetId;
+
+    const practitionerId = await t.run(async (ctx) => {
+      return await ctx.db.insert("practitioners", {
+        name: "Dr. Base Schedule",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const locationId = await t.run(async (ctx) => {
+      return await ctx.db.insert("locations", {
+        name: "Main Office",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const baseScheduleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "12:00",
+        locationId,
+        practiceId,
+        practitionerId,
+        ruleSetId: initialRuleSetId,
+        startTime: "08:00",
+      });
+    });
+
+    const firstDelete = await t.mutation(api.entities.deleteBaseSchedule, {
+      baseScheduleId,
+      practiceId,
+      sourceRuleSetId: initialRuleSetId,
+    });
+    const discardedDraftRuleSetId = firstDelete.ruleSetId;
+
+    await t.mutation(api.entities.createBaseSchedule, {
+      dayOfWeek: 1,
+      endTime: "12:00",
+      locationId,
+      practiceId,
+      practitionerId,
+      sourceRuleSetId: discardedDraftRuleSetId,
+      startTime: "08:00",
+    });
+
+    await t.mutation(api.ruleSets.deleteUnsavedRuleSet, {
+      practiceId,
+      ruleSetId: discardedDraftRuleSetId,
+    });
+
+    const secondDelete = await t.mutation(api.entities.deleteBaseSchedule, {
+      baseScheduleId,
+      practiceId,
+      sourceRuleSetId: discardedDraftRuleSetId,
+    });
+
+    expect(secondDelete.ruleSetId).not.toEqual(discardedDraftRuleSetId);
+
+    const recreatedDraft = await t.run(async (ctx) => {
+      return await ctx.db.get("ruleSets", secondDelete.ruleSetId);
+    });
+
+    assertDefined(recreatedDraft, "Expected recreated draft rule set");
+    expect(recreatedDraft.parentVersion).toEqual(initialRuleSetId);
+
+    const remainingSchedule = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", secondDelete.ruleSetId))
+        .first();
+    });
+    expect(remainingSchedule).toBeNull();
+  });
 });

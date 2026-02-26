@@ -1672,18 +1672,29 @@ export const updateBaseSchedule = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Get or create unsaved rule set automatically
-    const ruleSetId = await getOrCreateUnsavedRuleSet(
-      ctx.db,
-      args.practiceId,
-      args.sourceRuleSetId,
-    );
-
     // Get the entity - it might be from the active or unsaved rule set
     const entity = await ctx.db.get("baseSchedules", args.baseScheduleId);
     if (!entity) {
       throw new Error("Base schedule not found");
     }
+    if (entity.practiceId !== args.practiceId) {
+      throw new Error("Base schedule does not belong to this practice");
+    }
+
+    // If the provided source rule set is stale (e.g. deleted unsaved draft),
+    // fall back to the schedule's own rule set so undo/redo can recover.
+    let sourceRuleSetId = args.sourceRuleSetId;
+    const sourceRuleSet = await ctx.db.get("ruleSets", args.sourceRuleSetId);
+    if (sourceRuleSet?.practiceId !== args.practiceId) {
+      sourceRuleSetId = entity.ruleSetId;
+    }
+
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      sourceRuleSetId,
+    );
 
     // If it's already in the unsaved rule set, use it directly
     // Otherwise, find the copy by parentId
@@ -1779,18 +1790,29 @@ export const deleteBaseSchedule = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Get or create unsaved rule set automatically
-    const ruleSetId = await getOrCreateUnsavedRuleSet(
-      ctx.db,
-      args.practiceId,
-      args.sourceRuleSetId,
-    );
-
     // Get the entity - it might be from the active or unsaved rule set
     const entity = await ctx.db.get("baseSchedules", args.baseScheduleId);
     if (!entity) {
       throw new Error("Base schedule not found");
     }
+    if (entity.practiceId !== args.practiceId) {
+      throw new Error("Base schedule does not belong to this practice");
+    }
+
+    // If the provided source rule set is stale (e.g. deleted unsaved draft),
+    // fall back to the schedule's own rule set so undo/redo can recover.
+    let sourceRuleSetId = args.sourceRuleSetId;
+    const sourceRuleSet = await ctx.db.get("ruleSets", args.sourceRuleSetId);
+    if (sourceRuleSet?.practiceId !== args.practiceId) {
+      sourceRuleSetId = entity.ruleSetId;
+    }
+
+    // Get or create unsaved rule set automatically
+    const ruleSetId = await getOrCreateUnsavedRuleSet(
+      ctx.db,
+      args.practiceId,
+      sourceRuleSetId,
+    );
 
     // If it's already in the unsaved rule set, use it directly
     // Otherwise, find the copy by parentId
