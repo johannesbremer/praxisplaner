@@ -47,6 +47,11 @@ function dateToTemporal(date: Date): Temporal.PlainDate {
 }
 
 // Helper to format time from ISO string
+type CalendarSelectionState = Extract<
+  StepComponentProps["state"],
+  { step: "existing-calendar-selection" | "new-calendar-selection" }
+>;
+
 interface SlotInfo {
   duration: number;
   practitionerId: Id<"practitioners">;
@@ -60,17 +65,14 @@ export function CalendarSelectionStep({
   sessionId,
   state,
 }: StepComponentProps) {
+  const isCalendarState = isCalendarSelectionState(state);
   const isNewPatient = state.step === "new-calendar-selection";
-
-  const locationId =
-    "locationId" in state ? (state.locationId as Id<"locations">) : undefined;
-
-  // For existing patient path, we need the practitioner ID
+  const locationId = isCalendarState ? state.locationId : undefined;
   const existingPractitionerId =
-    "practitionerId" in state
-      ? (state.practitionerId as Id<"practitioners">)
+    state.step === "existing-calendar-selection"
+      ? state.practitionerId
       : undefined;
-  const personalData = "personalData" in state ? state.personalData : undefined;
+  const personalData = isCalendarState ? state.personalData : undefined;
   const patientDateOfBirth = personalData?.dateOfBirth;
 
   // Date selection state
@@ -126,6 +128,7 @@ export function CalendarSelectionStep({
     selectedDate && selectedAppointmentTypeId
       ? {
           date: formatDateISO(dateToTemporal(selectedDate)),
+          enforceFutureOnly: true,
           practiceId,
           ruleSetId,
           simulatedContext,
@@ -142,6 +145,10 @@ export function CalendarSelectionStep({
   );
 
   const handleSelectSlot = (slot: SlotInfo) => {
+    const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
+    if (!isSlotStartInFuture(slot.startTime, nowEpochMilliseconds)) {
+      return;
+    }
     setSelectedSlot(slot);
   };
 
@@ -156,6 +163,12 @@ export function CalendarSelectionStep({
       hasMissingAppointmentType ||
       hasMissingReason
     ) {
+      return;
+    }
+
+    const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
+    if (!isSlotStartInFuture(selectedSlot.startTime, nowEpochMilliseconds)) {
+      toast.error("Dieser Termin liegt in der Vergangenheit");
       return;
     }
 
@@ -194,8 +207,13 @@ export function CalendarSelectionStep({
   };
 
   // Filter to only available slots
+  const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
   const availableSlots =
-    slotsResult?.slots.filter((slot) => slot.status === "AVAILABLE") ?? [];
+    slotsResult?.slots.filter(
+      (slot) =>
+        slot.status === "AVAILABLE" &&
+        isSlotStartInFuture(slot.startTime, nowEpochMilliseconds),
+    ) ?? [];
 
   // For existing patients, filter by practitioner
   const filteredSlots = existingPractitionerId
@@ -207,7 +225,9 @@ export function CalendarSelectionStep({
   // Sort slots by time and keep only the first free slot for the selected day.
   // This behavior is specific to /buchung.
   const sortedSlots = filteredSlots.toSorted(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+    (a, b) =>
+      getSlotStartEpochMilliseconds(a.startTime) -
+      getSlotStartEpochMilliseconds(b.startTime),
   );
   const displayedSlots = sortedSlots[0] ? [sortedSlots[0]] : [];
 
@@ -285,9 +305,10 @@ export function CalendarSelectionStep({
                 <Select
                   onValueChange={(value) => {
                     setHasTouchedAppointmentType(true);
-                    setSelectedAppointmentTypeId(
-                      value as Id<"appointmentTypes">,
+                    const selectedType = appointmentTypes?.find(
+                      (type) => type._id === value,
                     );
+                    setSelectedAppointmentTypeId(selectedType?._id);
                     setSelectedSlot(null);
                   }}
                   {...(selectedAppointmentTypeId
@@ -528,6 +549,26 @@ export function CalendarSelectionStep({
 function formatTime(isoString: string): string {
   const zdt = Temporal.ZonedDateTime.from(isoString);
   return zdt.toPlainTime().toString({ smallestUnit: "minute" });
+}
+
+function getSlotStartEpochMilliseconds(startTime: string): number {
+  return Temporal.ZonedDateTime.from(startTime).epochMilliseconds;
+}
+
+function isCalendarSelectionState(
+  state: StepComponentProps["state"],
+): state is CalendarSelectionState {
+  return (
+    state.step === "existing-calendar-selection" ||
+    state.step === "new-calendar-selection"
+  );
+}
+
+function isSlotStartInFuture(
+  startTime: string,
+  nowEpochMilliseconds: number,
+): boolean {
+  return getSlotStartEpochMilliseconds(startTime) > nowEpochMilliseconds;
 }
 
 function ReadOnlyItem({

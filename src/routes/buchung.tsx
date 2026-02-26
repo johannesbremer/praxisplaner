@@ -5,8 +5,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
+import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -21,6 +28,7 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
+  BookedAppointmentSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -166,13 +174,18 @@ function BookingPage() {
  */
 function AuthenticatedBookingFlow() {
   const { signOut } = useAuth();
-  const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
-    null,
-  );
+  const [pendingSessionForActiveRuleSet, setPendingSessionForActiveRuleSet] =
+    useState<null | {
+      ruleSetId: Id<"ruleSets">;
+      sessionId: Id<"bookingSessions">;
+    }>(null);
+  const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
+    useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
   const isCreatingSessionRef = useRef(false);
   const stepContainerRef = useRef<HTMLDivElement>(null);
   const isInitializingPracticeRef = useRef(false);
+  const isReturningToCalendarRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
@@ -181,28 +194,48 @@ function AuthenticatedBookingFlow() {
   );
   const currentPractice = practicesQuery?.[0];
 
-  // Get active rule set for the practice
-  const activeRuleSetId = currentPractice?.currentActiveRuleSetId;
+  // `/buchung` always follows the currently active rule set of the practice.
+  const practiceActiveRuleSetId = currentPractice?.currentActiveRuleSetId;
 
-  const existingSession = useQuery(
+  const activeRuleSetSession = useQuery(
     api.bookingSessions.getActiveForUser,
-    currentPractice && activeRuleSetId
-      ? { practiceId: currentPractice._id, ruleSetId: activeRuleSetId }
+    currentPractice && practiceActiveRuleSetId
+      ? {
+          practiceId: currentPractice._id,
+          ruleSetId: practiceActiveRuleSetId,
+        }
       : "skip",
   );
 
-  const resolvedSessionId = sessionId ?? existingSession?._id ?? null;
+  const pendingSessionIdForActiveRuleSet =
+    pendingSessionForActiveRuleSet &&
+    pendingSessionForActiveRuleSet.ruleSetId === practiceActiveRuleSetId
+      ? pendingSessionForActiveRuleSet.sessionId
+      : null;
+  const resolvedSessionId =
+    activeRuleSetSession?._id ?? pendingSessionIdForActiveRuleSet;
 
   // Query the session if we have one
   const session = useQuery(
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
+  const bookedAppointment = useQuery(
+    api.appointments.getBookedAppointmentForCurrentUser,
+    { refreshNonce: bookedAppointmentRefreshNonce },
+  );
+  const practitioners = useQuery(
+    api.entities.getPractitioners,
+    practiceActiveRuleSetId ? { ruleSetId: practiceActiveRuleSetId } : "skip",
+  );
 
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
   const goBackMutation = useMutation(api.bookingSessions.goBack);
+  const returnToCalendarSelectionAfterCancellation = useMutation(
+    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+  );
 
   useEffect(() => {
     if (
@@ -226,19 +259,24 @@ function AuthenticatedBookingFlow() {
   useEffect(() => {
     if (
       currentPractice &&
-      activeRuleSetId &&
+      practiceActiveRuleSetId &&
       !resolvedSessionId &&
       !isCreatingSessionRef.current &&
       !sessionError &&
-      existingSession !== undefined &&
-      !existingSession
+      activeRuleSetSession !== undefined &&
+      !activeRuleSetSession
     ) {
       isCreatingSessionRef.current = true;
       createSession({
         practiceId: currentPractice._id,
-        ruleSetId: activeRuleSetId,
+        ruleSetId: practiceActiveRuleSetId,
       })
-        .then(setSessionId)
+        .then((createdSessionId) => {
+          setPendingSessionForActiveRuleSet({
+            ruleSetId: practiceActiveRuleSetId,
+            sessionId: createdSessionId,
+          });
+        })
         .catch((error: unknown) => {
           console.error("Failed to create booking session:", error);
           const errorMessage =
@@ -255,11 +293,11 @@ function AuthenticatedBookingFlow() {
     }
   }, [
     currentPractice,
-    activeRuleSetId,
-    sessionId,
+    practiceActiveRuleSetId,
+    pendingSessionForActiveRuleSet,
     createSession,
     sessionError,
-    existingSession,
+    activeRuleSetSession,
     resolvedSessionId,
   ]);
 
@@ -273,7 +311,7 @@ function AuthenticatedBookingFlow() {
     if (resolvedSessionId) {
       void removeSession({ sessionId: resolvedSessionId });
     }
-    setSessionId(null);
+    setPendingSessionForActiveRuleSet(null);
   }, [resolvedSessionId, removeSession]);
 
   // Handle back navigation using unified goBack mutation
@@ -394,6 +432,74 @@ function AuthenticatedBookingFlow() {
     },
   );
 
+  const bookedAppointmentId = bookedAppointment?._id;
+  const bookedAppointmentStart = bookedAppointment?.start;
+  useEffect(() => {
+    if (!bookedAppointmentStart) {
+      return;
+    }
+
+    let refreshDelayMs = 0;
+    try {
+      const appointmentStartEpochMs = Temporal.ZonedDateTime.from(
+        bookedAppointmentStart,
+      ).epochMilliseconds;
+      const delayMs = appointmentStartEpochMs - Date.now();
+      refreshDelayMs = Math.max(0, delayMs + 100);
+    } catch {
+      refreshDelayMs = 0;
+    }
+
+    const timeoutId = setTimeout(
+      () => {
+        setBookedAppointmentRefreshNonce((current) => current + 1);
+      },
+      Math.min(refreshDelayMs, 2_147_483_647),
+    );
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [bookedAppointmentId, bookedAppointmentStart]);
+
+  const isShowingBookedAppointment =
+    bookedAppointment !== null && bookedAppointment !== undefined;
+  const isSessionAtConfirmationStep =
+    session?.state.step === "existing-confirmation" ||
+    session?.state.step === "new-confirmation";
+  const shouldReturnToCalendarAfterAppointmentElapsed =
+    bookedAppointment === null && isSessionAtConfirmationStep;
+
+  useEffect(() => {
+    if (
+      !shouldReturnToCalendarAfterAppointmentElapsed ||
+      !resolvedSessionId ||
+      isReturningToCalendarRef.current
+    ) {
+      return;
+    }
+
+    isReturningToCalendarRef.current = true;
+    void returnToCalendarSelectionAfterCancellation({
+      sessionId: resolvedSessionId,
+    })
+      .catch((error: unknown) => {
+        toast.error("Schrittwechsel fehlgeschlagen", {
+          description:
+            error instanceof Error
+              ? error.message
+              : "Bitte versuchen Sie es erneut.",
+        });
+      })
+      .finally(() => {
+        isReturningToCalendarRef.current = false;
+      });
+  }, [
+    resolvedSessionId,
+    returnToCalendarSelectionAfterCancellation,
+    shouldReturnToCalendarAfterAppointmentElapsed,
+  ]);
+
   // Loading state
   if (!practicesQuery) {
     return (
@@ -428,7 +534,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // No active rule set
-  if (!activeRuleSetId) {
+  if (!practiceActiveRuleSetId) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -445,7 +551,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // Session creation error
-  if (sessionError) {
+  if (!isShowingBookedAppointment && sessionError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -467,8 +573,10 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  // Session loading
-  if (!resolvedSessionId || session === undefined) {
+  if (
+    !isShowingBookedAppointment &&
+    (!resolvedSessionId || session === undefined)
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -483,8 +591,23 @@ function AuthenticatedBookingFlow() {
     );
   }
 
+  if (shouldReturnToCalendarAfterAppointmentElapsed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-96">
+          <CardContent className="py-6">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Termin wird aktualisiert...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Session expired or not found
-  if (session === null) {
+  if (!isShowingBookedAppointment && session === null) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -505,16 +628,63 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  const currentGroup = getStepGroup(session.state.step);
-  const showBackButton = canGoBack(session.state.step);
+  let currentGroup: ReturnType<typeof getStepGroup>;
+  let showBackButton: boolean;
+  let stepContent: ReactElement;
 
-  // Prepare props for step components
-  const stepProps: StepComponentProps = {
-    practiceId: currentPractice._id,
-    ruleSetId: activeRuleSetId,
-    sessionId: resolvedSessionId,
-    state: session.state,
-  };
+  if (isShowingBookedAppointment) {
+    const handleBookedAppointmentCancelled = async () => {
+      if (
+        !resolvedSessionId ||
+        !session ||
+        (session.state.step !== "existing-confirmation" &&
+          session.state.step !== "new-confirmation")
+      ) {
+        return;
+      }
+      await returnToCalendarSelectionAfterCancellation({
+        sessionId: resolvedSessionId,
+      });
+    };
+
+    const bookedPractitionerName = bookedAppointment.practitionerId
+      ? practitioners?.find(
+          (practitioner) =>
+            practitioner._id === bookedAppointment.practitionerId,
+        )?.name
+      : undefined;
+
+    currentGroup = "confirmation";
+    showBackButton = false;
+    stepContent = (
+      <BookedAppointmentSummary
+        appointment={bookedAppointment}
+        onCancelled={handleBookedAppointmentCancelled}
+        {...(bookedPractitionerName
+          ? { practitionerName: bookedPractitionerName }
+          : {})}
+      />
+    );
+  } else {
+    if (!resolvedSessionId || !session) {
+      throw new Error("Session missing while rendering booking wizard");
+    }
+
+    currentGroup = getStepGroup(session.state.step);
+    showBackButton = canGoBack(session.state.step);
+    stepContent = (
+      <StepRenderer
+        onStartOver={handleStartOver}
+        step={session.state.step}
+        stepProps={{
+          practiceId: currentPractice._id,
+          ruleSetId: practiceActiveRuleSetId,
+          sessionId: resolvedSessionId,
+          state: session.state,
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-b from-background to-muted/20">
@@ -589,11 +759,7 @@ function AuthenticatedBookingFlow() {
 
         {/* Step content */}
         <div className="max-w-2xl mx-auto" ref={stepContainerRef}>
-          <StepRenderer
-            onStartOver={handleStartOver}
-            step={session.state.step}
-            stepProps={stepProps}
-          />
+          {stepContent}
         </div>
       </main>
     </div>
@@ -623,15 +789,14 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     case "new-data-input-complete": {
       return <DataInputStep {...stepProps} />;
     }
-    case "existing-data-sharing":
-    case "new-data-sharing": {
-      return <DataSharingStep {...stepProps} />;
-    }
     case "existing-doctor-selection": {
       return <DoctorSelectionStep {...stepProps} />;
     }
     case "location": {
       return <LocationStep {...stepProps} />;
+    }
+    case "new-data-sharing": {
+      return <DataSharingStep {...stepProps} />;
     }
     case "new-gkv-details":
     case "new-gkv-details-complete": {

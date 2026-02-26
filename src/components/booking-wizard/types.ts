@@ -1,9 +1,13 @@
 // Types for the booking wizard components
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+
+import { api } from "@/convex/_generated/api";
 
 // The session state from Convex
-export type BookingSessionState = Doc<"bookingSessions">["state"];
+export type BookingSessionState = NonNullable<ActiveBookingSession>["state"];
+type ActiveBookingSession =
+  (typeof api.bookingSessions.getActiveForUser)["_returnType"];
 
 // Type helper to extract state at a specific step
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -25,7 +29,6 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
   "existing-confirmation": "Bestätigung",
   "existing-data-input": "Persönliche Daten",
   "existing-data-input-complete": "Persönliche Daten",
-  "existing-data-sharing": "Datenweitergabe",
   "existing-doctor-selection": "Arztauswahl",
   location: "Standort",
   "new-calendar-selection": "Terminauswahl",
@@ -51,7 +54,6 @@ const STEP_GROUP_BY_STEP = {
   "existing-confirmation": "confirmation",
   "existing-data-input": "info",
   "existing-data-input-complete": "info",
-  "existing-data-sharing": "info",
   "existing-doctor-selection": "info",
   location: "consent",
   "new-calendar-selection": "booking",

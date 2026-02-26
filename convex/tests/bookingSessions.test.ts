@@ -1,15 +1,16 @@
 import type { FunctionArgs } from "convex/server";
 
 import { convexTest } from "convex-test";
+import { Temporal } from "temporal-polyfill";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
-import schema from "../schema";
+import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
 
-type BookingSessionState = Doc<"bookingSessions">["state"];
+type BookingSessionState = BookingSessionStep;
 type DataSharingContactInput =
   NewPatientDataSharingArgs["dataSharingContacts"][number];
 type ExistingPatientSlotArgs = FunctionArgs<
@@ -23,6 +24,42 @@ type NewPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectNewPatientSlot
 >;
 type SelectedSlotInput = NewPatientSlotArgs["selectedSlot"];
+
+async function addHoursAheadBlockingRule(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    minimumHours: number;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    const rootRuleId = await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      createdAt: now,
+      enabled: true,
+      isRoot: true,
+      lastModified: now,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+
+    await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      conditionType: "HOURS_AHEAD",
+      createdAt: now,
+      isRoot: false,
+      lastModified: now,
+      nodeType: "CONDITION",
+      operator: "LESS_THAN",
+      parentConditionId: rootRuleId,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      valueNumber: args.minimumHours,
+    });
+  });
+}
 
 function assertSessionExists<T>(
   session: null | T,
@@ -137,6 +174,33 @@ async function bootstrapToNewDataSharing(
   });
   await authed.mutation(api.bookingSessions.confirmGkvDetails, {
     hzvStatus: "has-contract",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.submitNewPatientData, {
+    personalData: {
+      dateOfBirth: "1980-01-01",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phoneNumber: "+491701234567",
+    },
+    sessionId,
+  });
+}
+
+async function bootstrapToNewDataSharingPkv(
+  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  locationId: Id<"locations">,
+  sessionId: Id<"bookingSessions">,
+) {
+  await bootstrapToPatientStatus(authed, sessionId, locationId);
+  await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
+  await authed.mutation(api.bookingSessions.selectInsuranceType, {
+    insuranceType: "pkv",
+    sessionId,
+  });
+  await authed.mutation(api.bookingSessions.acceptPvsConsent, { sessionId });
+  await authed.mutation(api.bookingSessions.confirmPkvDetails, {
+    pvsConsent: true,
     sessionId,
   });
   await authed.mutation(api.bookingSessions.submitNewPatientData, {
@@ -313,6 +377,20 @@ function makeOwnedDataSharingContacts(
   }));
 }
 
+function makePastSelectedSlot(
+  practitionerId: Id<"practitioners">,
+): SelectedSlotInput {
+  return {
+    duration: 30,
+    practitionerId,
+    practitionerName: "Dr. Test",
+    startTime: Temporal.Now.instant()
+      .subtract({ minutes: 5 })
+      .toZonedDateTimeISO("Europe/Berlin")
+      .toString(),
+  };
+}
+
 function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
@@ -321,6 +399,20 @@ function makeSelectedSlot(
     practitionerId,
     practitionerName: "Dr. Test",
     startTime: "2026-03-01T09:00:00+01:00[Europe/Berlin]",
+  };
+}
+
+function makeSoonSelectedSlot(
+  practitionerId: Id<"practitioners">,
+): SelectedSlotInput {
+  return {
+    duration: 30,
+    practitionerId,
+    practitionerName: "Dr. Test",
+    startTime: Temporal.Now.instant()
+      .add({ minutes: 30 })
+      .toZonedDateTimeISO("Europe/Berlin")
+      .toString(),
   };
 }
 
@@ -466,7 +558,6 @@ describe("bookingSessions user identity handling", () => {
       if (session.state.step !== "new-data-sharing") {
         throw new Error("Expected session to be at new-data-sharing");
       }
-      const currentState = session.state;
 
       const wrongUserId = await ctx.db.insert("users", {
         authId: "workos_step_row_wrong_user",
@@ -481,8 +572,13 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId: currentState.locationId,
-        personalData: currentState.personalData,
+        locationId,
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
         practiceId: session.practiceId,
         ruleSetId: session.ruleSetId,
         sessionId,
@@ -494,7 +590,7 @@ describe("bookingSessions user identity handling", () => {
     expect(session).toBeNull();
   });
 
-  test("get returns null when existing data-sharing step row is linked to another user", async () => {
+  test("get returns null when existing calendar step row is linked to another user", async () => {
     const t = createTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBookingEntities(t);
@@ -528,10 +624,11 @@ describe("bookingSessions user identity handling", () => {
       if (!session) {
         throw new Error("Expected booking session to exist");
       }
-      if (session.state.step !== "existing-data-sharing") {
-        throw new Error("Expected session to be at existing-data-sharing");
+      if (session.state.step !== "existing-calendar-selection") {
+        throw new Error(
+          "Expected session to be at existing-calendar-selection",
+        );
       }
-      const currentState = session.state;
 
       const wrongUserId = await ctx.db.insert("users", {
         authId: "workos_step_row_wrong_user_existing",
@@ -539,17 +636,16 @@ describe("bookingSessions user identity handling", () => {
         email: "wrong-existing-user@example.com",
       });
 
-      await ctx.db.insert("bookingExistingDataSharingSteps", {
-        createdAt: BigInt(Date.now()),
+      const existingRow = await ctx.db
+        .query("bookingExistingDataSharingSteps")
+        .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+        .first();
+      if (!existingRow) {
+        throw new Error("Expected existing calendar snapshot row");
+      }
+
+      await ctx.db.patch("bookingExistingDataSharingSteps", existingRow._id, {
         dataSharingContacts: makeOwnedDataSharingContacts(wrongUserId),
-        isNewPatient: false,
-        lastModified: BigInt(Date.now()),
-        locationId: currentState.locationId,
-        personalData: currentState.personalData,
-        practiceId: session.practiceId,
-        practitionerId: currentState.practitionerId,
-        ruleSetId: session.ruleSetId,
-        sessionId,
         userId: wrongUserId,
       });
     });
@@ -597,7 +693,6 @@ describe("bookingSessions user identity handling", () => {
       if (session.state.step !== "new-data-sharing") {
         throw new Error("Expected session to be at new-data-sharing");
       }
-      const currentState = session.state;
 
       const wrongUserId = await ctx.db.insert("users", {
         authId: "workos_step_row_wrong_user_active_query",
@@ -612,8 +707,13 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId: currentState.locationId,
-        personalData: currentState.personalData,
+        locationId,
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
         practiceId: session.practiceId,
         ruleSetId: session.ruleSetId,
         sessionId,
@@ -653,6 +753,32 @@ describe("bookingSessions user identity handling", () => {
     assertStateStep(session.state, "new-calendar-selection");
     expect(session.state.dataSharingContacts).toHaveLength(1);
     expect(session.state.dataSharingContacts[0]?.userId).toBe(session.userId);
+  });
+
+  test("submitNewDataSharing preserves pvsConsent on PKV path", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "data_sharing_pkv_pvs_consent");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await bootstrapToNewDataSharingPkv(authed, locationId, sessionId);
+    await authed.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: makeDataSharingContacts(),
+      sessionId,
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    assertSessionExists(session, "session should exist");
+    assertStateStep(session.state, "new-calendar-selection");
+    if (session.state.insuranceType !== "pkv") {
+      throw new Error("Expected PKV calendar-selection state");
+    }
+    expect(session.state.pvsConsent).toBe(true);
   });
 
   test("submitExistingDataSharing stores owner userId on each contact", async () => {
@@ -705,7 +831,6 @@ describe("bookingSessions user identity handling", () => {
       if (session.state.step !== "new-data-sharing") {
         throw new Error("Expected session to be at new-data-sharing");
       }
-      const currentState = session.state;
 
       const wrongUserId = await ctx.db.insert("users", {
         authId: "workos_contact_owner_wrong_user",
@@ -723,8 +848,13 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId: currentState.locationId,
-        personalData: currentState.personalData,
+        locationId,
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
         practiceId: session.practiceId,
         ruleSetId: session.ruleSetId,
         sessionId,
@@ -1055,22 +1185,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    const atDataSharing = await authed.query(api.bookingSessions.get, {
-      sessionId,
-    });
-    assertSessionExists(
-      atDataSharing,
-      "session should exist at existing data-sharing step",
-    );
-    assertStateStep(atDataSharing.state, "existing-data-sharing");
-    expect("reasonDescription" in atDataSharing.state).toBe(false);
-    expect(atDataSharing.state.personalData.firstName).toBe("Grace");
-
-    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-      dataSharingContacts: makeDataSharingContacts(),
-      sessionId,
-    });
-
     const atCalendar = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
@@ -1079,7 +1193,8 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at existing calendar-selection step",
     );
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.dataSharingContacts).toHaveLength(1);
+    expect(atCalendar.state.dataSharingContacts).toHaveLength(0);
+    expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
 
@@ -1228,6 +1343,63 @@ describe("bookingSessions slot selection validation", () => {
     expect(atCalendar.state.dataSharingContacts[0]?.title).toBeUndefined();
   });
 
+  test("returnToCalendarSelectionAfterCancellation resets existing-confirmation to existing-calendar-selection", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "return_to_calendar_existing");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+      appointmentTypeId,
+      reasonDescription: "Kontrolle",
+      selectedSlot: makeSelectedSlot(practitionerId),
+      sessionId,
+    });
+
+    const confirmed = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      confirmed,
+      "session should exist at existing confirmation step",
+    );
+    assertStateStep(confirmed.state, "existing-confirmation");
+
+    await authed.mutation(
+      api.bookingSessions.returnToCalendarSelectionAfterCancellation,
+      { sessionId },
+    );
+
+    const atCalendar = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      atCalendar,
+      "session should exist at existing calendar-selection step",
+    );
+    assertStateStep(atCalendar.state, "existing-calendar-selection");
+    expect("appointmentId" in atCalendar.state).toBe(false);
+    expect("reasonDescription" in atCalendar.state).toBe(false);
+    expect("selectedSlot" in atCalendar.state).toBe(false);
+    expect(atCalendar.state.personalData.firstName).toBe("Grace");
+  });
+
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
     const {
@@ -1276,6 +1448,63 @@ describe("bookingSessions slot selection validation", () => {
         sessionId,
       }),
     ).rejects.toThrow("Invalid appointment type");
+  });
+
+  test("selectNewPatientSlot rejects slots in the past", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_validation_new_minimum_notice");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makePastSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("in the future");
+  });
+
+  test("selectNewPatientSlot enforces configurable HOURS_AHEAD minimum notice rules", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    await addHoursAheadBlockingRule(t, {
+      minimumHours: 1,
+      practiceId,
+      ruleSetId,
+    });
+    const authed = makeAuthedClient(t, "slot_validation_new_minimum_notice");
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makeSoonSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Selected slot is no longer available");
   });
 
   test("selectExistingPatientSlot rejects empty reason descriptions", async () => {
@@ -1336,6 +1565,79 @@ describe("bookingSessions slot selection validation", () => {
         sessionId,
       }),
     ).rejects.toThrow("Invalid appointment type");
+  });
+
+  test("selectExistingPatientSlot rejects slots in the past", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(
+      t,
+      "slot_validation_existing_minimum_notice",
+    );
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makePastSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("in the future");
+  });
+
+  test("selectExistingPatientSlot enforces configurable HOURS_AHEAD minimum notice rules", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    await addHoursAheadBlockingRule(t, {
+      minimumHours: 1,
+      practiceId,
+      ruleSetId,
+    });
+    const authed = makeAuthedClient(
+      t,
+      "slot_validation_existing_minimum_notice",
+    );
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToExistingCalendarSelection(
+      authed,
+      locationId,
+      practitionerId,
+      sessionId,
+    );
+
+    await expect(
+      authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeId,
+        reasonDescription: "Kontrolle",
+        selectedSlot: makeSoonSelectedSlot(practitionerId),
+        sessionId,
+      }),
+    ).rejects.toThrow("Selected slot is no longer available");
   });
 });
 

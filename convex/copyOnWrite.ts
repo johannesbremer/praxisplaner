@@ -443,6 +443,7 @@ async function copyConditionNode(
       | "DATE_RANGE"
       | "DAY_OF_WEEK"
       | "DAYS_AHEAD"
+      | "HOURS_AHEAD"
       | "LOCATION"
       | "PATIENT_AGE"
       | "PRACTITIONER"

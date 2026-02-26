@@ -25,6 +25,7 @@ type ConditionType =
   | "DAILY_CAPACITY"
   | "DAY_OF_WEEK"
   | "DAYS_AHEAD"
+  | "HOURS_AHEAD"
   | "LOCATION"
   | "PATIENT_AGE"
   | "PRACTITIONER";
@@ -201,6 +202,13 @@ export function generateRuleName(
         parts.push(`der Termin ${days} ${dayLabel}`);
         break;
       }
+      case "HOURS_AHEAD": {
+        const hours = condition.valueNumber || 0;
+        const hourLabel =
+          hours === 1 ? "Stunde entfernt ist," : "Stunden entfernt ist,";
+        parts.push(`der Termin weniger als ${hours} ${hourLabel}`);
+        break;
+      }
       case "LOCATION": {
         const names = (condition.valueIds
           ?.map((id) => locations.find((l) => l._id === id)?.name)
@@ -299,6 +307,7 @@ function parseConditionNode(
     "DAILY_CAPACITY",
     "DAY_OF_WEEK",
     "DAYS_AHEAD",
+    "HOURS_AHEAD",
     "LOCATION",
     "PATIENT_AGE",
     "PRACTITIONER",
@@ -359,6 +368,14 @@ function parseConditionNode(
       return {
         id,
         operator: "GREATER_THAN_OR_EQUAL",
+        type: conditionType,
+        valueNumber: valueNumber ?? null,
+      };
+    }
+    case "HOURS_AHEAD": {
+      return {
+        id,
+        operator: "LESS_THAN",
         type: conditionType,
         valueNumber: valueNumber ?? null,
       };
