@@ -13,9 +13,16 @@ import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
 
+function createAuthedTestContext() {
+  return convexTest(schema, modules).withIdentity({
+    email: "copyonwrite@example.com",
+    subject: "workos_copyonwrite",
+  });
+}
+
 describe("Copy-on-Write Entity Reference Validation", () => {
   test("should throw error when rule references appointment type from wrong rule set", async () => {
-    const t = convexTest(schema, modules);
+    const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -140,7 +147,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   });
 
   test("should succeed when rule references appointment type from correct rule set", async () => {
-    const t = convexTest(schema, modules);
+    const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -222,7 +229,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   });
 
   test("should correctly remap appointment type IDs when copying rule sets", async () => {
-    const t = convexTest(schema, modules);
+    const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -397,7 +404,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   });
 
   test("should correctly handle CONCURRENT_COUNT conditions with appointment type IDs", async () => {
-    const t = convexTest(schema, modules);
+    const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
     const practiceId = await t.mutation(api.practices.createPractice, {

@@ -107,6 +107,9 @@ export function useRegelnUrl(options: {
     };
 
     const nextSearch = buildRegelnSearchFromState(mergedState);
+    if (isSameSearch(routeSearch, nextSearch)) {
+      return;
+    }
     void navigate({
       replace: false,
       search: nextSearch,
@@ -257,4 +260,14 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
     ruleSetDescription: params.regelwerk,
     tabParam: params.tab,
   };
+}
+
+function isSameSearch(left: RegelnSearchParams, right: RegelnSearchParams) {
+  return (
+    left.datum === right.datum &&
+    left.patientType === right.patientType &&
+    left.regelwerk === right.regelwerk &&
+    left.standort === right.standort &&
+    left.tab === right.tab
+  );
 }

@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import {
+  ensurePracticeAccessForMutation,
+  ensurePracticeAccessForQuery,
+  getAccessiblePracticeIdsForQuery,
+} from "./practiceAccess";
+import { ensureAuthenticatedIdentity } from "./userIdentity";
 import { patientUpsertResultValidator } from "./validators";
 
 /** Create or update a patient from GDT data */
@@ -16,6 +22,8 @@ export const createOrUpdatePatient = mutation({
     street: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
     const now = BigInt(Date.now());
 
     // Check if patient exists
@@ -75,17 +83,25 @@ export const listPatients = query({
     ),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     const limit = args.limit ?? 20;
     const orderBy = args.orderBy ?? "lastModified";
     const order = args.order ?? "desc";
 
-    return await ctx.db
+    const patients = await ctx.db
       .query("patients")
       .withIndex(
         orderBy === "lastModified" ? "by_lastModified" : "by_createdAt",
       )
       .order(order)
       .take(limit);
+
+    return patients.filter((patient) =>
+      accessiblePracticeIds.has(patient.practiceId),
+    );
   },
   returns: v.array(v.any()), // Patient documents from schema
 });
@@ -94,7 +110,13 @@ export const listPatients = query({
 export const getPatientById = query({
   args: { id: v.id("patients") },
   handler: async (ctx, args) => {
-    return await ctx.db.get("patients", args.id);
+    await ensureAuthenticatedIdentity(ctx);
+    const patient = await ctx.db.get("patients", args.id);
+    if (!patient) {
+      return null;
+    }
+    await ensurePracticeAccessForQuery(ctx, patient.practiceId);
+    return patient;
   },
   returns: v.union(v.any(), v.null()), // Patient document or null
 });
@@ -103,10 +125,16 @@ export const getPatientById = query({
 export const getPatient = query({
   args: { patientId: v.number() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    await ensureAuthenticatedIdentity(ctx);
+    const patient = await ctx.db
       .query("patients")
       .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
       .first();
+    if (!patient) {
+      return null;
+    }
+    await ensurePracticeAccessForQuery(ctx, patient.practiceId);
+    return patient;
   },
   returns: v.union(v.any(), v.null()), // Patient document or null
 });
@@ -115,6 +143,10 @@ export const getPatient = query({
 export const getPatientsByIds = query({
   args: { patientIds: v.array(v.id("patients")) },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
     const patients = await Promise.all(
       args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
@@ -125,6 +157,9 @@ export const getPatientsByIds = query({
     > = {};
     for (const patient of patients) {
       if (patient) {
+        if (!accessiblePracticeIds.has(patient.practiceId)) {
+          continue;
+        }
         const entry: { firstName?: string; lastName?: string } = {};
         if (patient.firstName !== undefined) {
           entry.firstName = patient.firstName;
@@ -153,6 +188,8 @@ export const searchPatients = query({
     searchTerm: v.string(),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     // Get all patients for the practice
     const patients = await ctx.db
       .query("patients")

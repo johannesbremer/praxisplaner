@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { RefreshCw, Save, Trash2 } from "lucide-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -42,6 +42,7 @@ import { api } from "@/convex/_generated/api";
 import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
+import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 
@@ -56,6 +57,8 @@ import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import { RuleBuilder } from "../components/rule-builder";
 import { VersionGraph } from "../components/version-graph/index";
+import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
+import { useLocalHistory } from "../hooks/use-local-history";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -141,6 +144,21 @@ function LogicView() {
   const [isClearingSimulatedAppointments, setIsClearingSimulatedAppointments] =
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
+  const {
+    canRedo: canRedoRegelnHistoryAction,
+    canUndo: canUndoRegelnHistoryAction,
+    clear: clearRegelnHistoryAction,
+    pushAction: pushRegelnHistoryAction,
+    redo: redoRegelnHistoryAction,
+    undo: undoRegelnHistoryAction,
+  } = useLocalHistory();
+
+  const registerRegelnHistoryAction = useCallback(
+    (action: LocalHistoryAction) => {
+      pushRegelnHistoryAction(action);
+    },
+    [pushRegelnHistoryAction],
+  );
 
   const deleteAllSimulatedDataMutation = useMutation(
     api.appointments.deleteAllSimulatedData,
@@ -186,8 +204,13 @@ function LogicView() {
   const performClearSimulatedAppointments = useCallback(
     async (options: { silent?: boolean }) => {
       const { silent = false } = options;
+      if (!currentPractice) {
+        return 0;
+      }
       try {
-        const result = await deleteAllSimulatedDataMutation({});
+        const result = await deleteAllSimulatedDataMutation({
+          practiceId: currentPractice._id,
+        });
         const totalDeleted = result.total;
 
         if (!silent) {
@@ -224,7 +247,7 @@ function LogicView() {
         throw error;
       }
     },
-    [captureError, deleteAllSimulatedDataMutation],
+    [captureError, currentPractice, deleteAllSimulatedDataMutation],
   );
 
   const handleClearSimulatedAppointments = useCallback(async () => {
@@ -292,6 +315,12 @@ function LogicView() {
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
   );
+  const discardUnsavedIfEquivalentMutation = useMutation(
+    api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+  );
+  const ensureUnsavedRuleSetMutation = useMutation(
+    api.ruleSets.ensureUnsavedRuleSet,
+  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -315,6 +344,7 @@ function LogicView() {
       _id: rawUnsaved._id,
       description: rawUnsaved.description,
       isActive: currentPractice.currentActiveRuleSetId === rawUnsaved._id,
+      parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
   }, [
@@ -382,6 +412,181 @@ function LogicView() {
     () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
     [unsavedRuleSet, selectedRuleSet, activeRuleSet],
   );
+  const historyScopeRootRuleSetId =
+    unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? "none";
+  const historyScopeKey = `${historyScopeRootRuleSetId}`;
+  const lastHistoryScopeRef = useRef(historyScopeKey);
+
+  React.useEffect(() => {
+    if (lastHistoryScopeRef.current === historyScopeKey) {
+      return;
+    }
+
+    clearRegelnHistoryAction();
+    lastHistoryScopeRef.current = historyScopeKey;
+  }, [clearRegelnHistoryAction, historyScopeKey]);
+
+  const maybeDiscardEquivalentUnsavedRuleSet = useCallback(
+    async (reason: "redo" | "undo") => {
+      if (
+        activeTab !== "rule-management" ||
+        !currentPractice ||
+        !unsavedRuleSet
+      ) {
+        return;
+      }
+
+      try {
+        const discardResult = await discardUnsavedIfEquivalentMutation({
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        });
+
+        if (!discardResult.deleted || !discardResult.parentRuleSetId) {
+          return;
+        }
+
+        setUnsavedRuleSetId(null);
+        pushUrl({ ruleSetId: discardResult.parentRuleSetId });
+      } catch (error: unknown) {
+        captureError(error, {
+          context: `ruleset_auto_discard_after_${reason}`,
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        });
+      }
+    },
+    [
+      activeTab,
+      captureError,
+      currentPractice,
+      discardUnsavedIfEquivalentMutation,
+      pushUrl,
+      unsavedRuleSet,
+    ],
+  );
+
+  const runRegelnUndo = useCallback(async () => {
+    let result = await undoRegelnHistoryAction();
+    const shouldRecoverMissingSource =
+      result.status === "conflict" &&
+      /source rule set not found/i.test(result.message ?? "") &&
+      activeTab === "rule-management" &&
+      !unsavedRuleSet &&
+      currentPractice &&
+      currentWorkingRuleSet;
+
+    if (shouldRecoverMissingSource) {
+      try {
+        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+        setUnsavedRuleSetId(ensuredRuleSetId);
+        pushUrl({ ruleSetId: ensuredRuleSetId });
+        result = await undoRegelnHistoryAction();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "ruleset_ensure_unsaved_before_undo",
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+      }
+    }
+
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht rückgängig gemacht werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung rückgängig gemacht");
+      await maybeDiscardEquivalentUnsavedRuleSet("undo");
+    }
+  }, [
+    activeTab,
+    captureError,
+    currentPractice,
+    currentWorkingRuleSet,
+    ensureUnsavedRuleSetMutation,
+    maybeDiscardEquivalentUnsavedRuleSet,
+    pushUrl,
+    undoRegelnHistoryAction,
+    unsavedRuleSet,
+  ]);
+
+  const runRegelnRedo = useCallback(async () => {
+    let result = await redoRegelnHistoryAction();
+    const shouldRecoverMissingSource =
+      result.status === "conflict" &&
+      /source rule set not found/i.test(result.message ?? "") &&
+      activeTab === "rule-management" &&
+      !unsavedRuleSet &&
+      currentPractice &&
+      currentWorkingRuleSet;
+
+    if (shouldRecoverMissingSource) {
+      try {
+        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+        setUnsavedRuleSetId(ensuredRuleSetId);
+        pushUrl({ ruleSetId: ensuredRuleSetId });
+        result = await redoRegelnHistoryAction();
+      } catch (error: unknown) {
+        captureError(error, {
+          context: "ruleset_ensure_unsaved_before_redo",
+          practiceId: currentPractice._id,
+          sourceRuleSetId: currentWorkingRuleSet._id,
+        });
+      }
+    }
+
+    if (result.status === "conflict") {
+      toast.error("Änderung konnte nicht wiederhergestellt werden", {
+        description: result.message,
+      });
+      return;
+    }
+    if (result.status === "applied") {
+      toast.success("Änderung wiederhergestellt");
+      await maybeDiscardEquivalentUnsavedRuleSet("redo");
+    }
+  }, [
+    activeTab,
+    captureError,
+    currentPractice,
+    currentWorkingRuleSet,
+    ensureUnsavedRuleSetMutation,
+    maybeDiscardEquivalentUnsavedRuleSet,
+    pushUrl,
+    redoRegelnHistoryAction,
+    unsavedRuleSet,
+  ]);
+
+  const regelnUndoRedoControls = useMemo(
+    () =>
+      activeTab === "rule-management" &&
+      (canUndoRegelnHistoryAction || canRedoRegelnHistoryAction)
+        ? {
+            canRedo: canRedoRegelnHistoryAction,
+            canUndo: canUndoRegelnHistoryAction,
+            onRedo: runRegelnRedo,
+            onUndo: runRegelnUndo,
+          }
+        : null,
+    [
+      activeTab,
+      canRedoRegelnHistoryAction,
+      canUndoRegelnHistoryAction,
+      runRegelnRedo,
+      runRegelnUndo,
+    ],
+  );
+
+  useRegisterGlobalUndoRedoControls(regelnUndoRedoControls);
 
   // Function to get or wait for the unsaved rule set
   // With CoW, the unsaved rule set is created automatically by mutations when needed
@@ -424,19 +629,13 @@ function LogicView() {
     if (
       unsavedRuleSet &&
       !raw.ruleSet &&
+      ruleSetIdFromUrl !== unsavedRuleSet._id &&
       // Avoid navigating before we know the date from URL/state
       selectedDate instanceof Date
     ) {
       pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
     }
-  }, [
-    unsavedRuleSet,
-    raw.ruleSet,
-    activeTab,
-    simulatedContext.patient.isNew,
-    selectedDate,
-    pushUrl,
-  ]);
+  }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = useCallback(async () => {
@@ -463,10 +662,19 @@ function LogicView() {
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
-    if (existingUnsavedRuleSet && !unsavedRuleSetId) {
+    if (!existingUnsavedRuleSet) {
+      return;
+    }
+
+    // Respect explicit URL selection of a saved rule set.
+    if (raw.ruleSet && raw.ruleSet !== "ungespeichert") {
+      return;
+    }
+
+    if (!unsavedRuleSetId || unsavedRuleSetId !== existingUnsavedRuleSet._id) {
       setUnsavedRuleSetId(existingUnsavedRuleSet._id);
     }
-  }, [existingUnsavedRuleSet, unsavedRuleSetId]);
+  }, [existingUnsavedRuleSet, raw.ruleSet, unsavedRuleSetId]);
 
   // Auto-create an initial unsaved rule set when no rule sets exist
   React.useEffect(() => {
@@ -854,6 +1062,7 @@ function LogicView() {
                   {/* Appointment Types Management */}
                   {currentWorkingRuleSet && (
                     <AppointmentTypesManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={(newRuleSetId) => {
                         setUnsavedRuleSetId(newRuleSetId);
                       }}
@@ -865,6 +1074,7 @@ function LogicView() {
                   {/* Practitioner Management */}
                   {currentWorkingRuleSet && (
                     <PractitionerManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -874,6 +1084,7 @@ function LogicView() {
                   {/* Base Schedule Management */}
                   {currentWorkingRuleSet && (
                     <BaseScheduleManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -883,6 +1094,7 @@ function LogicView() {
                   {/* Locations Management */}
                   {currentWorkingRuleSet && (
                     <LocationsManagement
+                      onRegisterHistoryAction={registerRegelnHistoryAction}
                       onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
@@ -1004,6 +1216,7 @@ function LogicView() {
                   <CardContent>
                     {currentWorkingRuleSet && (
                       <RuleBuilder
+                        onRegisterHistoryAction={registerRegelnHistoryAction}
                         onRuleCreated={handleRuleSetCreated}
                         practiceId={currentPractice._id}
                         ruleSetId={currentWorkingRuleSet._id}

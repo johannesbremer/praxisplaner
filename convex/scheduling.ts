@@ -7,11 +7,13 @@ import type { AppointmentContext } from "./ruleEngine";
 
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
+import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
   buildPreloadedDayData,
   evaluateLoadedRulesHelper,
   preEvaluateDayInvariantRulesHelper,
 } from "./ruleEngine";
+import { ensureAuthenticatedIdentity } from "./userIdentity";
 import {
   availableSlotsResultValidator,
   dateRangeValidator,
@@ -177,6 +179,8 @@ export const getAvailableDates = query({
     simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const availableDates = new Set<string>();
 
     // Fetch practitioners for this practice
@@ -249,6 +253,8 @@ export const getSlotsForDay = query({
     simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     // Ensure appointmentTypeId is present for rule evaluation
     if (!args.simulatedContext.appointmentTypeId) {
       throw new Error(
@@ -649,6 +655,8 @@ export const getBlockedSlotsWithoutAppointmentType = query({
     ruleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const targetPlainDate = Temporal.PlainDate.from(args.date);
 
     // Determine which rule set to use

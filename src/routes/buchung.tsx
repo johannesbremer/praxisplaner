@@ -1,5 +1,6 @@
 // src/routes/buchung.tsx
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -170,9 +171,14 @@ function AuthenticatedBookingFlow() {
   );
   const [sessionError, setSessionError] = useState<null | string>(null);
   const isCreatingSessionRef = useRef(false);
+  const stepContainerRef = useRef<HTMLDivElement>(null);
+  const isInitializingPracticeRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
+  const initializeDefaultPractice = useMutation(
+    api.practices.initializeDefaultPractice,
+  );
   const currentPractice = practicesQuery?.[0];
 
   // Get active rule set for the practice
@@ -197,6 +203,24 @@ function AuthenticatedBookingFlow() {
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
   const goBackMutation = useMutation(api.bookingSessions.goBack);
+
+  useEffect(() => {
+    if (
+      !practicesQuery ||
+      practicesQuery.length > 0 ||
+      isInitializingPracticeRef.current
+    ) {
+      return;
+    }
+    isInitializingPracticeRef.current = true;
+    initializeDefaultPractice()
+      .catch((error: unknown) => {
+        console.error("Failed to initialize practice membership:", error);
+      })
+      .finally(() => {
+        isInitializingPracticeRef.current = false;
+      });
+  }, [initializeDefaultPractice, practicesQuery]);
 
   // Create session on mount
   useEffect(() => {
@@ -284,6 +308,91 @@ function AuthenticatedBookingFlow() {
       });
     }
   }, [signOut]);
+  const currentStep = session?.state.step;
+
+  const handleForward = useCallback(() => {
+    const container = stepContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const submitButtons = [
+      ...container.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
+        'button[type="submit"], input[type="submit"]',
+      ),
+    ];
+    const firstEnabled = submitButtons.find((button) => {
+      const isVisible = button.offsetParent !== null;
+      const ariaDisabled = button.getAttribute("aria-disabled") === "true";
+      return isVisible && !button.disabled && !ariaDisabled;
+    });
+
+    firstEnabled?.click();
+  }, []);
+
+  useHotkey(
+    "Mod+Z",
+    () => {
+      if (currentStep && canGoBack(currentStep)) {
+        void handleBack();
+      }
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Shift+Z",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Mod+Y",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Alt+ArrowLeft",
+    () => {
+      if (currentStep && canGoBack(currentStep)) {
+        void handleBack();
+      }
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
+
+  useHotkey(
+    "Alt+ArrowRight",
+    () => {
+      handleForward();
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: Boolean(resolvedSessionId),
+      requireReset: true,
+    },
+  );
 
   // Loading state
   if (!practicesQuery) {
@@ -479,7 +588,7 @@ function AuthenticatedBookingFlow() {
         )}
 
         {/* Step content */}
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto" ref={stepContainerRef}>
           <StepRenderer
             onStartOver={handleStartOver}
             step={session.state.step}

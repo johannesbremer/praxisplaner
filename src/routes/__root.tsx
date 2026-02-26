@@ -3,6 +3,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
+import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
+import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
   ClientOnly,
@@ -55,10 +57,11 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
 }
 
 // Icons and UI components for the HomePage content
-import { CalendarPlus, Clock, Settings } from "lucide-react";
+import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -66,6 +69,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"; // Ensure this path is correct
+
+import {
+  UndoRedoControlsProvider,
+  useGlobalUndoRedoControls,
+} from "../hooks/use-global-undo-redo-controls";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -233,14 +241,11 @@ function RootComponent() {
   return (
     <RootDocument>
       <ThemeProvider defaultTheme="system" storageKey="praxisplaner-theme">
-        <PostHogWrapper>
-          <div className="min-h-screen">
-            <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-              <ModeToggle />
-            </div>
-            <Outlet />
-          </div>
-        </PostHogWrapper>
+        <UndoRedoControlsProvider>
+          <PostHogWrapper>
+            <RootLayout />
+          </PostHogWrapper>
+        </UndoRedoControlsProvider>
       </ThemeProvider>
     </RootDocument>
   );
@@ -265,6 +270,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <TanStackDevtools
             eventBusConfig={{ debug: false }}
             plugins={[
+              hotkeysDevtoolsPlugin(),
               {
                 name: "TanStack Query",
                 render: <ReactQueryDevtoolsPanel />,
@@ -284,9 +290,169 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             ]}
           />
         </ClientOnly>
-        <Toaster position="top-right" richColors />
+        <Toaster offset={72} position="top-right" richColors />
         <Scripts />
       </body>
     </html>
+  );
+}
+
+function RootLayout() {
+  const controls = useGlobalUndoRedoControls();
+  const canUndo = controls?.canUndo ?? false;
+  const canRedo = controls?.canRedo ?? false;
+  const isHistoryOperationRunningRef = React.useRef(false);
+  const handledHistoryHotkeySymbol = React.useMemo(
+    () => Symbol("handled-history-hotkey"),
+    [],
+  );
+
+  const alreadyHandledThisKeyEvent = React.useCallback(
+    (event: KeyboardEvent) => {
+      const marker = event as KeyboardEvent &
+        Record<symbol, boolean | undefined>;
+      if (marker[handledHistoryHotkeySymbol]) {
+        return true;
+      }
+
+      marker[handledHistoryHotkeySymbol] = true;
+      return false;
+    },
+    [handledHistoryHotkeySymbol],
+  );
+
+  const runHistoryAction = React.useCallback(
+    (action: "redo" | "undo") => {
+      if (!controls || isHistoryOperationRunningRef.current) {
+        return;
+      }
+
+      isHistoryOperationRunningRef.current = true;
+
+      let result: Promise<void> | void;
+      try {
+        result = action === "undo" ? controls.onUndo() : controls.onRedo();
+      } catch {
+        isHistoryOperationRunningRef.current = false;
+        return;
+      }
+
+      void Promise.resolve(result).finally(() => {
+        isHistoryOperationRunningRef.current = false;
+      });
+    },
+    [controls],
+  );
+
+  useHotkey(
+    "Mod+Z",
+    (event) => {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
+        return;
+      }
+      runHistoryAction("undo");
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+    },
+  );
+
+  useHotkey(
+    "Mod+Shift+Z",
+    (event) => {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
+        return;
+      }
+      runHistoryAction("redo");
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+    },
+  );
+
+  useHotkey(
+    "Mod+Y",
+    (event) => {
+      if (event.repeat || alreadyHandledThisKeyEvent(event)) {
+        return;
+      }
+      runHistoryAction("redo");
+    },
+    {
+      conflictBehavior: "replace",
+      enabled: !!controls,
+    },
+  );
+
+  React.useEffect(() => {
+    if (!controls) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod || event.shiftKey || key !== "y") {
+        return;
+      }
+      if (alreadyHandledThisKeyEvent(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      runHistoryAction("redo");
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [alreadyHandledThisKeyEvent, controls, runHistoryAction]);
+
+  return (
+    <div className="min-h-screen">
+      <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2">
+        {controls ? (
+          <>
+            <Button
+              disabled={!canUndo}
+              onClick={() => {
+                runHistoryAction("undo");
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Undo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Undo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Z")}
+              </kbd>
+            </Button>
+            <Button
+              disabled={!canRedo}
+              onClick={() => {
+                runHistoryAction("redo");
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <Redo2 className="h-4 w-4" />
+              <span className="ml-2 mr-1">Redo</span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
+                {formatForDisplay("Mod+Y")}
+              </kbd>
+            </Button>
+          </>
+        ) : null}
+        <ModeToggle />
+      </div>
+      <Outlet />
+    </div>
   );
 }
