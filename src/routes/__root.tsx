@@ -301,30 +301,24 @@ function RootLayout() {
   const controls = useGlobalUndoRedoControls();
   const canUndo = controls?.canUndo ?? false;
   const canRedo = controls?.canRedo ?? false;
-  const lastHotkeySignatureRef = React.useRef<string>("");
   const isHistoryOperationRunningRef = React.useRef(false);
+  const handledHistoryHotkeySymbol = React.useMemo(
+    () => Symbol("handled-history-hotkey"),
+    [],
+  );
 
   const alreadyHandledThisKeyEvent = React.useCallback(
     (event: KeyboardEvent) => {
-      const signature = [
-        event.type,
-        event.timeStamp,
-        event.key,
-        event.code,
-        event.metaKey ? "1" : "0",
-        event.ctrlKey ? "1" : "0",
-        event.shiftKey ? "1" : "0",
-        event.altKey ? "1" : "0",
-      ].join("|");
-
-      if (lastHotkeySignatureRef.current === signature) {
+      const marker = event as KeyboardEvent &
+        Record<symbol, boolean | undefined>;
+      if (marker[handledHistoryHotkeySymbol]) {
         return true;
       }
 
-      lastHotkeySignatureRef.current = signature;
+      marker[handledHistoryHotkeySymbol] = true;
       return false;
     },
-    [],
+    [handledHistoryHotkeySymbol],
   );
 
   const runHistoryAction = React.useCallback(
