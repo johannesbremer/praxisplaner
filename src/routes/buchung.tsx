@@ -174,9 +174,11 @@ function BookingPage() {
  */
 function AuthenticatedBookingFlow() {
   const { signOut } = useAuth();
-  const [sessionId, setSessionId] = useState<Id<"bookingSessions"> | null>(
-    null,
-  );
+  const [pendingSessionForActiveRuleSet, setPendingSessionForActiveRuleSet] =
+    useState<null | {
+      ruleSetId: Id<"ruleSets">;
+      sessionId: Id<"bookingSessions">;
+    }>(null);
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
@@ -192,17 +194,26 @@ function AuthenticatedBookingFlow() {
   );
   const currentPractice = practicesQuery?.[0];
 
-  // Get active rule set for the practice
-  const activeRuleSetId = currentPractice?.currentActiveRuleSetId;
+  // `/buchung` always follows the currently active rule set of the practice.
+  const practiceActiveRuleSetId = currentPractice?.currentActiveRuleSetId;
 
-  const existingSession = useQuery(
+  const activeRuleSetSession = useQuery(
     api.bookingSessions.getActiveForUser,
-    currentPractice && activeRuleSetId
-      ? { practiceId: currentPractice._id, ruleSetId: activeRuleSetId }
+    currentPractice && practiceActiveRuleSetId
+      ? {
+          practiceId: currentPractice._id,
+          ruleSetId: practiceActiveRuleSetId,
+        }
       : "skip",
   );
 
-  const resolvedSessionId = sessionId ?? existingSession?._id ?? null;
+  const pendingSessionIdForActiveRuleSet =
+    pendingSessionForActiveRuleSet &&
+    pendingSessionForActiveRuleSet.ruleSetId === practiceActiveRuleSetId
+      ? pendingSessionForActiveRuleSet.sessionId
+      : null;
+  const resolvedSessionId =
+    activeRuleSetSession?._id ?? pendingSessionIdForActiveRuleSet;
 
   // Query the session if we have one
   const session = useQuery(
@@ -215,7 +226,7 @@ function AuthenticatedBookingFlow() {
   );
   const practitioners = useQuery(
     api.entities.getPractitioners,
-    activeRuleSetId ? { ruleSetId: activeRuleSetId } : "skip",
+    practiceActiveRuleSetId ? { ruleSetId: practiceActiveRuleSetId } : "skip",
   );
 
   // Mutations
@@ -248,19 +259,24 @@ function AuthenticatedBookingFlow() {
   useEffect(() => {
     if (
       currentPractice &&
-      activeRuleSetId &&
+      practiceActiveRuleSetId &&
       !resolvedSessionId &&
       !isCreatingSessionRef.current &&
       !sessionError &&
-      existingSession !== undefined &&
-      !existingSession
+      activeRuleSetSession !== undefined &&
+      !activeRuleSetSession
     ) {
       isCreatingSessionRef.current = true;
       createSession({
         practiceId: currentPractice._id,
-        ruleSetId: activeRuleSetId,
+        ruleSetId: practiceActiveRuleSetId,
       })
-        .then(setSessionId)
+        .then((createdSessionId) => {
+          setPendingSessionForActiveRuleSet({
+            ruleSetId: practiceActiveRuleSetId,
+            sessionId: createdSessionId,
+          });
+        })
         .catch((error: unknown) => {
           console.error("Failed to create booking session:", error);
           const errorMessage =
@@ -277,11 +293,11 @@ function AuthenticatedBookingFlow() {
     }
   }, [
     currentPractice,
-    activeRuleSetId,
-    sessionId,
+    practiceActiveRuleSetId,
+    pendingSessionForActiveRuleSet,
     createSession,
     sessionError,
-    existingSession,
+    activeRuleSetSession,
     resolvedSessionId,
   ]);
 
@@ -295,7 +311,7 @@ function AuthenticatedBookingFlow() {
     if (resolvedSessionId) {
       void removeSession({ sessionId: resolvedSessionId });
     }
-    setSessionId(null);
+    setPendingSessionForActiveRuleSet(null);
   }, [resolvedSessionId, removeSession]);
 
   // Handle back navigation using unified goBack mutation
@@ -518,7 +534,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // No active rule set
-  if (!activeRuleSetId) {
+  if (!practiceActiveRuleSetId) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -662,7 +678,7 @@ function AuthenticatedBookingFlow() {
         step={session.state.step}
         stepProps={{
           practiceId: currentPractice._id,
-          ruleSetId: session.ruleSetId,
+          ruleSetId: practiceActiveRuleSetId,
           sessionId: resolvedSessionId,
           state: session.state,
         }}
