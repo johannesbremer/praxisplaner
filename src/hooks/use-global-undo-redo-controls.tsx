@@ -39,9 +39,18 @@ export function UndoRedoControlsProvider({
 
   const setControls = useCallback(
     (controls: null | UndoRedoControls, ownerId: symbol) => {
-      setState({
-        controls,
-        ownerId,
+      setState((current) => {
+        if (
+          current.ownerId === ownerId &&
+          isSameControls(current.controls, controls)
+        ) {
+          return current;
+        }
+
+        return {
+          controls,
+          ownerId,
+        };
       });
     },
     [],
@@ -91,6 +100,7 @@ export function useRegisterGlobalUndoRedoControls(
 ) {
   const context = useContext(UndoRedoControlsContext);
   const ownerIdRef = useRef(Symbol("undo-redo-controls-owner"));
+  const controlsRef = useRef<null | UndoRedoControls>(controls);
   if (!context) {
     throw new Error(
       "useRegisterGlobalUndoRedoControls must be used within UndoRedoControlsProvider",
@@ -98,17 +108,73 @@ export function useRegisterGlobalUndoRedoControls(
   }
 
   const { clearControls, setControls } = context;
+  const canUndo = controls?.canUndo ?? false;
+  const canRedo = controls?.canRedo ?? false;
+  const hasControls = controls !== null;
+
+  useEffect(() => {
+    controlsRef.current = controls;
+  }, [controls]);
+
+  const stableUndo = useCallback(() => {
+    return controlsRef.current?.onUndo();
+  }, []);
+
+  const stableRedo = useCallback(() => {
+    return controlsRef.current?.onRedo();
+  }, []);
 
   useEffect(() => {
     const ownerId = ownerIdRef.current;
 
-    if (controls) {
-      setControls(controls, ownerId);
+    if (hasControls) {
+      setControls(
+        {
+          canRedo,
+          canUndo,
+          onRedo: stableRedo,
+          onUndo: stableUndo,
+        },
+        ownerId,
+      );
     } else {
       clearControls(ownerId);
     }
+  }, [
+    canRedo,
+    canUndo,
+    clearControls,
+    hasControls,
+    setControls,
+    stableRedo,
+    stableUndo,
+  ]);
+
+  useEffect(() => {
+    const ownerId = ownerIdRef.current;
+
     return () => {
       clearControls(ownerId);
     };
-  }, [clearControls, controls, setControls]);
+  }, [clearControls]);
+}
+
+function isSameControls(
+  current: null | UndoRedoControls,
+  next: null | UndoRedoControls,
+) {
+  if (current === next) {
+    return true;
+  }
+
+  if (!current || !next) {
+    return false;
+  }
+
+  return (
+    current.canRedo === next.canRedo &&
+    current.canUndo === next.canUndo &&
+    current.onRedo === next.onRedo &&
+    current.onUndo === next.onUndo
+  );
 }
