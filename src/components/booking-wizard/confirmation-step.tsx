@@ -76,7 +76,10 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
       await returnToCalendarSelection({ sessionId });
     });
 
-  if (state.step !== "existing-confirmation" && state.step !== "new-confirmation") {
+  if (
+    state.step !== "existing-confirmation" &&
+    state.step !== "new-confirmation"
+  ) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>

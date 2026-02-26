@@ -205,9 +205,10 @@ export const getAppointments = query({
       .query("appointments")
       .order("asc")
       .collect();
-    let appointments = appointmentDocs.filter((appointment) =>
-      accessiblePracticeIds.has(appointment.practiceId) &&
-      isVisibleAppointment(appointment),
+    let appointments = appointmentDocs.filter(
+      (appointment) =>
+        accessiblePracticeIds.has(appointment.practiceId) &&
+        isVisibleAppointment(appointment),
     );
 
     // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
