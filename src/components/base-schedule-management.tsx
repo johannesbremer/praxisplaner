@@ -200,14 +200,6 @@ export default function BaseScheduleManagement({
   };
 
   const handleDeleteGroup = async (scheduleIds: Id<"baseSchedules">[]) => {
-    if (
-      !confirm(
-        `Sind Sie sicher, dass Sie diese ${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} löschen möchten?`,
-      )
-    ) {
-      return;
-    }
-
     try {
       const deletedSchedules = schedulesRef.current.filter((schedule) =>
         scheduleIds.includes(schedule._id),

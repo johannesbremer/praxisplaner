@@ -83,10 +83,6 @@ export default function PractitionerManagement({
   };
 
   const handleDelete = async (practitionerId: Id<"practitioners">) => {
-    if (!confirm("Sind Sie sicher, dass Sie diesen Arzt löschen möchten?")) {
-      return;
-    }
-
     try {
       const practitionerName =
         practitionersRef.current.find((entry) => entry._id === practitionerId)
