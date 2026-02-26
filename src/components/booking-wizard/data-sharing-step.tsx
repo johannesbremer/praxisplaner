@@ -71,39 +71,32 @@ const dataSharingPersonSchema = z.object({
 const dataSharingContactsSchema = z.array(dataSharingPersonSchema);
 
 export function DataSharingStep({ sessionId, state }: StepComponentProps) {
+  const isNewDataSharing = state.step === "new-data-sharing";
+
   const submitNewDataSharing = useMutation(
     api.bookingSessions.submitNewDataSharing,
   );
-  const submitExistingDataSharing = useMutation(
-    api.bookingSessions.submitExistingDataSharing,
-  );
 
-  const isNewPatient = state.step === "new-data-sharing";
-
-  const initialContacts =
-    "dataSharingContacts" in state ? state.dataSharingContacts : undefined;
-
-  const [contacts, setContacts] = useState<ContactFormValue[]>(() =>
-    initialContacts && initialContacts.length > 0
-      ? initialContacts.map((contact) => ({
-          city: contact.city,
-          dateOfBirth: contact.dateOfBirth,
-          firstName: contact.firstName,
-          gender: contact.gender,
-          lastName: contact.lastName,
-          phoneNumber: contact.phoneNumber,
-          postalCode: contact.postalCode,
-          street: contact.street,
-          title: contact.title ?? "",
-        }))
-      : [],
-  );
+  const [contacts, setContacts] = useState<ContactFormValue[]>([]);
 
   const [errors, setErrors] = useState<
     Record<number, Partial<Record<ContactField, string>>>
   >({});
   const [formError, setFormError] = useState<null | string>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isNewDataSharing) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Fehler</CardTitle>
+          <CardDescription>
+            Die Datenweitergabe ist nur für Neupatienten verfügbar.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   const updateContactField = (
     index: number,
@@ -185,17 +178,10 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
 
     try {
       const dataSharingContacts: DataSharingContactInput[] = parsed.data;
-      if (isNewPatient) {
-        await submitNewDataSharing({
-          dataSharingContacts,
-          sessionId,
-        });
-      } else {
-        await submitExistingDataSharing({
-          dataSharingContacts,
-          sessionId,
-        });
-      }
+      await submitNewDataSharing({
+        dataSharingContacts,
+        sessionId,
+      });
     } catch (error) {
       console.error("Failed to submit data sharing contacts:", error);
       toast.error("Datenweitergabe konnte nicht gespeichert werden", {

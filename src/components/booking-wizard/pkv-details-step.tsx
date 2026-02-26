@@ -162,9 +162,14 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
                   <FieldLabel htmlFor={field.name}>Tarif</FieldLabel>
                   <Select
                     onValueChange={(value) => {
-                      field.handleChange(
-                        value as "" | "basis" | "premium" | "standard",
-                      );
+                      if (
+                        value === "" ||
+                        value === "basis" ||
+                        value === "premium" ||
+                        value === "standard"
+                      ) {
+                        field.handleChange(value);
+                      }
                     }}
                     value={field.state.value}
                   >

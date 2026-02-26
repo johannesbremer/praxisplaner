@@ -194,7 +194,7 @@ async function hydrateSessionState(
       : ({ step, ...snapshot } as BookingSessionState);
   const sanitizedState = sanitizeState(step, mergedState);
   assertHydratedStateConsistency(step, sanitizedState);
-  return normalizeLegacyExistingState(sanitizedState);
+  return sanitizedState;
 }
 
 function isConfirmationState(
@@ -206,27 +206,6 @@ function isConfirmationState(
   return (
     state.step === "existing-confirmation" || state.step === "new-confirmation"
   );
-}
-
-function normalizeLegacyExistingState(
-  state: BookingSessionState,
-): BookingSessionState {
-  if (state.step !== "existing-data-sharing") {
-    return state;
-  }
-
-  const normalized: Extract<
-    BookingSessionState,
-    { step: "existing-calendar-selection" }
-  > = {
-    dataSharingContacts: [],
-    isNewPatient: false,
-    locationId: state.locationId,
-    personalData: state.personalData,
-    practitionerId: state.practitionerId,
-    step: "existing-calendar-selection",
-  };
-  return normalized;
 }
 
 async function tryHydrateSessionState(
@@ -993,10 +972,6 @@ const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
   "existing-confirmation": ["bookingExistingConfirmationSteps"],
   "existing-data-input": ["bookingExistingDoctorSelectionSteps"],
   "existing-data-input-complete": ["bookingExistingPersonalDataSteps"],
-  "existing-data-sharing": [
-    "bookingExistingDataSharingSteps",
-    "bookingExistingPersonalDataSteps",
-  ],
   "existing-doctor-selection": ["bookingPatientStatusSteps"],
   location: [],
   "new-calendar-selection": ["bookingNewDataSharingSteps"],
@@ -1069,12 +1044,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   ],
   "existing-data-input": ["isNewPatient", "locationId", "practitionerId"],
   "existing-data-input-complete": [
-    "isNewPatient",
-    "locationId",
-    "practitionerId",
-    "personalData",
-  ],
-  "existing-data-sharing": [
     "isNewPatient",
     "locationId",
     "practitionerId",
@@ -1287,10 +1256,6 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-confirmation": { canGoBack: false, prev: null },
   "existing-data-input": { canGoBack: false, prev: null },
   "existing-data-input-complete": { canGoBack: false, prev: null },
-  "existing-data-sharing": {
-    canGoBack: true,
-    prev: "existing-data-input-complete",
-  },
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
 };
 
@@ -1319,18 +1284,6 @@ function computePreviousState(
 
   // Build the previous state based on what step we're going back to
   switch (prevStep) {
-    case "existing-data-input-complete": {
-      const currentState = assertStep(state, "existing-data-sharing");
-
-      return {
-        isNewPatient: false,
-        locationId: currentState.locationId,
-        personalData: currentState.personalData,
-        practitionerId: currentState.practitionerId,
-        step: "existing-data-input-complete",
-      };
-    }
-
     case "location": {
       return { step: "location" };
     }
@@ -2190,7 +2143,7 @@ export const submitExistingPatientData = mutation({
 });
 
 /**
- * B4 → B5: Submit Datenweitergabe and proceed to calendar selection.
+ * Persist existing-patient data-sharing contacts from calendar selection.
  * Requires authentication.
  */
 export const submitExistingDataSharing = mutation({
@@ -2200,12 +2153,9 @@ export const submitExistingDataSharing = mutation({
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
-    if (
-      session.state.step !== "existing-data-sharing" &&
-      session.state.step !== "existing-calendar-selection"
-    ) {
+    if (session.state.step !== "existing-calendar-selection") {
       throw new Error(
-        `Invalid step: expected 'existing-data-sharing' or 'existing-calendar-selection', got '${session.state.step}'`,
+        `Invalid step: expected 'existing-calendar-selection', got '${session.state.step}'`,
       );
     }
     const state = session.state;

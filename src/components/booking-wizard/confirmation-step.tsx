@@ -76,27 +76,7 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
       await returnToCalendarSelection({ sessionId });
     });
 
-  const selectedSlot =
-    "selectedSlot" in state
-      ? (state.selectedSlot as {
-          duration: number;
-          practitionerId: string;
-          practitionerName: string;
-          startTime: string;
-        })
-      : null;
-
-  const personalData =
-    "personalData" in state
-      ? (state.personalData as {
-          firstName: string;
-          lastName: string;
-        })
-      : null;
-
-  const appointmentId = "appointmentId" in state ? state.appointmentId : null;
-
-  if (!selectedSlot || !personalData || !appointmentId) {
+  if (state.step !== "existing-confirmation" && state.step !== "new-confirmation") {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>
@@ -108,6 +88,10 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
       </Card>
     );
   }
+
+  const selectedSlot = state.selectedSlot;
+  const personalData = state.personalData;
+  const appointmentId = state.appointmentId;
 
   return (
     <AppointmentConfirmationCard

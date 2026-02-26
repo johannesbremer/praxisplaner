@@ -789,15 +789,14 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
     case "new-data-input-complete": {
       return <DataInputStep {...stepProps} />;
     }
-    case "existing-data-sharing":
-    case "new-data-sharing": {
-      return <DataSharingStep {...stepProps} />;
-    }
     case "existing-doctor-selection": {
       return <DoctorSelectionStep {...stepProps} />;
     }
     case "location": {
       return <LocationStep {...stepProps} />;
+    }
+    case "new-data-sharing": {
+      return <DataSharingStep {...stepProps} />;
     }
     case "new-gkv-details":
     case "new-gkv-details-complete": {

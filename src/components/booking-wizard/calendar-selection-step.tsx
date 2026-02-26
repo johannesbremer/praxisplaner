@@ -47,6 +47,11 @@ function dateToTemporal(date: Date): Temporal.PlainDate {
 }
 
 // Helper to format time from ISO string
+type CalendarSelectionState = Extract<
+  StepComponentProps["state"],
+  { step: "existing-calendar-selection" | "new-calendar-selection" }
+>;
+
 interface SlotInfo {
   duration: number;
   practitionerId: Id<"practitioners">;
@@ -60,17 +65,14 @@ export function CalendarSelectionStep({
   sessionId,
   state,
 }: StepComponentProps) {
+  const isCalendarState = isCalendarSelectionState(state);
   const isNewPatient = state.step === "new-calendar-selection";
-
-  const locationId =
-    "locationId" in state ? (state.locationId as Id<"locations">) : undefined;
-
-  // For existing patient path, we need the practitioner ID
+  const locationId = isCalendarState ? state.locationId : undefined;
   const existingPractitionerId =
-    "practitionerId" in state
-      ? (state.practitionerId as Id<"practitioners">)
+    state.step === "existing-calendar-selection"
+      ? state.practitionerId
       : undefined;
-  const personalData = "personalData" in state ? state.personalData : undefined;
+  const personalData = isCalendarState ? state.personalData : undefined;
   const patientDateOfBirth = personalData?.dateOfBirth;
 
   // Date selection state
@@ -303,9 +305,10 @@ export function CalendarSelectionStep({
                 <Select
                   onValueChange={(value) => {
                     setHasTouchedAppointmentType(true);
-                    setSelectedAppointmentTypeId(
-                      value as Id<"appointmentTypes">,
+                    const selectedType = appointmentTypes?.find(
+                      (type) => type._id === value,
                     );
+                    setSelectedAppointmentTypeId(selectedType?._id);
                     setSelectedSlot(null);
                   }}
                   {...(selectedAppointmentTypeId
@@ -550,6 +553,15 @@ function formatTime(isoString: string): string {
 
 function getSlotStartEpochMilliseconds(startTime: string): number {
   return Temporal.ZonedDateTime.from(startTime).epochMilliseconds;
+}
+
+function isCalendarSelectionState(
+  state: StepComponentProps["state"],
+): state is CalendarSelectionState {
+  return (
+    state.step === "existing-calendar-selection" ||
+    state.step === "new-calendar-selection"
+  );
 }
 
 function isSlotStartInFuture(

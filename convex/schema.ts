@@ -400,16 +400,7 @@ export const bookingSessionStepValidator = v.union(
     step: v.literal("existing-data-input-complete"),
   }),
 
-  // B4: Datenweitergabe (personal data submitted)
-  v.object({
-    isNewPatient: v.literal(false),
-    locationId: v.id("locations"),
-    personalData: personalDataValidator,
-    practitionerId: v.id("practitioners"),
-    step: v.literal("existing-data-sharing"),
-  }),
-
-  // B5: Calendar selection (Datenweitergabe submitted)
+  // B4: Calendar selection (personal data submitted)
   v.object({
     dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
@@ -442,7 +433,6 @@ export const bookingSessionStepNameValidator = v.union(
   v.literal("existing-confirmation"),
   v.literal("existing-data-input"),
   v.literal("existing-data-input-complete"),
-  v.literal("existing-data-sharing"),
   v.literal("existing-doctor-selection"),
   v.literal("location"),
   v.literal("new-calendar-selection"),
