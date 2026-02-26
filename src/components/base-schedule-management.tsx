@@ -92,12 +92,20 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
   _isGroup?: boolean;
 }
 
+type LocationMatchEntity = Pick<Doc<"locations">, "_id" | "name" | "parentId">;
+type PractitionerMatchEntity = Pick<
+  Doc<"practitioners">,
+  "_id" | "name" | "parentId"
+>;
+
 interface SchedulePayload {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
   endTime: string;
   locationId: Id<"locations">;
+  locationName?: string;
   practitionerId: Id<"practitioners">;
+  practitionerName?: string;
   startTime: string;
 }
 
@@ -105,17 +113,105 @@ const normalizeBreakTimes = (
   value: undefined | { end: string; start: string }[],
 ) => JSON.stringify(value ?? []);
 
+const resolveLineageId = <TId extends string>(
+  id: TId,
+  entities: undefined | { _id: TId; parentId?: TId }[],
+) => {
+  const entity = entities?.find((entry) => entry._id === id);
+  return entity?.parentId ?? id;
+};
+
+const resolveEntityName = <TId extends string>(
+  id: TId,
+  entities: undefined | { _id: TId; name: string }[],
+) => {
+  const entity = entities?.find((entry) => entry._id === id);
+  return entity?.name;
+};
+
 const matchesSchedulePayload = (
   schedule: Doc<"baseSchedules">,
   payload: SchedulePayload,
-) =>
-  schedule.dayOfWeek === payload.dayOfWeek &&
-  schedule.startTime === payload.startTime &&
-  schedule.endTime === payload.endTime &&
-  schedule.practitionerId === payload.practitionerId &&
-  schedule.locationId === payload.locationId &&
-  normalizeBreakTimes(schedule.breakTimes) ===
-    normalizeBreakTimes(payload.breakTimes);
+  practitioners: PractitionerMatchEntity[] | undefined,
+  locations: LocationMatchEntity[] | undefined,
+) => {
+  const schedulePractitionerLineage = resolveLineageId(
+    schedule.practitionerId,
+    practitioners,
+  );
+  const payloadPractitionerLineage = resolveLineageId(
+    payload.practitionerId,
+    practitioners,
+  );
+  const schedulePractitionerName = resolveEntityName(
+    schedule.practitionerId,
+    practitioners,
+  );
+  const scheduleLocationName = resolveEntityName(
+    schedule.locationId,
+    locations,
+  );
+  const scheduleLocationLineage = resolveLineageId(
+    schedule.locationId,
+    locations,
+  );
+  const payloadLocationLineage = resolveLineageId(
+    payload.locationId,
+    locations,
+  );
+  const practitionerMatches =
+    schedule.practitionerId === payload.practitionerId ||
+    schedulePractitionerLineage === payloadPractitionerLineage ||
+    (payload.practitionerName !== undefined &&
+      schedulePractitionerName === payload.practitionerName);
+  const locationMatches =
+    schedule.locationId === payload.locationId ||
+    scheduleLocationLineage === payloadLocationLineage ||
+    (payload.locationName !== undefined &&
+      scheduleLocationName === payload.locationName);
+
+  return (
+    schedule.dayOfWeek === payload.dayOfWeek &&
+    schedule.startTime === payload.startTime &&
+    schedule.endTime === payload.endTime &&
+    practitionerMatches &&
+    locationMatches &&
+    normalizeBreakTimes(schedule.breakTimes) ===
+      normalizeBreakTimes(payload.breakTimes)
+  );
+};
+
+const toSchedulePayload = (
+  schedule: Doc<"baseSchedules">,
+  practitioners: PractitionerMatchEntity[] | undefined,
+  locations: LocationMatchEntity[] | undefined,
+): SchedulePayload => {
+  const locationName = resolveEntityName(schedule.locationId, locations);
+  const practitionerName = resolveEntityName(
+    schedule.practitionerId,
+    practitioners,
+  );
+
+  return {
+    ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+    dayOfWeek: schedule.dayOfWeek,
+    endTime: schedule.endTime,
+    locationId: schedule.locationId,
+    ...(locationName && { locationName }),
+    practitionerId: schedule.practitionerId,
+    ...(practitionerName && { practitionerName }),
+    startTime: schedule.startTime,
+  };
+};
+
+const toMutationSchedulePayload = (payload: SchedulePayload) => ({
+  ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
+  dayOfWeek: payload.dayOfWeek,
+  endTime: payload.endTime,
+  locationId: payload.locationId,
+  practitionerId: payload.practitionerId,
+  startTime: payload.startTime,
+});
 
 const isBaseScheduleMissingError = (error: unknown) =>
   error instanceof Error &&
@@ -139,12 +235,23 @@ export default function BaseScheduleManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
+  const locationsQuery = useQuery(api.entities.getLocations, {
+    ruleSetId,
+  });
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
 
   const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
+  const practitionersRef = React.useRef(practitionersQuery ?? []);
+  React.useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+  const locationsRef = React.useRef(locationsQuery ?? []);
+  React.useEffect(() => {
+    locationsRef.current = locationsQuery ?? [];
+  }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
@@ -226,63 +333,66 @@ export default function BaseScheduleManagement({
         onRegisterHistoryAction?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
-            const deletedIds: Id<"baseSchedules">[] = [];
             for (const schedule of deletedSchedules) {
-              const payload: SchedulePayload = {
-                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-                dayOfWeek: schedule.dayOfWeek,
-                endTime: schedule.endTime,
-                locationId: schedule.locationId,
-                practitionerId: schedule.practitionerId,
-                startTime: schedule.startTime,
-              };
-              const existing = schedulesRef.current.find((currentSchedule) =>
-                matchesSchedulePayload(currentSchedule, payload),
+              const payload = toSchedulePayload(
+                schedule,
+                practitionersRef.current,
+                locationsRef.current,
               );
-              if (!existing) {
+              const existingSchedules = schedulesRef.current.filter(
+                (currentSchedule) =>
+                  matchesSchedulePayload(
+                    currentSchedule,
+                    payload,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  ),
+              );
+              if (existingSchedules.length === 0) {
                 continue;
               }
-              try {
-                await deleteScheduleMutation({
-                  baseScheduleId: existing._id,
-                  practiceId,
-                  sourceRuleSetId: newRuleSetId,
-                });
-                deletedIds.push(existing._id);
-              } catch (error: unknown) {
-                if (isBaseScheduleMissingError(error)) {
-                  continue;
+              for (const existing of existingSchedules) {
+                try {
+                  await deleteScheduleMutation({
+                    baseScheduleId: existing._id,
+                    practiceId,
+                    sourceRuleSetId: newRuleSetId,
+                  });
+                } catch (error: unknown) {
+                  if (isBaseScheduleMissingError(error)) {
+                    continue;
+                  }
+                  throw error;
                 }
-                throw error;
               }
             }
 
             return { status: "applied" as const };
           },
           undo: async () => {
-            const recreatedIds: Id<"baseSchedules">[] = [];
             for (const schedule of deletedSchedules) {
-              const payload: SchedulePayload = {
-                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-                dayOfWeek: schedule.dayOfWeek,
-                endTime: schedule.endTime,
-                locationId: schedule.locationId,
-                practitionerId: schedule.practitionerId,
-                startTime: schedule.startTime,
-              };
-              const existing = schedulesRef.current.find((currentSchedule) =>
-                matchesSchedulePayload(currentSchedule, payload),
+              const payload = toSchedulePayload(
+                schedule,
+                practitionersRef.current,
+                locationsRef.current,
               );
-              if (existing) {
-                recreatedIds.push(existing._id);
+              const existingSchedules = schedulesRef.current.filter(
+                (currentSchedule) =>
+                  matchesSchedulePayload(
+                    currentSchedule,
+                    payload,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  ),
+              );
+              if (existingSchedules.length > 0) {
                 continue;
               }
-              const result = await createScheduleMutation({
-                ...payload,
+              await createScheduleMutation({
+                ...toMutationSchedulePayload(payload),
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
-              recreatedIds.push(result.entityId);
             }
 
             return { status: "applied" as const };
@@ -335,6 +445,10 @@ export default function BaseScheduleManagement({
         (p) => p._id === schedule.practitionerId,
       );
       const practitionerName = practitioner?.name ?? "Unknown";
+      const location = locationsQuery?.find(
+        (l) => l._id === schedule.locationId,
+      );
+      const locationName = location?.name;
 
       schedulesByPractitioner[practitionerName] ??= [];
 
@@ -363,6 +477,7 @@ export default function BaseScheduleManagement({
             daysOfWeek: [schedule.dayOfWeek],
             endTime: schedule.endTime,
             ...(schedule.locationId && { locationId: schedule.locationId }),
+            ...(locationName && { locationName }),
             practitionerId: schedule.practitionerId,
             scheduleIds: [schedule._id],
             startTime: schedule.startTime,
@@ -395,7 +510,9 @@ export default function BaseScheduleManagement({
         </div>
       </CardHeader>
       <CardContent>
-        {practitionersQuery === undefined || schedulesQuery === undefined ? (
+        {practitionersQuery === undefined ||
+        locationsQuery === undefined ||
+        schedulesQuery === undefined ? (
           <div className="text-center py-8 text-muted-foreground">
             Lade Arbeitszeiten...
           </div>
@@ -518,6 +635,14 @@ function BaseScheduleDialog({
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+  const practitionersRef = React.useRef(practitionersQuery ?? []);
+  React.useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+  const locationsRef = React.useRef(locationsQuery ?? []);
+  React.useEffect(() => {
+    locationsRef.current = locationsQuery ?? [];
+  }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
@@ -620,6 +745,14 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            const locationName = resolveEntityName(
+              createData.locationId,
+              locationsRef.current,
+            );
+            const practitionerName = resolveEntityName(
+              createData.practitionerId,
+              practitionersRef.current,
+            );
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
@@ -627,7 +760,9 @@ function BaseScheduleDialog({
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
               locationId: createData.locationId,
+              ...(locationName && { locationName }),
               practitionerId: createData.practitionerId,
+              ...(practitionerName && { practitionerName }),
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
@@ -711,6 +846,14 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            const locationName = resolveEntityName(
+              createData.locationId,
+              locationsRef.current,
+            );
+            const practitionerName = resolveEntityName(
+              createData.practitionerId,
+              practitionersRef.current,
+            );
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
@@ -718,7 +861,9 @@ function BaseScheduleDialog({
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
               locationId: createData.locationId,
+              ...(locationName && { locationName }),
               practitionerId: createData.practitionerId,
+              ...(practitionerName && { practitionerName }),
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
@@ -741,46 +886,57 @@ function BaseScheduleDialog({
             onRegisterHistoryAction?.({
               label: "Arbeitszeiten erstellt",
               redo: async () => {
-                const recreatedIds: Id<"baseSchedules">[] = [];
                 for (const payload of createdSchedulePayloads) {
-                  const existing = schedulesRef.current.find((scheduleItem) =>
-                    matchesSchedulePayload(scheduleItem, payload),
+                  const existingSchedules = schedulesRef.current.filter(
+                    (scheduleItem) =>
+                      matchesSchedulePayload(
+                        scheduleItem,
+                        payload,
+                        practitionersRef.current,
+                        locationsRef.current,
+                      ),
                   );
-                  if (existing) {
-                    recreatedIds.push(existing._id);
+                  if (existingSchedules.length > 0) {
                     continue;
                   }
-                  const result = await createScheduleMutation({
-                    ...payload,
+                  await createScheduleMutation({
+                    ...toMutationSchedulePayload(payload),
                     practiceId,
                     sourceRuleSetId: newRuleSetId,
                   });
-                  recreatedIds.push(result.entityId);
                 }
                 return { status: "applied" as const };
               },
               undo: async () => {
                 const deletedIds: Id<"baseSchedules">[] = [];
                 for (const payload of createdSchedulePayloads) {
-                  const existing = schedulesRef.current.find((scheduleItem) =>
-                    matchesSchedulePayload(scheduleItem, payload),
+                  const existingSchedules = schedulesRef.current.filter(
+                    (scheduleItem) =>
+                      matchesSchedulePayload(
+                        scheduleItem,
+                        payload,
+                        practitionersRef.current,
+                        locationsRef.current,
+                      ),
                   );
-                  if (!existing) {
+                  if (existingSchedules.length === 0) {
                     continue;
                   }
-                  try {
-                    await deleteScheduleMutation({
-                      baseScheduleId: existing._id,
-                      practiceId,
-                      sourceRuleSetId: newRuleSetId,
-                    });
-                    deletedIds.push(existing._id);
-                  } catch (error: unknown) {
-                    if (isBaseScheduleMissingError(error)) {
-                      // If another action already removed this ID, desired state is still satisfied.
-                      continue;
+                  for (const existing of existingSchedules) {
+                    try {
+                      await deleteScheduleMutation({
+                        baseScheduleId: existing._id,
+                        practiceId,
+                        sourceRuleSetId: newRuleSetId,
+                      });
+                      deletedIds.push(existing._id);
+                    } catch (error: unknown) {
+                      if (isBaseScheduleMissingError(error)) {
+                        // If another action already removed this ID, desired state is still satisfied.
+                        continue;
+                      }
+                      throw error;
                     }
-                    throw error;
                   }
                 }
                 if (deletedIds.length > 0) {
@@ -799,14 +955,12 @@ function BaseScheduleDialog({
             let currentNewIds = [...createdScheduleIds];
             let currentOldIds: Id<"baseSchedules">[] = [];
             const oldSchedulePayloads = deletedScheduleSnapshots.map(
-              (previous) => ({
-                ...(previous.breakTimes && { breakTimes: previous.breakTimes }),
-                dayOfWeek: previous.dayOfWeek,
-                endTime: previous.endTime,
-                locationId: previous.locationId,
-                practitionerId: previous.practitionerId,
-                startTime: previous.startTime,
-              }),
+              (previous) =>
+                toSchedulePayload(
+                  previous,
+                  practitionersRef.current,
+                  locationsRef.current,
+                ),
             );
 
             onRegisterHistoryAction?.({
@@ -820,7 +974,9 @@ function BaseScheduleDialog({
                   expectedAbsentIds: currentNewIds,
                   expectedPresentIds: currentOldIds,
                   practiceId,
-                  replacementSchedules: createdSchedulePayloads,
+                  replacementSchedules: createdSchedulePayloads.map((payload) =>
+                    toMutationSchedulePayload(payload),
+                  ),
                   sourceRuleSetId: newRuleSetId,
                 });
                 currentOldIds = result.deletedScheduleIds;
@@ -836,7 +992,9 @@ function BaseScheduleDialog({
                   expectedAbsentIds: currentOldIds,
                   expectedPresentIds: currentNewIds,
                   practiceId,
-                  replacementSchedules: oldSchedulePayloads,
+                  replacementSchedules: oldSchedulePayloads.map((payload) =>
+                    toMutationSchedulePayload(payload),
+                  ),
                   sourceRuleSetId: newRuleSetId,
                 });
                 currentNewIds = result.deletedScheduleIds;
