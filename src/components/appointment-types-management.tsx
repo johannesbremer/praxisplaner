@@ -365,7 +365,7 @@ export function AppointmentTypesManagement({
               sourceRuleSetId: ruleSetId,
             });
 
-          let currentAppointmentTypeId = entityId as Id<"appointmentTypes">;
+          let currentAppointmentTypeId = entityId;
 
           onRegisterHistoryAction?.({
             label: "Terminart erstellt",
@@ -388,8 +388,7 @@ export function AppointmentTypesManagement({
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 sourceRuleSetId: newRuleSetId,
               });
-              currentAppointmentTypeId =
-                recreateResult.entityId as Id<"appointmentTypes">;
+              currentAppointmentTypeId = recreateResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
@@ -560,8 +559,7 @@ export function AppointmentTypesManagement({
             practitionerIds: resolvedUndoPractitionerIds.ids,
             sourceRuleSetId: newRuleSetId,
           });
-          currentAppointmentTypeId =
-            recreateResult.entityId as Id<"appointmentTypes">;
+          currentAppointmentTypeId = recreateResult.entityId;
           return { status: "applied" as const };
         },
       });

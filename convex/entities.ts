@@ -52,18 +52,28 @@ type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 // SHARED TYPES
 // ================================
 
-/**
- * Return type for create mutations that includes both the entity ID
- * and the rule set ID (in case a new unsaved rule set was created)
- */
-const createResultValidator = v.object({
-  entityId: v.union(
-    v.id("appointmentTypes"),
-    v.id("practitioners"),
-    v.id("locations"),
-    v.id("ruleConditions"), // Changed from "rules" to "ruleConditions"
-    v.id("baseSchedules"),
-  ),
+const appointmentTypeResultValidator = v.object({
+  entityId: v.id("appointmentTypes"),
+  ruleSetId: v.id("ruleSets"),
+});
+
+const practitionerResultValidator = v.object({
+  entityId: v.id("practitioners"),
+  ruleSetId: v.id("ruleSets"),
+});
+
+const locationResultValidator = v.object({
+  entityId: v.id("locations"),
+  ruleSetId: v.id("ruleSets"),
+});
+
+const baseScheduleResultValidator = v.object({
+  entityId: v.id("baseSchedules"),
+  ruleSetId: v.id("ruleSets"),
+});
+
+const ruleResultValidator = v.object({
+  entityId: v.id("ruleConditions"),
   ruleSetId: v.id("ruleSets"),
 });
 
@@ -445,7 +455,7 @@ export const createAppointmentType = mutation({
 
     return { entityId, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: appointmentTypeResultValidator,
 });
 
 /**
@@ -552,7 +562,7 @@ export const updateAppointmentType = mutation({
 
     return { entityId: appointmentType._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: appointmentTypeResultValidator,
 });
 
 /**
@@ -611,7 +621,7 @@ export const deleteAppointmentType = mutation({
 
     return { entityId: appointmentType._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: appointmentTypeResultValidator,
 });
 
 /**
@@ -680,7 +690,7 @@ export const createPractitioner = mutation({
 
     return { entityId, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: practitionerResultValidator,
 });
 
 /**
@@ -749,7 +759,7 @@ export const updatePractitioner = mutation({
 
     return { entityId: practitioner._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: practitionerResultValidator,
 });
 
 /**
@@ -826,7 +836,7 @@ export const deletePractitioner = mutation({
 
     return { entityId: practitioner._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: practitionerResultValidator,
 });
 
 /**
@@ -1367,7 +1377,7 @@ export const createLocation = mutation({
 
     return { entityId, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: locationResultValidator,
 });
 
 /**
@@ -1440,7 +1450,7 @@ export const updateLocation = mutation({
 
     return { entityId: location._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: locationResultValidator,
 });
 
 /**
@@ -1511,7 +1521,7 @@ export const deleteLocation = mutation({
 
     return { entityId: location._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: locationResultValidator,
 });
 
 /**
@@ -1634,7 +1644,7 @@ export const createBaseSchedule = mutation({
 
     return { entityId, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: baseScheduleResultValidator,
 });
 
 /**
@@ -1754,7 +1764,7 @@ export const updateBaseSchedule = mutation({
 
     return { entityId: schedule._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: baseScheduleResultValidator,
 });
 
 /**
@@ -1813,7 +1823,7 @@ export const deleteBaseSchedule = mutation({
 
     return { entityId: schedule._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: baseScheduleResultValidator,
 });
 
 /**
@@ -2353,7 +2363,7 @@ export const createRule = mutation({
 
     return { entityId: rootId, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: ruleResultValidator,
 });
 
 /**
@@ -2442,7 +2452,7 @@ export const deleteRule = mutation({
 
     return { entityId: rule._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: ruleResultValidator,
 });
 
 /**
@@ -2522,7 +2532,7 @@ export const updateRule = mutation({
 
     return { entityId: rule._id, ruleSetId };
   },
-  returns: createResultValidator,
+  returns: ruleResultValidator,
 });
 
 /**

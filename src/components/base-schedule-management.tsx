@@ -290,7 +290,7 @@ export default function BaseScheduleManagement({
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
-              recreatedIds.push(result.entityId as Id<"baseSchedules">);
+              recreatedIds.push(result.entityId);
             }
 
             return { status: "applied" as const };
@@ -638,7 +638,7 @@ function BaseScheduleDialog({
               practitionerId: createData.practitionerId,
               startTime: createData.startTime,
             });
-            createdScheduleIds.push(result.entityId as Id<"baseSchedules">);
+            createdScheduleIds.push(result.entityId);
             // Capture the rule set ID from the first created schedule
             newRuleSetId ||= result.ruleSetId;
           }
@@ -729,7 +729,7 @@ function BaseScheduleDialog({
               practitionerId: createData.practitionerId,
               startTime: createData.startTime,
             });
-            createdScheduleIds.push(result.entityId as Id<"baseSchedules">);
+            createdScheduleIds.push(result.entityId);
             // Capture the rule set ID from the first created schedule
             newRuleSetId ||= result.ruleSetId;
           }
@@ -763,7 +763,7 @@ function BaseScheduleDialog({
                     practiceId,
                     sourceRuleSetId: newRuleSetId,
                   });
-                  recreatedIds.push(result.entityId as Id<"baseSchedules">);
+                  recreatedIds.push(result.entityId);
                 }
                 return { status: "applied" as const };
               },

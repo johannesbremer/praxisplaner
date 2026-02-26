@@ -391,7 +391,7 @@ function PractitionerDialog({
             sourceRuleSetId: ruleSetId,
           });
 
-          let currentPractitionerId = entityId as Id<"practitioners">;
+          let currentPractitionerId = entityId;
           onRegisterHistoryAction?.({
             label: "Arzt erstellt",
             redo: async () => {
@@ -411,8 +411,7 @@ function PractitionerDialog({
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
-              currentPractitionerId =
-                recreateResult.entityId as Id<"practitioners">;
+              currentPractitionerId = recreateResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {

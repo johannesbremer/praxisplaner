@@ -135,7 +135,7 @@ export function LocationsManagement({
               sourceRuleSetId: ruleSetId,
             });
 
-          let currentLocationId = entityId as Id<"locations">;
+          let currentLocationId = entityId;
           onRegisterHistoryAction?.({
             label: "Standort erstellt",
             redo: async () => {
@@ -155,7 +155,7 @@ export function LocationsManagement({
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
-              currentLocationId = recreateResult.entityId as Id<"locations">;
+              currentLocationId = recreateResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
@@ -289,7 +289,7 @@ export function LocationsManagement({
               practiceId,
               sourceRuleSetId: newRuleSetId,
             });
-            currentLocationId = recreateResult.entityId as Id<"locations">;
+            currentLocationId = recreateResult.entityId;
             return { status: "applied" as const };
           },
         });

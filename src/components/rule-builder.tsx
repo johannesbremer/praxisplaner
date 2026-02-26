@@ -278,7 +278,7 @@ export function RuleBuilder({
               practiceId,
               sourceRuleSetId: newRuleSetId,
             });
-            currentRuleId = recreateResult.entityId as Id<"ruleConditions">;
+            currentRuleId = recreateResult.entityId;
             return { status: "applied" as const };
           },
         });
@@ -399,7 +399,7 @@ export function RuleBuilder({
                 sourceRuleSetId: finalRuleSetId,
               });
 
-            let currentRuleId = entityId as Id<"ruleConditions">;
+            let currentRuleId = entityId;
             const currentRuleState = serializeRuleState(conditionTree, true);
 
             if (previousRule) {
@@ -480,8 +480,7 @@ export function RuleBuilder({
                     practiceId,
                     sourceRuleSetId: createRuleSetId,
                   });
-                  currentRuleId =
-                    recreateResult.entityId as Id<"ruleConditions">;
+                  currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
                 },
                 undo: async () => {
@@ -536,8 +535,7 @@ export function RuleBuilder({
                     practiceId,
                     sourceRuleSetId: createRuleSetId,
                   });
-                  currentRuleId =
-                    recreatePrevious.entityId as Id<"ruleConditions">;
+                  currentRuleId = recreatePrevious.entityId;
                   return { status: "applied" as const };
                 },
               });
@@ -573,8 +571,7 @@ export function RuleBuilder({
                     practiceId,
                     sourceRuleSetId: createRuleSetId,
                   });
-                  currentRuleId =
-                    recreateResult.entityId as Id<"ruleConditions">;
+                  currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
                 },
                 undo: async () => {
