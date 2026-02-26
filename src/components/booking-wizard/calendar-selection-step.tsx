@@ -144,10 +144,7 @@ export function CalendarSelectionStep({
 
   const handleSelectSlot = (slot: SlotInfo) => {
     const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
-    const slotEpochMilliseconds = Temporal.ZonedDateTime.from(
-      slot.startTime,
-    ).epochMilliseconds;
-    if (slotEpochMilliseconds <= nowEpochMilliseconds) {
+    if (!isSlotStartInFuture(slot.startTime, nowEpochMilliseconds)) {
       return;
     }
     setSelectedSlot(slot);
@@ -168,10 +165,7 @@ export function CalendarSelectionStep({
     }
 
     const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
-    const selectedSlotEpochMilliseconds = Temporal.ZonedDateTime.from(
-      selectedSlot.startTime,
-    ).epochMilliseconds;
-    if (selectedSlotEpochMilliseconds <= nowEpochMilliseconds) {
+    if (!isSlotStartInFuture(selectedSlot.startTime, nowEpochMilliseconds)) {
       toast.error("Dieser Termin liegt in der Vergangenheit");
       return;
     }
@@ -216,8 +210,7 @@ export function CalendarSelectionStep({
     slotsResult?.slots.filter(
       (slot) =>
         slot.status === "AVAILABLE" &&
-        Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >
-          nowEpochMilliseconds,
+        isSlotStartInFuture(slot.startTime, nowEpochMilliseconds),
     ) ?? [];
 
   // For existing patients, filter by practitioner
@@ -231,8 +224,8 @@ export function CalendarSelectionStep({
   // This behavior is specific to /buchung.
   const sortedSlots = filteredSlots.toSorted(
     (a, b) =>
-      Temporal.ZonedDateTime.from(a.startTime).epochMilliseconds -
-      Temporal.ZonedDateTime.from(b.startTime).epochMilliseconds,
+      getSlotStartEpochMilliseconds(a.startTime) -
+      getSlotStartEpochMilliseconds(b.startTime),
   );
   const displayedSlots = sortedSlots[0] ? [sortedSlots[0]] : [];
 
@@ -553,6 +546,17 @@ export function CalendarSelectionStep({
 function formatTime(isoString: string): string {
   const zdt = Temporal.ZonedDateTime.from(isoString);
   return zdt.toPlainTime().toString({ smallestUnit: "minute" });
+}
+
+function getSlotStartEpochMilliseconds(startTime: string): number {
+  return Temporal.ZonedDateTime.from(startTime).epochMilliseconds;
+}
+
+function isSlotStartInFuture(
+  startTime: string,
+  nowEpochMilliseconds: number,
+): boolean {
+  return getSlotStartEpochMilliseconds(startTime) > nowEpochMilliseconds;
 }
 
 function ReadOnlyItem({
