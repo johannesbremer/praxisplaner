@@ -194,7 +194,7 @@ async function hydrateSessionState(
       : ({ step, ...snapshot } as BookingSessionState);
   const sanitizedState = sanitizeState(step, mergedState);
   assertHydratedStateConsistency(step, sanitizedState);
-  return sanitizedState;
+  return normalizeLegacyExistingState(sanitizedState);
 }
 
 function isConfirmationState(
@@ -206,6 +206,27 @@ function isConfirmationState(
   return (
     state.step === "existing-confirmation" || state.step === "new-confirmation"
   );
+}
+
+function normalizeLegacyExistingState(
+  state: BookingSessionState,
+): BookingSessionState {
+  if (state.step !== "existing-data-sharing") {
+    return state;
+  }
+
+  const normalized: Extract<
+    BookingSessionState,
+    { step: "existing-calendar-selection" }
+  > = {
+    dataSharingContacts: [],
+    isNewPatient: false,
+    locationId: state.locationId,
+    personalData: state.personalData,
+    practitionerId: state.practitionerId,
+    step: "existing-calendar-selection",
+  };
+  return normalized;
 }
 
 async function tryHydrateSessionState(
@@ -883,8 +904,7 @@ function attachOwnerToDataSharingContacts(
 }
 
 /**
- * Calculate end time from start time and duration.
- * Handles ZonedDateTime format strings.
+ * Enforce booking rules for a selected slot at mutation time.
  */
 async function assertSlotAllowedByRules(
   ctx: MutationCtx,
@@ -2123,7 +2143,8 @@ export const selectDoctor = mutation({
 });
 
 /**
- * B3 → B4: Submit personal data and proceed to Datenweitergabe.
+ * B3 → B5: Submit personal data and proceed directly to calendar selection.
+ * Existing-patient flow skips the data-sharing step.
  * Requires authentication.
  */
 export const submitExistingPatientData = mutation({
@@ -2143,11 +2164,19 @@ export const submitExistingPatientData = mutation({
     }
     const state = session.state;
 
-    await setSessionStep(ctx, args.sessionId, "existing-data-sharing");
+    await setSessionStep(ctx, args.sessionId, "existing-calendar-selection");
 
     const base = getStepBase(session);
     await upsertStep(ctx, "bookingExistingPersonalDataSteps", session, {
       ...base,
+      isNewPatient: false as const,
+      locationId: state.locationId,
+      personalData: args.personalData,
+      practitionerId: state.practitionerId,
+    });
+    await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
+      ...base,
+      dataSharingContacts: [],
       isNewPatient: false as const,
       locationId: state.locationId,
       personalData: args.personalData,
@@ -2171,7 +2200,15 @@ export const submitExistingDataSharing = mutation({
   },
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertStep(session.state, "existing-data-sharing");
+    if (
+      session.state.step !== "existing-data-sharing" &&
+      session.state.step !== "existing-calendar-selection"
+    ) {
+      throw new Error(
+        `Invalid step: expected 'existing-data-sharing' or 'existing-calendar-selection', got '${session.state.step}'`,
+      );
+    }
+    const state = session.state;
     assertValidDataSharingContacts(args.dataSharingContacts);
     const ownedContacts = attachOwnerToDataSharingContacts(
       args.dataSharingContacts,

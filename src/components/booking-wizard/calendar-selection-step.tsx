@@ -126,6 +126,7 @@ export function CalendarSelectionStep({
     selectedDate && selectedAppointmentTypeId
       ? {
           date: formatDateISO(dateToTemporal(selectedDate)),
+          enforceFutureOnly: true,
           practiceId,
           ruleSetId,
           simulatedContext,
@@ -142,6 +143,13 @@ export function CalendarSelectionStep({
   );
 
   const handleSelectSlot = (slot: SlotInfo) => {
+    const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
+    const slotEpochMilliseconds = Temporal.ZonedDateTime.from(
+      slot.startTime,
+    ).epochMilliseconds;
+    if (slotEpochMilliseconds <= nowEpochMilliseconds) {
+      return;
+    }
     setSelectedSlot(slot);
   };
 
@@ -156,6 +164,15 @@ export function CalendarSelectionStep({
       hasMissingAppointmentType ||
       hasMissingReason
     ) {
+      return;
+    }
+
+    const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
+    const selectedSlotEpochMilliseconds = Temporal.ZonedDateTime.from(
+      selectedSlot.startTime,
+    ).epochMilliseconds;
+    if (selectedSlotEpochMilliseconds <= nowEpochMilliseconds) {
+      toast.error("Dieser Termin liegt in der Vergangenheit");
       return;
     }
 
@@ -194,8 +211,14 @@ export function CalendarSelectionStep({
   };
 
   // Filter to only available slots
+  const nowEpochMilliseconds = Temporal.Now.instant().epochMilliseconds;
   const availableSlots =
-    slotsResult?.slots.filter((slot) => slot.status === "AVAILABLE") ?? [];
+    slotsResult?.slots.filter(
+      (slot) =>
+        slot.status === "AVAILABLE" &&
+        Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >
+          nowEpochMilliseconds,
+    ) ?? [];
 
   // For existing patients, filter by practitioner
   const filteredSlots = existingPractitionerId

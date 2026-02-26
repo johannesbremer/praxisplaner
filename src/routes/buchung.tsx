@@ -662,7 +662,7 @@ function AuthenticatedBookingFlow() {
         step={session.state.step}
         stepProps={{
           practiceId: currentPractice._id,
-          ruleSetId: activeRuleSetId,
+          ruleSetId: session.ruleSetId,
           sessionId: resolvedSessionId,
           state: session.state,
         }}

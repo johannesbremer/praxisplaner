@@ -57,6 +57,18 @@ interface CandidateSlot {
   status: "AVAILABLE" | "BLOCKED";
 }
 
+function isSlotStartInFuture(
+  startTime: string,
+  nowInstant: Temporal.Instant,
+): boolean {
+  try {
+    const slotInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
+    return Temporal.Instant.compare(slotInstant, nowInstant) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Shared helper to generate candidate slots for a given day.
  * Reduces code duplication between getSlotsForDay and getBlockedSlotsWithoutAppointmentType.
@@ -248,6 +260,7 @@ export const getAvailableDates = query({
 export const getSlotsForDay = query({
   args: {
     date: v.string(), // ISO date string for the specific day (e.g., "2025-10-21")
+    enforceFutureOnly: v.optional(v.boolean()),
     practiceId: v.id("practices"),
     ruleSetId: v.optional(v.id("ruleSets")),
     simulatedContext: simulatedContextValidator,
@@ -351,11 +364,22 @@ export const getSlotsForDay = query({
     }
 
     // Generate candidate slots using shared helper
-    const candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
+    let candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
       date: targetPlainDate,
       ...(defaultLocationId && { locationId: defaultLocationId }),
       practiceId: args.practiceId,
     });
+
+    if (args.enforceFutureOnly === true) {
+      const nowInstant = Temporal.Now.instant();
+      const previousCount = candidateSlots.length;
+      candidateSlots = candidateSlots.filter((slot) =>
+        isSlotStartInFuture(slot.startTime, nowInstant),
+      );
+      log.push(
+        `Filtered past slots: ${previousCount - candidateSlots.length} removed`,
+      );
+    }
 
     log.push(`Generated ${candidateSlots.length} candidate slots`);
 
