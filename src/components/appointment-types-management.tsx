@@ -65,19 +65,22 @@ const formSchema = z.object({
 });
 
 interface PractitionerHistorySnapshot {
-  id: Id<"practitioners">;
-  name: null | string;
+  lineageId: Id<"practitioners">;
+  name: string;
 }
 
-const toSnapshotNames = (snapshots: PractitionerHistorySnapshot[]) =>
-  snapshots.map((snapshot) => snapshot.name ?? snapshot.id).toSorted();
+const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
+  snapshots.map((snapshot) => snapshot.lineageId).toSorted();
 
-const samePractitionerNames = (left: string[], right: string[]) => {
+const samePractitionerLineageIds = (
+  left: Id<"practitioners">[],
+  right: Id<"practitioners">[],
+) => {
   if (left.length !== right.length) {
     return false;
   }
 
-  return left.every((name, index) => name === right[index]);
+  return left.every((id, index) => id === right[index]);
 };
 
 const isMissingEntityError = (error: unknown) =>
@@ -130,6 +133,11 @@ export function AppointmentTypesManagement({
     practitionersRef.current = practitioners;
   }, [practitioners]);
 
+  const resolvePractitionerLineageId = (practitionerId: Id<"practitioners">) =>
+    practitionersRef.current.find(
+      (practitioner) => practitioner._id === practitionerId,
+    )?.parentId ?? practitionerId;
+
   const createPractitionerSnapshots = (
     practitionerIds: Id<"practitioners">[],
   ): PractitionerHistorySnapshot[] => {
@@ -141,23 +149,17 @@ export function AppointmentTypesManagement({
     );
 
     return practitionerIds.map((id) => ({
-      id,
-      name: nameById.get(id) ?? null,
+      lineageId: resolvePractitionerLineageId(id),
+      name: nameById.get(id) ?? id,
     }));
   };
 
-  const practitionerNamesForCurrentIds = (
+  const practitionerLineageIdsForCurrentIds = (
     practitionerIds: Id<"practitioners">[],
-  ) => {
-    const nameById = new Map(
-      practitionersRef.current.map((practitioner) => [
-        practitioner._id,
-        practitioner.name,
-      ]),
-    );
-
-    return practitionerIds.map((id) => nameById.get(id) ?? id).toSorted();
-  };
+  ) =>
+    practitionerIds
+      .map((practitionerId) => resolvePractitionerLineageId(practitionerId))
+      .toSorted();
 
   const resolvePractitionerIdsFromSnapshots = (
     snapshots: PractitionerHistorySnapshot[],
@@ -169,22 +171,28 @@ export function AppointmentTypesManagement({
 
     for (const snapshot of snapshots) {
       const directMatch = practitionersRef.current.find(
-        (practitioner) => practitioner._id === snapshot.id,
+        (practitioner) => practitioner._id === snapshot.lineageId,
       );
-      const byNameMatch =
-        !directMatch && snapshot.name
-          ? practitionersRef.current.find(
-              (practitioner) => practitioner.name === snapshot.name,
+      const byParentMatches =
+        directMatch === undefined
+          ? practitionersRef.current.filter(
+              (practitioner) => practitioner.parentId === snapshot.lineageId,
             )
-          : undefined;
-      const resolvedPractitionerId = directMatch?._id ?? byNameMatch?._id;
+          : [];
+      const byParentMatch =
+        byParentMatches.length === 1 ? byParentMatches[0] : undefined;
+      const resolvedPractitionerId = directMatch?._id ?? byParentMatch?._id;
+
+      if (byParentMatches.length > 1) {
+        return {
+          message: `Der Behandler "${snapshot.name}" kann nicht eindeutig zugeordnet werden.`,
+          status: "conflict",
+        };
+      }
 
       if (!resolvedPractitionerId) {
         return {
-          message:
-            snapshot.name === null
-              ? "Mindestens ein ausgewählter Behandler existiert nicht mehr."
-              : `Der Behandler "${snapshot.name}" existiert nicht mehr.`,
+          message: `Der Behandler "${snapshot.name}" existiert nicht mehr.`,
           status: "conflict",
         };
       }
@@ -268,11 +276,11 @@ export function AppointmentTypesManagement({
               if (
                 current?.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
-                !samePractitionerNames(
-                  practitionerNamesForCurrentIds(
+                !samePractitionerLineageIds(
+                  practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
                   ),
-                  toSnapshotNames(beforePractitionerSnapshots),
+                  toSnapshotLineageIds(beforePractitionerSnapshots),
                 )
               ) {
                 return {
@@ -307,11 +315,11 @@ export function AppointmentTypesManagement({
               if (
                 current?.name !== afterState.name ||
                 current.duration !== afterState.duration ||
-                !samePractitionerNames(
-                  practitionerNamesForCurrentIds(
+                !samePractitionerLineageIds(
+                  practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
                   ),
-                  toSnapshotNames(afterPractitionerSnapshots),
+                  toSnapshotLineageIds(afterPractitionerSnapshots),
                 )
               ) {
                 return {
@@ -395,6 +403,7 @@ export function AppointmentTypesManagement({
               try {
                 await deleteAppointmentTypeMutation({
                   appointmentTypeId: currentAppointmentTypeId,
+                  appointmentTypeName: trimmedName,
                   practiceId,
                   sourceRuleSetId: newRuleSetId,
                 });
@@ -493,6 +502,7 @@ export function AppointmentTypesManagement({
 
       const { ruleSetId: newRuleSetId } = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
+        appointmentTypeName: deletedSnapshot.name,
         practiceId,
         sourceRuleSetId: ruleSetId,
       });
@@ -505,6 +515,7 @@ export function AppointmentTypesManagement({
           try {
             await deleteAppointmentTypeMutation({
               appointmentTypeId: currentAppointmentTypeId,
+              appointmentTypeName: deletedSnapshot.name,
               practiceId,
               sourceRuleSetId: newRuleSetId,
             });
@@ -519,6 +530,7 @@ export function AppointmentTypesManagement({
               }
               await deleteAppointmentTypeMutation({
                 appointmentTypeId: byName._id,
+                appointmentTypeName: deletedSnapshot.name,
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
@@ -539,9 +551,28 @@ export function AppointmentTypesManagement({
             (type) => type.name === deletedSnapshot.name,
           );
           if (existingByName) {
+            const existingPractitionerLineageIds =
+              practitionerLineageIdsForCurrentIds(
+                existingByName.allowedPractitionerIds,
+              );
+            const deletedPractitionerLineageIds = toSnapshotLineageIds(
+              deletedPractitionerSnapshots,
+            );
+            const isSameDefinition =
+              existingByName.duration === deletedSnapshot.duration &&
+              samePractitionerLineageIds(
+                existingPractitionerLineageIds,
+                deletedPractitionerLineageIds,
+              );
+
+            if (isSameDefinition) {
+              currentAppointmentTypeId = existingByName._id;
+              return { status: "applied" as const };
+            }
+
             return {
               message:
-                "Die Terminart kann nicht wiederhergestellt werden, weil bereits eine Terminart mit demselben Namen existiert.",
+                "Die Terminart kann nicht wiederhergestellt werden, weil bereits eine gleichnamige Terminart mit anderen Einstellungen existiert.",
               status: "conflict" as const,
             };
           }

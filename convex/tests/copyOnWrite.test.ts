@@ -601,6 +601,77 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(remainingSchedule).toBeNull();
   });
 
+  test("should delete appointment type by name when history ID is stale", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+    const initialRuleSetId = practice.currentActiveRuleSetId;
+
+    const practitionerId = await t.run(async (ctx) => {
+      return await ctx.db.insert("practitioners", {
+        name: "Dr. Appointment Type",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const firstCreate = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      name: "Kontrolle",
+      practiceId,
+      practitionerIds: [practitionerId],
+      sourceRuleSetId: initialRuleSetId,
+    });
+
+    const firstDelete = await t.mutation(api.entities.deleteAppointmentType, {
+      appointmentTypeId: firstCreate.entityId,
+      appointmentTypeName: "Kontrolle",
+      practiceId,
+      sourceRuleSetId: firstCreate.ruleSetId,
+    });
+    expect(firstDelete.ruleSetId).toEqual(firstCreate.ruleSetId);
+
+    await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      name: "Kontrolle",
+      practiceId,
+      practitionerIds: [practitionerId],
+      sourceRuleSetId: firstCreate.ruleSetId,
+    });
+
+    await t.mutation(api.entities.deleteAppointmentType, {
+      appointmentTypeId: firstCreate.entityId, // stale/deleted ID
+      appointmentTypeName: "Kontrolle",
+      practiceId,
+      sourceRuleSetId: firstCreate.ruleSetId,
+    });
+
+    const remaining = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_name", (q) =>
+          q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
+        )
+        .first();
+    });
+
+    expect(remaining).toBeNull();
+  });
+
   test("should restore practitioner schedules by resolving location through deep lineage", async () => {
     const t = createAuthedTestContext();
 

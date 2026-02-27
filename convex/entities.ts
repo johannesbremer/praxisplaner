@@ -19,8 +19,7 @@ import type {
 
 import { v } from "convex/values";
 
-import type { DataModel } from "./_generated/dataModel";
-import type { Id } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import {
@@ -616,6 +615,7 @@ export const updateAppointmentType = mutation({
 export const deleteAppointmentType = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    appointmentTypeName: v.optional(v.string()),
     practiceId: v.id("practices"),
     sourceRuleSetId: v.id("ruleSets"),
   },
@@ -631,28 +631,44 @@ export const deleteAppointmentType = mutation({
 
     // Get the entity - it might be from the active or unsaved rule set
     const entity = await ctx.db.get("appointmentTypes", args.appointmentTypeId);
-    if (!entity) {
-      throw new Error("Appointment type not found");
-    }
 
     // If it's already in the unsaved rule set, use it directly
     // Otherwise, find the copy by parentId
-    let appointmentType;
-    if (entity.ruleSetId === ruleSetId) {
-      appointmentType = entity;
-    } else {
-      appointmentType = await ctx.db
+    let appointmentType: Doc<"appointmentTypes"> | null = null;
+    if (entity) {
+      if (entity.practiceId !== args.practiceId) {
+        throw new Error("Appointment type does not belong to this practice");
+      }
+
+      if (entity.ruleSetId === ruleSetId) {
+        appointmentType = entity;
+      } else {
+        appointmentType = await ctx.db
+          .query("appointmentTypes")
+          .withIndex("by_parentId_ruleSetId", (q) =>
+            q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+          )
+          .first();
+      }
+    }
+
+    // Fallback for stale IDs during undo/redo: resolve by name in target rule set.
+    if (!appointmentType && args.appointmentTypeName) {
+      const appointmentTypeName = args.appointmentTypeName;
+      const byName = await ctx.db
         .query("appointmentTypes")
-        .withIndex("by_parentId_ruleSetId", (q) =>
-          q.eq("parentId", entity._id).eq("ruleSetId", ruleSetId),
+        .withIndex("by_ruleSetId_name", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("name", appointmentTypeName),
         )
         .first();
 
-      if (!appointmentType) {
-        throw new Error(
-          "Appointment type not found in unsaved rule set. This should not happen.",
-        );
+      if (byName?.practiceId === args.practiceId) {
+        appointmentType = byName;
       }
+    }
+
+    if (!appointmentType) {
+      throw new Error("Appointment type not found");
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
