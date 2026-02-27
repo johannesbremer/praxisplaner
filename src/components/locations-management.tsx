@@ -111,8 +111,13 @@ export function LocationsManagement({
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
 
   const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
 
   const handleDraftMutationResult = (result: {
     draftRevision: number;
@@ -141,7 +146,7 @@ export function LocationsManagement({
             locationId: editingLocation._id,
             name: trimmedName,
             practiceId,
-            selectedRuleSetId: ruleSetId,
+            selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
 
@@ -164,7 +169,7 @@ export function LocationsManagement({
                 locationId: editingLocation._id,
                 name: trimmedName,
                 practiceId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -186,7 +191,7 @@ export function LocationsManagement({
                 locationId: editingLocation._id,
                 name: previousName,
                 practiceId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
               return { status: "applied" as const };
@@ -202,7 +207,7 @@ export function LocationsManagement({
             expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
-            selectedRuleSetId: ruleSetId,
+            selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -236,7 +241,7 @@ export function LocationsManagement({
                 lineageKey: locationLineageKey,
                 name: trimmedName,
                 practiceId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(recreateResult);
               currentLocationId = recreateResult.entityId;
@@ -249,7 +254,7 @@ export function LocationsManagement({
                   locationId: currentLocationId,
                   locationLineageKey,
                   practiceId,
-                  selectedRuleSetId: ruleSetId,
+                  selectedRuleSetId: getSelectedRuleSetId(),
                 });
                 handleDraftMutationResult(undoResult);
                 return { status: "applied" as const };
@@ -343,7 +348,7 @@ export function LocationsManagement({
         expectedDraftRevision: getExpectedDraftRevision(),
         locationId,
         practiceId,
-        selectedRuleSetId: ruleSetId,
+        selectedRuleSetId: getSelectedRuleSetId(),
       };
       if (deletedSnapshot?.lineageKey) {
         deleteArgs.locationLineageKey = deletedSnapshot.lineageKey;
@@ -363,7 +368,7 @@ export function LocationsManagement({
                 locationId: currentLocationId,
                 locationLineageKey: deletedSnapshot.lineageKey,
                 practiceId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -404,7 +409,7 @@ export function LocationsManagement({
               lineageKey: deletedSnapshot.lineageKey,
               name: deletedSnapshot.name,
               practiceId,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
             handleDraftMutationResult(recreateResult);
             currentLocationId = recreateResult.entityId;
@@ -432,7 +437,7 @@ export function LocationsManagement({
                 locationId: currentLocationId,
                 practiceId,
                 practitionerId: practitionerIdForRestore,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
                 startTime: schedule.startTime,
               });
               handleDraftMutationResult(scheduleResult);

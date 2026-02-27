@@ -294,8 +294,13 @@ export default function BaseScheduleManagement({
   React.useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = React.useRef(ruleSetId);
+  React.useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
 
   const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
 
   const handleDraftMutationResult = (result: {
     draftRevision: number;
@@ -375,7 +380,7 @@ export default function BaseScheduleManagement({
           baseScheduleId: scheduleId,
           expectedDraftRevision: getExpectedDraftRevision(),
           practiceId,
-          selectedRuleSetId: ruleSetId,
+          selectedRuleSetId: getSelectedRuleSetId(),
         });
         handleDraftMutationResult(result);
       }
@@ -402,7 +407,7 @@ export default function BaseScheduleManagement({
                     baseScheduleId: existing._id,
                     expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(redoResult);
                 } catch (error: unknown) {
@@ -434,7 +439,7 @@ export default function BaseScheduleManagement({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: payload.lineageKey,
                 practiceId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
             }
@@ -696,8 +701,13 @@ function BaseScheduleDialog({
   React.useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = React.useRef(ruleSetId);
+  React.useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
 
   const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
 
   const handleDraftMutationResult = (result: {
     draftRevision: number;
@@ -774,7 +784,7 @@ function BaseScheduleDialog({
               baseScheduleId: scheduleId,
               expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
             handleDraftMutationResult(deleteResult);
           }
@@ -798,7 +808,7 @@ function BaseScheduleDialog({
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: schedule.practitionerId,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
               startTime: value.startTime,
             };
 
@@ -892,7 +902,7 @@ function BaseScheduleDialog({
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: value.practitionerId as Id<"practitioners">,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
               startTime: value.startTime,
             };
 
@@ -948,7 +958,7 @@ function BaseScheduleDialog({
                   expectedDraftRevision: getExpectedDraftRevision(),
                   lineageKey: payload.lineageKey,
                   practiceId,
-                  selectedRuleSetId: ruleSetId,
+                  selectedRuleSetId: getSelectedRuleSetId(),
                 });
                 handleDraftMutationResult(redoResult);
               }
@@ -970,7 +980,7 @@ function BaseScheduleDialog({
                       baseScheduleId: existing._id,
                       expectedDraftRevision: getExpectedDraftRevision(),
                       practiceId,
-                      selectedRuleSetId: ruleSetId,
+                      selectedRuleSetId: getSelectedRuleSetId(),
                     });
                     handleDraftMutationResult(undoResult);
                     deletedIds.push(existing._id);
@@ -1025,7 +1035,7 @@ function BaseScheduleDialog({
                     locationsRef.current,
                   ),
                 ),
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
               currentOldIds = redoResult.deletedScheduleIds;
@@ -1049,7 +1059,7 @@ function BaseScheduleDialog({
                     locationsRef.current,
                   ),
                 ),
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
               currentNewIds = undoResult.deletedScheduleIds;

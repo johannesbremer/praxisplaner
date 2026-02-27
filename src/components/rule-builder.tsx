@@ -165,8 +165,13 @@ export function RuleBuilder({
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
 
   const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
 
   const handleDraftMutationResult = (result: {
     draftRevision: number;
@@ -219,7 +224,7 @@ export function RuleBuilder({
         expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         ruleId,
-        selectedRuleSetId: ruleSetId,
+        selectedRuleSetId: getSelectedRuleSetId(),
       });
       handleDraftMutationResult(deleteResult);
 
@@ -284,7 +289,7 @@ export function RuleBuilder({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: currentRuleId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -323,7 +328,7 @@ export function RuleBuilder({
               expectedDraftRevision: getExpectedDraftRevision(),
               name: deletedRuleName,
               practiceId,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
             handleDraftMutationResult(recreateResult);
             currentRuleId = recreateResult.entityId;
@@ -415,7 +420,7 @@ export function RuleBuilder({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: editingRuleId,
-                selectedRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(deleteResult);
             }
@@ -438,7 +443,7 @@ export function RuleBuilder({
               expectedDraftRevision: getExpectedDraftRevision(),
               name: ruleName,
               practiceId,
-              selectedRuleSetId: ruleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
             handleDraftMutationResult(createResult);
 
@@ -584,7 +589,7 @@ export function RuleBuilder({
                     expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(redoDeleteResult);
 
@@ -596,7 +601,7 @@ export function RuleBuilder({
                     expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -638,7 +643,7 @@ export function RuleBuilder({
                     expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(undoDeleteResult);
 
@@ -650,7 +655,7 @@ export function RuleBuilder({
                     expectedDraftRevision: getExpectedDraftRevision(),
                     name: previousRuleName,
                     practiceId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(recreatePrevious);
                   currentRuleId = recreatePrevious.entityId;
@@ -688,7 +693,7 @@ export function RuleBuilder({
                     expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    selectedRuleSetId: ruleSetId,
+                    selectedRuleSetId: getSelectedRuleSetId(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -700,7 +705,7 @@ export function RuleBuilder({
                       expectedDraftRevision: getExpectedDraftRevision(),
                       practiceId,
                       ruleId: currentRuleId,
-                      selectedRuleSetId: ruleSetId,
+                      selectedRuleSetId: getSelectedRuleSetId(),
                     });
                     handleDraftMutationResult(undoDeleteResult);
                     return { status: "applied" as const };
