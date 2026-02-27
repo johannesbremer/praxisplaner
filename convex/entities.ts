@@ -2426,11 +2426,22 @@ export const deleteRule = mutation({
       args.practiceId,
       args.expectedDraftRevision,
     );
+    const getCurrentDraftRevision = async (): Promise<number> => {
+      const ruleSet = await ctx.db.get("ruleSets", ruleSetId);
+      if (!ruleSet) {
+        throw new Error(
+          `[INVARIANT:RULE_SET_NOT_FOUND] Regelset ${ruleSetId} konnte nicht geladen werden.`,
+        );
+      }
+      return ruleSet.draftRevision;
+    };
 
     // Get the entity - it might be from the active or unsaved rule set
     const entity = await ctx.db.get("ruleConditions", args.ruleId);
     if (!entity) {
-      throw new Error("Rule not found");
+      // Idempotent delete: desired end state (rule absent) already reached.
+      const draftRevision = await getCurrentDraftRevision();
+      return { draftRevision, entityId: args.ruleId, ruleSetId };
     }
 
     // If it's already in the unsaved rule set, use it directly
@@ -2448,9 +2459,10 @@ export const deleteRule = mutation({
         .first();
 
       if (!copy) {
-        throw new Error(
-          "Rule copy not found in unsaved rule set. This should not happen.",
-        );
+        // Rule exists in the source ruleset but was already deleted in draft.
+        // Treat as idempotent no-op.
+        const draftRevision = await getCurrentDraftRevision();
+        return { draftRevision, entityId: args.ruleId, ruleSetId };
       }
       rule = copy;
     }

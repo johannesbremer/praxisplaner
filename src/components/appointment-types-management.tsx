@@ -153,6 +153,7 @@ export function AppointmentTypesManagement({
     draftRevision: number;
     ruleSetId: Id<"ruleSets">;
   }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);

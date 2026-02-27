@@ -103,6 +103,7 @@ export default function PractitionerManagement({
     draftRevision: number;
     ruleSetId: Id<"ruleSets">;
   }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -371,6 +372,7 @@ function PractitionerDialog({
     draftRevision: number;
     ruleSetId: Id<"ruleSets">;
   }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
