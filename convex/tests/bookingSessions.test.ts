@@ -235,6 +235,7 @@ async function createAppointmentTypeInOtherRuleSet(
     const otherRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Other Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 2,
@@ -262,6 +263,7 @@ async function createBookingEntities(t: ReturnType<typeof convexTest>) {
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Flow Test Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 1,
@@ -313,6 +315,7 @@ async function createPracticeAndRuleSet(t: ReturnType<typeof convexTest>) {
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Test Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 1,

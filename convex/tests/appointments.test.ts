@@ -22,6 +22,7 @@ async function createAppointmentBaseData(t: ReturnType<typeof convexTest>) {
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Appointments Test Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 1,

@@ -32,8 +32,13 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 interface PractitionerDialogProps {
+  expectedDraftRevision: null | number;
   isOpen: boolean;
   onClose: () => void;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -42,6 +47,11 @@ interface PractitionerDialogProps {
 }
 
 interface PractitionerManagementProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -53,6 +63,8 @@ type PractitionersResult =
 type PractitionerWithLineage = PractitionersResult[number];
 
 export default function PractitionerManagement({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -80,6 +92,22 @@ export default function PractitionerManagement({
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const handleEdit = (practitioner: PractitionerWithLineage) => {
     setEditingPractitioner(practitioner);
@@ -92,24 +120,34 @@ export default function PractitionerManagement({
         (entry) => entry._id === practitionerId,
       )?.lineageKey;
       const deleteResult = await deleteWithDependenciesMutation({
+        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         practitionerId,
         ...(practitionerLineageKey && { practitionerLineageKey }),
-        sourceRuleSetId: ruleSetId,
       });
-      const newRuleSetId = deleteResult.ruleSetId;
+      handleDraftMutationResult(deleteResult);
       let currentSnapshot = deleteResult.snapshot;
       let currentPractitionerId = currentSnapshot.practitioner.id;
       onRegisterHistoryAction?.({
         label: "Arzt gelöscht",
         redo: async () => {
+          const existingByLineage = practitionersRef.current.find(
+            (entry) =>
+              entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+          );
+          if (!existingByLineage) {
+            return { status: "applied" as const };
+          }
+          currentPractitionerId = existingByLineage._id;
+
           try {
             const redoResult = await deleteWithDependenciesMutation({
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
               practitionerId: currentPractitionerId,
               practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
-              sourceRuleSetId: newRuleSetId,
             });
+            handleDraftMutationResult(redoResult);
             currentSnapshot = redoResult.snapshot;
             currentPractitionerId = currentSnapshot.practitioner.id;
             return { status: "applied" as const };
@@ -124,12 +162,13 @@ export default function PractitionerManagement({
               }
               try {
                 const redoResult = await deleteWithDependenciesMutation({
+                  expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
                   practitionerId: currentByLineage._id,
                   practitionerLineageKey:
                     currentSnapshot.practitioner.lineageKey,
-                  sourceRuleSetId: newRuleSetId,
                 });
+                handleDraftMutationResult(redoResult);
                 currentSnapshot = redoResult.snapshot;
                 currentPractitionerId = currentSnapshot.practitioner.id;
                 return { status: "applied" as const };
@@ -158,10 +197,11 @@ export default function PractitionerManagement({
         undo: async () => {
           try {
             const restoreResult = await restoreWithDependenciesMutation({
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
               snapshot: currentSnapshot,
-              sourceRuleSetId: newRuleSetId,
             });
+            handleDraftMutationResult(restoreResult);
             currentPractitionerId = restoreResult.restoredPractitionerId;
 
             return { status: "applied" as const };
@@ -177,11 +217,6 @@ export default function PractitionerManagement({
         },
       });
       toast.success("Arzt gelöscht");
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-        onRuleSetCreated(newRuleSetId);
-      }
     } catch (error: unknown) {
       captureError(error, {
         context: "practitioner_delete",
@@ -285,11 +320,13 @@ export default function PractitionerManagement({
       </CardContent>
 
       <PractitionerDialog
+        expectedDraftRevision={expectedDraftRevision}
         isOpen={isDialogOpen}
         onClose={handleDialogClose}
         practiceId={practiceId}
         practitioner={editingPractitioner}
         ruleSetId={ruleSetId}
+        {...(onDraftMutation && { onDraftMutation })}
         {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
@@ -298,8 +335,10 @@ export default function PractitionerManagement({
 }
 
 function PractitionerDialog({
+  expectedDraftRevision,
   isOpen,
   onClose,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -321,6 +360,22 @@ function PractitionerDialog({
   const createMutation = useMutation(api.entities.createPractitioner);
   const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const form = useForm({
     defaultValues: {
@@ -333,12 +388,13 @@ function PractitionerDialog({
         if (practitioner) {
           const beforeName = practitioner.name;
           // Update existing practitioner - extract ruleSetId
-          const { ruleSetId: newRuleSetId } = await updateMutation({
+          const updateResult = await updateMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
             practitionerId: practitioner._id,
-            sourceRuleSetId: ruleSetId,
           });
+          handleDraftMutationResult(updateResult);
 
           onRegisterHistoryAction?.({
             label: "Arzt aktualisiert",
@@ -354,12 +410,13 @@ function PractitionerDialog({
                 };
               }
 
-              await updateMutation({
+              const redoResult = await updateMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: trimmedName,
                 practiceId,
                 practitionerId: practitioner._id,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
             },
             undo: async () => {
@@ -374,29 +431,27 @@ function PractitionerDialog({
                 };
               }
 
-              await updateMutation({
+              const undoResult = await updateMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeName,
                 practiceId,
                 practitionerId: practitioner._id,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(undoResult);
               return { status: "applied" as const };
             },
           });
 
           toast.success("Arzt aktualisiert");
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         } else {
           // Create new practitioner - extract both entityId and ruleSetId
-          const { entityId, ruleSetId: newRuleSetId } = await createMutation({
+          const createResult = await createMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
-            sourceRuleSetId: ruleSetId,
           });
+          handleDraftMutationResult(createResult);
+          const { entityId } = createResult;
 
           let currentPractitionerId = entityId;
           const practitionerLineageKey = entityId;
@@ -423,21 +478,23 @@ function PractitionerDialog({
               }
 
               const recreateResult = await createMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: practitionerLineageKey,
                 name: trimmedName,
                 practiceId,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(recreateResult);
               currentPractitionerId = recreateResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
               try {
-                await deleteMutation({
+                const undoResult = await deleteMutation({
+                  expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
                   practitionerId: currentPractitionerId,
-                  sourceRuleSetId: newRuleSetId,
                 });
+                handleDraftMutationResult(undoResult);
                 return { status: "applied" as const };
               } catch (error: unknown) {
                 if (isMissingEntityError(error)) {
@@ -454,11 +511,6 @@ function PractitionerDialog({
             },
           });
           toast.success("Arzt erstellt");
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         }
 
         onClose();

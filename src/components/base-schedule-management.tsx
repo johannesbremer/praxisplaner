@@ -68,8 +68,13 @@ const formSchema = z.object({
 });
 
 interface BaseScheduleDialogProps {
+  expectedDraftRevision: null | number;
   isOpen: boolean;
   onClose: () => void;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -78,6 +83,11 @@ interface BaseScheduleDialogProps {
 }
 
 interface BaseScheduleManagementProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -242,6 +252,8 @@ const isBaseScheduleMissingError = (error: unknown) =>
 
 // Helper functions
 export default function BaseScheduleManagement({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -276,6 +288,25 @@ export default function BaseScheduleManagement({
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
+  const expectedDraftRevisionRef = React.useRef<null | number>(
+    expectedDraftRevision,
+  );
+  React.useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
@@ -339,24 +370,20 @@ export default function BaseScheduleManagement({
         ),
       );
 
-      // Track if rule set changed
-      let newRuleSetId: Id<"ruleSets"> | undefined;
-
       for (const scheduleId of scheduleIds) {
         const result = await deleteScheduleMutation({
           baseScheduleId: scheduleId,
+          expectedDraftRevision: getExpectedDraftRevision(),
           practiceId,
-          sourceRuleSetId: ruleSetId,
         });
-        // All deletes should return the same ruleSetId, but we'll use the last one
-        newRuleSetId = result.ruleSetId;
+        handleDraftMutationResult(result);
       }
 
       toast.success(
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
       );
 
-      if (deletedSchedulePayloads.length > 0 && newRuleSetId) {
+      if (deletedSchedulePayloads.length > 0) {
         onRegisterHistoryAction?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
@@ -370,11 +397,12 @@ export default function BaseScheduleManagement({
               }
               for (const existing of existingSchedules) {
                 try {
-                  await deleteScheduleMutation({
+                  const redoResult = await deleteScheduleMutation({
                     baseScheduleId: existing._id,
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
-                    sourceRuleSetId: newRuleSetId,
                   });
+                  handleDraftMutationResult(redoResult);
                 } catch (error: unknown) {
                   if (isBaseScheduleMissingError(error)) {
                     continue;
@@ -395,26 +423,22 @@ export default function BaseScheduleManagement({
               if (existingSchedules.length > 0) {
                 continue;
               }
-              await createScheduleMutation({
+              const undoResult = await createScheduleMutation({
                 ...toMutationSchedulePayload(
                   payload,
                   practitionersRef.current,
                   locationsRef.current,
                 ),
+                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: payload.lineageKey,
                 practiceId,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(undoResult);
             }
 
             return { status: "applied" as const };
           },
         });
-      }
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
-        onRuleSetCreated(newRuleSetId);
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -614,11 +638,13 @@ export default function BaseScheduleManagement({
       </CardContent>
 
       <BaseScheduleDialog
+        expectedDraftRevision={expectedDraftRevision}
         isOpen={isDialogOpen}
         onClose={handleCloseDialog}
         practiceId={practiceId}
         ruleSetId={ruleSetId}
         schedule={editingSchedule}
+        {...(onDraftMutation && { onDraftMutation })}
         {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
@@ -627,8 +653,10 @@ export default function BaseScheduleManagement({
 }
 
 function BaseScheduleDialog({
+  expectedDraftRevision,
   isOpen,
   onClose,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -659,6 +687,25 @@ function BaseScheduleDialog({
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
+  const expectedDraftRevisionRef = React.useRef<null | number>(
+    expectedDraftRevision,
+  );
+  React.useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
@@ -681,8 +728,6 @@ function BaseScheduleDialog({
     },
     onSubmit: async ({ value }) => {
       try {
-        // Track if a new rule set is created during this operation
-        let newRuleSetId: Id<"ruleSets"> | undefined;
         const createdScheduleIds: Id<"baseSchedules">[] = [];
         const createdSchedulePayloads: SchedulePayload[] = [];
         const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
@@ -724,11 +769,10 @@ function BaseScheduleDialog({
           for (const scheduleId of scheduleIdsToDelete) {
             const deleteResult = await deleteScheduleMutation({
               baseScheduleId: scheduleId,
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
-              sourceRuleSetId: ruleSetId,
             });
-            // Capture the rule set ID from the delete (all should be the same)
-            newRuleSetId ||= deleteResult.ruleSetId;
+            handleDraftMutationResult(deleteResult);
           }
 
           // Create new schedules for each selected day
@@ -737,18 +781,18 @@ function BaseScheduleDialog({
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
               endTime: string;
+              expectedDraftRevision: null | number;
               locationId: Id<"locations">;
               practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
-              sourceRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
+              expectedDraftRevision: getExpectedDraftRevision(),
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: schedule.practitionerId,
-              sourceRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -757,6 +801,7 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            handleDraftMutationResult(result);
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
@@ -775,13 +820,6 @@ function BaseScheduleDialog({
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
-            // Capture the rule set ID from the first created schedule
-            newRuleSetId ||= result.ruleSetId;
-          }
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
           }
 
           toast.success(
@@ -835,18 +873,18 @@ function BaseScheduleDialog({
               breakTimes?: { end: string; start: string }[];
               dayOfWeek: number;
               endTime: string;
+              expectedDraftRevision: null | number;
               locationId: Id<"locations">;
               practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
-              sourceRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
               endTime: value.endTime,
+              expectedDraftRevision: getExpectedDraftRevision(),
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: value.practitionerId as Id<"practitioners">,
-              sourceRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -855,6 +893,7 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
+            handleDraftMutationResult(result);
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
@@ -873,13 +912,6 @@ function BaseScheduleDialog({
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
-            // Capture the rule set ID from the first created schedule
-            newRuleSetId ||= result.ruleSetId;
-          }
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
           }
 
           toast.success(
@@ -887,131 +919,132 @@ function BaseScheduleDialog({
           );
         }
 
-        if (newRuleSetId) {
-          if (!schedule && createdSchedulePayloads.length > 0) {
-            onRegisterHistoryAction?.({
-              label: "Arbeitszeiten erstellt",
-              redo: async () => {
-                for (const payload of createdSchedulePayloads) {
-                  const existingSchedules = schedulesRef.current.filter(
-                    (scheduleItem) =>
-                      matchesSchedulePayload(scheduleItem, payload),
-                  );
-                  if (existingSchedules.length > 0) {
-                    continue;
-                  }
-                  await createScheduleMutation({
-                    ...toMutationSchedulePayload(
-                      payload,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
-                    lineageKey: payload.lineageKey,
-                    practiceId,
-                    sourceRuleSetId: newRuleSetId,
-                  });
+        if (!schedule && createdSchedulePayloads.length > 0) {
+          onRegisterHistoryAction?.({
+            label: "Arbeitszeiten erstellt",
+            redo: async () => {
+              for (const payload of createdSchedulePayloads) {
+                const existingSchedules = schedulesRef.current.filter(
+                  (scheduleItem) =>
+                    matchesSchedulePayload(scheduleItem, payload),
+                );
+                if (existingSchedules.length > 0) {
+                  continue;
                 }
-                return { status: "applied" as const };
-              },
-              undo: async () => {
-                const deletedIds: Id<"baseSchedules">[] = [];
-                for (const payload of createdSchedulePayloads) {
-                  const existingSchedules = schedulesRef.current.filter(
-                    (scheduleItem) =>
-                      matchesSchedulePayload(scheduleItem, payload),
-                  );
-                  if (existingSchedules.length === 0) {
-                    continue;
-                  }
-                  for (const existing of existingSchedules) {
-                    try {
-                      await deleteScheduleMutation({
-                        baseScheduleId: existing._id,
-                        practiceId,
-                        sourceRuleSetId: newRuleSetId,
-                      });
-                      deletedIds.push(existing._id);
-                    } catch (error: unknown) {
-                      if (isBaseScheduleMissingError(error)) {
-                        // If another action already removed this ID, desired state is still satisfied.
-                        continue;
-                      }
-                      throw error;
+                const redoResult = await createScheduleMutation({
+                  ...toMutationSchedulePayload(
+                    payload,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  ),
+                  expectedDraftRevision: getExpectedDraftRevision(),
+                  lineageKey: payload.lineageKey,
+                  practiceId,
+                });
+                handleDraftMutationResult(redoResult);
+              }
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              const deletedIds: Id<"baseSchedules">[] = [];
+              for (const payload of createdSchedulePayloads) {
+                const existingSchedules = schedulesRef.current.filter(
+                  (scheduleItem) =>
+                    matchesSchedulePayload(scheduleItem, payload),
+                );
+                if (existingSchedules.length === 0) {
+                  continue;
+                }
+                for (const existing of existingSchedules) {
+                  try {
+                    const undoResult = await deleteScheduleMutation({
+                      baseScheduleId: existing._id,
+                      expectedDraftRevision: getExpectedDraftRevision(),
+                      practiceId,
+                    });
+                    handleDraftMutationResult(undoResult);
+                    deletedIds.push(existing._id);
+                  } catch (error: unknown) {
+                    if (isBaseScheduleMissingError(error)) {
+                      // If another action already removed this ID, desired state is still satisfied.
+                      continue;
                     }
+                    throw error;
                   }
                 }
-                if (deletedIds.length > 0) {
-                  createdScheduleIds.splice(
-                    0,
-                    createdScheduleIds.length,
-                    ...deletedIds,
-                  );
-                }
-                return { status: "applied" as const };
-              },
-            });
-          }
+              }
+              if (deletedIds.length > 0) {
+                createdScheduleIds.splice(
+                  0,
+                  createdScheduleIds.length,
+                  ...deletedIds,
+                );
+              }
+              return { status: "applied" as const };
+            },
+          });
+        }
 
-          if (schedule && createdSchedulePayloads.length > 0) {
-            let currentNewIds = [...createdScheduleIds];
-            let currentOldIds: Id<"baseSchedules">[] = [];
-            const oldSchedulePayloads = deletedScheduleSnapshots.map(
-              (previous) =>
-                toSchedulePayload(
-                  previous,
-                  practitionersRef.current,
-                  locationsRef.current,
+        if (schedule && createdSchedulePayloads.length > 0) {
+          let currentNewIds = [...createdScheduleIds];
+          let currentOldIds: Id<"baseSchedules">[] = [];
+          const oldSchedulePayloads = deletedScheduleSnapshots.map((previous) =>
+            toSchedulePayload(
+              previous,
+              practitionersRef.current,
+              locationsRef.current,
+            ),
+          );
+
+          onRegisterHistoryAction?.({
+            label: "Arbeitszeiten aktualisiert",
+            redo: async () => {
+              if (currentOldIds.length === 0) {
+                return { status: "applied" as const };
+              }
+
+              const redoResult = await replaceScheduleSetMutation({
+                expectedAbsentIds: currentNewIds,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                expectedPresentIds: currentOldIds,
+                practiceId,
+                replacementSchedules: createdSchedulePayloads.map((payload) =>
+                  toMutationSchedulePayload(
+                    payload,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  ),
                 ),
-            );
-
-            onRegisterHistoryAction?.({
-              label: "Arbeitszeiten aktualisiert",
-              redo: async () => {
-                if (currentOldIds.length === 0) {
-                  return { status: "applied" as const };
-                }
-
-                const result = await replaceScheduleSetMutation({
-                  expectedAbsentIds: currentNewIds,
-                  expectedPresentIds: currentOldIds,
-                  practiceId,
-                  replacementSchedules: createdSchedulePayloads.map((payload) =>
-                    toMutationSchedulePayload(
-                      payload,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
-                  ),
-                  sourceRuleSetId: newRuleSetId,
-                });
-                currentOldIds = result.deletedScheduleIds;
-                currentNewIds = result.createdScheduleIds;
+              });
+              handleDraftMutationResult(redoResult);
+              currentOldIds = redoResult.deletedScheduleIds;
+              currentNewIds = redoResult.createdScheduleIds;
+              return { status: "applied" as const };
+            },
+            undo: async () => {
+              if (currentNewIds.length === 0) {
                 return { status: "applied" as const };
-              },
-              undo: async () => {
-                if (currentNewIds.length === 0) {
-                  return { status: "applied" as const };
-                }
+              }
 
-                const result = await replaceScheduleSetMutation({
-                  expectedAbsentIds: currentOldIds,
-                  expectedPresentIds: currentNewIds,
-                  practiceId,
-                  replacementSchedules: oldSchedulePayloads.map((payload) =>
-                    toMutationSchedulePayload(
-                      payload,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
+              const undoResult = await replaceScheduleSetMutation({
+                expectedAbsentIds: currentOldIds,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                expectedPresentIds: currentNewIds,
+                practiceId,
+                replacementSchedules: oldSchedulePayloads.map((payload) =>
+                  toMutationSchedulePayload(
+                    payload,
+                    practitionersRef.current,
+                    locationsRef.current,
                   ),
-                  sourceRuleSetId: newRuleSetId,
-                });
-                currentNewIds = result.deletedScheduleIds;
-                currentOldIds = result.createdScheduleIds;
-                return { status: "applied" as const };
-              },
-            });
-          }
+                ),
+              });
+              handleDraftMutationResult(undoResult);
+              currentNewIds = undoResult.deletedScheduleIds;
+              currentOldIds = undoResult.createdScheduleIds;
+              return { status: "applied" as const };
+            },
+          });
         }
         onClose();
       } catch (error: unknown) {

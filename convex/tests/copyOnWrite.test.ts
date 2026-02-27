@@ -41,7 +41,7 @@ async function insertWithLineage<TableName extends LineageTable>(
 }
 
 describe("Copy-on-Write Entity Reference Validation", () => {
-  test("should throw error when rule references appointment type from wrong rule set", async () => {
+  test("should remap rule references from older rule sets by lineage", async () => {
     const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
@@ -77,10 +77,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       api.entities.createAppointmentType,
       {
         duration: 30,
+        expectedDraftRevision: null,
         name: "Type 1",
         practiceId,
         practitionerIds: [practitioner],
-        sourceRuleSetId: initialRuleSetId,
       },
     );
 
@@ -121,10 +121,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     // Create a second rule set by making a change
     await t.mutation(api.entities.createAppointmentType, {
       duration: 45,
+      expectedDraftRevision: null,
       name: "Type 2",
       practiceId,
       practitionerIds: [savedPractitioner._id],
-      sourceRuleSetId: savedRuleSet1._id,
     });
 
     // Get the unsaved rule set (it should have been created automatically)
@@ -142,28 +142,27 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       throw new Error("Unsaved rule set not found");
     }
 
-    // Now try to create a rule in the unsaved rule set that references
-    // an appointment type from the OLD saved rule set
-    // This should FAIL with our new validation
-    await expect(
-      t.mutation(api.entities.createRule, {
-        conditionTree: {
-          children: [
-            {
-              conditionType: "APPOINTMENT_TYPE",
-              nodeType: "CONDITION",
-              operator: "IS",
-              // BUG: Using appointment type ID from old rule set!
-              valueIds: [appointmentType1.entityId as string],
-            },
-          ],
-          nodeType: "AND",
-        },
-        name: "Test Rule",
-        practiceId,
-        sourceRuleSetId: unsavedRuleSet._id,
-      }),
-    ).rejects.toThrow(/belongs to rule set .* but expected rule set/);
+    const result = await t.mutation(api.entities.createRule, {
+      conditionTree: {
+        children: [
+          {
+            conditionType: "APPOINTMENT_TYPE",
+            nodeType: "CONDITION",
+            operator: "IS",
+            // Intentionally passing an ID from the older saved rule set.
+            // The mutation should remap this by lineage into the active draft.
+            valueIds: [appointmentType1.entityId as string],
+          },
+        ],
+        nodeType: "AND",
+      },
+      expectedDraftRevision: unsavedRuleSet.draftRevision,
+      name: "Test Rule",
+      practiceId,
+    });
+
+    expect(result.entityId).toBeDefined();
+    expect(result.ruleSetId).toEqual(unsavedRuleSet._id);
   });
 
   test("should succeed when rule references appointment type from correct rule set", async () => {
@@ -202,10 +201,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       api.entities.createAppointmentType,
       {
         duration: 30,
+        expectedDraftRevision: null,
         name: "Correct Type",
         practiceId,
         practitionerIds: [practitioner],
-        sourceRuleSetId: initialRuleSetId,
       },
     );
 
@@ -239,9 +238,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         nodeType: "AND",
       },
+      expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Test Rule",
       practiceId,
-      sourceRuleSetId: unsavedRuleSet._id,
     });
 
     expect(result.entityId).toBeDefined();
@@ -284,10 +283,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       api.entities.createAppointmentType,
       {
         duration: 30,
+        expectedDraftRevision: null,
         name: "Type 1",
         practiceId,
         practitionerIds: [practitioner],
-        sourceRuleSetId: initialRuleSetId,
       },
     );
 
@@ -318,9 +317,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         nodeType: "AND",
       },
+      expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Test Rule",
       practiceId,
-      sourceRuleSetId: unsavedRuleSet._id,
     });
 
     // Save the rule set
@@ -358,10 +357,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     // Make a change to trigger copy-on-write (create second rule set)
     await t.mutation(api.entities.createAppointmentType, {
       duration: 45,
+      expectedDraftRevision: null,
       name: "Type 2",
       practiceId,
       practitionerIds: [savedPractitioner._id],
-      sourceRuleSetId: savedRuleSet1._id,
     });
 
     // Get the new unsaved rule set
@@ -459,10 +458,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       api.entities.createAppointmentType,
       {
         duration: 30,
+        expectedDraftRevision: null,
         name: "Surgery",
         practiceId,
         practitionerIds: [practitioner],
-        sourceRuleSetId: initialRuleSetId,
       },
     );
 
@@ -496,9 +495,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         nodeType: "AND",
       },
+      expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Concurrent Test Rule",
       practiceId,
-      sourceRuleSetId: unsavedRuleSet._id,
     });
 
     expect(result.entityId).toBeDefined();
@@ -525,7 +524,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
   });
 
-  test("should delete base schedules even when sourceRuleSetId points to a discarded draft", async () => {
+  test("should delete base schedules after a discarded draft when expected revision is reset", async () => {
     const t = createAuthedTestContext();
 
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -575,18 +574,18 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const firstDelete = await t.mutation(api.entities.deleteBaseSchedule, {
       baseScheduleId,
+      expectedDraftRevision: null,
       practiceId,
-      sourceRuleSetId: initialRuleSetId,
     });
     const discardedDraftRuleSetId = firstDelete.ruleSetId;
 
     await t.mutation(api.entities.createBaseSchedule, {
       dayOfWeek: 1,
       endTime: "12:00",
+      expectedDraftRevision: firstDelete.draftRevision,
       locationId,
       practiceId,
       practitionerId,
-      sourceRuleSetId: discardedDraftRuleSetId,
       startTime: "08:00",
     });
 
@@ -597,8 +596,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const secondDelete = await t.mutation(api.entities.deleteBaseSchedule, {
       baseScheduleId,
+      expectedDraftRevision: null,
       practiceId,
-      sourceRuleSetId: discardedDraftRuleSetId,
     });
 
     expect(secondDelete.ruleSetId).not.toEqual(discardedDraftRuleSetId);
@@ -651,34 +650,34 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const firstCreate = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
+      expectedDraftRevision: null,
       name: "Kontrolle",
       practiceId,
       practitionerIds: [practitionerId],
-      sourceRuleSetId: initialRuleSetId,
     });
 
     const firstDelete = await t.mutation(api.entities.deleteAppointmentType, {
       appointmentTypeId: firstCreate.entityId,
       appointmentTypeLineageKey: firstCreate.entityId,
+      expectedDraftRevision: firstCreate.draftRevision,
       practiceId,
-      sourceRuleSetId: firstCreate.ruleSetId,
     });
     expect(firstDelete.ruleSetId).toEqual(firstCreate.ruleSetId);
 
     const secondCreate = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
+      expectedDraftRevision: firstDelete.draftRevision,
       name: "Kontrolle",
       practiceId,
       practitionerIds: [practitionerId],
-      sourceRuleSetId: firstCreate.ruleSetId,
     });
 
     await expect(
       t.mutation(api.entities.deleteAppointmentType, {
         appointmentTypeId: firstCreate.entityId, // stale/deleted ID
         appointmentTypeLineageKey: firstCreate.entityId,
+        expectedDraftRevision: secondCreate.draftRevision,
         practiceId,
-        sourceRuleSetId: firstCreate.ruleSetId,
       }),
     ).rejects.toThrow(/\[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND\]/);
 
@@ -696,8 +695,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     await t.mutation(api.entities.deleteAppointmentType, {
       appointmentTypeId: secondCreate.entityId,
       appointmentTypeLineageKey: secondCreate.entityId,
+      expectedDraftRevision: secondCreate.draftRevision,
       practiceId,
-      sourceRuleSetId: firstCreate.ruleSetId,
     });
 
     const remainingAfterValidDelete = await t.run(async (ctx) => {
@@ -745,6 +744,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       const ruleSet2Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
         description: "Saved v2",
+        draftRevision: 0,
         parentVersion: ruleSet1Id,
         practiceId,
         saved: true,
@@ -777,6 +777,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       const ruleSet3Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
         description: "Draft v3",
+        draftRevision: 0,
         parentVersion: ruleSet2Id,
         practiceId,
         saved: false,
@@ -828,9 +829,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const deleteResult = await t.mutation(
       api.entities.deletePractitionerWithDependencies,
       {
+        expectedDraftRevision: 0,
         practiceId,
         practitionerId: seeded.practitioner3Id,
-        sourceRuleSetId: seeded.ruleSet3Id,
       },
     );
 
@@ -847,9 +848,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const restoreResult = await t.mutation(
       api.entities.restorePractitionerWithDependencies,
       {
+        expectedDraftRevision: null,
         practiceId,
         snapshot: deleteResult.snapshot,
-        sourceRuleSetId: seeded.ruleSet1Id,
       },
     );
 
@@ -916,6 +917,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       const ruleSet2Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
         description: "Saved v2",
+        draftRevision: 0,
         parentVersion: ruleSet1Id,
         practiceId,
         saved: true,
@@ -936,6 +938,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       const ruleSet3Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
         description: "Draft v3",
+        draftRevision: 0,
         parentVersion: ruleSet2Id,
         practiceId,
         saved: false,

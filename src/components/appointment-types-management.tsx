@@ -37,6 +37,11 @@ import type { LocalHistoryAction } from "../hooks/use-local-history";
 type AppointmentType = AppointmentTypesResult[number];
 
 interface AppointmentTypesManagementProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -94,6 +99,8 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 export function AppointmentTypesManagement({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -135,6 +142,22 @@ export function AppointmentTypesManagement({
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const resolvePractitionerLineageKey = (practitionerId: Id<"practitioners">) =>
     practitionersRef.current.find(
@@ -259,15 +282,15 @@ export function AppointmentTypesManagement({
           );
 
           // Update existing appointment type
-          const { ruleSetId: newRuleSetId } =
-            await updateAppointmentTypeMutation({
-              appointmentTypeId: editingAppointmentType._id,
-              duration: value.duration,
-              name: trimmedName,
-              practiceId,
-              practitionerIds: afterState.practitionerIds,
-              sourceRuleSetId: ruleSetId,
-            });
+          const updateResult = await updateAppointmentTypeMutation({
+            appointmentTypeId: editingAppointmentType._id,
+            duration: value.duration,
+            expectedDraftRevision: getExpectedDraftRevision(),
+            name: trimmedName,
+            practiceId,
+            practitionerIds: afterState.practitionerIds,
+          });
+          handleDraftMutationResult(updateResult);
 
           onRegisterHistoryAction?.({
             label: "Terminart aktualisiert",
@@ -299,14 +322,15 @@ export function AppointmentTypesManagement({
                 return resolvedRedoPractitionerIds;
               }
 
-              await updateAppointmentTypeMutation({
+              const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: editingAppointmentType._id,
                 duration: afterState.duration,
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: afterState.name,
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(redoResult);
 
               return { status: "applied" as const };
             },
@@ -340,14 +364,15 @@ export function AppointmentTypesManagement({
                 return resolvedUndoPractitionerIds;
               }
 
-              await updateAppointmentTypeMutation({
+              const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: editingAppointmentType._id,
                 duration: beforeState.duration,
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeState.name,
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(undoResult);
 
               return { status: "applied" as const };
             },
@@ -360,21 +385,17 @@ export function AppointmentTypesManagement({
           setIsDialogOpen(false);
           setEditingAppointmentType(null);
           form.reset();
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         } else {
           // Create new appointment type
-          const { entityId, ruleSetId: newRuleSetId } =
-            await createAppointmentTypeMutation({
-              duration: value.duration,
-              name: trimmedName,
-              practiceId,
-              practitionerIds: resolvedFormPractitionerIds.ids,
-              sourceRuleSetId: ruleSetId,
-            });
+          const createResult = await createAppointmentTypeMutation({
+            duration: value.duration,
+            expectedDraftRevision: getExpectedDraftRevision(),
+            name: trimmedName,
+            practiceId,
+            practitionerIds: resolvedFormPractitionerIds.ids,
+          });
+          handleDraftMutationResult(createResult);
+          const { entityId } = createResult;
 
           let currentAppointmentTypeId = entityId;
           const appointmentTypeLineageKey = entityId;
@@ -402,23 +423,25 @@ export function AppointmentTypesManagement({
 
               const recreateResult = await createAppointmentTypeMutation({
                 duration: value.duration,
+                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: appointmentTypeLineageKey,
                 name: trimmedName,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(recreateResult);
               currentAppointmentTypeId = recreateResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
               try {
-                await deleteAppointmentTypeMutation({
+                const undoResult = await deleteAppointmentTypeMutation({
                   appointmentTypeId: currentAppointmentTypeId,
                   appointmentTypeLineageKey,
+                  expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
-                  sourceRuleSetId: newRuleSetId,
                 });
+                handleDraftMutationResult(undoResult);
                 return { status: "applied" as const };
               } catch (error: unknown) {
                 if (isMissingEntityError(error)) {
@@ -441,11 +464,6 @@ export function AppointmentTypesManagement({
 
           setIsDialogOpen(false);
           form.reset();
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         }
       } catch (error: unknown) {
         toast.error(
@@ -513,12 +531,13 @@ export function AppointmentTypesManagement({
         deletedSnapshot.practitionerIds,
       );
 
-      const { ruleSetId: newRuleSetId } = await deleteAppointmentTypeMutation({
+      const deleteResult = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
         appointmentTypeLineageKey: deletedSnapshot.lineageKey,
+        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
-        sourceRuleSetId: ruleSetId,
       });
+      handleDraftMutationResult(deleteResult);
 
       let currentAppointmentTypeId = appointmentType._id;
 
@@ -526,12 +545,13 @@ export function AppointmentTypesManagement({
         label: "Terminart gelöscht",
         redo: async () => {
           try {
-            await deleteAppointmentTypeMutation({
+            const redoResult = await deleteAppointmentTypeMutation({
               appointmentTypeId: currentAppointmentTypeId,
               appointmentTypeLineageKey: deletedSnapshot.lineageKey,
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
-              sourceRuleSetId: newRuleSetId,
             });
+            handleDraftMutationResult(redoResult);
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
@@ -584,12 +604,13 @@ export function AppointmentTypesManagement({
 
           const recreateResult = await createAppointmentTypeMutation({
             duration: deletedSnapshot.duration,
+            expectedDraftRevision: getExpectedDraftRevision(),
             lineageKey: deletedSnapshot.lineageKey,
             name: deletedSnapshot.name,
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
-            sourceRuleSetId: newRuleSetId,
           });
+          handleDraftMutationResult(recreateResult);
           currentAppointmentTypeId = recreateResult.entityId;
           return { status: "applied" as const };
         },
@@ -598,11 +619,6 @@ export function AppointmentTypesManagement({
       toast.success("Terminart gelöscht", {
         description: `Terminart "${appointmentType.name}" wurde erfolgreich gelöscht.`,
       });
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-        onRuleSetCreated(newRuleSetId);
-      }
     } catch (error: unknown) {
       toast.error("Fehler beim Löschen", {
         description:

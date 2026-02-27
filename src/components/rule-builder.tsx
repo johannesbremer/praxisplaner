@@ -68,10 +68,16 @@ type ConditionType =
 // Validation helper
 interface NamedEntity {
   _id: string;
+  lineageKey?: string;
   name: string;
 }
 
 interface RuleBuilderProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
@@ -105,7 +111,7 @@ interface RuleFromDB {
 
 interface RuleReferenceEntry {
   id: string;
-  name: null | string;
+  lineageKey: null | string;
 }
 
 interface RuleReferenceSnapshot {
@@ -122,6 +128,8 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 export function RuleBuilder({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleCreated,
   practiceId,
@@ -153,6 +161,23 @@ export function RuleBuilder({
   useEffect(() => {
     rulesRef.current = existingRules ?? [];
   }, [existingRules]);
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    onDraftMutation?.(result);
+    if (onRuleCreated && result.ruleSetId !== ruleSetId) {
+      onRuleCreated(result.ruleSetId);
+    }
+  };
 
   // Check if all data is loaded
   const dataReady = Boolean(appointmentTypes && practitioners && locations);
@@ -190,11 +215,12 @@ export function RuleBuilder({
           )
         : "Regel";
 
-      const { ruleSetId: newRuleSetId } = await deleteRuleMutation({
+      const deleteResult = await deleteRuleMutation({
+        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         ruleId,
-        sourceRuleSetId: ruleSetId,
       });
+      handleDraftMutationResult(deleteResult);
 
       if (deletedRule) {
         let currentRuleId = ruleId;
@@ -237,11 +263,12 @@ export function RuleBuilder({
             currentRuleId = existing._id;
 
             try {
-              await deleteRuleMutation({
+              const redoResult = await deleteRuleMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: currentRuleId,
-                sourceRuleSetId: newRuleSetId,
               });
+              handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
             } catch (error: unknown) {
               if (isMissingEntityError(error)) {
@@ -275,19 +302,15 @@ export function RuleBuilder({
                 typeof createRuleMutation
               >[0]["conditionTree"],
               enabled: deletedRule.enabled,
+              expectedDraftRevision: getExpectedDraftRevision(),
               name: deletedRuleName,
               practiceId,
-              sourceRuleSetId: newRuleSetId,
             });
+            handleDraftMutationResult(recreateResult);
             currentRuleId = recreateResult.entityId;
             return { status: "applied" as const };
           },
         });
-      }
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleCreated && newRuleSetId !== ruleSetId) {
-        onRuleCreated(newRuleSetId);
       }
     } catch (error) {
       console.error("Failed to delete rule:", error);
@@ -367,16 +390,14 @@ export function RuleBuilder({
                 ? undefined
                 : rulesRef.current.find((rule) => rule._id === editingRuleId);
 
-            let finalRuleSetId = ruleSetId;
-
             if (editingRuleId !== "new") {
               // Delete old rule first
-              const { ruleSetId: deleteRuleSetId } = await deleteRuleMutation({
+              const deleteResult = await deleteRuleMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: editingRuleId,
-                sourceRuleSetId: ruleSetId,
               });
-              finalRuleSetId = deleteRuleSetId;
+              handleDraftMutationResult(deleteResult);
             }
 
             const conditions = conditionTreeToConditions(
@@ -389,18 +410,18 @@ export function RuleBuilder({
               locations,
             );
 
-            const { entityId, ruleSetId: createRuleSetId } =
-              await createRuleMutation({
-                conditionTree: conditionTree as Parameters<
-                  typeof createRuleMutation
-                >[0]["conditionTree"],
-                enabled: true,
-                name: ruleName,
-                practiceId,
-                sourceRuleSetId: finalRuleSetId,
-              });
+            const createResult = await createRuleMutation({
+              conditionTree: conditionTree as Parameters<
+                typeof createRuleMutation
+              >[0]["conditionTree"],
+              enabled: true,
+              expectedDraftRevision: getExpectedDraftRevision(),
+              name: ruleName,
+              practiceId,
+            });
+            handleDraftMutationResult(createResult);
 
-            let currentRuleId = entityId;
+            let currentRuleId = createResult.entityId;
             const currentRuleState = serializeRuleState(conditionTree, true);
 
             if (previousRule) {
@@ -466,21 +487,23 @@ export function RuleBuilder({
                     };
                   }
 
-                  await deleteRuleMutation({
+                  const redoDeleteResult = await deleteRuleMutation({
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    sourceRuleSetId: createRuleSetId,
                   });
+                  handleDraftMutationResult(redoDeleteResult);
 
                   const recreateResult = await createRuleMutation({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    sourceRuleSetId: createRuleSetId,
                   });
+                  handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
                 },
@@ -521,21 +544,23 @@ export function RuleBuilder({
                     };
                   }
 
-                  await deleteRuleMutation({
+                  const undoDeleteResult = await deleteRuleMutation({
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    sourceRuleSetId: createRuleSetId,
                   });
+                  handleDraftMutationResult(undoDeleteResult);
 
                   const recreatePrevious = await createRuleMutation({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: previousRule.enabled,
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: previousRuleName,
                     practiceId,
-                    sourceRuleSetId: createRuleSetId,
                   });
+                  handleDraftMutationResult(recreatePrevious);
                   currentRuleId = recreatePrevious.entityId;
                   return { status: "applied" as const };
                 },
@@ -568,20 +593,22 @@ export function RuleBuilder({
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
+                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    sourceRuleSetId: createRuleSetId,
                   });
+                  handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
                 },
                 undo: async () => {
                   try {
-                    await deleteRuleMutation({
+                    const undoDeleteResult = await deleteRuleMutation({
+                      expectedDraftRevision: getExpectedDraftRevision(),
                       practiceId,
                       ruleId: currentRuleId,
-                      sourceRuleSetId: createRuleSetId,
                     });
+                    handleDraftMutationResult(undoDeleteResult);
                     return { status: "applied" as const };
                   } catch (error: unknown) {
                     if (isMissingEntityError(error)) {
@@ -600,11 +627,6 @@ export function RuleBuilder({
             }
 
             closeDialog();
-
-            // Notify parent if rule set changed (new unsaved rule set was created)
-            if (onRuleCreated && createRuleSetId !== ruleSetId) {
-              onRuleCreated(createRuleSetId);
-            }
           }}
           practitioners={practitioners}
         />
@@ -672,11 +694,11 @@ function createReferenceResolver(
   missingGroups: Set<string>,
 ): (id: string) => null | string {
   const entityIds = new Set(entities.map((entry) => entry._id));
-  const entitiesByName = new Map(
-    entities.map((entry) => [entry.name, entry._id]),
+  const entitiesByLineageKey = new Map(
+    entities.map((entry) => [entry.lineageKey ?? entry._id, entry._id]),
   );
-  const snapshotNamesById = new Map(
-    snapshotEntries.map((entry) => [entry.id, entry.name]),
+  const snapshotLineageKeyById = new Map(
+    snapshotEntries.map((entry) => [entry.id, entry.lineageKey]),
   );
 
   return (id) => {
@@ -684,9 +706,9 @@ function createReferenceResolver(
       return id;
     }
 
-    const snapshotName = snapshotNamesById.get(id);
-    if (snapshotName) {
-      const remappedId = entitiesByName.get(snapshotName);
+    const snapshotLineageKey = snapshotLineageKeyById.get(id);
+    if (snapshotLineageKey) {
+      const remappedId = entitiesByLineageKey.get(snapshotLineageKey);
       if (remappedId) {
         return remappedId;
       }
@@ -704,28 +726,28 @@ function createRuleReferenceSnapshot(
   locations: NamedEntity[],
 ): RuleReferenceSnapshot {
   const referencedIds = collectRuleReferenceIds(conditionTree);
-  const appointmentTypeNameById = new Map(
-    appointmentTypes.map((entry) => [entry._id, entry.name]),
+  const appointmentTypeLineageById = new Map(
+    appointmentTypes.map((entry) => [entry._id, entry.lineageKey ?? null]),
   );
-  const practitionerNameById = new Map(
-    practitioners.map((entry) => [entry._id, entry.name]),
+  const practitionerLineageById = new Map(
+    practitioners.map((entry) => [entry._id, entry.lineageKey ?? null]),
   );
-  const locationNameById = new Map(
-    locations.map((entry) => [entry._id, entry.name]),
+  const locationLineageById = new Map(
+    locations.map((entry) => [entry._id, entry.lineageKey ?? null]),
   );
 
   return {
     appointmentTypes: [...referencedIds.appointmentTypeIds].map((id) => ({
       id,
-      name: appointmentTypeNameById.get(id) ?? null,
+      lineageKey: appointmentTypeLineageById.get(id) ?? null,
     })),
     locations: [...referencedIds.locationIds].map((id) => ({
       id,
-      name: locationNameById.get(id) ?? null,
+      lineageKey: locationLineageById.get(id) ?? null,
     })),
     practitioners: [...referencedIds.practitionerIds].map((id) => ({
       id,
-      name: practitionerNameById.get(id) ?? null,
+      lineageKey: practitionerLineageById.get(id) ?? null,
     })),
   };
 }

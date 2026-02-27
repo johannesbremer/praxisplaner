@@ -917,6 +917,7 @@ export default defineSchema({
   ruleSets: defineTable({
     createdAt: v.number(),
     description: v.string(),
+    draftRevision: v.number(), // 0 for saved rule sets; monotonic for unsaved drafts
     parentVersion: v.optional(v.id("ruleSets")), // Single parent (git-like model)
     practiceId: v.id("practices"),
     saved: v.boolean(), // true = saved rule set, false = unsaved/draft rule set

@@ -12,6 +12,7 @@ export interface LocalHistoryAction {
 export interface LocalHistoryResult {
   canRedoAfter?: boolean;
   canUndoAfter?: boolean;
+  conflictCode?: string;
   message?: string;
   status: LocalHistoryStatus;
 }
@@ -179,12 +180,20 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
   };
 }
 
+function extractConflictCode(message: string): string | undefined {
+  const match = /\[([A-Z0-9:_-]+)\]/.exec(message);
+  return match?.[1];
+}
+
 function toResult(result: LocalHistoryResult): LocalHistoryResult {
   if (result.status === "applied" || result.status === "noop") {
     return result;
   }
 
+  const conflictCode =
+    result.conflictCode ?? extractConflictCode(result.message ?? "");
   return {
+    ...(conflictCode && { conflictCode }),
     message: result.message ?? DEFAULT_ERROR_MESSAGE,
     status: "conflict",
   };
@@ -200,8 +209,11 @@ function withActionContext(
   }
 
   const operationLabel = operation === "undo" ? "Undo" : "Redo";
+  const conflictCode =
+    result.conflictCode ?? extractConflictCode(result.message ?? "");
   return {
     ...result,
+    ...(conflictCode && { conflictCode }),
     message:
       `[HISTORY:${operation.toUpperCase()}] ${operationLabel} für Aktion "${action.label}" fehlgeschlagen.\n` +
       `Grund: ${result.message ?? DEFAULT_ERROR_MESSAGE}`,

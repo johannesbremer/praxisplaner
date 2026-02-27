@@ -8,11 +8,7 @@ import { v } from "convex/values";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
-import {
-  findUnsavedRuleSet,
-  getOrCreateUnsavedRuleSet,
-  validateRuleSet,
-} from "./copyOnWrite";
+import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -456,6 +452,7 @@ export const saveUnsavedRuleSet = mutation({
     // Update to saved state
     await ctx.db.patch("ruleSets", unsavedRuleSet._id, {
       description: trimmedDescription,
+      draftRevision: 0,
       saved: true,
     });
 
@@ -521,6 +518,7 @@ export const getUnsavedRuleSet = query({
       _id: v.id("ruleSets"),
       createdAt: v.number(),
       description: v.string(),
+      draftRevision: v.number(),
       parentVersion: v.optional(v.id("ruleSets")),
       practiceId: v.id("practices"),
       saved: v.boolean(),
@@ -713,26 +711,6 @@ export const deleteUnsavedRuleSet = mutation({
 });
 
 /**
- * Ensure there is an unsaved rule set for the given source.
- * Useful when redo needs a writable draft after the previous draft was discarded.
- */
-export const ensureUnsavedRuleSet = mutation({
-  args: {
-    practiceId: v.id("practices"),
-    sourceRuleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    return await getOrCreateUnsavedRuleSet(
-      ctx.db,
-      args.practiceId,
-      args.sourceRuleSetId,
-    );
-  },
-  returns: v.id("ruleSets"),
-});
-
-/**
  * Discard an unsaved rule set only when it is semantically equivalent to its parent.
  * This prevents accidental deletion of drafts that still contain changes.
  */
@@ -814,5 +792,48 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
       v.literal("not_unsaved"),
       v.literal("parent_missing"),
     ),
+  }),
+});
+
+/**
+ * Backfill draftRevision on rule sets and validate unsaved-draft invariant.
+ * Intended for one-time migrations during pre-production refactors.
+ */
+export const backfillRuleSetDraftRevisions = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const allRuleSets = await ctx.db.query("ruleSets").collect();
+    let patchedCount = 0;
+
+    const unsavedCountByPractice = new Map<Id<"practices">, number>();
+    for (const ruleSet of allRuleSets) {
+      if (!ruleSet.saved) {
+        unsavedCountByPractice.set(
+          ruleSet.practiceId,
+          (unsavedCountByPractice.get(ruleSet.practiceId) ?? 0) + 1,
+        );
+      }
+      if (typeof ruleSet.draftRevision !== "number") {
+        await ctx.db.patch("ruleSets", ruleSet._id, { draftRevision: 0 });
+        patchedCount += 1;
+      }
+    }
+
+    for (const [practiceId, unsavedCount] of unsavedCountByPractice.entries()) {
+      if (unsavedCount > 1) {
+        throw new Error(
+          `[MIGRATION:UNSAVED_RULE_SET_INVARIANT] Praxis ${practiceId} hat ${unsavedCount} ungespeicherte Regelsets (erwartet maximal 1).`,
+        );
+      }
+    }
+
+    return {
+      patchedCount,
+      ruleSetCount: allRuleSets.length,
+    };
+  },
+  returns: v.object({
+    patchedCount: v.number(),
+    ruleSetCount: v.number(),
   }),
 });
