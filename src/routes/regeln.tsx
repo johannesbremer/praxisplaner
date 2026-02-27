@@ -332,11 +332,9 @@ function LogicView() {
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
-    const rawUnsaved =
-      ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId) ??
-      (existingUnsavedRuleSet
-        ? ruleSetsQuery?.find((rs) => rs._id === existingUnsavedRuleSet._id)
-        : undefined);
+    const rawUnsaved = unsavedRuleSetId
+      ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
+      : undefined;
     if (!rawUnsaved || !currentPractice) {
       return;
     }
@@ -348,12 +346,7 @@ function LogicView() {
       parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
-  }, [
-    ruleSetsQuery,
-    unsavedRuleSetId,
-    existingUnsavedRuleSet,
-    currentPractice,
-  ]);
+  }, [ruleSetsQuery, unsavedRuleSetId, currentPractice]);
 
   // Get the search params directly to determine which rule set to use
   const routeSearch: RegelnSearchParams = Route.useSearch();
