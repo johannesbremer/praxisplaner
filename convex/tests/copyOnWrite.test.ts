@@ -827,4 +827,70 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       restoredState.targetLocation._id,
     );
   });
+
+  test("should expose stable practitioner lineageRootId across deep rule-set lineage", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+
+    const seeded = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice?.currentActiveRuleSetId) {
+        throw new Error("Practice has no active rule set");
+      }
+
+      const ruleSet1Id = practice.currentActiveRuleSetId;
+      const ruleSet1 = await ctx.db.get("ruleSets", ruleSet1Id);
+      if (!ruleSet1) {
+        throw new Error("Initial rule set missing");
+      }
+
+      const practitioner1Id = await ctx.db.insert("practitioners", {
+        name: "Dr. Lineage",
+        practiceId,
+        ruleSetId: ruleSet1Id,
+      });
+
+      const ruleSet2Id = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved v2",
+        parentVersion: ruleSet1Id,
+        practiceId,
+        saved: true,
+        version: ruleSet1.version + 1,
+      });
+      const practitioner2Id = await ctx.db.insert("practitioners", {
+        name: "Dr. Lineage",
+        parentId: practitioner1Id,
+        practiceId,
+        ruleSetId: ruleSet2Id,
+      });
+
+      const ruleSet3Id = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft v3",
+        parentVersion: ruleSet2Id,
+        practiceId,
+        saved: false,
+        version: ruleSet1.version + 2,
+      });
+      await ctx.db.insert("practitioners", {
+        name: "Dr. Lineage",
+        parentId: practitioner2Id,
+        practiceId,
+        ruleSetId: ruleSet3Id,
+      });
+
+      return { practitioner1Id, ruleSet3Id };
+    });
+
+    const practitioners = await t.query(api.entities.getPractitioners, {
+      ruleSetId: seeded.ruleSet3Id,
+    });
+
+    expect(practitioners).toHaveLength(1);
+    expect(practitioners[0]?.lineageRootId).toEqual(seeded.practitioner1Id);
+  });
 });

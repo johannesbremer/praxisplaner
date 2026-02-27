@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,8 @@ interface AppointmentTypesManagementProps {
 
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
+type PractitionersResult = (typeof api.entities.getPractitioners)["_returnType"];
+type PractitionerWithLineage = PractitionersResult[number];
 
 // Form schema using Zod
 const formSchema = z.object({
@@ -128,15 +130,17 @@ export function AppointmentTypesManagement({
   useEffect(() => {
     appointmentTypesRef.current = appointmentTypes;
   }, [appointmentTypes]);
-  const practitionersRef = useRef<Doc<"practitioners">[]>(practitioners);
+  const practitionersRef = useRef<PractitionerWithLineage[]>(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
 
-  const resolvePractitionerLineageId = (practitionerId: Id<"practitioners">) =>
+  const resolvePractitionerLineageRootId = (
+    practitionerId: Id<"practitioners">,
+  ) =>
     practitionersRef.current.find(
       (practitioner) => practitioner._id === practitionerId,
-    )?.parentId ?? practitionerId;
+    )?.lineageRootId ?? practitionerId;
 
   const createPractitionerSnapshots = (
     practitionerIds: Id<"practitioners">[],
@@ -149,7 +153,7 @@ export function AppointmentTypesManagement({
     );
 
     return practitionerIds.map((id) => ({
-      lineageId: resolvePractitionerLineageId(id),
+      lineageId: resolvePractitionerLineageRootId(id),
       name: nameById.get(id) ?? id,
     }));
   };
@@ -158,7 +162,9 @@ export function AppointmentTypesManagement({
     practitionerIds: Id<"practitioners">[],
   ) =>
     practitionerIds
-      .map((practitionerId) => resolvePractitionerLineageId(practitionerId))
+      .map((practitionerId) =>
+        resolvePractitionerLineageRootId(practitionerId),
+      )
       .toSorted();
 
   const resolvePractitionerIdsFromSnapshots = (
@@ -170,29 +176,29 @@ export function AppointmentTypesManagement({
     const seen = new Set<Id<"practitioners">>();
 
     for (const snapshot of snapshots) {
-      const directMatch = practitionersRef.current.find(
-        (practitioner) => practitioner._id === snapshot.lineageId,
+      const lineageMatches = practitionersRef.current.filter(
+        (practitioner) => practitioner.lineageRootId === snapshot.lineageId,
       );
-      const byParentMatches =
-        directMatch === undefined
-          ? practitionersRef.current.filter(
-              (practitioner) => practitioner.parentId === snapshot.lineageId,
-            )
-          : [];
-      const byParentMatch =
-        byParentMatches.length === 1 ? byParentMatches[0] : undefined;
-      const resolvedPractitionerId = directMatch?._id ?? byParentMatch?._id;
 
-      if (byParentMatches.length > 1) {
+      if (lineageMatches.length > 1) {
         return {
-          message: `Der Behandler "${snapshot.name}" kann nicht eindeutig zugeordnet werden.`,
+          message:
+            `[HISTORY:PRACTITIONER_LINEAGE_AMBIGUOUS] Der Behandler "${snapshot.name}" kann nicht eindeutig zugeordnet werden.\n` +
+            `Lineage-ID: ${snapshot.lineageId}\n` +
+            `Regelset: ${ruleSetId}\n` +
+            `Treffer: ${lineageMatches.length}`,
           status: "conflict",
         };
       }
 
+      const resolvedPractitionerId = lineageMatches[0]?._id;
       if (!resolvedPractitionerId) {
         return {
-          message: `Der Behandler "${snapshot.name}" existiert nicht mehr.`,
+          message:
+            `[HISTORY:PRACTITIONER_LINEAGE_MISSING] Der Behandler "${snapshot.name}" konnte im aktuellen Regelset nicht aufgelöst werden.\n` +
+            `Lineage-ID: ${snapshot.lineageId}\n` +
+            `Regelset: ${ruleSetId}\n` +
+            `Hinweis: Die Undo/Redo-Aktion verweist auf eine Behandler-Linie, die im aktuellen Entwurf fehlt.`,
           status: "conflict",
         };
       }

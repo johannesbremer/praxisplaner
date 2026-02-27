@@ -359,6 +359,36 @@ async function resolvePractitionerEntityInRuleSet(
   return practitionerCopy;
 }
 
+async function resolvePractitionerLineageRootId(
+  db: DatabaseReader,
+  practitionerId: Id<"practitioners">,
+): Promise<Id<"practitioners">> {
+  let currentId: Id<"practitioners"> = practitionerId;
+  const visited = new Set<Id<"practitioners">>();
+
+  for (;;) {
+    if (visited.has(currentId)) {
+      throw new Error(
+        `Practitioner lineage cycle detected while resolving ${practitionerId}.`,
+      );
+    }
+    visited.add(currentId);
+
+    const practitioner = await db.get("practitioners", currentId);
+    if (!practitioner) {
+      throw new Error(
+        `Practitioner lineage broken at ${currentId} while resolving ${practitionerId}.`,
+      );
+    }
+
+    if (!practitioner.parentId) {
+      return practitioner._id;
+    }
+
+    currentId = practitioner.parentId;
+  }
+}
+
 /**
  * Resolve practitioner IDs to their unsaved rule set versions.
  * Validates that practitioners exist, belong to the practice, and resolves them
@@ -1367,10 +1397,20 @@ export const getPractitioners = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
-    return await ctx.db
+    const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
+
+    return await Promise.all(
+      practitioners.map(async (practitioner) => ({
+        ...practitioner,
+        lineageRootId: await resolvePractitionerLineageRootId(
+          ctx.db,
+          practitioner._id,
+        ),
+      })),
+    );
   },
 });
 

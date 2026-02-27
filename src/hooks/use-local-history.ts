@@ -110,7 +110,11 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
 
         try {
           const rawResult = await action[operation]();
-          const result = toResult(rawResult);
+          const result = withActionContext(
+            action,
+            operation,
+            toResult(rawResult),
+          );
 
           if (result.status === "applied") {
             from.current = from.current.slice(0, -1);
@@ -126,11 +130,11 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
         } catch (error) {
           optionsRef.current.onError?.(action, operation, error);
           return withHistoryState(
-            {
+            withActionContext(action, operation, {
               message:
                 error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE,
               status: "conflict",
-            },
+            }),
             historyRef,
             redoRef,
           );
@@ -183,6 +187,24 @@ function toResult(result: LocalHistoryResult): LocalHistoryResult {
   return {
     message: result.message ?? DEFAULT_ERROR_MESSAGE,
     status: "conflict",
+  };
+}
+
+function withActionContext(
+  action: LocalHistoryAction,
+  operation: "redo" | "undo",
+  result: LocalHistoryResult,
+): LocalHistoryResult {
+  if (result.status !== "conflict") {
+    return result;
+  }
+
+  const operationLabel = operation === "undo" ? "Undo" : "Redo";
+  return {
+    ...result,
+    message:
+      `[HISTORY:${operation.toUpperCase()}] ${operationLabel} für Aktion "${action.label}" fehlgeschlagen.\n` +
+      `Grund: ${result.message ?? DEFAULT_ERROR_MESSAGE}`,
   };
 }
 

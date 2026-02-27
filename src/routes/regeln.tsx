@@ -503,7 +503,9 @@ function LogicView() {
     if (result.status === "applied") {
       toast.success("Änderung rückgängig gemacht");
       await maybeDiscardEquivalentUnsavedRuleSet("undo");
+      return;
     }
+    toast.info("Keine rückgängig machbare Änderung vorhanden.");
   }, [
     activeTab,
     captureError,
@@ -553,7 +555,9 @@ function LogicView() {
     if (result.status === "applied") {
       toast.success("Änderung wiederhergestellt");
       await maybeDiscardEquivalentUnsavedRuleSet("redo");
+      return;
     }
+    toast.info("Keine wiederherstellbare Änderung vorhanden.");
   }, [
     activeTab,
     captureError,
