@@ -224,16 +224,20 @@ export function RuleBuilder({
 
       if (deletedRule) {
         let currentRuleId = ruleId;
-        const deletedRuleState = serializeRuleState(
-          deletedRule.conditionTree,
-          deletedRule.enabled,
-        );
         const deletedRuleReferenceSnapshot = createRuleReferenceSnapshot(
           deletedRule.conditionTree,
           appointmentTypesRef.current,
           practitionersRef.current,
           locationsRef.current,
         );
+        const deletedRuleState = serializeRuleStateForComparison({
+          appointmentTypes: appointmentTypesRef.current,
+          conditionTree: deletedRule.conditionTree,
+          enabled: deletedRule.enabled,
+          locations: locationsRef.current,
+          practitioners: practitionersRef.current,
+          referenceSnapshot: deletedRuleReferenceSnapshot,
+        });
         onRegisterHistoryAction?.({
           label: "Regel gelöscht",
           redo: async () => {
@@ -241,13 +245,25 @@ export function RuleBuilder({
               rulesRef.current.find((rule) => rule._id === currentRuleId) ??
               rulesRef.current.find(
                 (rule) =>
-                  serializeRuleState(rule.conditionTree, rule.enabled) ===
-                  deletedRuleState,
+                  serializeRuleStateForComparison({
+                    appointmentTypes: appointmentTypesRef.current,
+                    conditionTree: rule.conditionTree,
+                    enabled: rule.enabled,
+                    locations: locationsRef.current,
+                    practitioners: practitionersRef.current,
+                    referenceSnapshot: deletedRuleReferenceSnapshot,
+                  }) === deletedRuleState,
               );
             if (
               existing &&
-              serializeRuleState(existing.conditionTree, existing.enabled) !==
-                deletedRuleState
+              serializeRuleStateForComparison({
+                appointmentTypes: appointmentTypesRef.current,
+                conditionTree: existing.conditionTree,
+                enabled: existing.enabled,
+                locations: locationsRef.current,
+                practitioners: practitionersRef.current,
+                referenceSnapshot: deletedRuleReferenceSnapshot,
+              }) !== deletedRuleState
             ) {
               return {
                 message:
@@ -422,7 +438,6 @@ export function RuleBuilder({
             handleDraftMutationResult(createResult);
 
             let currentRuleId = createResult.entityId;
-            const currentRuleState = serializeRuleState(conditionTree, true);
 
             if (previousRule) {
               const previousRuleName = generateRuleName(
@@ -431,22 +446,34 @@ export function RuleBuilder({
                 practitioners,
                 locations,
               );
-              const previousRuleState = serializeRuleState(
-                previousRule.conditionTree,
-                previousRule.enabled,
-              );
               const currentRuleReferenceSnapshot = createRuleReferenceSnapshot(
                 conditionTree,
                 appointmentTypes,
                 practitioners,
                 locations,
               );
+              const currentRuleState = serializeRuleStateForComparison({
+                appointmentTypes,
+                conditionTree,
+                enabled: true,
+                locations,
+                practitioners,
+                referenceSnapshot: currentRuleReferenceSnapshot,
+              });
               const previousRuleReferenceSnapshot = createRuleReferenceSnapshot(
                 previousRule.conditionTree,
                 appointmentTypes,
                 practitioners,
                 locations,
               );
+              const previousRuleState = serializeRuleStateForComparison({
+                appointmentTypes,
+                conditionTree: previousRule.conditionTree,
+                enabled: previousRule.enabled,
+                locations,
+                practitioners,
+                referenceSnapshot: previousRuleReferenceSnapshot,
+              });
 
               onRegisterHistoryAction?.({
                 label: "Regel aktualisiert",
@@ -462,10 +489,14 @@ export function RuleBuilder({
                     };
                   }
                   if (
-                    serializeRuleState(
-                      existing.conditionTree,
-                      existing.enabled,
-                    ) !== previousRuleState
+                    serializeRuleStateForComparison({
+                      appointmentTypes: appointmentTypesRef.current,
+                      conditionTree: existing.conditionTree,
+                      enabled: existing.enabled,
+                      locations: locationsRef.current,
+                      practitioners: practitionersRef.current,
+                      referenceSnapshot: previousRuleReferenceSnapshot,
+                    }) !== previousRuleState
                   ) {
                     return {
                       message:
@@ -519,10 +550,14 @@ export function RuleBuilder({
                     };
                   }
                   if (
-                    serializeRuleState(
-                      existing.conditionTree,
-                      existing.enabled,
-                    ) !== currentRuleState
+                    serializeRuleStateForComparison({
+                      appointmentTypes: appointmentTypesRef.current,
+                      conditionTree: existing.conditionTree,
+                      enabled: existing.enabled,
+                      locations: locationsRef.current,
+                      practitioners: practitionersRef.current,
+                      referenceSnapshot: currentRuleReferenceSnapshot,
+                    }) !== currentRuleState
                   ) {
                     return {
                       message:
@@ -687,6 +722,20 @@ function collectRuleReferenceIds(conditionTree: unknown): {
   };
 }
 
+function createLineageResolver(
+  entities: NamedEntity[],
+  snapshotEntries: RuleReferenceEntry[],
+): (id: string) => string {
+  const entitiesById = new Map(
+    entities.map((entry) => [entry._id, entry.lineageKey ?? entry._id]),
+  );
+  const snapshotLineageById = new Map(
+    snapshotEntries.map((entry) => [entry.id, entry.lineageKey ?? entry.id]),
+  );
+
+  return (id) => entitiesById.get(id) ?? snapshotLineageById.get(id) ?? id;
+}
+
 function createReferenceResolver(
   entities: NamedEntity[],
   snapshotEntries: RuleReferenceEntry[],
@@ -750,6 +799,78 @@ function createRuleReferenceSnapshot(
       lineageKey: practitionerLineageById.get(id) ?? null,
     })),
   };
+}
+
+function normalizeConditionTreeForComparison(
+  conditionTree: unknown,
+  normalizeAppointmentTypeId: (id: string) => string,
+  normalizePractitionerId: (id: string) => string,
+  normalizeLocationId: (id: string) => string,
+): unknown {
+  if (!conditionTree || typeof conditionTree !== "object") {
+    return conditionTree;
+  }
+
+  if (Array.isArray(conditionTree)) {
+    return conditionTree.map((node) =>
+      normalizeConditionTreeForComparison(
+        node,
+        normalizeAppointmentTypeId,
+        normalizePractitionerId,
+        normalizeLocationId,
+      ),
+    );
+  }
+
+  const node = conditionTree as Record<string, unknown>;
+  const nodeType = node["nodeType"];
+  const valueIds = node["valueIds"];
+  const conditionType = node["conditionType"];
+  const children = node["children"];
+
+  if (
+    nodeType === "CONDITION" &&
+    Array.isArray(valueIds) &&
+    typeof conditionType === "string"
+  ) {
+    const normalizeId =
+      conditionType === "APPOINTMENT_TYPE" ||
+      conditionType === "CONCURRENT_COUNT" ||
+      conditionType === "DAILY_CAPACITY"
+        ? normalizeAppointmentTypeId
+        : conditionType === "PRACTITIONER"
+          ? normalizePractitionerId
+          : conditionType === "LOCATION"
+            ? normalizeLocationId
+            : null;
+
+    if (!normalizeId) {
+      return node;
+    }
+
+    return {
+      ...node,
+      valueIds: valueIds
+        .filter((valueId): valueId is string => typeof valueId === "string")
+        .map((valueId) => normalizeId(valueId)),
+    };
+  }
+
+  if ((nodeType === "AND" || nodeType === "NOT") && Array.isArray(children)) {
+    return {
+      ...node,
+      children: children.map((child) =>
+        normalizeConditionTreeForComparison(
+          child,
+          normalizeAppointmentTypeId,
+          normalizePractitionerId,
+          normalizeLocationId,
+        ),
+      ),
+    };
+  }
+
+  return node;
 }
 
 function prepareRuleConditionTreeForReplay(
@@ -898,6 +1019,36 @@ function serializeRuleState(conditionTree: unknown, enabled: boolean): string {
       return Object.fromEntries(sortedEntries);
     },
   );
+}
+
+function serializeRuleStateForComparison(params: {
+  appointmentTypes: NamedEntity[];
+  conditionTree: unknown;
+  enabled: boolean;
+  locations: NamedEntity[];
+  practitioners: NamedEntity[];
+  referenceSnapshot: RuleReferenceSnapshot;
+}): string {
+  const normalizeAppointmentTypeId = createLineageResolver(
+    params.appointmentTypes,
+    params.referenceSnapshot.appointmentTypes,
+  );
+  const normalizePractitionerId = createLineageResolver(
+    params.practitioners,
+    params.referenceSnapshot.practitioners,
+  );
+  const normalizeLocationId = createLineageResolver(
+    params.locations,
+    params.referenceSnapshot.locations,
+  );
+  const normalizedConditionTree = normalizeConditionTreeForComparison(
+    params.conditionTree,
+    normalizeAppointmentTypeId,
+    normalizePractitionerId,
+    normalizeLocationId,
+  );
+
+  return serializeRuleState(normalizedConditionTree, params.enabled);
 }
 
 function validateCondition(condition: Condition): string[] {
