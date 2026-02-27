@@ -97,6 +97,9 @@ export default function PractitionerManagement({
       let currentSnapshot = deleteResult.snapshot;
       let currentPractitionerId = currentSnapshot.practitioner.id;
       onRegisterHistoryAction?.({
+        // Deleting a practitioner cascades into dependent entities.
+        // Older history entries in the same scope can become invalid snapshots.
+        clearHistoryBefore: true,
         label: "Arzt gelöscht",
         redo: async () => {
           try {

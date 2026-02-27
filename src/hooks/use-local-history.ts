@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface LocalHistoryAction {
+  clearHistoryBefore?: boolean;
   label: string;
   redo: () => LocalHistoryResult | Promise<LocalHistoryResult>;
   undo: () => LocalHistoryResult | Promise<LocalHistoryResult>;
@@ -77,7 +78,8 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
         Number.isFinite(maxDepthRaw) && maxDepthRaw > 0
           ? Math.floor(maxDepthRaw)
           : DEFAULT_MAX_DEPTH;
-      const nextHistory = [...historyRef.current, action];
+      const baseHistory = action.clearHistoryBefore ? [] : historyRef.current;
+      const nextHistory = [...baseHistory, action];
       historyRef.current = nextHistory.slice(-maxDepth);
       redoRef.current = [];
       syncState();
