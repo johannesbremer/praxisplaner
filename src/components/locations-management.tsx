@@ -32,15 +32,31 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
+type BaseSchedulesResult =
+  (typeof api.entities.getBaseSchedules)["_returnType"];
+
+type BaseScheduleWithLineage = BaseSchedulesResult[number];
+interface DeletedLocationScheduleSnapshot {
+  breakTimes?: { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  lineageKey: Id<"baseSchedules">;
+  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
+  startTime: string;
+}
 interface LocationsManagementProps {
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
-
 type LocationsResult = (typeof api.entities.getLocations)["_returnType"];
 type LocationWithLineage = LocationsResult[number];
+type PractitionersResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+
+type PractitionerWithLineage = PractitionersResult[number];
 
 export function LocationsManagement({
   onRegisterHistoryAction,
@@ -56,13 +72,34 @@ export function LocationsManagement({
 
   const { captureError } = useErrorTracking();
   const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
+  });
+  const baseSchedulesQuery = useQuery(api.entities.getBaseSchedules, {
+    ruleSetId,
+  });
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
+  const createBaseScheduleMutation = useMutation(
+    api.entities.createBaseSchedule,
+  );
   const locationsRef = useRef<LocationWithLineage[]>(locationsQuery ?? []);
   useEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
+    practitionersQuery ?? [],
+  );
+  useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+  const baseSchedulesRef = useRef<BaseScheduleWithLineage[]>(
+    baseSchedulesQuery ?? [],
+  );
+  useEffect(() => {
+    baseSchedulesRef.current = baseSchedulesQuery ?? [];
+  }, [baseSchedulesQuery]);
 
   const form = useForm({
     defaultValues: {
@@ -242,6 +279,28 @@ export function LocationsManagement({
       const deletedSnapshot = locationsRef.current.find(
         (location) => location._id === locationId,
       );
+      const deletedScheduleSnapshots: DeletedLocationScheduleSnapshot[] =
+        baseSchedulesRef.current
+          .filter((schedule) => schedule.locationId === locationId)
+          .map((schedule) => {
+            const practitioner = practitionersRef.current.find(
+              (entry) => entry._id === schedule.practitionerId,
+            );
+            if (!practitioner) {
+              throw new Error(
+                `[HISTORY:LOCATION_DELETE_PRACTITIONER_MISSING] Behandler ${schedule.practitionerId} der Arbeitszeit ${schedule._id} konnte nicht geladen werden.`,
+              );
+            }
+            return {
+              ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+              dayOfWeek: schedule.dayOfWeek,
+              endTime: schedule.endTime,
+              lineageKey: schedule.lineageKey,
+              practitionerId: schedule.practitionerId,
+              practitionerLineageKey: practitioner.lineageKey,
+              startTime: schedule.startTime,
+            };
+          });
 
       const deleteArgs: {
         locationId: Id<"locations">;
@@ -312,6 +371,33 @@ export function LocationsManagement({
               sourceRuleSetId: newRuleSetId,
             });
             currentLocationId = recreateResult.entityId;
+
+            for (const schedule of deletedScheduleSnapshots) {
+              const existingByLineage = baseSchedulesRef.current.find(
+                (entry) => entry.lineageKey === schedule.lineageKey,
+              );
+              if (existingByLineage) {
+                continue;
+              }
+
+              const practitionerByLineage = practitionersRef.current.find(
+                (entry) => entry.lineageKey === schedule.practitionerLineageKey,
+              );
+              const practitionerIdForRestore =
+                practitionerByLineage?._id ?? schedule.practitionerId;
+
+              await createBaseScheduleMutation({
+                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+                dayOfWeek: schedule.dayOfWeek,
+                endTime: schedule.endTime,
+                lineageKey: schedule.lineageKey,
+                locationId: currentLocationId,
+                practiceId,
+                practitionerId: practitionerIdForRestore,
+                sourceRuleSetId: newRuleSetId,
+                startTime: schedule.startTime,
+              });
+            }
             return { status: "applied" as const };
           },
         });
