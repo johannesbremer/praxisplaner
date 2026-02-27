@@ -600,4 +600,160 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
     expect(remainingSchedule).toBeNull();
   });
+
+  test("should restore practitioner schedules by resolving location through deep lineage", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+
+    const seeded = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice?.currentActiveRuleSetId) {
+        throw new Error("Practice has no active rule set");
+      }
+
+      const ruleSet1Id = practice.currentActiveRuleSetId;
+      const ruleSet1 = await ctx.db.get("ruleSets", ruleSet1Id);
+      if (!ruleSet1) {
+        throw new Error("Initial rule set missing");
+      }
+
+      const location1Id = await ctx.db.insert("locations", {
+        name: "Main Office",
+        practiceId,
+        ruleSetId: ruleSet1Id,
+      });
+      const practitioner1Id = await ctx.db.insert("practitioners", {
+        name: "Dr. Restore",
+        practiceId,
+        ruleSetId: ruleSet1Id,
+      });
+
+      const ruleSet2Id = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved v2",
+        parentVersion: ruleSet1Id,
+        practiceId,
+        saved: true,
+        version: ruleSet1.version + 1,
+      });
+
+      const location2Id = await ctx.db.insert("locations", {
+        name: "Main Office",
+        parentId: location1Id,
+        practiceId,
+        ruleSetId: ruleSet2Id,
+      });
+      const practitioner2Id = await ctx.db.insert("practitioners", {
+        name: "Dr. Restore",
+        parentId: practitioner1Id,
+        practiceId,
+        ruleSetId: ruleSet2Id,
+      });
+
+      const ruleSet3Id = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft v3",
+        parentVersion: ruleSet2Id,
+        practiceId,
+        saved: false,
+        version: ruleSet1.version + 2,
+      });
+
+      const location3Id = await ctx.db.insert("locations", {
+        name: "Main Office",
+        parentId: location2Id,
+        practiceId,
+        ruleSetId: ruleSet3Id,
+      });
+      const practitioner3Id = await ctx.db.insert("practitioners", {
+        name: "Dr. Restore",
+        parentId: practitioner2Id,
+        practiceId,
+        ruleSetId: ruleSet3Id,
+      });
+
+      await ctx.db.insert("baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "17:00",
+        locationId: location3Id,
+        practiceId,
+        practitionerId: practitioner3Id,
+        ruleSetId: ruleSet3Id,
+        startTime: "08:00",
+      });
+
+      return {
+        location1Id,
+        location2Id,
+        practitioner3Id,
+        ruleSet1Id,
+        ruleSet3Id,
+      };
+    });
+
+    const deleteResult = await t.mutation(
+      api.entities.deletePractitionerWithDependencies,
+      {
+        practiceId,
+        practitionerId: seeded.practitioner3Id,
+        sourceRuleSetId: seeded.ruleSet3Id,
+      },
+    );
+
+    expect(deleteResult.snapshot.baseSchedules).toHaveLength(1);
+    expect(deleteResult.snapshot.baseSchedules[0]?.locationOriginId).toEqual(
+      seeded.location2Id,
+    );
+
+    await t.mutation(api.ruleSets.deleteUnsavedRuleSet, {
+      practiceId,
+      ruleSetId: seeded.ruleSet3Id,
+    });
+
+    const restoreResult = await t.mutation(
+      api.entities.restorePractitionerWithDependencies,
+      {
+        practiceId,
+        snapshot: deleteResult.snapshot,
+        sourceRuleSetId: seeded.ruleSet1Id,
+      },
+    );
+
+    const restoredState = await t.run(async (ctx) => {
+      const targetLocation = await ctx.db
+        .query("locations")
+        .withIndex("by_parentId_ruleSetId", (q) =>
+          q
+            .eq("parentId", seeded.location1Id)
+            .eq("ruleSetId", restoreResult.ruleSetId),
+        )
+        .first();
+
+      const restoredSchedules = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId_practitionerId", (q) =>
+          q
+            .eq("ruleSetId", restoreResult.ruleSetId)
+            .eq("practitionerId", restoreResult.restoredPractitionerId),
+        )
+        .collect();
+
+      return {
+        restoredSchedules,
+        targetLocation,
+      };
+    });
+
+    assertDefined(
+      restoredState.targetLocation,
+      "Expected copied location in recreated draft",
+    );
+    expect(restoredState.restoredSchedules).toHaveLength(1);
+    expect(restoredState.restoredSchedules[0]?.locationId).toEqual(
+      restoredState.targetLocation._id,
+    );
+  });
 });

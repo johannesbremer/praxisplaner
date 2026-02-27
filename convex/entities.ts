@@ -242,6 +242,51 @@ async function resolveLocationIdInRuleSet(
 }
 
 /**
+ * Resolve a location ID into a target rule set by traversing the full parent chain.
+ * Returns null if no corresponding location exists in the target rule set.
+ */
+async function resolveLocationIdByLineageInRuleSet(
+  db: DatabaseReader,
+  locationId: Id<"locations">,
+  practiceId: Id<"practices">,
+  ruleSetId: Id<"ruleSets">,
+): Promise<Id<"locations"> | null> {
+  const locationEntity = await db.get("locations", locationId);
+  if (!locationEntity) {
+    return null;
+  }
+  if (locationEntity.practiceId !== practiceId) {
+    throw new Error("Location does not belong to this practice");
+  }
+
+  if (locationEntity.ruleSetId === ruleSetId) {
+    return locationEntity._id;
+  }
+
+  const childInTarget = await db
+    .query("locations")
+    .withIndex("by_parentId_ruleSetId", (q) =>
+      q.eq("parentId", locationEntity._id).eq("ruleSetId", ruleSetId),
+    )
+    .first();
+
+  if (childInTarget?.practiceId === practiceId) {
+    return childInTarget._id;
+  }
+
+  if (!locationEntity.parentId) {
+    return null;
+  }
+
+  return await resolveLocationIdByLineageInRuleSet(
+    db,
+    locationEntity.parentId,
+    practiceId,
+    ruleSetId,
+  );
+}
+
+/**
  * Resolve a practitioner ID into the current unsaved rule set.
  */
 async function resolvePractitionerIdInRuleSet(
@@ -1100,43 +1145,26 @@ export const restorePractitionerWithDependencies = mutation({
 
     for (const schedule of args.snapshot.baseSchedules) {
       let resolvedLocationId: Id<"locations"> | null = null;
+      const locationCandidates = [
+        schedule.locationId,
+        ...(schedule.locationOriginId ? [schedule.locationOriginId] : []),
+      ];
 
-      try {
-        resolvedLocationId = await resolveLocationIdInRuleSet(
+      for (const locationCandidateId of new Set(locationCandidates)) {
+        resolvedLocationId = await resolveLocationIdByLineageInRuleSet(
           ctx.db,
-          schedule.locationId,
+          locationCandidateId,
           args.practiceId,
           ruleSetId,
         );
-      } catch {
-        const locationOriginId = schedule.locationOriginId;
-        if (locationOriginId) {
-          const directLocation = await ctx.db.get(
-            "locations",
-            locationOriginId,
-          );
-          if (
-            directLocation?.practiceId === args.practiceId &&
-            directLocation.ruleSetId === ruleSetId
-          ) {
-            resolvedLocationId = directLocation._id;
-          } else {
-            const copiedLocation = await ctx.db
-              .query("locations")
-              .withIndex("by_parentId_ruleSetId", (q) =>
-                q.eq("parentId", locationOriginId).eq("ruleSetId", ruleSetId),
-              )
-              .first();
-            if (copiedLocation?.practiceId === args.practiceId) {
-              resolvedLocationId = copiedLocation._id;
-            }
-          }
+        if (resolvedLocationId) {
+          break;
         }
       }
 
       if (!resolvedLocationId) {
         throw new Error(
-          "Die Arbeitszeit kann nicht wiederhergestellt werden, weil der referenzierte Standort nicht verfügbar ist.",
+          `Die Arbeitszeit kann nicht wiederhergestellt werden, weil der referenzierte Standort nicht verfügbar ist (Standort: ${schedule.locationId}, Ursprung: ${schedule.locationOriginId ?? "unbekannt"}, Ziel-Regelset: ${ruleSetId}).`,
         );
       }
 
