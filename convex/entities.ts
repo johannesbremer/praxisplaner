@@ -507,6 +507,59 @@ async function resolvePractitionerIds(
   return resolved;
 }
 
+const APPOINTMENT_TYPE_RULE_CONDITION_TYPES = new Set([
+  "APPOINTMENT_TYPE",
+  "CONCURRENT_COUNT",
+  "DAILY_CAPACITY",
+]);
+
+async function remapConditionValueIdsInRuleSet(params: {
+  db: DatabaseWriter;
+  fromId: string;
+  ruleSetId: Id<"ruleSets">;
+  toId: string;
+}): Promise<void> {
+  const { db, fromId, ruleSetId, toId } = params;
+  if (fromId === toId) {
+    return;
+  }
+
+  const conditions = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+    .collect();
+
+  for (const condition of conditions) {
+    if (
+      !condition.conditionType ||
+      !condition.valueIds ||
+      !APPOINTMENT_TYPE_RULE_CONDITION_TYPES.has(condition.conditionType)
+    ) {
+      continue;
+    }
+
+    if (!condition.valueIds.includes(fromId)) {
+      continue;
+    }
+
+    const remappedValueIds: string[] = [];
+    const seen = new Set<string>();
+    for (const valueId of condition.valueIds) {
+      const nextValueId = valueId === fromId ? toId : valueId;
+      if (seen.has(nextValueId)) {
+        continue;
+      }
+      seen.add(nextValueId);
+      remappedValueIds.push(nextValueId);
+    }
+
+    await db.patch("ruleConditions", condition._id, {
+      lastModified: BigInt(Date.now()),
+      valueIds: remappedValueIds,
+    });
+  }
+}
+
 // ================================
 // APPOINTMENT TYPES
 // ================================
@@ -584,7 +637,14 @@ export const createAppointmentType = mutation({
       ruleSetId,
     });
 
-    if (!args.lineageKey) {
+    if (args.lineageKey) {
+      await remapConditionValueIdsInRuleSet({
+        db: ctx.db,
+        fromId: args.lineageKey,
+        ruleSetId,
+        toId: entityId,
+      });
+    } else {
       await ctx.db.patch("appointmentTypes", entityId, {
         lineageKey: entityId,
       });
@@ -743,6 +803,15 @@ export const deleteAppointmentType = mutation({
       appointmentType.ruleSetId,
       "appointment type",
     );
+
+    const appointmentTypeLineageKey =
+      requireAppointmentTypeLineageKey(appointmentType);
+    await remapConditionValueIdsInRuleSet({
+      db: ctx.db,
+      fromId: appointmentType._id,
+      ruleSetId,
+      toId: appointmentTypeLineageKey,
+    });
 
     await ctx.db.delete("appointmentTypes", appointmentType._id);
 

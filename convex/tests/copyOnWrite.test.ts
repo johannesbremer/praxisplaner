@@ -729,6 +729,96 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(remainingAfterValidDelete).toBeNull();
   });
 
+  test("should remap rule condition appointment type IDs on delete and recreate", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+    const initialRuleSetId = practice.currentActiveRuleSetId;
+
+    const practitionerId = await t.run(async (ctx) => {
+      return await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Remap",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const createdType = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Akut",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const createdRule = await t.mutation(api.entities.createRule, {
+      conditionTree: {
+        children: [
+          {
+            conditionType: "APPOINTMENT_TYPE",
+            nodeType: "CONDITION",
+            operator: "IS",
+            valueIds: [createdType.entityId as string],
+          },
+        ],
+        nodeType: "AND",
+      },
+      expectedDraftRevision: createdType.draftRevision,
+      name: "Akut-Regel",
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const deletedType = await t.mutation(api.entities.deleteAppointmentType, {
+      appointmentTypeId: createdType.entityId,
+      appointmentTypeLineageKey: createdType.entityId,
+      expectedDraftRevision: createdRule.draftRevision,
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const recreatedType = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: deletedType.draftRevision,
+      lineageKey: createdType.entityId,
+      name: "Akut",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const ruleConditionNode = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("ruleConditions")
+        .withIndex("by_ruleSetId", (q) =>
+          q.eq("ruleSetId", recreatedType.ruleSetId),
+        )
+        .filter((q) => q.eq(q.field("conditionType"), "APPOINTMENT_TYPE"))
+        .first();
+    });
+
+    assertDefined(
+      ruleConditionNode,
+      "Expected appointment type condition node",
+    );
+    expect(ruleConditionNode.valueIds).toEqual([recreatedType.entityId]);
+  });
+
   test("should restore practitioner schedules by resolving location through deep lineage", async () => {
     const t = createAuthedTestContext();
 
