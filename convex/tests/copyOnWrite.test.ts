@@ -593,7 +593,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const remainingSchedule = await t.run(async (ctx) => {
       return await ctx.db
         .query("baseSchedules")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", secondDelete.ruleSetId))
+        .withIndex("by_ruleSetId", (q) =>
+          q.eq("ruleSetId", secondDelete.ruleSetId),
+        )
         .first();
     });
     expect(remainingSchedule).toBeNull();
