@@ -32,6 +32,24 @@ export type EntityType =
   | "rule"
   | "rule condition";
 
+function requireLineageKey<T extends string>(params: {
+  entityId: string;
+  entityType:
+    | "appointment type"
+    | "base schedule"
+    | "location"
+    | "practitioner";
+  lineageKey: T | undefined;
+  ruleSetId: Id<"ruleSets">;
+}): T {
+  if (!params.lineageKey) {
+    throw new Error(
+      `[INVARIANT:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} in Regelset ${params.ruleSetId} hat keinen lineageKey.`,
+    );
+  }
+  return params.lineageKey;
+}
+
 // ================================
 // VALIDATION HELPERS
 // ================================
@@ -236,6 +254,12 @@ export async function copyAppointmentTypes(
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
       lastModified: BigInt(Date.now()),
+      lineageKey: requireLineageKey({
+        entityId: sourceType._id,
+        entityType: "appointment type",
+        lineageKey: sourceType.lineageKey,
+        ruleSetId: sourceType.ruleSetId,
+      }),
       name: sourceType.name,
       parentId: sourceType._id, // Track which entity this was copied from
       practiceId,
@@ -266,6 +290,12 @@ export async function copyPractitioners(
 
   for (const source of sourcePractitioners) {
     const newId = await db.insert("practitioners", {
+      lineageKey: requireLineageKey({
+        entityId: source._id,
+        entityType: "practitioner",
+        lineageKey: source.lineageKey,
+        ruleSetId: source.ruleSetId,
+      }),
       name: source.name,
       parentId: source._id, // Track which entity this was copied from
       practiceId,
@@ -297,6 +327,12 @@ export async function copyLocations(
 
   for (const source of sourceLocations) {
     const newId = await db.insert("locations", {
+      lineageKey: requireLineageKey({
+        entityId: source._id,
+        entityType: "location",
+        lineageKey: source.lineageKey,
+        ruleSetId: source.ruleSetId,
+      }),
       name: source.name,
       parentId: source._id, // Track which entity this was copied from
       practiceId,
@@ -348,6 +384,12 @@ export async function copyBaseSchedules(
     await db.insert("baseSchedules", {
       dayOfWeek: source.dayOfWeek,
       endTime: source.endTime,
+      lineageKey: requireLineageKey({
+        entityId: source._id,
+        entityType: "base schedule",
+        lineageKey: source.lineageKey,
+        ruleSetId: source.ruleSetId,
+      }),
       locationId: newLocationId,
       parentId: source._id, // Track which entity this was copied from
       practiceId,
@@ -930,34 +972,19 @@ async function findCorrespondingAppointmentType(
   sourceEntity: Doc<"appointmentTypes">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Doc<"appointmentTypes"> | null> {
-  // Check if source entity has children in target rule set
-  const childInTarget = await db
+  const lineageKey = requireLineageKey({
+    entityId: sourceEntity._id,
+    entityType: "appointment type",
+    lineageKey: sourceEntity.lineageKey,
+    ruleSetId: sourceEntity.ruleSetId,
+  });
+
+  return await db
     .query("appointmentTypes")
-    .withIndex("by_parentId_ruleSetId", (q) =>
-      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
     )
     .first();
-
-  if (childInTarget) {
-    return childInTarget;
-  }
-
-  // Check if source entity has a parent that might lead to target rule set
-  if (sourceEntity.parentId) {
-    const parent = await db.get("appointmentTypes", sourceEntity.parentId);
-    if (parent) {
-      if (parent.ruleSetId === targetRuleSetId) {
-        return parent;
-      }
-      return await findCorrespondingAppointmentType(
-        db,
-        parent,
-        targetRuleSetId,
-      );
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -968,28 +995,19 @@ async function findCorrespondingLocation(
   sourceEntity: Doc<"locations">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Doc<"locations"> | null> {
-  const childInTarget = await db
+  const lineageKey = requireLineageKey({
+    entityId: sourceEntity._id,
+    entityType: "location",
+    lineageKey: sourceEntity.lineageKey,
+    ruleSetId: sourceEntity.ruleSetId,
+  });
+
+  return await db
     .query("locations")
-    .withIndex("by_parentId_ruleSetId", (q) =>
-      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
     )
     .first();
-
-  if (childInTarget) {
-    return childInTarget;
-  }
-
-  if (sourceEntity.parentId) {
-    const parent = await db.get("locations", sourceEntity.parentId);
-    if (parent) {
-      if (parent.ruleSetId === targetRuleSetId) {
-        return parent;
-      }
-      return await findCorrespondingLocation(db, parent, targetRuleSetId);
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -1000,28 +1018,19 @@ async function findCorrespondingPractitioner(
   sourceEntity: Doc<"practitioners">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Doc<"practitioners"> | null> {
-  const childInTarget = await db
+  const lineageKey = requireLineageKey({
+    entityId: sourceEntity._id,
+    entityType: "practitioner",
+    lineageKey: sourceEntity.lineageKey,
+    ruleSetId: sourceEntity.ruleSetId,
+  });
+
+  return await db
     .query("practitioners")
-    .withIndex("by_parentId_ruleSetId", (q) =>
-      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
     )
     .first();
-
-  if (childInTarget) {
-    return childInTarget;
-  }
-
-  if (sourceEntity.parentId) {
-    const parent = await db.get("practitioners", sourceEntity.parentId);
-    if (parent) {
-      if (parent.ruleSetId === targetRuleSetId) {
-        return parent;
-      }
-      return await findCorrespondingPractitioner(db, parent, targetRuleSetId);
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -1032,26 +1041,17 @@ async function findCorrespondingBaseSchedule(
   sourceEntity: Doc<"baseSchedules">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Doc<"baseSchedules"> | null> {
-  const childInTarget = await db
+  const lineageKey = requireLineageKey({
+    entityId: sourceEntity._id,
+    entityType: "base schedule",
+    lineageKey: sourceEntity.lineageKey,
+    ruleSetId: sourceEntity.ruleSetId,
+  });
+
+  return await db
     .query("baseSchedules")
-    .withIndex("by_parentId_ruleSetId", (q) =>
-      q.eq("parentId", sourceEntity._id).eq("ruleSetId", targetRuleSetId),
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
     )
     .first();
-
-  if (childInTarget) {
-    return childInTarget;
-  }
-
-  if (sourceEntity.parentId) {
-    const parent = await db.get("baseSchedules", sourceEntity.parentId);
-    if (parent) {
-      if (parent.ruleSetId === targetRuleSetId) {
-        return parent;
-      }
-      return await findCorrespondingBaseSchedule(db, parent, targetRuleSetId);
-    }
-  }
-
-  return null;
 }

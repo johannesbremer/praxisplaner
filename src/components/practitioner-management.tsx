@@ -5,7 +5,7 @@ import { Edit, Plus, Trash2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +37,7 @@ interface PractitionerDialogProps {
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  practitioner?: Doc<"practitioners"> | undefined;
+  practitioner?: PractitionerWithLineage | undefined;
   ruleSetId: Id<"ruleSets">;
 }
 
@@ -48,6 +48,10 @@ interface PractitionerManagementProps {
   ruleSetId: Id<"ruleSets">;
 }
 
+type PractitionersResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+type PractitionerWithLineage = PractitionersResult[number];
+
 export default function PractitionerManagement({
   onRegisterHistoryAction,
   onRuleSetCreated,
@@ -56,7 +60,7 @@ export default function PractitionerManagement({
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
-    Doc<"practitioners"> | undefined
+    PractitionerWithLineage | undefined
   >();
 
   const { captureError } = useErrorTracking();
@@ -64,7 +68,7 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<Doc<"practitioners">[]>(
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
     practitionersQuery ?? [],
   );
   useEffect(() => {
@@ -77,20 +81,20 @@ export default function PractitionerManagement({
     api.entities.restorePractitionerWithDependencies,
   );
 
-  const handleEdit = (practitioner: Doc<"practitioners">) => {
+  const handleEdit = (practitioner: PractitionerWithLineage) => {
     setEditingPractitioner(practitioner);
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (practitionerId: Id<"practitioners">) => {
     try {
-      const practitionerName =
-        practitionersRef.current.find((entry) => entry._id === practitionerId)
-          ?.name ?? "";
+      const practitionerLineageKey = practitionersRef.current.find(
+        (entry) => entry._id === practitionerId,
+      )?.lineageKey;
       const deleteResult = await deleteWithDependenciesMutation({
         practiceId,
         practitionerId,
-        ...(practitionerName && { practitionerName }),
+        ...(practitionerLineageKey && { practitionerLineageKey }),
         sourceRuleSetId: ruleSetId,
       });
       const newRuleSetId = deleteResult.ruleSetId;
@@ -103,7 +107,7 @@ export default function PractitionerManagement({
             const redoResult = await deleteWithDependenciesMutation({
               practiceId,
               practitionerId: currentPractitionerId,
-              practitionerName: currentSnapshot.practitioner.name,
+              practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
               sourceRuleSetId: newRuleSetId,
             });
             currentSnapshot = redoResult.snapshot;
@@ -114,7 +118,7 @@ export default function PractitionerManagement({
               const redoResult = await deleteWithDependenciesMutation({
                 practiceId,
                 practitionerId: currentSnapshot.practitioner.id,
-                practitionerName: currentSnapshot.practitioner.name,
+                practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
                 sourceRuleSetId: newRuleSetId,
               });
               currentSnapshot = redoResult.snapshot;
@@ -141,20 +145,6 @@ export default function PractitionerManagement({
 
             return { status: "applied" as const };
           } catch (error: unknown) {
-            if (
-              error instanceof Error &&
-              /kann nicht wiederhergestellt werden, weil bereits ein arzt mit diesem namen existiert/i.test(
-                error.message,
-              )
-            ) {
-              const byName = practitionersRef.current.find(
-                (entry) => entry.name === currentSnapshot.practitioner.name,
-              );
-              if (byName) {
-                currentPractitionerId = byName._id;
-                return { status: "applied" as const };
-              }
-            }
             return {
               message:
                 error instanceof Error
@@ -300,7 +290,7 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<Doc<"practitioners">[]>(
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
     practitionersQuery ?? [],
   );
   useEffect(() => {
@@ -388,9 +378,18 @@ function PractitionerDialog({
           });
 
           let currentPractitionerId = entityId;
+          const practitionerLineageKey = entityId;
           onRegisterHistoryAction?.({
             label: "Arzt erstellt",
             redo: async () => {
+              const existingByLineage = practitionersRef.current.find(
+                (entry) => entry.lineageKey === practitionerLineageKey,
+              );
+              if (existingByLineage) {
+                currentPractitionerId = existingByLineage._id;
+                return { status: "applied" as const };
+              }
+
               const duplicate = practitionersRef.current.find(
                 (entry) => entry.name === trimmedName,
               );
@@ -403,6 +402,7 @@ function PractitionerDialog({
               }
 
               const recreateResult = await createMutation({
+                lineageKey: practitionerLineageKey,
                 name: trimmedName,
                 practiceId,
                 sourceRuleSetId: newRuleSetId,

@@ -45,7 +45,8 @@ interface AppointmentTypesManagementProps {
 
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
-type PractitionersResult = (typeof api.entities.getPractitioners)["_returnType"];
+type PractitionersResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
 type PractitionerWithLineage = PractitionersResult[number];
 
 // Form schema using Zod
@@ -135,12 +136,10 @@ export function AppointmentTypesManagement({
     practitionersRef.current = practitioners;
   }, [practitioners]);
 
-  const resolvePractitionerLineageRootId = (
-    practitionerId: Id<"practitioners">,
-  ) =>
+  const resolvePractitionerLineageKey = (practitionerId: Id<"practitioners">) =>
     practitionersRef.current.find(
       (practitioner) => practitioner._id === practitionerId,
-    )?.lineageRootId ?? practitionerId;
+    )?.lineageKey ?? practitionerId;
 
   const createPractitionerSnapshots = (
     practitionerIds: Id<"practitioners">[],
@@ -153,7 +152,7 @@ export function AppointmentTypesManagement({
     );
 
     return practitionerIds.map((id) => ({
-      lineageId: resolvePractitionerLineageRootId(id),
+      lineageId: resolvePractitionerLineageKey(id),
       name: nameById.get(id) ?? id,
     }));
   };
@@ -162,9 +161,7 @@ export function AppointmentTypesManagement({
     practitionerIds: Id<"practitioners">[],
   ) =>
     practitionerIds
-      .map((practitionerId) =>
-        resolvePractitionerLineageRootId(practitionerId),
-      )
+      .map((practitionerId) => resolvePractitionerLineageKey(practitionerId))
       .toSorted();
 
   const resolvePractitionerIdsFromSnapshots = (
@@ -177,7 +174,7 @@ export function AppointmentTypesManagement({
 
     for (const snapshot of snapshots) {
       const lineageMatches = practitionersRef.current.filter(
-        (practitioner) => practitioner.lineageRootId === snapshot.lineageId,
+        (practitioner) => practitioner.lineageKey === snapshot.lineageId,
       );
 
       if (lineageMatches.length > 1) {
@@ -380,23 +377,32 @@ export function AppointmentTypesManagement({
             });
 
           let currentAppointmentTypeId = entityId;
+          const appointmentTypeLineageKey = entityId;
 
           onRegisterHistoryAction?.({
             label: "Terminart erstellt",
             redo: async () => {
-              const existing = appointmentTypesRef.current.find(
+              const existingByLineage = appointmentTypesRef.current.find(
+                (type) => type.lineageKey === appointmentTypeLineageKey,
+              );
+              if (existingByLineage) {
+                currentAppointmentTypeId = existingByLineage._id;
+                return { status: "applied" as const };
+              }
+
+              const existingByName = appointmentTypesRef.current.find(
                 (type) => type.name === trimmedName,
               );
-              if (existing) {
+              if (existingByName) {
                 return {
-                  message:
-                    "Die Terminart existiert bereits und kann nicht erneut erstellt werden.",
+                  message: `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${trimmedName}" existiert.`,
                   status: "conflict" as const,
                 };
               }
 
               const recreateResult = await createAppointmentTypeMutation({
                 duration: value.duration,
+                lineageKey: appointmentTypeLineageKey,
                 name: trimmedName,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
@@ -409,7 +415,7 @@ export function AppointmentTypesManagement({
               try {
                 await deleteAppointmentTypeMutation({
                   appointmentTypeId: currentAppointmentTypeId,
-                  appointmentTypeName: trimmedName,
+                  appointmentTypeLineageKey,
                   practiceId,
                   sourceRuleSetId: newRuleSetId,
                 });
@@ -499,6 +505,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         duration: appointmentType.duration,
+        lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerIds: appointmentType.allowedPractitionerIds,
       };
@@ -508,7 +515,7 @@ export function AppointmentTypesManagement({
 
       const { ruleSetId: newRuleSetId } = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
-        appointmentTypeName: deletedSnapshot.name,
+        appointmentTypeLineageKey: deletedSnapshot.lineageKey,
         practiceId,
         sourceRuleSetId: ruleSetId,
       });
@@ -521,26 +528,13 @@ export function AppointmentTypesManagement({
           try {
             await deleteAppointmentTypeMutation({
               appointmentTypeId: currentAppointmentTypeId,
-              appointmentTypeName: deletedSnapshot.name,
+              appointmentTypeLineageKey: deletedSnapshot.lineageKey,
               practiceId,
               sourceRuleSetId: newRuleSetId,
             });
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
-              const byName = appointmentTypesRef.current.find(
-                (type) => type.name === deletedSnapshot.name,
-              );
-              if (!byName) {
-                return { status: "applied" as const };
-              }
-              await deleteAppointmentTypeMutation({
-                appointmentTypeId: byName._id,
-                appointmentTypeName: deletedSnapshot.name,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              currentAppointmentTypeId = byName._id;
               return { status: "applied" as const };
             }
             return {
@@ -553,32 +547,31 @@ export function AppointmentTypesManagement({
           }
         },
         undo: async () => {
-          const existingByName = appointmentTypesRef.current.find(
-            (type) => type.name === deletedSnapshot.name,
+          const existingByLineage = appointmentTypesRef.current.find(
+            (type) => type.lineageKey === deletedSnapshot.lineageKey,
           );
-          if (existingByName) {
+          if (existingByLineage) {
             const existingPractitionerLineageIds =
               practitionerLineageIdsForCurrentIds(
-                existingByName.allowedPractitionerIds,
+                existingByLineage.allowedPractitionerIds,
               );
             const deletedPractitionerLineageIds = toSnapshotLineageIds(
               deletedPractitionerSnapshots,
             );
             const isSameDefinition =
-              existingByName.duration === deletedSnapshot.duration &&
+              existingByLineage.duration === deletedSnapshot.duration &&
               samePractitionerLineageIds(
                 existingPractitionerLineageIds,
                 deletedPractitionerLineageIds,
               );
 
             if (isSameDefinition) {
-              currentAppointmentTypeId = existingByName._id;
+              currentAppointmentTypeId = existingByLineage._id;
               return { status: "applied" as const };
             }
 
             return {
-              message:
-                "Die Terminart kann nicht wiederhergestellt werden, weil bereits eine gleichnamige Terminart mit anderen Einstellungen existiert.",
+              message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${deletedSnapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
               status: "conflict" as const,
             };
           }
@@ -591,6 +584,7 @@ export function AppointmentTypesManagement({
 
           const recreateResult = await createAppointmentTypeMutation({
             duration: deletedSnapshot.duration,
+            lineageKey: deletedSnapshot.lineageKey,
             name: deletedSnapshot.name,
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,

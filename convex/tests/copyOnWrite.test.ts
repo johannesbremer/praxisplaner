@@ -6,18 +6,38 @@ import { convexTest } from "convex-test";
 import { expect } from "vitest";
 import { describe, test } from "vitest";
 
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id, TableNames } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
 
+type LineageTable = Extract<
+  TableNames,
+  "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
+>;
+
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "copyonwrite@example.com",
     subject: "workos_copyonwrite",
   });
+}
+
+async function insertWithLineage<TableName extends LineageTable>(
+  ctx: MutationCtx,
+  table: TableName,
+  value: Omit<Doc<TableName>, "_creationTime" | "_id" | "lineageKey">,
+  lineageKey?: Id<TableName>,
+): Promise<Id<TableName>> {
+  const insertValue = (lineageKey ? { ...value, lineageKey } : value) as never;
+  const id = await ctx.db.insert(table, insertValue);
+  if (!lineageKey) {
+    await ctx.db.patch(table, id, { lineageKey: id } as never);
+  }
+  return id;
 }
 
 describe("Copy-on-Write Entity Reference Validation", () => {
@@ -45,7 +65,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Test",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -170,7 +190,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Test",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -252,7 +272,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Test",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -427,7 +447,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Test",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -526,7 +546,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const initialRuleSetId = practice.currentActiveRuleSetId;
 
     const practitionerId = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Base Schedule",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -534,7 +554,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const locationId = await t.run(async (ctx) => {
-      return await ctx.db.insert("locations", {
+      return await insertWithLineage(ctx, "locations", {
         name: "Main Office",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -542,7 +562,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const baseScheduleId = await t.run(async (ctx) => {
-      return await ctx.db.insert("baseSchedules", {
+      return await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "12:00",
         locationId,
@@ -601,7 +621,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(remainingSchedule).toBeNull();
   });
 
-  test("should delete appointment type by name when history ID is stale", async () => {
+  test("should reject stale appointment type lineage keys and only delete current lineage", async () => {
     const t = createAuthedTestContext();
 
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -622,7 +642,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const initialRuleSetId = practice.currentActiveRuleSetId;
 
     const practitionerId = await t.run(async (ctx) => {
-      return await ctx.db.insert("practitioners", {
+      return await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Appointment Type",
         practiceId,
         ruleSetId: initialRuleSetId,
@@ -639,13 +659,13 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const firstDelete = await t.mutation(api.entities.deleteAppointmentType, {
       appointmentTypeId: firstCreate.entityId,
-      appointmentTypeName: "Kontrolle",
+      appointmentTypeLineageKey: firstCreate.entityId,
       practiceId,
       sourceRuleSetId: firstCreate.ruleSetId,
     });
     expect(firstDelete.ruleSetId).toEqual(firstCreate.ruleSetId);
 
-    await t.mutation(api.entities.createAppointmentType, {
+    const secondCreate = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
       name: "Kontrolle",
       practiceId,
@@ -653,14 +673,16 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       sourceRuleSetId: firstCreate.ruleSetId,
     });
 
-    await t.mutation(api.entities.deleteAppointmentType, {
-      appointmentTypeId: firstCreate.entityId, // stale/deleted ID
-      appointmentTypeName: "Kontrolle",
-      practiceId,
-      sourceRuleSetId: firstCreate.ruleSetId,
-    });
+    await expect(
+      t.mutation(api.entities.deleteAppointmentType, {
+        appointmentTypeId: firstCreate.entityId, // stale/deleted ID
+        appointmentTypeLineageKey: firstCreate.entityId,
+        practiceId,
+        sourceRuleSetId: firstCreate.ruleSetId,
+      }),
+    ).rejects.toThrow(/\[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND\]/);
 
-    const remaining = await t.run(async (ctx) => {
+    const remainingAfterFailedDelete = await t.run(async (ctx) => {
       return await ctx.db
         .query("appointmentTypes")
         .withIndex("by_ruleSetId_name", (q) =>
@@ -669,7 +691,25 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         .first();
     });
 
-    expect(remaining).toBeNull();
+    expect(remainingAfterFailedDelete?._id).toEqual(secondCreate.entityId);
+
+    await t.mutation(api.entities.deleteAppointmentType, {
+      appointmentTypeId: secondCreate.entityId,
+      appointmentTypeLineageKey: secondCreate.entityId,
+      practiceId,
+      sourceRuleSetId: firstCreate.ruleSetId,
+    });
+
+    const remainingAfterValidDelete = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_name", (q) =>
+          q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
+        )
+        .first();
+    });
+
+    expect(remainingAfterValidDelete).toBeNull();
   });
 
   test("should restore practitioner schedules by resolving location through deep lineage", async () => {
@@ -691,12 +731,12 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         throw new Error("Initial rule set missing");
       }
 
-      const location1Id = await ctx.db.insert("locations", {
+      const location1Id = await insertWithLineage(ctx, "locations", {
         name: "Main Office",
         practiceId,
         ruleSetId: ruleSet1Id,
       });
-      const practitioner1Id = await ctx.db.insert("practitioners", {
+      const practitioner1Id = await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Restore",
         practiceId,
         ruleSetId: ruleSet1Id,
@@ -711,18 +751,28 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         version: ruleSet1.version + 1,
       });
 
-      const location2Id = await ctx.db.insert("locations", {
-        name: "Main Office",
-        parentId: location1Id,
-        practiceId,
-        ruleSetId: ruleSet2Id,
-      });
-      const practitioner2Id = await ctx.db.insert("practitioners", {
-        name: "Dr. Restore",
-        parentId: practitioner1Id,
-        practiceId,
-        ruleSetId: ruleSet2Id,
-      });
+      const location2Id = await insertWithLineage(
+        ctx,
+        "locations",
+        {
+          name: "Main Office",
+          parentId: location1Id,
+          practiceId,
+          ruleSetId: ruleSet2Id,
+        },
+        location1Id,
+      );
+      const practitioner2Id = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Restore",
+          parentId: practitioner1Id,
+          practiceId,
+          ruleSetId: ruleSet2Id,
+        },
+        practitioner1Id,
+      );
 
       const ruleSet3Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
@@ -733,20 +783,30 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         version: ruleSet1.version + 2,
       });
 
-      const location3Id = await ctx.db.insert("locations", {
-        name: "Main Office",
-        parentId: location2Id,
-        practiceId,
-        ruleSetId: ruleSet3Id,
-      });
-      const practitioner3Id = await ctx.db.insert("practitioners", {
-        name: "Dr. Restore",
-        parentId: practitioner2Id,
-        practiceId,
-        ruleSetId: ruleSet3Id,
-      });
+      const location3Id = await insertWithLineage(
+        ctx,
+        "locations",
+        {
+          name: "Main Office",
+          parentId: location2Id,
+          practiceId,
+          ruleSetId: ruleSet3Id,
+        },
+        location1Id,
+      );
+      const practitioner3Id = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Restore",
+          parentId: practitioner2Id,
+          practiceId,
+          ruleSetId: ruleSet3Id,
+        },
+        practitioner1Id,
+      );
 
-      await ctx.db.insert("baseSchedules", {
+      await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "17:00",
         locationId: location3Id,
@@ -828,7 +888,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     );
   });
 
-  test("should expose stable practitioner lineageRootId across deep rule-set lineage", async () => {
+  test("should expose stable practitioner lineageKey across deep rule-set lineage", async () => {
     const t = createAuthedTestContext();
 
     const practiceId = await t.mutation(api.practices.createPractice, {
@@ -847,7 +907,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         throw new Error("Initial rule set missing");
       }
 
-      const practitioner1Id = await ctx.db.insert("practitioners", {
+      const practitioner1Id = await insertWithLineage(ctx, "practitioners", {
         name: "Dr. Lineage",
         practiceId,
         ruleSetId: ruleSet1Id,
@@ -861,12 +921,17 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         saved: true,
         version: ruleSet1.version + 1,
       });
-      const practitioner2Id = await ctx.db.insert("practitioners", {
-        name: "Dr. Lineage",
-        parentId: practitioner1Id,
-        practiceId,
-        ruleSetId: ruleSet2Id,
-      });
+      const practitioner2Id = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Lineage",
+          parentId: practitioner1Id,
+          practiceId,
+          ruleSetId: ruleSet2Id,
+        },
+        practitioner1Id,
+      );
 
       const ruleSet3Id = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
@@ -876,12 +941,17 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         saved: false,
         version: ruleSet1.version + 2,
       });
-      await ctx.db.insert("practitioners", {
-        name: "Dr. Lineage",
-        parentId: practitioner2Id,
-        practiceId,
-        ruleSetId: ruleSet3Id,
-      });
+      await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Lineage",
+          parentId: practitioner2Id,
+          practiceId,
+          ruleSetId: ruleSet3Id,
+        },
+        practitioner1Id,
+      );
 
       return { practitioner1Id, ruleSet3Id };
     });
@@ -891,6 +961,6 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     expect(practitioners).toHaveLength(1);
-    expect(practitioners[0]?.lineageRootId).toEqual(seeded.practitioner1Id);
+    expect(practitioners[0]?.lineageKey).toEqual(seeded.practitioner1Id);
   });
 });

@@ -39,6 +39,9 @@ interface LocationsManagementProps {
   ruleSetId: Id<"ruleSets">;
 }
 
+type LocationsResult = (typeof api.entities.getLocations)["_returnType"];
+type LocationWithLineage = LocationsResult[number];
+
 export function LocationsManagement({
   onRegisterHistoryAction,
   onRuleSetCreated,
@@ -56,7 +59,7 @@ export function LocationsManagement({
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
-  const locationsRef = useRef(locationsQuery ?? []);
+  const locationsRef = useRef<LocationWithLineage[]>(locationsQuery ?? []);
   useEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
@@ -136,9 +139,18 @@ export function LocationsManagement({
             });
 
           let currentLocationId = entityId;
+          const locationLineageKey = entityId;
           onRegisterHistoryAction?.({
             label: "Standort erstellt",
             redo: async () => {
+              const existingByLineage = locationsRef.current.find(
+                (location) => location.lineageKey === locationLineageKey,
+              );
+              if (existingByLineage) {
+                currentLocationId = existingByLineage._id;
+                return { status: "applied" as const };
+              }
+
               const duplicate = locationsRef.current.find(
                 (location) => location.name === trimmedName,
               );
@@ -151,6 +163,7 @@ export function LocationsManagement({
               }
 
               const recreateResult = await createLocationMutation({
+                lineageKey: locationLineageKey,
                 name: trimmedName,
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
@@ -162,6 +175,7 @@ export function LocationsManagement({
               try {
                 await deleteLocationMutation({
                   locationId: currentLocationId,
+                  locationLineageKey,
                   practiceId,
                   sourceRuleSetId: newRuleSetId,
                 });
@@ -229,11 +243,22 @@ export function LocationsManagement({
         (location) => location._id === locationId,
       );
 
-      const { ruleSetId: newRuleSetId } = await deleteLocationMutation({
+      const deleteArgs: {
+        locationId: Id<"locations">;
+        locationLineageKey?: Id<"locations">;
+        practiceId: Id<"practices">;
+        sourceRuleSetId: Id<"ruleSets">;
+      } = {
         locationId,
         practiceId,
         sourceRuleSetId: ruleSetId,
-      });
+      };
+      if (deletedSnapshot?.lineageKey) {
+        deleteArgs.locationLineageKey = deletedSnapshot.lineageKey;
+      }
+
+      const { ruleSetId: newRuleSetId } =
+        await deleteLocationMutation(deleteArgs);
 
       if (deletedSnapshot) {
         let currentLocationId = locationId;
@@ -243,24 +268,13 @@ export function LocationsManagement({
             try {
               await deleteLocationMutation({
                 locationId: currentLocationId,
+                locationLineageKey: deletedSnapshot.lineageKey,
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
               return { status: "applied" as const };
             } catch (error: unknown) {
               if (isMissingEntityError(error)) {
-                const byName = locationsRef.current.find(
-                  (location) => location.name === deletedSnapshot.name,
-                );
-                if (!byName) {
-                  return { status: "applied" as const };
-                }
-                await deleteLocationMutation({
-                  locationId: byName._id,
-                  practiceId,
-                  sourceRuleSetId: newRuleSetId,
-                });
-                currentLocationId = byName._id;
                 return { status: "applied" as const };
               }
               return {
@@ -273,18 +287,26 @@ export function LocationsManagement({
             }
           },
           undo: async () => {
+            const existingByLineage = locationsRef.current.find(
+              (location) => location.lineageKey === deletedSnapshot.lineageKey,
+            );
+            if (existingByLineage) {
+              currentLocationId = existingByLineage._id;
+              return { status: "applied" as const };
+            }
+
             const duplicate = locationsRef.current.find(
               (location) => location.name === deletedSnapshot.name,
             );
             if (duplicate) {
               return {
-                message:
-                  "Der Standort kann nicht wiederhergestellt werden, weil bereits ein Standort mit diesem Namen existiert.",
+                message: `[HISTORY:LOCATION_NAME_CONFLICT] Der Standort kann nicht wiederhergestellt werden, weil bereits ein anderer Standort mit dem Namen "${deletedSnapshot.name}" existiert.`,
                 status: "conflict" as const,
               };
             }
 
             const recreateResult = await createLocationMutation({
+              lineageKey: deletedSnapshot.lineageKey,
               name: deletedSnapshot.name,
               practiceId,
               sourceRuleSetId: newRuleSetId,
