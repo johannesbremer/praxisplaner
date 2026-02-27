@@ -346,7 +346,10 @@ async function resolvePractitionerIdInRuleSet(
 ): Promise<Id<"practitioners">> {
   const practitionerEntity = await db.get("practitioners", practitionerId);
   if (!practitionerEntity) {
-    throw new Error("Practitioner not found");
+    throw new Error(
+      `[LINEAGE:PRACTITIONER_SOURCE_NOT_FOUND] Behandler ${practitionerId} konnte nicht geladen werden. ` +
+        "Die Änderung referenziert vermutlich eine veraltete ID oder einen nicht mehr verfügbaren Herkunftsdatensatz.",
+    );
   }
   if (practitionerEntity.practiceId !== practiceId) {
     throw new Error("Practitioner does not belong to this practice");

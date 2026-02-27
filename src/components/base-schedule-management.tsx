@@ -92,72 +92,110 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
   _isGroup?: boolean;
 }
 
-type LocationMatchEntity = Pick<Doc<"locations">, "_id" | "name" | "parentId">;
-type PractitionerMatchEntity = Pick<
-  Doc<"practitioners">,
-  "_id" | "name" | "parentId"
->;
+type LocationMatchEntity = Pick<Doc<"locations">, "_id" | "name"> & {
+  lineageKey: Id<"locations">;
+};
+type PractitionerMatchEntity = Pick<Doc<"practitioners">, "_id" | "name"> & {
+  lineageKey: Id<"practitioners">;
+};
 
 interface SchedulePayload {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
   endTime: string;
+  lineageKey: Id<"baseSchedules">;
   locationLineageId: Id<"locations">;
   practitionerLineageId: Id<"practitioners">;
   startTime: string;
 }
 
-const normalizeBreakTimes = (
-  value: undefined | { end: string; start: string }[],
-) => JSON.stringify(value ?? []);
+const requireLineageKey = <TId extends string>(
+  lineageKey: TId | undefined,
+  params: {
+    entityId: string;
+    entityType: "Arbeitszeit" | "Behandler" | "Standort";
+  },
+): TId => {
+  if (!lineageKey) {
+    throw new Error(
+      `[HISTORY:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} hat keinen lineageKey.`,
+    );
+  }
+  return lineageKey;
+};
 
-const resolveLineageId = <TId extends string>(
-  id: TId,
-  entities: undefined | { _id: TId; parentId?: TId }[],
-) => {
-  const entity = entities?.find((entry) => entry._id === id);
-  return entity?.parentId ?? id;
+const resolvePractitionerLineageId = (
+  practitionerId: Id<"practitioners">,
+  practitioners: PractitionerMatchEntity[] | undefined,
+): Id<"practitioners"> => {
+  const practitioner = practitioners?.find(
+    (entry) => entry._id === practitionerId,
+  );
+  if (!practitioner) {
+    throw new Error(
+      `[HISTORY:PRACTITIONER_NOT_FOUND] Behandler ${practitionerId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    );
+  }
+  return requireLineageKey(practitioner.lineageKey, {
+    entityId: practitioner._id,
+    entityType: "Behandler",
+  });
+};
+
+const resolveLocationLineageId = (
+  locationId: Id<"locations">,
+  locations: LocationMatchEntity[] | undefined,
+): Id<"locations"> => {
+  const location = locations?.find((entry) => entry._id === locationId);
+  if (!location) {
+    throw new Error(
+      `[HISTORY:LOCATION_NOT_FOUND] Standort ${locationId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    );
+  }
+  return requireLineageKey(location.lineageKey, {
+    entityId: location._id,
+    entityType: "Standort",
+  });
+};
+
+const resolvePractitionerIdByLineage = (
+  practitionerLineageId: Id<"practitioners">,
+  practitioners: PractitionerMatchEntity[] | undefined,
+): Id<"practitioners"> => {
+  const practitioner = practitioners?.find(
+    (entry) => entry.lineageKey === practitionerLineageId,
+  );
+  if (!practitioner) {
+    throw new Error(
+      `[HISTORY:PRACTITIONER_LINEAGE_NOT_FOUND] Behandler mit lineageKey ${practitionerLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    );
+  }
+  return practitioner._id;
+};
+
+const resolveLocationIdByLineage = (
+  locationLineageId: Id<"locations">,
+  locations: LocationMatchEntity[] | undefined,
+): Id<"locations"> => {
+  const location = locations?.find(
+    (entry) => entry.lineageKey === locationLineageId,
+  );
+  if (!location) {
+    throw new Error(
+      `[HISTORY:LOCATION_LINEAGE_NOT_FOUND] Standort mit lineageKey ${locationLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    );
+  }
+  return location._id;
 };
 
 const matchesSchedulePayload = (
   schedule: Doc<"baseSchedules">,
   payload: SchedulePayload,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
-) => {
-  const schedulePractitionerLineage = resolveLineageId(
-    schedule.practitionerId,
-    practitioners,
-  );
-  const payloadPractitionerLineage = resolveLineageId(
-    payload.practitionerLineageId,
-    practitioners,
-  );
-  const scheduleLocationLineage = resolveLineageId(
-    schedule.locationId,
-    locations,
-  );
-  const payloadLocationLineage = resolveLineageId(
-    payload.locationLineageId,
-    locations,
-  );
-  const practitionerMatches =
-    schedule.practitionerId === payload.practitionerLineageId ||
-    schedulePractitionerLineage === payloadPractitionerLineage;
-  const locationMatches =
-    schedule.locationId === payload.locationLineageId ||
-    scheduleLocationLineage === payloadLocationLineage;
-
-  return (
-    schedule.dayOfWeek === payload.dayOfWeek &&
-    schedule.startTime === payload.startTime &&
-    schedule.endTime === payload.endTime &&
-    practitionerMatches &&
-    locationMatches &&
-    normalizeBreakTimes(schedule.breakTimes) ===
-      normalizeBreakTimes(payload.breakTimes)
-  );
-};
+): boolean =>
+  requireLineageKey(schedule.lineageKey, {
+    entityId: schedule._id,
+    entityType: "Arbeitszeit",
+  }) === payload.lineageKey;
 
 const toSchedulePayload = (
   schedule: Doc<"baseSchedules">,
@@ -167,20 +205,31 @@ const toSchedulePayload = (
   ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
   dayOfWeek: schedule.dayOfWeek,
   endTime: schedule.endTime,
-  locationLineageId: resolveLineageId(schedule.locationId, locations),
-  practitionerLineageId: resolveLineageId(
+  lineageKey: requireLineageKey(schedule.lineageKey, {
+    entityId: schedule._id,
+    entityType: "Arbeitszeit",
+  }),
+  locationLineageId: resolveLocationLineageId(schedule.locationId, locations),
+  practitionerLineageId: resolvePractitionerLineageId(
     schedule.practitionerId,
     practitioners,
   ),
   startTime: schedule.startTime,
 });
 
-const toMutationSchedulePayload = (payload: SchedulePayload) => ({
+const toMutationSchedulePayload = (
+  payload: SchedulePayload,
+  practitioners: PractitionerMatchEntity[] | undefined,
+  locations: LocationMatchEntity[] | undefined,
+) => ({
   ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
   dayOfWeek: payload.dayOfWeek,
   endTime: payload.endTime,
-  locationId: payload.locationLineageId,
-  practitionerId: payload.practitionerLineageId,
+  locationId: resolveLocationIdByLineage(payload.locationLineageId, locations),
+  practitionerId: resolvePractitionerIdByLineage(
+    payload.practitionerLineageId,
+    practitioners,
+  ),
   startTime: payload.startTime,
 });
 
@@ -314,12 +363,7 @@ export default function BaseScheduleManagement({
             for (const payload of deletedSchedulePayloads) {
               const existingSchedules = schedulesRef.current.filter(
                 (currentSchedule) =>
-                  matchesSchedulePayload(
-                    currentSchedule,
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  matchesSchedulePayload(currentSchedule, payload),
               );
               if (existingSchedules.length === 0) {
                 continue;
@@ -346,18 +390,18 @@ export default function BaseScheduleManagement({
             for (const payload of deletedSchedulePayloads) {
               const existingSchedules = schedulesRef.current.filter(
                 (currentSchedule) =>
-                  matchesSchedulePayload(
-                    currentSchedule,
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  matchesSchedulePayload(currentSchedule, payload),
               );
               if (existingSchedules.length > 0) {
                 continue;
               }
               await createScheduleMutation({
-                ...toMutationSchedulePayload(payload),
+                ...toMutationSchedulePayload(
+                  payload,
+                  practitionersRef.current,
+                  locationsRef.current,
+                ),
+                lineageKey: payload.lineageKey,
                 practiceId,
                 sourceRuleSetId: newRuleSetId,
               });
@@ -719,11 +763,12 @@ function BaseScheduleDialog({
               }),
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
-              locationLineageId: resolveLineageId(
+              lineageKey: result.entityId,
+              locationLineageId: resolveLocationLineageId(
                 createData.locationId,
                 locationsRef.current,
               ),
-              practitionerLineageId: resolveLineageId(
+              practitionerLineageId: resolvePractitionerLineageId(
                 createData.practitionerId,
                 practitionersRef.current,
               ),
@@ -816,11 +861,12 @@ function BaseScheduleDialog({
               }),
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
-              locationLineageId: resolveLineageId(
+              lineageKey: result.entityId,
+              locationLineageId: resolveLocationLineageId(
                 createData.locationId,
                 locationsRef.current,
               ),
-              practitionerLineageId: resolveLineageId(
+              practitionerLineageId: resolvePractitionerLineageId(
                 createData.practitionerId,
                 practitionersRef.current,
               ),
@@ -849,18 +895,18 @@ function BaseScheduleDialog({
                 for (const payload of createdSchedulePayloads) {
                   const existingSchedules = schedulesRef.current.filter(
                     (scheduleItem) =>
-                      matchesSchedulePayload(
-                        scheduleItem,
-                        payload,
-                        practitionersRef.current,
-                        locationsRef.current,
-                      ),
+                      matchesSchedulePayload(scheduleItem, payload),
                   );
                   if (existingSchedules.length > 0) {
                     continue;
                   }
                   await createScheduleMutation({
-                    ...toMutationSchedulePayload(payload),
+                    ...toMutationSchedulePayload(
+                      payload,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    ),
+                    lineageKey: payload.lineageKey,
                     practiceId,
                     sourceRuleSetId: newRuleSetId,
                   });
@@ -872,12 +918,7 @@ function BaseScheduleDialog({
                 for (const payload of createdSchedulePayloads) {
                   const existingSchedules = schedulesRef.current.filter(
                     (scheduleItem) =>
-                      matchesSchedulePayload(
-                        scheduleItem,
-                        payload,
-                        practitionersRef.current,
-                        locationsRef.current,
-                      ),
+                      matchesSchedulePayload(scheduleItem, payload),
                   );
                   if (existingSchedules.length === 0) {
                     continue;
@@ -935,7 +976,11 @@ function BaseScheduleDialog({
                   expectedPresentIds: currentOldIds,
                   practiceId,
                   replacementSchedules: createdSchedulePayloads.map((payload) =>
-                    toMutationSchedulePayload(payload),
+                    toMutationSchedulePayload(
+                      payload,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    ),
                   ),
                   sourceRuleSetId: newRuleSetId,
                 });
@@ -953,7 +998,11 @@ function BaseScheduleDialog({
                   expectedPresentIds: currentNewIds,
                   practiceId,
                   replacementSchedules: oldSchedulePayloads.map((payload) =>
-                    toMutationSchedulePayload(payload),
+                    toMutationSchedulePayload(
+                      payload,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    ),
                   ),
                   sourceRuleSetId: newRuleSetId,
                 });
