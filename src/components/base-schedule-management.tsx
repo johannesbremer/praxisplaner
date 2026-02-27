@@ -102,10 +102,8 @@ interface SchedulePayload {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
   endTime: string;
-  locationId: Id<"locations">;
-  locationName?: string;
-  practitionerId: Id<"practitioners">;
-  practitionerName?: string;
+  locationLineageId: Id<"locations">;
+  practitionerLineageId: Id<"practitioners">;
   startTime: string;
 }
 
@@ -121,14 +119,6 @@ const resolveLineageId = <TId extends string>(
   return entity?.parentId ?? id;
 };
 
-const resolveEntityName = <TId extends string>(
-  id: TId,
-  entities: undefined | { _id: TId; name: string }[],
-) => {
-  const entity = entities?.find((entry) => entry._id === id);
-  return entity?.name;
-};
-
 const matchesSchedulePayload = (
   schedule: Doc<"baseSchedules">,
   payload: SchedulePayload,
@@ -140,35 +130,23 @@ const matchesSchedulePayload = (
     practitioners,
   );
   const payloadPractitionerLineage = resolveLineageId(
-    payload.practitionerId,
+    payload.practitionerLineageId,
     practitioners,
-  );
-  const schedulePractitionerName = resolveEntityName(
-    schedule.practitionerId,
-    practitioners,
-  );
-  const scheduleLocationName = resolveEntityName(
-    schedule.locationId,
-    locations,
   );
   const scheduleLocationLineage = resolveLineageId(
     schedule.locationId,
     locations,
   );
   const payloadLocationLineage = resolveLineageId(
-    payload.locationId,
+    payload.locationLineageId,
     locations,
   );
   const practitionerMatches =
-    schedule.practitionerId === payload.practitionerId ||
-    schedulePractitionerLineage === payloadPractitionerLineage ||
-    (payload.practitionerName !== undefined &&
-      schedulePractitionerName === payload.practitionerName);
+    schedule.practitionerId === payload.practitionerLineageId ||
+    schedulePractitionerLineage === payloadPractitionerLineage;
   const locationMatches =
-    schedule.locationId === payload.locationId ||
-    scheduleLocationLineage === payloadLocationLineage ||
-    (payload.locationName !== undefined &&
-      scheduleLocationName === payload.locationName);
+    schedule.locationId === payload.locationLineageId ||
+    scheduleLocationLineage === payloadLocationLineage;
 
   return (
     schedule.dayOfWeek === payload.dayOfWeek &&
@@ -185,31 +163,24 @@ const toSchedulePayload = (
   schedule: Doc<"baseSchedules">,
   practitioners: PractitionerMatchEntity[] | undefined,
   locations: LocationMatchEntity[] | undefined,
-): SchedulePayload => {
-  const locationName = resolveEntityName(schedule.locationId, locations);
-  const practitionerName = resolveEntityName(
+): SchedulePayload => ({
+  ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+  dayOfWeek: schedule.dayOfWeek,
+  endTime: schedule.endTime,
+  locationLineageId: resolveLineageId(schedule.locationId, locations),
+  practitionerLineageId: resolveLineageId(
     schedule.practitionerId,
     practitioners,
-  );
-
-  return {
-    ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-    dayOfWeek: schedule.dayOfWeek,
-    endTime: schedule.endTime,
-    locationId: schedule.locationId,
-    ...(locationName && { locationName }),
-    practitionerId: schedule.practitionerId,
-    ...(practitionerName && { practitionerName }),
-    startTime: schedule.startTime,
-  };
-};
+  ),
+  startTime: schedule.startTime,
+});
 
 const toMutationSchedulePayload = (payload: SchedulePayload) => ({
   ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
   dayOfWeek: payload.dayOfWeek,
   endTime: payload.endTime,
-  locationId: payload.locationId,
-  practitionerId: payload.practitionerId,
+  locationId: payload.locationLineageId,
+  practitionerId: payload.practitionerLineageId,
   startTime: payload.startTime,
 });
 
@@ -311,6 +282,13 @@ export default function BaseScheduleManagement({
       const deletedSchedules = schedulesRef.current.filter((schedule) =>
         scheduleIds.includes(schedule._id),
       );
+      const deletedSchedulePayloads = deletedSchedules.map((schedule) =>
+        toSchedulePayload(
+          schedule,
+          practitionersRef.current,
+          locationsRef.current,
+        ),
+      );
 
       // Track if rule set changed
       let newRuleSetId: Id<"ruleSets"> | undefined;
@@ -329,16 +307,11 @@ export default function BaseScheduleManagement({
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
       );
 
-      if (deletedSchedules.length > 0 && newRuleSetId) {
+      if (deletedSchedulePayloads.length > 0 && newRuleSetId) {
         onRegisterHistoryAction?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
-            for (const schedule of deletedSchedules) {
-              const payload = toSchedulePayload(
-                schedule,
-                practitionersRef.current,
-                locationsRef.current,
-              );
+            for (const payload of deletedSchedulePayloads) {
               const existingSchedules = schedulesRef.current.filter(
                 (currentSchedule) =>
                   matchesSchedulePayload(
@@ -370,12 +343,7 @@ export default function BaseScheduleManagement({
             return { status: "applied" as const };
           },
           undo: async () => {
-            for (const schedule of deletedSchedules) {
-              const payload = toSchedulePayload(
-                schedule,
-                practitionersRef.current,
-                locationsRef.current,
-              );
+            for (const payload of deletedSchedulePayloads) {
               const existingSchedules = schedulesRef.current.filter(
                 (currentSchedule) =>
                   matchesSchedulePayload(
@@ -745,24 +713,20 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
-            const locationName = resolveEntityName(
-              createData.locationId,
-              locationsRef.current,
-            );
-            const practitionerName = resolveEntityName(
-              createData.practitionerId,
-              practitionersRef.current,
-            );
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
               }),
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
-              locationId: createData.locationId,
-              ...(locationName && { locationName }),
-              practitionerId: createData.practitionerId,
-              ...(practitionerName && { practitionerName }),
+              locationLineageId: resolveLineageId(
+                createData.locationId,
+                locationsRef.current,
+              ),
+              practitionerLineageId: resolveLineageId(
+                createData.practitionerId,
+                practitionersRef.current,
+              ),
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
@@ -846,24 +810,20 @@ function BaseScheduleDialog({
             }
 
             const result = await createScheduleMutation(createData);
-            const locationName = resolveEntityName(
-              createData.locationId,
-              locationsRef.current,
-            );
-            const practitionerName = resolveEntityName(
-              createData.practitionerId,
-              practitionersRef.current,
-            );
             createdSchedulePayloads.push({
               ...(createData.breakTimes && {
                 breakTimes: createData.breakTimes,
               }),
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
-              locationId: createData.locationId,
-              ...(locationName && { locationName }),
-              practitionerId: createData.practitionerId,
-              ...(practitionerName && { practitionerName }),
+              locationLineageId: resolveLineageId(
+                createData.locationId,
+                locationsRef.current,
+              ),
+              practitionerLineageId: resolveLineageId(
+                createData.practitionerId,
+                practitionersRef.current,
+              ),
               startTime: createData.startTime,
             });
             createdScheduleIds.push(result.entityId);
