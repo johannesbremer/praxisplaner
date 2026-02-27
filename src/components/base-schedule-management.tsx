@@ -316,6 +316,7 @@ const toMutationSchedulePayload = (
   ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
   dayOfWeek: payload.dayOfWeek,
   endTime: payload.endTime,
+  lineageKey: payload.lineageKey,
   locationId: resolveLocationIdByLineage(payload.locationLineageId, locations),
   practitionerId: resolvePractitionerIdByLineage(
     payload.practitionerLineageId,
@@ -1092,8 +1093,6 @@ function BaseScheduleDialog({
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
-          let currentNewIds = [...createdScheduleIds];
-          let currentOldIds: Id<"baseSchedules">[] = [];
           const oldSchedulePayloads = deletedScheduleSnapshots.map((previous) =>
             toSchedulePayloadFromLineageSnapshot(
               previous,
@@ -1101,18 +1100,52 @@ function BaseScheduleDialog({
               locationLineageByIdAtSubmitStart,
             ),
           );
+          const newLineageKeys = createdSchedulePayloads.map(
+            (payload) => payload.lineageKey,
+          );
+          const oldLineageKeys = oldSchedulePayloads.map(
+            (payload) => payload.lineageKey,
+          );
+          const countExistingByLineage = (
+            lineageKeys: Id<"baseSchedules">[],
+          ): number => {
+            let count = 0;
+            for (const lineageKey of lineageKeys) {
+              if (
+                schedulesRef.current.some(
+                  (entry) => entry.lineageKey === lineageKey,
+                )
+              ) {
+                count += 1;
+              }
+            }
+            return count;
+          };
 
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
-              if (currentOldIds.length === 0) {
+              const currentOldCount = countExistingByLineage(oldLineageKeys);
+              const currentNewCount = countExistingByLineage(newLineageKeys);
+
+              if (
+                currentOldCount === 0 &&
+                currentNewCount === newLineageKeys.length
+              ) {
                 return { status: "applied" as const };
+              }
+              if (currentOldCount !== oldLineageKeys.length) {
+                return {
+                  message:
+                    "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher wiederhergestellt werden.",
+                  status: "conflict" as const,
+                };
               }
 
               const redoResult = await replaceScheduleSetMutation({
-                expectedAbsentIds: currentNewIds,
+                expectedAbsentLineageKeys: newLineageKeys,
                 expectedDraftRevision: getExpectedDraftRevision(),
-                expectedPresentIds: currentOldIds,
+                expectedPresentLineageKeys: oldLineageKeys,
                 practiceId,
                 replacementSchedules: createdSchedulePayloads.map((payload) =>
                   toMutationSchedulePayload(
@@ -1124,19 +1157,30 @@ function BaseScheduleDialog({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
-              currentOldIds = redoResult.deletedScheduleIds;
-              currentNewIds = redoResult.createdScheduleIds;
               return { status: "applied" as const };
             },
             undo: async () => {
-              if (currentNewIds.length === 0) {
+              const currentOldCount = countExistingByLineage(oldLineageKeys);
+              const currentNewCount = countExistingByLineage(newLineageKeys);
+
+              if (
+                currentNewCount === 0 &&
+                currentOldCount === oldLineageKeys.length
+              ) {
                 return { status: "applied" as const };
+              }
+              if (currentNewCount !== newLineageKeys.length) {
+                return {
+                  message:
+                    "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher zurückgesetzt werden.",
+                  status: "conflict" as const,
+                };
               }
 
               const undoResult = await replaceScheduleSetMutation({
-                expectedAbsentIds: currentOldIds,
+                expectedAbsentLineageKeys: oldLineageKeys,
                 expectedDraftRevision: getExpectedDraftRevision(),
-                expectedPresentIds: currentNewIds,
+                expectedPresentLineageKeys: newLineageKeys,
                 practiceId,
                 replacementSchedules: oldSchedulePayloads.map((payload) =>
                   toMutationSchedulePayload(
@@ -1148,8 +1192,6 @@ function BaseScheduleDialog({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
-              currentNewIds = undoResult.deletedScheduleIds;
-              currentOldIds = undoResult.createdScheduleIds;
               return { status: "applied" as const };
             },
           });
@@ -1175,6 +1217,57 @@ function BaseScheduleDialog({
       onSubmit: formSchema,
     },
   });
+
+  const dialogInitializationKeyRef = React.useRef<null | string>(null);
+  React.useEffect(() => {
+    if (!isOpen) {
+      dialogInitializationKeyRef.current = null;
+      return;
+    }
+
+    if (schedule && (!practitionersQuery || !locationsQuery)) {
+      return;
+    }
+
+    const initializationKey = `${ruleSetId}:${schedule?._id ?? "new"}:${schedule?._groupScheduleIds?.join(",") ?? ""}`;
+    if (dialogInitializationKeyRef.current === initializationKey) {
+      return;
+    }
+
+    const practitioners = practitionersQuery ?? [];
+    const locations = locationsQuery ?? [];
+    const practitionerExists =
+      !!schedule &&
+      practitioners.some(
+        (practitioner) => practitioner._id === schedule.practitionerId,
+      );
+    const locationExists =
+      !!schedule &&
+      locations.some((location) => location._id === schedule.locationId);
+
+    const selectedPractitionerId = practitionerExists
+      ? schedule.practitionerId
+      : "";
+    const selectedLocationId =
+      (locationExists ? schedule.locationId : undefined) ??
+      locations[0]?._id ??
+      "";
+
+    form.reset({
+      breakTimes: schedule?.breakTimes ?? [],
+      daysOfWeek: schedule
+        ? schedule._isGroup
+          ? (schedule._groupDaysOfWeek ?? [])
+          : [schedule.dayOfWeek]
+        : [],
+      endTime: schedule?.endTime ?? "17:00",
+      locationId: selectedLocationId,
+      practitionerId: selectedPractitionerId,
+      startTime: schedule?.startTime ?? "08:00",
+    });
+
+    dialogInitializationKeyRef.current = initializationKey;
+  }, [form, isOpen, locationsQuery, practitionersQuery, ruleSetId, schedule]);
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
