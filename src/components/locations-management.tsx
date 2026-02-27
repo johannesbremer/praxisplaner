@@ -23,6 +23,7 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
+import { resolveReplayEntity } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
@@ -74,6 +75,7 @@ export function LocationsManagement({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
     _id: Id<"locations">;
+    lineageKey?: Id<"locations">;
     name: string;
   }>(null);
 
@@ -139,6 +141,8 @@ export function LocationsManagement({
         const trimmedName = value.name.trim();
 
         if (editingLocation) {
+          const locationLineageKey =
+            editingLocation.lineageKey ?? editingLocation._id;
           const previousName = editingLocation.name;
 
           const updateResult = await updateLocationMutation({
@@ -149,14 +153,27 @@ export function LocationsManagement({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
+          let currentLocationId = updateResult.entityId;
 
           onRegisterHistoryAction?.({
             label: "Standort aktualisiert",
             redo: async () => {
-              const current = locationsRef.current.find(
-                (location) => location._id === editingLocation._id,
-              );
-              if (current?.name !== previousName) {
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentLocationId,
+                entities: locationsRef.current,
+                lineageKey: locationLineageKey,
+                missingMessage:
+                  "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentLocationId = resolvedCurrent.currentEntityId;
+              if (current.name !== previousName) {
                 return {
                   message:
                     "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
@@ -166,19 +183,32 @@ export function LocationsManagement({
 
               const redoResult = await updateLocationMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
-                locationId: editingLocation._id,
+                locationId: currentLocationId,
                 name: trimmedName,
                 practiceId,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
+              currentLocationId = redoResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
-              const current = locationsRef.current.find(
-                (location) => location._id === editingLocation._id,
-              );
-              if (current?.name !== trimmedName) {
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentLocationId,
+                entities: locationsRef.current,
+                lineageKey: locationLineageKey,
+                missingMessage:
+                  "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentLocationId = resolvedCurrent.currentEntityId;
+              if (current.name !== trimmedName) {
                 return {
                   message:
                     "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
@@ -188,12 +218,13 @@ export function LocationsManagement({
 
               const undoResult = await updateLocationMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
-                locationId: editingLocation._id,
+                locationId: currentLocationId,
                 name: previousName,
                 practiceId,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
+              currentLocationId = undoResult.entityId;
               return { status: "applied" as const };
             },
           });

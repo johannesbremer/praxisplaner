@@ -22,6 +22,7 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
+import { resolveReplayEntity } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
@@ -403,6 +404,7 @@ function PractitionerDialog({
 
         if (practitioner) {
           const beforeName = practitioner.name;
+          const practitionerLineageKey = practitioner.lineageKey;
           // Update existing practitioner - extract ruleSetId
           const updateResult = await updateMutation({
             expectedDraftRevision: getExpectedDraftRevision(),
@@ -412,14 +414,27 @@ function PractitionerDialog({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
+          let currentPractitionerId = updateResult.entityId;
 
           onRegisterHistoryAction?.({
             label: "Arzt aktualisiert",
             redo: async () => {
-              const current = practitionersRef.current.find(
-                (entry) => entry._id === practitioner._id,
-              );
-              if (current?.name !== beforeName) {
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentPractitionerId,
+                entities: practitionersRef.current,
+                lineageKey: practitionerLineageKey,
+                missingMessage:
+                  "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentPractitionerId = resolvedCurrent.currentEntityId;
+              if (current.name !== beforeName) {
                 return {
                   message:
                     "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
@@ -431,17 +446,30 @@ function PractitionerDialog({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: trimmedName,
                 practiceId,
-                practitionerId: practitioner._id,
+                practitionerId: currentPractitionerId,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
+              currentPractitionerId = redoResult.entityId;
               return { status: "applied" as const };
             },
             undo: async () => {
-              const current = practitionersRef.current.find(
-                (entry) => entry._id === practitioner._id,
-              );
-              if (current?.name !== trimmedName) {
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentPractitionerId,
+                entities: practitionersRef.current,
+                lineageKey: practitionerLineageKey,
+                missingMessage:
+                  "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentPractitionerId = resolvedCurrent.currentEntityId;
+              if (current.name !== trimmedName) {
                 return {
                   message:
                     "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
@@ -453,10 +481,11 @@ function PractitionerDialog({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeName,
                 practiceId,
-                practitionerId: practitioner._id,
+                practitionerId: currentPractitionerId,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
+              currentPractitionerId = undoResult.entityId;
               return { status: "applied" as const };
             },
           });

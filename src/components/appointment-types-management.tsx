@@ -34,6 +34,8 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
+import { resolveReplayEntity } from "../utils/cow-history";
+
 type AppointmentType = AppointmentTypesResult[number];
 
 interface AppointmentTypesManagementProps {
@@ -270,6 +272,7 @@ export function AppointmentTypesManagement({
         }
 
         if (editingAppointmentType) {
+          const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             duration: editingAppointmentType.duration,
             name: editingAppointmentType.name,
@@ -298,16 +301,29 @@ export function AppointmentTypesManagement({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
+          let currentAppointmentTypeId = updateResult.entityId;
 
           onRegisterHistoryAction?.({
             label: "Terminart aktualisiert",
             redo: async () => {
-              const current = appointmentTypesRef.current.find(
-                (type) => type._id === editingAppointmentType._id,
-              );
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentAppointmentTypeId,
+                entities: appointmentTypesRef.current,
+                lineageKey: appointmentTypeLineageKey,
+                missingMessage:
+                  "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentAppointmentTypeId = resolvedCurrent.currentEntityId;
 
               if (
-                current?.name !== beforeState.name ||
+                current.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
@@ -330,7 +346,7 @@ export function AppointmentTypesManagement({
               }
 
               const redoResult = await updateAppointmentTypeMutation({
-                appointmentTypeId: editingAppointmentType._id,
+                appointmentTypeId: currentAppointmentTypeId,
                 duration: afterState.duration,
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: afterState.name,
@@ -339,16 +355,29 @@ export function AppointmentTypesManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
+              currentAppointmentTypeId = redoResult.entityId;
 
               return { status: "applied" as const };
             },
             undo: async () => {
-              const current = appointmentTypesRef.current.find(
-                (type) => type._id === editingAppointmentType._id,
-              );
+              const resolvedCurrent = resolveReplayEntity({
+                currentEntityId: currentAppointmentTypeId,
+                entities: appointmentTypesRef.current,
+                lineageKey: appointmentTypeLineageKey,
+                missingMessage:
+                  "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+              });
+              if (resolvedCurrent.status === "conflict") {
+                return {
+                  message: resolvedCurrent.message,
+                  status: "conflict" as const,
+                };
+              }
+              const current = resolvedCurrent.entity;
+              currentAppointmentTypeId = resolvedCurrent.currentEntityId;
 
               if (
-                current?.name !== afterState.name ||
+                current.name !== afterState.name ||
                 current.duration !== afterState.duration ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
@@ -373,7 +402,7 @@ export function AppointmentTypesManagement({
               }
 
               const undoResult = await updateAppointmentTypeMutation({
-                appointmentTypeId: editingAppointmentType._id,
+                appointmentTypeId: currentAppointmentTypeId,
                 duration: beforeState.duration,
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeState.name,
@@ -382,6 +411,7 @@ export function AppointmentTypesManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
+              currentAppointmentTypeId = undoResult.entityId;
 
               return { status: "applied" as const };
             },

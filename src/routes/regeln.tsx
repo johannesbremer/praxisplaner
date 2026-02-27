@@ -374,8 +374,8 @@ function LogicView() {
   }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
 
   const preliminaryWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? preliminarySelectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, preliminarySelectedRuleSet, activeRuleSet],
+    () => preliminarySelectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
+    [preliminarySelectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
 
   // Fetch locations for the working rule set
@@ -410,8 +410,8 @@ function LogicView() {
 
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
   const currentWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
+    () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
+    [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
   const expectedDraftRevision = useMemo(() => {
     if (!unsavedRuleSet || currentWorkingRuleSet?._id !== unsavedRuleSet._id) {
@@ -429,14 +429,16 @@ function LogicView() {
   }, [unsavedRuleSet, unsavedRuleSet?._id, unsavedRuleSet?.draftRevision]);
 
   const historyScopeKey = useMemo(() => {
-    if (unsavedRuleSet?.parentVersion) {
+    const isWorkingOnUnsavedRuleSet =
+      unsavedRuleSet && currentWorkingRuleSet?._id === unsavedRuleSet._id;
+    if (isWorkingOnUnsavedRuleSet && unsavedRuleSet.parentVersion) {
       return unsavedRuleSet.parentVersion;
     }
     if (ruleSetIdFromUrl) {
       return ruleSetIdFromUrl;
     }
     return null;
-  }, [ruleSetIdFromUrl, unsavedRuleSet?.parentVersion]);
+  }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
 
   React.useEffect(() => {
