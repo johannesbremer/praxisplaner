@@ -428,12 +428,18 @@ function LogicView() {
     setDraftRevisionOverride(unsavedRuleSet.draftRevision);
   }, [unsavedRuleSet, unsavedRuleSet?._id, unsavedRuleSet?.draftRevision]);
 
-  const historyScopeRootRuleSetId =
-    unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? "none";
-  const historyScopeKey = `${historyScopeRootRuleSetId}`;
-  const lastHistoryScopeRef = useRef(historyScopeKey);
+  const historyScopeKey =
+    unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? null;
+  const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
 
   React.useEffect(() => {
+    if (!historyScopeKey) {
+      return;
+    }
+    if (!lastHistoryScopeRef.current) {
+      lastHistoryScopeRef.current = historyScopeKey;
+      return;
+    }
     if (lastHistoryScopeRef.current === historyScopeKey) {
       return;
     }
