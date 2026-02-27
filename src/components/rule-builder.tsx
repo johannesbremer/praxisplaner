@@ -474,36 +474,93 @@ export function RuleBuilder({
                 practitioners,
                 referenceSnapshot: previousRuleReferenceSnapshot,
               });
+              const findRuleIdsBySerializedState = (
+                serializedState: string,
+                referenceSnapshot: RuleReferenceSnapshot,
+              ): Id<"ruleConditions">[] =>
+                rulesRef.current
+                  .filter(
+                    (rule) =>
+                      serializeRuleStateForComparison({
+                        appointmentTypes: appointmentTypesRef.current,
+                        conditionTree: rule.conditionTree,
+                        enabled: rule.enabled,
+                        locations: locationsRef.current,
+                        practitioners: practitionersRef.current,
+                        referenceSnapshot,
+                      }) === serializedState,
+                  )
+                  .map((rule) => rule._id);
+              const resolveRuleIdForReplay = (params: {
+                ambiguousMessage: string;
+                missingMessage: string;
+                referenceSnapshot: RuleReferenceSnapshot;
+                requiredState: string;
+                staleMessage: string;
+              }):
+                | { message: string; status: "conflict" }
+                | { ruleId: Id<"ruleConditions">; status: "ok" } => {
+                const byId = rulesRef.current.find(
+                  (rule) => rule._id === currentRuleId,
+                );
+                if (byId) {
+                  const byIdState = serializeRuleStateForComparison({
+                    appointmentTypes: appointmentTypesRef.current,
+                    conditionTree: byId.conditionTree,
+                    enabled: byId.enabled,
+                    locations: locationsRef.current,
+                    practitioners: practitionersRef.current,
+                    referenceSnapshot: params.referenceSnapshot,
+                  });
+                  if (byIdState === params.requiredState) {
+                    return { ruleId: byId._id, status: "ok" };
+                  }
+                  return {
+                    message: params.staleMessage,
+                    status: "conflict",
+                  };
+                }
+
+                const matches = findRuleIdsBySerializedState(
+                  params.requiredState,
+                  params.referenceSnapshot,
+                );
+                const [singleMatch] = matches;
+                if (singleMatch) {
+                  return { ruleId: singleMatch, status: "ok" };
+                }
+                if (matches.length > 1) {
+                  return {
+                    message: params.ambiguousMessage,
+                    status: "conflict",
+                  };
+                }
+                return {
+                  message: params.missingMessage,
+                  status: "conflict",
+                };
+              };
 
               onRegisterHistoryAction?.({
                 label: "Regel aktualisiert",
                 redo: async () => {
-                  const existing = rulesRef.current.find(
-                    (rule) => rule._id === currentRuleId,
-                  );
-                  if (!existing) {
+                  const resolvedRule = resolveRuleIdForReplay({
+                    ambiguousMessage:
+                      "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand mehrfach vorhanden ist.",
+                    missingMessage:
+                      "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand nicht mehr vorhanden ist.",
+                    referenceSnapshot: previousRuleReferenceSnapshot,
+                    requiredState: previousRuleState,
+                    staleMessage:
+                      "Die vorherige Regel wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+                  });
+                  if (resolvedRule.status === "conflict") {
                     return {
-                      message:
-                        "Die Regel kann nicht wiederhergestellt werden, weil sie bereits gelöscht wurde.",
+                      message: resolvedRule.message,
                       status: "conflict" as const,
                     };
                   }
-                  if (
-                    serializeRuleStateForComparison({
-                      appointmentTypes: appointmentTypesRef.current,
-                      conditionTree: existing.conditionTree,
-                      enabled: existing.enabled,
-                      locations: locationsRef.current,
-                      practitioners: practitionersRef.current,
-                      referenceSnapshot: previousRuleReferenceSnapshot,
-                    }) !== previousRuleState
-                  ) {
-                    return {
-                      message:
-                        "Die vorherige Regel wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-                      status: "conflict" as const,
-                    };
-                  }
+                  currentRuleId = resolvedRule.ruleId;
                   const preparedRule = prepareRuleConditionTreeForReplay(
                     conditionTree,
                     currentRuleReferenceSnapshot,
@@ -539,32 +596,23 @@ export function RuleBuilder({
                   return { status: "applied" as const };
                 },
                 undo: async () => {
-                  const existing = rulesRef.current.find(
-                    (rule) => rule._id === currentRuleId,
-                  );
-                  if (!existing) {
+                  const resolvedRule = resolveRuleIdForReplay({
+                    ambiguousMessage:
+                      "Die aktualisierte Regel kann nicht zurückgesetzt werden, weil der aktuelle Regelzustand mehrfach vorhanden ist.",
+                    missingMessage:
+                      "Die aktualisierte Regel wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+                    referenceSnapshot: currentRuleReferenceSnapshot,
+                    requiredState: currentRuleState,
+                    staleMessage:
+                      "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                  });
+                  if (resolvedRule.status === "conflict") {
                     return {
-                      message:
-                        "Die aktualisierte Regel wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+                      message: resolvedRule.message,
                       status: "conflict" as const,
                     };
                   }
-                  if (
-                    serializeRuleStateForComparison({
-                      appointmentTypes: appointmentTypesRef.current,
-                      conditionTree: existing.conditionTree,
-                      enabled: existing.enabled,
-                      locations: locationsRef.current,
-                      practitioners: practitionersRef.current,
-                      referenceSnapshot: currentRuleReferenceSnapshot,
-                    }) !== currentRuleState
-                  ) {
-                    return {
-                      message:
-                        "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                      status: "conflict" as const,
-                    };
-                  }
+                  currentRuleId = resolvedRule.ruleId;
                   const preparedRule = prepareRuleConditionTreeForReplay(
                     previousRule.conditionTree,
                     previousRuleReferenceSnapshot,
