@@ -81,6 +81,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         name: "Type 1",
         practiceId,
         practitionerIds: [practitioner],
+        selectedRuleSetId: initialRuleSetId,
       },
     );
 
@@ -125,6 +126,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       name: "Type 2",
       practiceId,
       practitionerIds: [savedPractitioner._id],
+      selectedRuleSetId: savedRuleSet1._id,
     });
 
     // Get the unsaved rule set (it should have been created automatically)
@@ -159,6 +161,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Test Rule",
       practiceId,
+      selectedRuleSetId: savedRuleSet1._id,
     });
 
     expect(result.entityId).toBeDefined();
@@ -205,6 +208,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         name: "Correct Type",
         practiceId,
         practitionerIds: [practitioner],
+        selectedRuleSetId: initialRuleSetId,
       },
     );
 
@@ -241,6 +245,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Test Rule",
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
 
     expect(result.entityId).toBeDefined();
@@ -287,6 +292,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         name: "Type 1",
         practiceId,
         practitionerIds: [practitioner],
+        selectedRuleSetId: initialRuleSetId,
       },
     );
 
@@ -320,6 +326,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Test Rule",
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
 
     // Save the rule set
@@ -361,6 +368,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       name: "Type 2",
       practiceId,
       practitionerIds: [savedPractitioner._id],
+      selectedRuleSetId: savedRuleSet1._id,
     });
 
     // Get the new unsaved rule set
@@ -462,6 +470,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         name: "Surgery",
         practiceId,
         practitionerIds: [practitioner],
+        selectedRuleSetId: initialRuleSetId,
       },
     );
 
@@ -498,6 +507,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       expectedDraftRevision: unsavedRuleSet.draftRevision,
       name: "Concurrent Test Rule",
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
 
     expect(result.entityId).toBeDefined();
@@ -576,6 +586,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       baseScheduleId,
       expectedDraftRevision: null,
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
     const discardedDraftRuleSetId = firstDelete.ruleSetId;
 
@@ -586,6 +597,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       locationId,
       practiceId,
       practitionerId,
+      selectedRuleSetId: initialRuleSetId,
       startTime: "08:00",
     });
 
@@ -598,6 +610,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       baseScheduleId,
       expectedDraftRevision: null,
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
 
     expect(secondDelete.ruleSetId).not.toEqual(discardedDraftRuleSetId);
@@ -654,6 +667,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       name: "Kontrolle",
       practiceId,
       practitionerIds: [practitionerId],
+      selectedRuleSetId: initialRuleSetId,
     });
 
     const firstDelete = await t.mutation(api.entities.deleteAppointmentType, {
@@ -661,6 +675,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       appointmentTypeLineageKey: firstCreate.entityId,
       expectedDraftRevision: firstCreate.draftRevision,
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
     expect(firstDelete.ruleSetId).toEqual(firstCreate.ruleSetId);
 
@@ -670,6 +685,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       name: "Kontrolle",
       practiceId,
       practitionerIds: [practitionerId],
+      selectedRuleSetId: initialRuleSetId,
     });
 
     await expect(
@@ -678,6 +694,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         appointmentTypeLineageKey: firstCreate.entityId,
         expectedDraftRevision: secondCreate.draftRevision,
         practiceId,
+        selectedRuleSetId: initialRuleSetId,
       }),
     ).rejects.toThrow(/\[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND\]/);
 
@@ -697,6 +714,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       appointmentTypeLineageKey: secondCreate.entityId,
       expectedDraftRevision: secondCreate.draftRevision,
       practiceId,
+      selectedRuleSetId: initialRuleSetId,
     });
 
     const remainingAfterValidDelete = await t.run(async (ctx) => {
@@ -822,6 +840,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         location2Id,
         practitioner3Id,
         ruleSet1Id,
+        ruleSet2Id,
         ruleSet3Id,
       };
     });
@@ -832,6 +851,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         expectedDraftRevision: 0,
         practiceId,
         practitionerId: seeded.practitioner3Id,
+        selectedRuleSetId: seeded.ruleSet2Id,
       },
     );
 
@@ -850,6 +870,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       {
         expectedDraftRevision: null,
         practiceId,
+        selectedRuleSetId: seeded.ruleSet2Id,
         snapshot: deleteResult.snapshot,
       },
     );
@@ -857,10 +878,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const restoredState = await t.run(async (ctx) => {
       const targetLocation = await ctx.db
         .query("locations")
-        .withIndex("by_parentId_ruleSetId", (q) =>
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
           q
-            .eq("parentId", seeded.location1Id)
-            .eq("ruleSetId", restoreResult.ruleSetId),
+            .eq("ruleSetId", restoreResult.ruleSetId)
+            .eq("lineageKey", seeded.location1Id),
         )
         .first();
 

@@ -375,6 +375,7 @@ export default function BaseScheduleManagement({
           baseScheduleId: scheduleId,
           expectedDraftRevision: getExpectedDraftRevision(),
           practiceId,
+          selectedRuleSetId: ruleSetId,
         });
         handleDraftMutationResult(result);
       }
@@ -401,6 +402,7 @@ export default function BaseScheduleManagement({
                     baseScheduleId: existing._id,
                     expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
+                    selectedRuleSetId: ruleSetId,
                   });
                   handleDraftMutationResult(redoResult);
                 } catch (error: unknown) {
@@ -432,6 +434,7 @@ export default function BaseScheduleManagement({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: payload.lineageKey,
                 practiceId,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(undoResult);
             }
@@ -771,6 +774,7 @@ function BaseScheduleDialog({
               baseScheduleId: scheduleId,
               expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
+              selectedRuleSetId: ruleSetId,
             });
             handleDraftMutationResult(deleteResult);
           }
@@ -785,6 +789,7 @@ function BaseScheduleDialog({
               locationId: Id<"locations">;
               practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
+              selectedRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
@@ -793,6 +798,7 @@ function BaseScheduleDialog({
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: schedule.practitionerId,
+              selectedRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -877,6 +883,7 @@ function BaseScheduleDialog({
               locationId: Id<"locations">;
               practiceId: Id<"practices">;
               practitionerId: Id<"practitioners">;
+              selectedRuleSetId: Id<"ruleSets">;
               startTime: string;
             } = {
               dayOfWeek,
@@ -885,6 +892,7 @@ function BaseScheduleDialog({
               locationId: value.locationId as Id<"locations">,
               practiceId,
               practitionerId: value.practitionerId as Id<"practitioners">,
+              selectedRuleSetId: ruleSetId,
               startTime: value.startTime,
             };
 
@@ -940,6 +948,7 @@ function BaseScheduleDialog({
                   expectedDraftRevision: getExpectedDraftRevision(),
                   lineageKey: payload.lineageKey,
                   practiceId,
+                  selectedRuleSetId: ruleSetId,
                 });
                 handleDraftMutationResult(redoResult);
               }
@@ -961,6 +970,7 @@ function BaseScheduleDialog({
                       baseScheduleId: existing._id,
                       expectedDraftRevision: getExpectedDraftRevision(),
                       practiceId,
+                      selectedRuleSetId: ruleSetId,
                     });
                     handleDraftMutationResult(undoResult);
                     deletedIds.push(existing._id);
@@ -1015,6 +1025,7 @@ function BaseScheduleDialog({
                     locationsRef.current,
                   ),
                 ),
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(redoResult);
               currentOldIds = redoResult.deletedScheduleIds;
@@ -1038,6 +1049,7 @@ function BaseScheduleDialog({
                     locationsRef.current,
                   ),
                 ),
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(undoResult);
               currentNewIds = undoResult.deletedScheduleIds;

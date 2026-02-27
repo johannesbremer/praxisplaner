@@ -221,6 +221,7 @@ export async function resolveDraftForWrite(
   db: DatabaseWriter,
   practiceId: Id<"practices">,
   expectedDraftRevision: null | number,
+  selectedRuleSetId: Id<"ruleSets">,
 ): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
   const existingUnsavedRuleSet = await findUnsavedRuleSet(db, practiceId);
   if (existingUnsavedRuleSet) {
@@ -246,20 +247,15 @@ export async function resolveDraftForWrite(
     });
   }
 
-  const practice = await db.get("practices", practiceId);
-  if (!practice?.currentActiveRuleSetId) {
-    throw new Error(
-      `[COW:ACTIVE_RULE_SET_MISSING] Praxis ${practiceId} hat kein aktives Regelset als Quelle für einen neuen Draft.`,
-    );
-  }
-
-  const sourceRuleSet = await db.get(
-    "ruleSets",
-    practice.currentActiveRuleSetId,
-  );
+  const sourceRuleSet = await db.get("ruleSets", selectedRuleSetId);
   if (sourceRuleSet?.practiceId !== practiceId) {
     throw new Error(
-      `[COW:ACTIVE_RULE_SET_NOT_FOUND] Aktives Regelset ${practice.currentActiveRuleSetId} der Praxis ${practiceId} konnte nicht geladen werden.`,
+      `[COW:SELECTED_RULE_SET_NOT_FOUND] Gewaehltes Regelset ${selectedRuleSetId} der Praxis ${practiceId} konnte nicht geladen werden.`,
+    );
+  }
+  if (!sourceRuleSet.saved) {
+    throw new Error(
+      `[COW:SELECTED_RULE_SET_MUST_BE_SAVED] Gewaehltes Regelset ${selectedRuleSetId} ist kein gespeichertes Regelset und kann nicht als Draft-Quelle verwendet werden.`,
     );
   }
 

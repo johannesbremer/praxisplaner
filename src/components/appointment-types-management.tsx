@@ -290,6 +290,7 @@ export function AppointmentTypesManagement({
             name: trimmedName,
             practiceId,
             practitionerIds: afterState.practitionerIds,
+            selectedRuleSetId: ruleSetId,
           });
           handleDraftMutationResult(updateResult);
 
@@ -330,6 +331,7 @@ export function AppointmentTypesManagement({
                 name: afterState.name,
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(redoResult);
 
@@ -372,6 +374,7 @@ export function AppointmentTypesManagement({
                 name: beforeState.name,
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(undoResult);
 
@@ -394,6 +397,7 @@ export function AppointmentTypesManagement({
             name: trimmedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
+            selectedRuleSetId: ruleSetId,
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -429,6 +433,7 @@ export function AppointmentTypesManagement({
                 name: trimmedName,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(recreateResult);
               currentAppointmentTypeId = recreateResult.entityId;
@@ -441,6 +446,7 @@ export function AppointmentTypesManagement({
                   appointmentTypeLineageKey,
                   expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
+                  selectedRuleSetId: ruleSetId,
                 });
                 handleDraftMutationResult(undoResult);
                 return { status: "applied" as const };
@@ -537,6 +543,7 @@ export function AppointmentTypesManagement({
         appointmentTypeLineageKey: deletedSnapshot.lineageKey,
         expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
+        selectedRuleSetId: ruleSetId,
       });
       handleDraftMutationResult(deleteResult);
 
@@ -551,6 +558,7 @@ export function AppointmentTypesManagement({
               appointmentTypeLineageKey: deletedSnapshot.lineageKey,
               expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
+              selectedRuleSetId: ruleSetId,
             });
             handleDraftMutationResult(redoResult);
             return { status: "applied" as const };
@@ -610,6 +618,7 @@ export function AppointmentTypesManagement({
             name: deletedSnapshot.name,
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
+            selectedRuleSetId: ruleSetId,
           });
           handleDraftMutationResult(recreateResult);
           currentAppointmentTypeId = recreateResult.entityId;

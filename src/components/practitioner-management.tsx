@@ -124,6 +124,7 @@ export default function PractitionerManagement({
         expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         practitionerId,
+        selectedRuleSetId: ruleSetId,
         ...(practitionerLineageKey && { practitionerLineageKey }),
       });
       handleDraftMutationResult(deleteResult);
@@ -147,6 +148,7 @@ export default function PractitionerManagement({
               practiceId,
               practitionerId: currentPractitionerId,
               practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
+              selectedRuleSetId: ruleSetId,
             });
             handleDraftMutationResult(redoResult);
             currentSnapshot = redoResult.snapshot;
@@ -168,6 +170,7 @@ export default function PractitionerManagement({
                   practitionerId: currentByLineage._id,
                   practitionerLineageKey:
                     currentSnapshot.practitioner.lineageKey,
+                  selectedRuleSetId: ruleSetId,
                 });
                 handleDraftMutationResult(redoResult);
                 currentSnapshot = redoResult.snapshot;
@@ -200,6 +203,7 @@ export default function PractitionerManagement({
             const restoreResult = await restoreWithDependenciesMutation({
               expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
+              selectedRuleSetId: ruleSetId,
               snapshot: currentSnapshot,
             });
             handleDraftMutationResult(restoreResult);
@@ -395,6 +399,7 @@ function PractitionerDialog({
             name: trimmedName,
             practiceId,
             practitionerId: practitioner._id,
+            selectedRuleSetId: ruleSetId,
           });
           handleDraftMutationResult(updateResult);
 
@@ -417,6 +422,7 @@ function PractitionerDialog({
                 name: trimmedName,
                 practiceId,
                 practitionerId: practitioner._id,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -438,6 +444,7 @@ function PractitionerDialog({
                 name: beforeName,
                 practiceId,
                 practitionerId: practitioner._id,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(undoResult);
               return { status: "applied" as const };
@@ -451,6 +458,7 @@ function PractitionerDialog({
             expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
+            selectedRuleSetId: ruleSetId,
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -484,6 +492,7 @@ function PractitionerDialog({
                 lineageKey: practitionerLineageKey,
                 name: trimmedName,
                 practiceId,
+                selectedRuleSetId: ruleSetId,
               });
               handleDraftMutationResult(recreateResult);
               currentPractitionerId = recreateResult.entityId;
@@ -495,6 +504,7 @@ function PractitionerDialog({
                   expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
                   practitionerId: currentPractitionerId,
+                  selectedRuleSetId: ruleSetId,
                 });
                 handleDraftMutationResult(undoResult);
                 return { status: "applied" as const };

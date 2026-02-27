@@ -178,11 +178,13 @@ async function resolveDraftRuleSetForMutation(
   db: DatabaseWriter,
   practiceId: Id<"practices">,
   expectedDraftRevision: null | number,
+  selectedRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"ruleSets">> {
   const resolved = await resolveDraftForWrite(
     db,
     practiceId,
     expectedDraftRevision,
+    selectedRuleSetId,
   );
   return resolved.ruleSetId;
 }
@@ -521,6 +523,7 @@ export const createAppointmentType = mutation({
     name: v.string(),
     practiceId: v.id("practices"),
     practitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -529,6 +532,7 @@ export const createAppointmentType = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const allowedPractitionerIds = await resolvePractitionerIds(
@@ -603,6 +607,7 @@ export const updateAppointmentType = mutation({
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -611,6 +616,7 @@ export const updateAppointmentType = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const appointmentType = await resolveAppointmentTypeEntityInRuleSet(
@@ -689,6 +695,7 @@ export const deleteAppointmentType = mutation({
     appointmentTypeLineageKey: v.optional(v.id("appointmentTypes")),
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -697,6 +704,7 @@ export const deleteAppointmentType = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     let appointmentType: Doc<"appointmentTypes"> | null = null;
@@ -780,6 +788,7 @@ export const createPractitioner = mutation({
     lineageKey: v.optional(v.id("practitioners")),
     name: v.string(),
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
@@ -789,6 +798,7 @@ export const createPractitioner = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     // Check for name uniqueness within the rule set
@@ -848,6 +858,7 @@ export const updatePractitioner = mutation({
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    selectedRuleSetId: v.id("ruleSets"),
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
@@ -857,6 +868,7 @@ export const updatePractitioner = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const practitioner = await resolvePractitionerEntityInRuleSet(
@@ -916,6 +928,7 @@ export const deletePractitioner = mutation({
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -924,6 +937,7 @@ export const deletePractitioner = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const practitioner = await resolvePractitionerEntityInRuleSet(
@@ -978,6 +992,7 @@ export const deletePractitionerWithDependencies = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
     practitionerLineageKey: v.optional(v.id("practitioners")),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -986,6 +1001,7 @@ export const deletePractitionerWithDependencies = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     let practitioner: Awaited<
@@ -1191,6 +1207,7 @@ export const restorePractitionerWithDependencies = mutation({
   args: {
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
     snapshot: practitionerDependencySnapshotValidator,
   },
   handler: async (ctx, args) => {
@@ -1200,6 +1217,7 @@ export const restorePractitionerWithDependencies = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
     const now = BigInt(Date.now());
     const previousPractitionerId = args.snapshot.practitioner.id;
@@ -1448,6 +1466,7 @@ export const createLocation = mutation({
     lineageKey: v.optional(v.id("locations")),
     name: v.string(),
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1456,6 +1475,7 @@ export const createLocation = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     // Check for name uniqueness within the rule set
@@ -1514,6 +1534,7 @@ export const updateLocation = mutation({
     locationId: v.id("locations"),
     name: v.string(),
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1522,6 +1543,7 @@ export const updateLocation = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const locationId = await resolveLocationIdInRuleSet(
@@ -1574,6 +1596,7 @@ export const deleteLocation = mutation({
     locationId: v.id("locations"),
     locationLineageKey: v.optional(v.id("locations")),
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1582,6 +1605,7 @@ export const deleteLocation = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     let location: Doc<"locations"> | null = null;
@@ -1688,6 +1712,7 @@ export const createBaseSchedule = mutation({
     locationId: v.id("locations"),
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    selectedRuleSetId: v.id("ruleSets"),
     startTime: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1697,6 +1722,7 @@ export const createBaseSchedule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const practitionerId = await resolvePractitionerIdInRuleSet(
@@ -1770,6 +1796,7 @@ export const updateBaseSchedule = mutation({
     locationId: v.optional(v.id("locations")),
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
+    selectedRuleSetId: v.id("ruleSets"),
     startTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1779,6 +1806,7 @@ export const updateBaseSchedule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const scheduleId = await resolveBaseScheduleIdInRuleSet(
@@ -1871,6 +1899,7 @@ export const deleteBaseSchedule = mutation({
     baseScheduleId: v.id("baseSchedules"),
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1879,6 +1908,7 @@ export const deleteBaseSchedule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     const scheduleId = await resolveBaseScheduleIdInRuleSet(
@@ -1927,6 +1957,7 @@ export const replaceBaseScheduleSet = mutation({
     expectedPresentIds: v.array(v.id("baseSchedules")),
     practiceId: v.id("practices"),
     replacementSchedules: v.array(baseSchedulePayloadValidator),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1935,6 +1966,7 @@ export const replaceBaseScheduleSet = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     if (args.expectedPresentIds.length === 0) {
@@ -2339,6 +2371,7 @@ export const createRule = mutation({
     expectedDraftRevision: expectedDraftRevisionValidator,
     name: v.string(),
     practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -2347,6 +2380,7 @@ export const createRule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     // Remap entity IDs in the condition tree if the source and target rule sets differ
@@ -2417,6 +2451,7 @@ export const deleteRule = mutation({
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
     ruleId: v.id("ruleConditions"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -2425,6 +2460,7 @@ export const deleteRule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
     const getCurrentDraftRevision = async (): Promise<number> => {
       const ruleSet = await ctx.db.get("ruleSets", ruleSetId);
@@ -2498,6 +2534,7 @@ export const updateRule = mutation({
     expectedDraftRevision: expectedDraftRevisionValidator,
     practiceId: v.id("practices"),
     ruleId: v.id("ruleConditions"),
+    selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -2506,6 +2543,7 @@ export const updateRule = mutation({
       ctx.db,
       args.practiceId,
       args.expectedDraftRevision,
+      args.selectedRuleSetId,
     );
 
     // Get the entity - it might be from the active or unsaved rule set
