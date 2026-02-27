@@ -27,7 +27,7 @@ import { useErrorTracking } from "../utils/error-tracking";
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
   !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|practitioner not found|arzt.*nicht gefunden/i.test(
+  /already deleted|bereits gelöscht|practitioner not found|arzt.*nicht gefunden|behandler.*nicht gefunden|PRACTITIONER_RESOLVE_FAILED/i.test(
     error.message,
   );
 
@@ -115,15 +115,36 @@ export default function PractitionerManagement({
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
-              const redoResult = await deleteWithDependenciesMutation({
-                practiceId,
-                practitionerId: currentSnapshot.practitioner.id,
-                practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
-                sourceRuleSetId: newRuleSetId,
-              });
-              currentSnapshot = redoResult.snapshot;
-              currentPractitionerId = currentSnapshot.practitioner.id;
-              return { status: "applied" as const };
+              const currentByLineage = practitionersRef.current.find(
+                (entry) =>
+                  entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+              );
+              if (!currentByLineage) {
+                return { status: "applied" as const };
+              }
+              try {
+                const redoResult = await deleteWithDependenciesMutation({
+                  practiceId,
+                  practitionerId: currentByLineage._id,
+                  practitionerLineageKey:
+                    currentSnapshot.practitioner.lineageKey,
+                  sourceRuleSetId: newRuleSetId,
+                });
+                currentSnapshot = redoResult.snapshot;
+                currentPractitionerId = currentSnapshot.practitioner.id;
+                return { status: "applied" as const };
+              } catch (retryError: unknown) {
+                if (isMissingEntityError(retryError)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    retryError instanceof Error
+                      ? retryError.message
+                      : "Der Arzt konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
+              }
             }
             return {
               message:
