@@ -23,7 +23,10 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
-import { resolveReplayEntity } from "../utils/cow-history";
+import {
+  registerLineageCreateHistoryAction,
+  registerLineageUpdateHistoryAction,
+} from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
@@ -153,34 +156,15 @@ export function LocationsManagement({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
-          let currentLocationId = updateResult.entityId;
-
-          onRegisterHistoryAction?.({
+          registerLineageUpdateHistoryAction({
+            entitiesRef: locationsRef,
+            initialEntityId: updateResult.entityId,
             label: "Standort aktualisiert",
-            redo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentLocationId,
-                entities: locationsRef.current,
-                lineageKey: locationLineageKey,
-                missingMessage:
-                  "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentLocationId = resolvedCurrent.currentEntityId;
-              if (current.name !== previousName) {
-                return {
-                  message:
-                    "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: locationLineageKey,
+            onRegisterHistoryAction,
+            redoMissingMessage:
+              "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+            runRedo: async (currentLocationId) => {
               const redoResult = await updateLocationMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
@@ -189,33 +173,9 @@ export function LocationsManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
-              currentLocationId = redoResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: redoResult.entityId };
             },
-            undo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentLocationId,
-                entities: locationsRef.current,
-                lineageKey: locationLineageKey,
-                missingMessage:
-                  "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentLocationId = resolvedCurrent.currentEntityId;
-              if (current.name !== trimmedName) {
-                return {
-                  message:
-                    "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            runUndo: async (currentLocationId) => {
               const undoResult = await updateLocationMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
@@ -224,8 +184,21 @@ export function LocationsManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
-              currentLocationId = undoResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: undoResult.entityId };
+            },
+            undoMissingMessage:
+              "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+            validateRedo: (current) => {
+              if (current.name !== previousName) {
+                return "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
+              }
+              return null;
+            },
+            validateUndo: (current) => {
+              if (current.name !== trimmedName) {
+                return "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
+              }
+              return null;
             },
           });
 
@@ -243,30 +216,15 @@ export function LocationsManagement({
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
 
-          let currentLocationId = entityId;
           const locationLineageKey = entityId;
-          onRegisterHistoryAction?.({
+          registerLineageCreateHistoryAction({
+            entitiesRef: locationsRef,
+            initialEntityId: entityId,
+            isMissingEntityError,
             label: "Standort erstellt",
-            redo: async () => {
-              const existingByLineage = locationsRef.current.find(
-                (location) => location.lineageKey === locationLineageKey,
-              );
-              if (existingByLineage) {
-                currentLocationId = existingByLineage._id;
-                return { status: "applied" as const };
-              }
-
-              const duplicate = locationsRef.current.find(
-                (location) => location.name === trimmedName,
-              );
-              if (duplicate) {
-                return {
-                  message:
-                    "Der Standort existiert bereits und kann nicht erneut erstellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: locationLineageKey,
+            onRegisterHistoryAction,
+            runCreate: async () => {
               const recreateResult = await createLocationMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: locationLineageKey,
@@ -275,32 +233,27 @@ export function LocationsManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(recreateResult);
-              currentLocationId = recreateResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: recreateResult.entityId };
             },
-            undo: async () => {
-              try {
-                const undoResult = await deleteLocationMutation({
-                  expectedDraftRevision: getExpectedDraftRevision(),
-                  locationId: currentLocationId,
-                  locationLineageKey,
-                  practiceId,
-                  selectedRuleSetId: getSelectedRuleSetId(),
-                });
-                handleDraftMutationResult(undoResult);
-                return { status: "applied" as const };
-              } catch (error: unknown) {
-                if (isMissingEntityError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Der Standort konnte nicht gelöscht werden.",
-                  status: "conflict" as const,
-                };
+            runDelete: async (currentLocationId) => {
+              const undoResult = await deleteLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                locationId: currentLocationId,
+                locationLineageKey,
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            validateBeforeCreate: () => {
+              const duplicate = locationsRef.current.find(
+                (location) => location.name === trimmedName,
+              );
+              if (duplicate) {
+                return "Der Standort existiert bereits und kann nicht erneut erstellt werden.";
               }
+              return null;
             },
           });
 

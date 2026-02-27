@@ -22,7 +22,10 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
-import { resolveReplayEntity } from "../utils/cow-history";
+import {
+  registerLineageCreateHistoryAction,
+  registerLineageUpdateHistoryAction,
+} from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
@@ -414,34 +417,15 @@ function PractitionerDialog({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
-          let currentPractitionerId = updateResult.entityId;
-
-          onRegisterHistoryAction?.({
+          registerLineageUpdateHistoryAction({
+            entitiesRef: practitionersRef,
+            initialEntityId: updateResult.entityId,
             label: "Arzt aktualisiert",
-            redo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentPractitionerId,
-                entities: practitionersRef.current,
-                lineageKey: practitionerLineageKey,
-                missingMessage:
-                  "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentPractitionerId = resolvedCurrent.currentEntityId;
-              if (current.name !== beforeName) {
-                return {
-                  message:
-                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: practitionerLineageKey,
+            onRegisterHistoryAction,
+            redoMissingMessage:
+              "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+            runRedo: async (currentPractitionerId) => {
               const redoResult = await updateMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: trimmedName,
@@ -450,33 +434,9 @@ function PractitionerDialog({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
-              currentPractitionerId = redoResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: redoResult.entityId };
             },
-            undo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentPractitionerId,
-                entities: practitionersRef.current,
-                lineageKey: practitionerLineageKey,
-                missingMessage:
-                  "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentPractitionerId = resolvedCurrent.currentEntityId;
-              if (current.name !== trimmedName) {
-                return {
-                  message:
-                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            runUndo: async (currentPractitionerId) => {
               const undoResult = await updateMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeName,
@@ -485,8 +445,21 @@ function PractitionerDialog({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
-              currentPractitionerId = undoResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: undoResult.entityId };
+            },
+            undoMissingMessage:
+              "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+            validateRedo: (current) => {
+              if (current.name !== beforeName) {
+                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
+              }
+              return null;
+            },
+            validateUndo: (current) => {
+              if (current.name !== trimmedName) {
+                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
+              }
+              return null;
             },
           });
 
@@ -502,30 +475,15 @@ function PractitionerDialog({
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
 
-          let currentPractitionerId = entityId;
           const practitionerLineageKey = entityId;
-          onRegisterHistoryAction?.({
+          registerLineageCreateHistoryAction({
+            entitiesRef: practitionersRef,
+            initialEntityId: entityId,
+            isMissingEntityError,
             label: "Arzt erstellt",
-            redo: async () => {
-              const existingByLineage = practitionersRef.current.find(
-                (entry) => entry.lineageKey === practitionerLineageKey,
-              );
-              if (existingByLineage) {
-                currentPractitionerId = existingByLineage._id;
-                return { status: "applied" as const };
-              }
-
-              const duplicate = practitionersRef.current.find(
-                (entry) => entry.name === trimmedName,
-              );
-              if (duplicate) {
-                return {
-                  message:
-                    "Der Arzt existiert bereits und kann nicht erneut erstellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: practitionerLineageKey,
+            onRegisterHistoryAction,
+            runCreate: async () => {
               const recreateResult = await createMutation({
                 expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: practitionerLineageKey,
@@ -534,31 +492,26 @@ function PractitionerDialog({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(recreateResult);
-              currentPractitionerId = recreateResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: recreateResult.entityId };
             },
-            undo: async () => {
-              try {
-                const undoResult = await deleteMutation({
-                  expectedDraftRevision: getExpectedDraftRevision(),
-                  practiceId,
-                  practitionerId: currentPractitionerId,
-                  selectedRuleSetId: getSelectedRuleSetId(),
-                });
-                handleDraftMutationResult(undoResult);
-                return { status: "applied" as const };
-              } catch (error: unknown) {
-                if (isMissingEntityError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Der Arzt konnte nicht gelöscht werden.",
-                  status: "conflict" as const,
-                };
+            runDelete: async (currentPractitionerId) => {
+              const undoResult = await deleteMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                practiceId,
+                practitionerId: currentPractitionerId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            validateBeforeCreate: () => {
+              const duplicate = practitionersRef.current.find(
+                (entry) => entry.name === trimmedName,
+              );
+              if (duplicate) {
+                return "Der Arzt existiert bereits und kann nicht erneut erstellt werden.";
               }
+              return null;
             },
           });
           toast.success("Arzt erstellt");

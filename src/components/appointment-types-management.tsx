@@ -34,7 +34,10 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
-import { resolveReplayEntity } from "../utils/cow-history";
+import {
+  registerLineageCreateHistoryAction,
+  registerLineageUpdateHistoryAction,
+} from "../utils/cow-history-actions";
 
 type AppointmentType = AppointmentTypesResult[number];
 
@@ -301,44 +304,15 @@ export function AppointmentTypesManagement({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(updateResult);
-          let currentAppointmentTypeId = updateResult.entityId;
-
-          onRegisterHistoryAction?.({
+          registerLineageUpdateHistoryAction({
+            entitiesRef: appointmentTypesRef,
+            initialEntityId: updateResult.entityId,
             label: "Terminart aktualisiert",
-            redo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentAppointmentTypeId,
-                entities: appointmentTypesRef.current,
-                lineageKey: appointmentTypeLineageKey,
-                missingMessage:
-                  "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentAppointmentTypeId = resolvedCurrent.currentEntityId;
-
-              if (
-                current.name !== beforeState.name ||
-                current.duration !== beforeState.duration ||
-                !samePractitionerLineageIds(
-                  practitionerLineageIdsForCurrentIds(
-                    current.allowedPractitionerIds,
-                  ),
-                  toSnapshotLineageIds(beforePractitionerSnapshots),
-                )
-              ) {
-                return {
-                  message:
-                    "Die Terminart wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: appointmentTypeLineageKey,
+            onRegisterHistoryAction,
+            redoMissingMessage:
+              "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
+            runRedo: async (currentAppointmentTypeId) => {
               const resolvedRedoPractitionerIds =
                 resolvePractitionerIdsFromSnapshots(afterPractitionerSnapshots);
               if ("status" in resolvedRedoPractitionerIds) {
@@ -355,44 +329,9 @@ export function AppointmentTypesManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
-              currentAppointmentTypeId = redoResult.entityId;
-
-              return { status: "applied" as const };
+              return { entityId: redoResult.entityId };
             },
-            undo: async () => {
-              const resolvedCurrent = resolveReplayEntity({
-                currentEntityId: currentAppointmentTypeId,
-                entities: appointmentTypesRef.current,
-                lineageKey: appointmentTypeLineageKey,
-                missingMessage:
-                  "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
-              });
-              if (resolvedCurrent.status === "conflict") {
-                return {
-                  message: resolvedCurrent.message,
-                  status: "conflict" as const,
-                };
-              }
-              const current = resolvedCurrent.entity;
-              currentAppointmentTypeId = resolvedCurrent.currentEntityId;
-
-              if (
-                current.name !== afterState.name ||
-                current.duration !== afterState.duration ||
-                !samePractitionerLineageIds(
-                  practitionerLineageIdsForCurrentIds(
-                    current.allowedPractitionerIds,
-                  ),
-                  toSnapshotLineageIds(afterPractitionerSnapshots),
-                )
-              ) {
-                return {
-                  message:
-                    "Die Terminart wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
+            runUndo: async (currentAppointmentTypeId) => {
               const resolvedUndoPractitionerIds =
                 resolvePractitionerIdsFromSnapshots(
                   beforePractitionerSnapshots,
@@ -411,9 +350,39 @@ export function AppointmentTypesManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);
-              currentAppointmentTypeId = undoResult.entityId;
-
-              return { status: "applied" as const };
+              return { entityId: undoResult.entityId };
+            },
+            undoMissingMessage:
+              "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+            validateRedo: (current) => {
+              if (
+                current.name !== beforeState.name ||
+                current.duration !== beforeState.duration ||
+                !samePractitionerLineageIds(
+                  practitionerLineageIdsForCurrentIds(
+                    current.allowedPractitionerIds,
+                  ),
+                  toSnapshotLineageIds(beforePractitionerSnapshots),
+                )
+              ) {
+                return "Die Terminart wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.";
+              }
+              return null;
+            },
+            validateUndo: (current) => {
+              if (
+                current.name !== afterState.name ||
+                current.duration !== afterState.duration ||
+                !samePractitionerLineageIds(
+                  practitionerLineageIdsForCurrentIds(
+                    current.allowedPractitionerIds,
+                  ),
+                  toSnapshotLineageIds(afterPractitionerSnapshots),
+                )
+              ) {
+                return "Die Terminart wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
+              }
+              return null;
             },
           });
 
@@ -437,30 +406,16 @@ export function AppointmentTypesManagement({
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
 
-          let currentAppointmentTypeId = entityId;
           const appointmentTypeLineageKey = entityId;
 
-          onRegisterHistoryAction?.({
+          registerLineageCreateHistoryAction({
+            entitiesRef: appointmentTypesRef,
+            initialEntityId: entityId,
+            isMissingEntityError,
             label: "Terminart erstellt",
-            redo: async () => {
-              const existingByLineage = appointmentTypesRef.current.find(
-                (type) => type.lineageKey === appointmentTypeLineageKey,
-              );
-              if (existingByLineage) {
-                currentAppointmentTypeId = existingByLineage._id;
-                return { status: "applied" as const };
-              }
-
-              const existingByName = appointmentTypesRef.current.find(
-                (type) => type.name === trimmedName,
-              );
-              if (existingByName) {
-                return {
-                  message: `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${trimmedName}" existiert.`,
-                  status: "conflict" as const,
-                };
-              }
-
+            lineageKey: appointmentTypeLineageKey,
+            onRegisterHistoryAction,
+            runCreate: async () => {
               const recreateResult = await createAppointmentTypeMutation({
                 duration: value.duration,
                 expectedDraftRevision: getExpectedDraftRevision(),
@@ -471,32 +426,27 @@ export function AppointmentTypesManagement({
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(recreateResult);
-              currentAppointmentTypeId = recreateResult.entityId;
-              return { status: "applied" as const };
+              return { entityId: recreateResult.entityId };
             },
-            undo: async () => {
-              try {
-                const undoResult = await deleteAppointmentTypeMutation({
-                  appointmentTypeId: currentAppointmentTypeId,
-                  appointmentTypeLineageKey,
-                  expectedDraftRevision: getExpectedDraftRevision(),
-                  practiceId,
-                  selectedRuleSetId: getSelectedRuleSetId(),
-                });
-                handleDraftMutationResult(undoResult);
-                return { status: "applied" as const };
-              } catch (error: unknown) {
-                if (isMissingEntityError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Die Terminart konnte nicht gelöscht werden.",
-                  status: "conflict" as const,
-                };
+            runDelete: async (currentAppointmentTypeId) => {
+              const undoResult = await deleteAppointmentTypeMutation({
+                appointmentTypeId: currentAppointmentTypeId,
+                appointmentTypeLineageKey,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            validateBeforeCreate: () => {
+              const existingByName = appointmentTypesRef.current.find(
+                (type) => type.name === trimmedName,
+              );
+              if (existingByName) {
+                return `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${trimmedName}" existiert.`;
               }
+              return null;
             },
           });
 
