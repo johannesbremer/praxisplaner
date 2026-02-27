@@ -227,6 +227,87 @@ const toSchedulePayload = (
   startTime: schedule.startTime,
 });
 
+const buildLocationLineageByIdMap = (
+  locations: LocationMatchEntity[] | undefined,
+): ReadonlyMap<Id<"locations">, Id<"locations">> =>
+  new Map(
+    (locations ?? []).map((location) => [
+      location._id,
+      requireLineageKey(location.lineageKey, {
+        entityId: location._id,
+        entityType: "Standort",
+      }),
+    ]),
+  );
+
+const buildPractitionerLineageByIdMap = (
+  practitioners: PractitionerMatchEntity[] | undefined,
+): ReadonlyMap<Id<"practitioners">, Id<"practitioners">> =>
+  new Map(
+    (practitioners ?? []).map((practitioner) => [
+      practitioner._id,
+      requireLineageKey(practitioner.lineageKey, {
+        entityId: practitioner._id,
+        entityType: "Behandler",
+      }),
+    ]),
+  );
+
+const resolveLocationLineageIdFromSnapshot = (
+  locationId: Id<"locations">,
+  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
+): Id<"locations"> => {
+  const locationLineageId = locationLineageById.get(locationId);
+  if (!locationLineageId) {
+    throw new Error(
+      `[HISTORY:LOCATION_LINEAGE_SNAPSHOT_MISSING] Standort ${locationId} fehlt im Lineage-Snapshot für diese Aktion.`,
+    );
+  }
+  return locationLineageId;
+};
+
+const resolvePractitionerLineageIdFromSnapshot = (
+  practitionerId: Id<"practitioners">,
+  practitionerLineageById: ReadonlyMap<
+    Id<"practitioners">,
+    Id<"practitioners">
+  >,
+): Id<"practitioners"> => {
+  const practitionerLineageId = practitionerLineageById.get(practitionerId);
+  if (!practitionerLineageId) {
+    throw new Error(
+      `[HISTORY:PRACTITIONER_LINEAGE_SNAPSHOT_MISSING] Behandler ${practitionerId} fehlt im Lineage-Snapshot für diese Aktion.`,
+    );
+  }
+  return practitionerLineageId;
+};
+
+const toSchedulePayloadFromLineageSnapshot = (
+  schedule: Doc<"baseSchedules">,
+  practitionerLineageById: ReadonlyMap<
+    Id<"practitioners">,
+    Id<"practitioners">
+  >,
+  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
+): SchedulePayload => ({
+  ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+  dayOfWeek: schedule.dayOfWeek,
+  endTime: schedule.endTime,
+  lineageKey: requireLineageKey(schedule.lineageKey, {
+    entityId: schedule._id,
+    entityType: "Arbeitszeit",
+  }),
+  locationLineageId: resolveLocationLineageIdFromSnapshot(
+    schedule.locationId,
+    locationLineageById,
+  ),
+  practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
+    schedule.practitionerId,
+    practitionerLineageById,
+  ),
+  startTime: schedule.startTime,
+});
+
 const toMutationSchedulePayload = (
   payload: SchedulePayload,
   practitioners: PractitionerMatchEntity[] | undefined,
@@ -744,6 +825,11 @@ function BaseScheduleDialog({
         const createdScheduleIds: Id<"baseSchedules">[] = [];
         const createdSchedulePayloads: SchedulePayload[] = [];
         const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
+        const practitionerLineageByIdAtSubmitStart =
+          buildPractitionerLineageByIdMap(practitionersRef.current);
+        const locationLineageByIdAtSubmitStart = buildLocationLineageByIdMap(
+          locationsRef.current,
+        );
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -825,13 +911,13 @@ function BaseScheduleDialog({
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
               lineageKey: result.entityId,
-              locationLineageId: resolveLocationLineageId(
+              locationLineageId: resolveLocationLineageIdFromSnapshot(
                 createData.locationId,
-                locationsRef.current,
+                locationLineageByIdAtSubmitStart,
               ),
-              practitionerLineageId: resolvePractitionerLineageId(
+              practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
                 createData.practitionerId,
-                practitionersRef.current,
+                practitionerLineageByIdAtSubmitStart,
               ),
               startTime: createData.startTime,
             });
@@ -919,13 +1005,13 @@ function BaseScheduleDialog({
               dayOfWeek: createData.dayOfWeek,
               endTime: createData.endTime,
               lineageKey: result.entityId,
-              locationLineageId: resolveLocationLineageId(
+              locationLineageId: resolveLocationLineageIdFromSnapshot(
                 createData.locationId,
-                locationsRef.current,
+                locationLineageByIdAtSubmitStart,
               ),
-              practitionerLineageId: resolvePractitionerLineageId(
+              practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
                 createData.practitionerId,
-                practitionersRef.current,
+                practitionerLineageByIdAtSubmitStart,
               ),
               startTime: createData.startTime,
             });
@@ -1009,10 +1095,10 @@ function BaseScheduleDialog({
           let currentNewIds = [...createdScheduleIds];
           let currentOldIds: Id<"baseSchedules">[] = [];
           const oldSchedulePayloads = deletedScheduleSnapshots.map((previous) =>
-            toSchedulePayload(
+            toSchedulePayloadFromLineageSnapshot(
               previous,
-              practitionersRef.current,
-              locationsRef.current,
+              practitionerLineageByIdAtSubmitStart,
+              locationLineageByIdAtSubmitStart,
             ),
           );
 
