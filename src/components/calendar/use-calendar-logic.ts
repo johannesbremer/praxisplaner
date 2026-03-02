@@ -119,7 +119,7 @@ export function useCalendarLogic({
   });
 
   useEffect(() => {
-    if (!import.meta.env.DEV) {
+    if (!__ENABLE_DEVTOOLS__) {
       return;
     }
     const now = Date.now();
@@ -1663,7 +1663,7 @@ export function useCalendarLogic({
 
   // Track appointments in devtools
   useEffect(() => {
-    if (!import.meta.env.DEV) {
+    if (!__ENABLE_DEVTOOLS__) {
       return;
     }
     const map = effectCountersRef.current;
@@ -1677,7 +1677,7 @@ export function useCalendarLogic({
 
   // Track appointment changes for devtools
   useEffect(() => {
-    if (!import.meta.env.DEV) {
+    if (!__ENABLE_DEVTOOLS__) {
       return;
     }
 
@@ -1721,7 +1721,7 @@ export function useCalendarLogic({
 
   // Emit drag events
   useEffect(() => {
-    if (!import.meta.env.DEV) {
+    if (!__ENABLE_DEVTOOLS__) {
       return;
     }
     if (draggedAppointment) {

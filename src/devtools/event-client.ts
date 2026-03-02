@@ -59,7 +59,7 @@ export function emitCalendarEvent<K extends keyof CalendarDevtoolsEventMap>(
   fullType: K,
   payload: CalendarDevtoolsEventMap[K],
 ) {
-  if (!import.meta.env.DEV) {
+  if (!__ENABLE_DEVTOOLS__) {
     return;
   }
   CalendarDevtoolsEventClient.emitFull(fullType, payload);
