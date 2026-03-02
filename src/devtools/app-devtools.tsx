@@ -2,8 +2,10 @@ import {
   TanStackDevtoolsCore,
   type TanStackDevtoolsPlugin,
 } from "@tanstack/devtools";
+import { useQueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools/production";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import { useRouter } from "@tanstack/react-router";
+import { TanStackRouterDevtoolsPanelInProd } from "@tanstack/react-router-devtools";
 import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -11,6 +13,8 @@ import { CalendarDevtoolsPanel } from "./calendar-devtools-panel";
 
 function AppDevtools() {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const queryClient = useQueryClient();
+  const router = useRouter({ warn: false });
 
   React.useEffect(() => {
     const container = containerRef.current;
@@ -36,14 +40,18 @@ function AppDevtools() {
         id: "tanstack-query",
         name: "TanStack Query",
         render: (element) => {
-          getPluginRoot(element).render(<ReactQueryDevtoolsPanel />);
+          getPluginRoot(element).render(
+            <ReactQueryDevtoolsPanel client={queryClient} />,
+          );
         },
       },
       {
         id: "tanstack-router",
         name: "TanStack Router",
         render: (element) => {
-          getPluginRoot(element).render(<TanStackRouterDevtoolsPanel />);
+          getPluginRoot(element).render(
+            <TanStackRouterDevtoolsPanelInProd router={router} />,
+          );
         },
       },
       {
@@ -73,7 +81,7 @@ function AppDevtools() {
         root.unmount();
       }
     };
-  }, []);
+  }, [queryClient, router]);
 
   return <div ref={containerRef} />;
 }
