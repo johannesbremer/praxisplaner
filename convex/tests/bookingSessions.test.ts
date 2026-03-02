@@ -394,11 +394,19 @@ function makePastSelectedSlot(
 function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
+  const startTime = Temporal.Now.plainDateISO("Europe/Berlin")
+    .add({ days: 2 })
+    .toZonedDateTime({
+      plainTime: new Temporal.PlainTime(9, 0),
+      timeZone: "Europe/Berlin",
+    })
+    .toString();
+
   return {
     duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
-    startTime: "2026-03-01T09:00:00+01:00[Europe/Berlin]",
+    startTime,
   };
 }
 
