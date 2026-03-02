@@ -3,6 +3,8 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { followUpPlanValidator } from "./followUpPlans";
+
 // ================================
 // BOOKING SESSION VALIDATORS
 // ================================
@@ -472,6 +474,8 @@ export default defineSchema({
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    seriesId: v.optional(v.string()),
+    seriesStepIndex: v.optional(v.number()),
     userId: v.optional(v.id("users")),
 
     // Metadata
@@ -498,6 +502,7 @@ export default defineSchema({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
     createdAt: v.int64(),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
+    followUpPlan: followUpPlanValidator,
     lastModified: v.int64(),
     lineageKey: v.optional(v.id("appointmentTypes")), // Stable identity across copied rule sets
     name: v.string(),

@@ -344,6 +344,7 @@ export async function copyAppointmentTypes(
       allowedPractitionerIds,
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
+      ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
       lastModified: BigInt(Date.now()),
       lineageKey: requireLineageKey({
         entityId: sourceType._id,
