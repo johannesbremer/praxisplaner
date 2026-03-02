@@ -135,6 +135,9 @@ function LogicView() {
   // No explicit selected saved rule set state; selection is driven by URL
   const [unsavedRuleSetId, setUnsavedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
+  const [draftRevisionOverride, setDraftRevisionOverride] = useState<
+    null | number
+  >(null);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
@@ -318,9 +321,6 @@ function LogicView() {
   const discardUnsavedIfEquivalentMutation = useMutation(
     api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
   );
-  const ensureUnsavedRuleSetMutation = useMutation(
-    api.ruleSets.ensureUnsavedRuleSet,
-  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -332,27 +332,21 @@ function LogicView() {
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
-    const rawUnsaved =
-      ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId) ??
-      (existingUnsavedRuleSet
-        ? ruleSetsQuery?.find((rs) => rs._id === existingUnsavedRuleSet._id)
-        : undefined);
+    const rawUnsaved = unsavedRuleSetId
+      ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
+      : undefined;
     if (!rawUnsaved || !currentPractice) {
       return;
     }
     return {
       _id: rawUnsaved._id,
       description: rawUnsaved.description,
+      draftRevision: rawUnsaved.draftRevision,
       isActive: currentPractice.currentActiveRuleSetId === rawUnsaved._id,
       parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
-  }, [
-    ruleSetsQuery,
-    unsavedRuleSetId,
-    existingUnsavedRuleSet,
-    currentPractice,
-  ]);
+  }, [ruleSetsQuery, unsavedRuleSetId, currentPractice]);
 
   // Get the search params directly to determine which rule set to use
   const routeSearch: RegelnSearchParams = Route.useSearch();
@@ -373,8 +367,8 @@ function LogicView() {
   }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
 
   const preliminaryWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? preliminarySelectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, preliminarySelectedRuleSet, activeRuleSet],
+    () => preliminarySelectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
+    [preliminarySelectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
 
   // Fetch locations for the working rule set
@@ -409,15 +403,45 @@ function LogicView() {
 
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
   const currentWorkingRuleSet = useMemo(
-    () => unsavedRuleSet ?? selectedRuleSet ?? activeRuleSet,
-    [unsavedRuleSet, selectedRuleSet, activeRuleSet],
+    () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
+    [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
-  const historyScopeRootRuleSetId =
-    unsavedRuleSet?.parentVersion ?? currentWorkingRuleSet?._id ?? "none";
-  const historyScopeKey = `${historyScopeRootRuleSetId}`;
-  const lastHistoryScopeRef = useRef(historyScopeKey);
+  const expectedDraftRevision = useMemo(() => {
+    if (!unsavedRuleSet || currentWorkingRuleSet?._id !== unsavedRuleSet._id) {
+      return null;
+    }
+    return draftRevisionOverride ?? unsavedRuleSet.draftRevision;
+  }, [currentWorkingRuleSet?._id, draftRevisionOverride, unsavedRuleSet]);
 
   React.useEffect(() => {
+    if (!unsavedRuleSet) {
+      setDraftRevisionOverride(null);
+      return;
+    }
+    setDraftRevisionOverride(unsavedRuleSet.draftRevision);
+  }, [unsavedRuleSet, unsavedRuleSet?._id, unsavedRuleSet?.draftRevision]);
+
+  const historyScopeKey = useMemo(() => {
+    const isWorkingOnUnsavedRuleSet =
+      unsavedRuleSet && currentWorkingRuleSet?._id === unsavedRuleSet._id;
+    if (isWorkingOnUnsavedRuleSet && unsavedRuleSet.parentVersion) {
+      return unsavedRuleSet.parentVersion;
+    }
+    if (ruleSetIdFromUrl) {
+      return ruleSetIdFromUrl;
+    }
+    return null;
+  }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
+  const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
+
+  React.useEffect(() => {
+    if (!historyScopeKey) {
+      return;
+    }
+    if (!lastHistoryScopeRef.current) {
+      lastHistoryScopeRef.current = historyScopeKey;
+      return;
+    }
     if (lastHistoryScopeRef.current === historyScopeKey) {
       return;
     }
@@ -447,6 +471,7 @@ function LogicView() {
         }
 
         setUnsavedRuleSetId(null);
+        setDraftRevisionOverride(null);
         pushUrl({ ruleSetId: discardResult.parentRuleSetId });
       } catch (error: unknown) {
         captureError(error, {
@@ -467,32 +492,7 @@ function LogicView() {
   );
 
   const runRegelnUndo = useCallback(async () => {
-    let result = await undoRegelnHistoryAction();
-    const shouldRecoverMissingSource =
-      result.status === "conflict" &&
-      /source rule set not found/i.test(result.message ?? "") &&
-      activeTab === "rule-management" &&
-      !unsavedRuleSet &&
-      currentPractice &&
-      currentWorkingRuleSet;
-
-    if (shouldRecoverMissingSource) {
-      try {
-        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
-          practiceId: currentPractice._id,
-          sourceRuleSetId: currentWorkingRuleSet._id,
-        });
-        setUnsavedRuleSetId(ensuredRuleSetId);
-        pushUrl({ ruleSetId: ensuredRuleSetId });
-        result = await undoRegelnHistoryAction();
-      } catch (error: unknown) {
-        captureError(error, {
-          context: "ruleset_ensure_unsaved_before_undo",
-          practiceId: currentPractice._id,
-          sourceRuleSetId: currentWorkingRuleSet._id,
-        });
-      }
-    }
+    const result = await undoRegelnHistoryAction();
 
     if (result.status === "conflict") {
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
@@ -503,46 +503,13 @@ function LogicView() {
     if (result.status === "applied") {
       toast.success("Änderung rückgängig gemacht");
       await maybeDiscardEquivalentUnsavedRuleSet("undo");
+      return;
     }
-  }, [
-    activeTab,
-    captureError,
-    currentPractice,
-    currentWorkingRuleSet,
-    ensureUnsavedRuleSetMutation,
-    maybeDiscardEquivalentUnsavedRuleSet,
-    pushUrl,
-    undoRegelnHistoryAction,
-    unsavedRuleSet,
-  ]);
+    toast.info("Keine rückgängig machbare Änderung vorhanden.");
+  }, [maybeDiscardEquivalentUnsavedRuleSet, undoRegelnHistoryAction]);
 
   const runRegelnRedo = useCallback(async () => {
-    let result = await redoRegelnHistoryAction();
-    const shouldRecoverMissingSource =
-      result.status === "conflict" &&
-      /source rule set not found/i.test(result.message ?? "") &&
-      activeTab === "rule-management" &&
-      !unsavedRuleSet &&
-      currentPractice &&
-      currentWorkingRuleSet;
-
-    if (shouldRecoverMissingSource) {
-      try {
-        const ensuredRuleSetId = await ensureUnsavedRuleSetMutation({
-          practiceId: currentPractice._id,
-          sourceRuleSetId: currentWorkingRuleSet._id,
-        });
-        setUnsavedRuleSetId(ensuredRuleSetId);
-        pushUrl({ ruleSetId: ensuredRuleSetId });
-        result = await redoRegelnHistoryAction();
-      } catch (error: unknown) {
-        captureError(error, {
-          context: "ruleset_ensure_unsaved_before_redo",
-          practiceId: currentPractice._id,
-          sourceRuleSetId: currentWorkingRuleSet._id,
-        });
-      }
-    }
+    const result = await redoRegelnHistoryAction();
 
     if (result.status === "conflict") {
       toast.error("Änderung konnte nicht wiederhergestellt werden", {
@@ -553,18 +520,10 @@ function LogicView() {
     if (result.status === "applied") {
       toast.success("Änderung wiederhergestellt");
       await maybeDiscardEquivalentUnsavedRuleSet("redo");
+      return;
     }
-  }, [
-    activeTab,
-    captureError,
-    currentPractice,
-    currentWorkingRuleSet,
-    ensureUnsavedRuleSetMutation,
-    maybeDiscardEquivalentUnsavedRuleSet,
-    pushUrl,
-    redoRegelnHistoryAction,
-    unsavedRuleSet,
-  ]);
+    toast.info("Keine wiederherstellbare Änderung vorhanden.");
+  }, [maybeDiscardEquivalentUnsavedRuleSet, redoRegelnHistoryAction]);
 
   const regelnUndoRedoControls = useMemo(
     () =>
@@ -607,14 +566,15 @@ function LogicView() {
     return null;
   }, [currentPractice, existingUnsavedRuleSet]);
 
-  // Callback to handle rule set creation from mutations
-  // When a mutation creates a new rule set (via CoW), this navigates to it
-  const handleRuleSetCreated = useCallback(
-    (ruleSetId: Id<"ruleSets">) => {
-      setUnsavedRuleSetId(ruleSetId);
-      pushUrl({ ruleSetId });
+  const handleDraftMutation = useCallback(
+    (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
+      setUnsavedRuleSetId(result.ruleSetId);
+      setDraftRevisionOverride(result.draftRevision);
+      if (currentWorkingRuleSet?._id !== result.ruleSetId) {
+        pushUrl({ ruleSetId: result.ruleSetId });
+      }
     },
-    [pushUrl],
+    [currentWorkingRuleSet?._id, pushUrl],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -837,6 +797,7 @@ function LogicView() {
       setIsSaveDialogOpen(false);
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
+      setDraftRevisionOverride(null);
 
       // If we came from the save dialog, switch to the pending rule set (or active when undefined)
       if (pendingRuleSetId === undefined) {
@@ -890,6 +851,7 @@ function LogicView() {
         // If it's already saved, there's nothing to do
 
         setUnsavedRuleSetId(null);
+        setDraftRevisionOverride(null);
         setPendingRuleSetId(undefined);
         setIsSaveDialogOpen(false);
         setActivationName("");
@@ -935,6 +897,7 @@ function LogicView() {
           });
 
           setUnsavedRuleSetId(null);
+          setDraftRevisionOverride(null);
 
           // Navigate to target (pending or active)
           pushUrl({ ruleSetId: pendingRuleSetId });
@@ -1062,10 +1025,9 @@ function LogicView() {
                   {/* Appointment Types Management */}
                   {currentWorkingRuleSet && (
                     <AppointmentTypesManagement
+                      expectedDraftRevision={expectedDraftRevision}
+                      onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
-                      onRuleSetCreated={(newRuleSetId) => {
-                        setUnsavedRuleSetId(newRuleSetId);
-                      }}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
                     />
@@ -1074,8 +1036,9 @@ function LogicView() {
                   {/* Practitioner Management */}
                   {currentWorkingRuleSet && (
                     <PractitionerManagement
+                      expectedDraftRevision={expectedDraftRevision}
+                      onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
-                      onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
                     />
@@ -1084,8 +1047,9 @@ function LogicView() {
                   {/* Base Schedule Management */}
                   {currentWorkingRuleSet && (
                     <BaseScheduleManagement
+                      expectedDraftRevision={expectedDraftRevision}
+                      onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
-                      onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
                     />
@@ -1094,8 +1058,9 @@ function LogicView() {
                   {/* Locations Management */}
                   {currentWorkingRuleSet && (
                     <LocationsManagement
+                      expectedDraftRevision={expectedDraftRevision}
+                      onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
-                      onRuleSetCreated={handleRuleSetCreated}
                       practiceId={currentPractice._id}
                       ruleSetId={currentWorkingRuleSet._id}
                     />
@@ -1216,8 +1181,9 @@ function LogicView() {
                   <CardContent>
                     {currentWorkingRuleSet && (
                       <RuleBuilder
+                        expectedDraftRevision={expectedDraftRevision}
+                        onDraftMutation={handleDraftMutation}
                         onRegisterHistoryAction={registerRegelnHistoryAction}
-                        onRuleCreated={handleRuleSetCreated}
                         practiceId={currentPractice._id}
                         ruleSetId={currentWorkingRuleSet._id}
                       />

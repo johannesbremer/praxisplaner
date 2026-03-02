@@ -235,6 +235,7 @@ async function createAppointmentTypeInOtherRuleSet(
     const otherRuleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Other Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 2,
@@ -262,6 +263,7 @@ async function createBookingEntities(t: ReturnType<typeof convexTest>) {
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Flow Test Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 1,
@@ -313,6 +315,7 @@ async function createPracticeAndRuleSet(t: ReturnType<typeof convexTest>) {
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "Test Rule Set",
+      draftRevision: 0,
       practiceId,
       saved: true,
       version: 1,
@@ -398,7 +401,16 @@ function makeSelectedSlot(
     duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
-    startTime: "2026-03-01T09:00:00+01:00[Europe/Berlin]",
+    startTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin")
+      .add({ days: 1 })
+      .with({
+        hour: 9,
+        millisecond: 0,
+        minute: 0,
+        nanosecond: 0,
+        second: 0,
+      })
+      .toString(),
   };
 }
 

@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface LocalHistoryAction {
+  clearHistoryBefore?: boolean;
   label: string;
   redo: () => LocalHistoryResult | Promise<LocalHistoryResult>;
   undo: () => LocalHistoryResult | Promise<LocalHistoryResult>;
@@ -11,6 +12,7 @@ export interface LocalHistoryAction {
 export interface LocalHistoryResult {
   canRedoAfter?: boolean;
   canUndoAfter?: boolean;
+  conflictCode?: string;
   message?: string;
   status: LocalHistoryStatus;
 }
@@ -77,7 +79,8 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
         Number.isFinite(maxDepthRaw) && maxDepthRaw > 0
           ? Math.floor(maxDepthRaw)
           : DEFAULT_MAX_DEPTH;
-      const nextHistory = [...historyRef.current, action];
+      const baseHistory = action.clearHistoryBefore ? [] : historyRef.current;
+      const nextHistory = [...baseHistory, action];
       historyRef.current = nextHistory.slice(-maxDepth);
       redoRef.current = [];
       syncState();
@@ -108,7 +111,11 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
 
         try {
           const rawResult = await action[operation]();
-          const result = toResult(rawResult);
+          const result = withActionContext(
+            action,
+            operation,
+            toResult(rawResult),
+          );
 
           if (result.status === "applied") {
             from.current = from.current.slice(0, -1);
@@ -124,11 +131,11 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
         } catch (error) {
           optionsRef.current.onError?.(action, operation, error);
           return withHistoryState(
-            {
+            withActionContext(action, operation, {
               message:
                 error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE,
               status: "conflict",
-            },
+            }),
             historyRef,
             redoRef,
           );
@@ -173,14 +180,43 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
   };
 }
 
+function extractConflictCode(message: string): string | undefined {
+  const match = /\[([A-Z0-9:_-]+)\]/.exec(message);
+  return match?.[1];
+}
+
 function toResult(result: LocalHistoryResult): LocalHistoryResult {
   if (result.status === "applied" || result.status === "noop") {
     return result;
   }
 
+  const conflictCode =
+    result.conflictCode ?? extractConflictCode(result.message ?? "");
   return {
+    ...(conflictCode && { conflictCode }),
     message: result.message ?? DEFAULT_ERROR_MESSAGE,
     status: "conflict",
+  };
+}
+
+function withActionContext(
+  action: LocalHistoryAction,
+  operation: "redo" | "undo",
+  result: LocalHistoryResult,
+): LocalHistoryResult {
+  if (result.status !== "conflict") {
+    return result;
+  }
+
+  const operationLabel = operation === "undo" ? "Undo" : "Redo";
+  const conflictCode =
+    result.conflictCode ?? extractConflictCode(result.message ?? "");
+  return {
+    ...result,
+    ...(conflictCode && { conflictCode }),
+    message:
+      `[HISTORY:${operation.toUpperCase()}] ${operationLabel} für Aktion "${action.label}" fehlgeschlagen.\n` +
+      `Grund: ${result.message ?? DEFAULT_ERROR_MESSAGE}`,
   };
 }
 

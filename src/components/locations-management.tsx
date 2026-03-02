@@ -23,6 +23,10 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
+import {
+  registerLineageCreateHistoryAction,
+  registerLineageUpdateHistoryAction,
+} from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
@@ -32,14 +36,40 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
+type BaseSchedulesResult =
+  (typeof api.entities.getBaseSchedules)["_returnType"];
+
+type BaseScheduleWithLineage = BaseSchedulesResult[number];
+interface DeletedLocationScheduleSnapshot {
+  breakTimes?: { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  lineageKey: Id<"baseSchedules">;
+  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
+  startTime: string;
+}
 interface LocationsManagementProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
+type LocationsResult = (typeof api.entities.getLocations)["_returnType"];
+type LocationWithLineage = LocationsResult[number];
+type PractitionersResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+
+type PractitionerWithLineage = PractitionersResult[number];
 
 export function LocationsManagement({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -48,18 +78,63 @@ export function LocationsManagement({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
     _id: Id<"locations">;
+    lineageKey?: Id<"locations">;
     name: string;
   }>(null);
 
   const { captureError } = useErrorTracking();
   const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
+  });
+  const baseSchedulesQuery = useQuery(api.entities.getBaseSchedules, {
+    ruleSetId,
+  });
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
-  const locationsRef = useRef(locationsQuery ?? []);
+  const createBaseScheduleMutation = useMutation(
+    api.entities.createBaseSchedule,
+  );
+  const locationsRef = useRef<LocationWithLineage[]>(locationsQuery ?? []);
   useEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
+    practitionersQuery ?? [],
+  );
+  useEffect(() => {
+    practitionersRef.current = practitionersQuery ?? [];
+  }, [practitionersQuery]);
+  const baseSchedulesRef = useRef<BaseScheduleWithLineage[]>(
+    baseSchedulesQuery ?? [],
+  );
+  useEffect(() => {
+    baseSchedulesRef.current = baseSchedulesQuery ?? [];
+  }, [baseSchedulesQuery]);
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const form = useForm({
     defaultValues: {
@@ -70,56 +145,61 @@ export function LocationsManagement({
         const trimmedName = value.name.trim();
 
         if (editingLocation) {
+          const locationLineageKey =
+            editingLocation.lineageKey ?? editingLocation._id;
           const previousName = editingLocation.name;
 
-          await updateLocationMutation({
+          const updateResult = await updateLocationMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
             locationId: editingLocation._id,
             name: trimmedName,
             practiceId,
-            sourceRuleSetId: ruleSetId,
+            selectedRuleSetId: getSelectedRuleSetId(),
           });
-
-          onRegisterHistoryAction?.({
+          handleDraftMutationResult(updateResult);
+          registerLineageUpdateHistoryAction({
+            entitiesRef: locationsRef,
+            initialEntityId: updateResult.entityId,
             label: "Standort aktualisiert",
-            redo: async () => {
-              const current = locationsRef.current.find(
-                (location) => location._id === editingLocation._id,
-              );
-              if (current?.name !== previousName) {
-                return {
-                  message:
-                    "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
-                  status: "conflict" as const,
-                };
-              }
-
-              await updateLocationMutation({
-                locationId: editingLocation._id,
+            lineageKey: locationLineageKey,
+            onRegisterHistoryAction,
+            redoMissingMessage:
+              "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+            runRedo: async (currentLocationId) => {
+              const redoResult = await updateLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                locationId: currentLocationId,
                 name: trimmedName,
                 practiceId,
-                sourceRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
-              return { status: "applied" as const };
+              handleDraftMutationResult(redoResult);
+              return { entityId: redoResult.entityId };
             },
-            undo: async () => {
-              const current = locationsRef.current.find(
-                (location) => location._id === editingLocation._id,
-              );
-              if (current?.name !== trimmedName) {
-                return {
-                  message:
-                    "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
-              await updateLocationMutation({
-                locationId: editingLocation._id,
+            runUndo: async (currentLocationId) => {
+              const undoResult = await updateLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                locationId: currentLocationId,
                 name: previousName,
                 practiceId,
-                sourceRuleSetId: ruleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
-              return { status: "applied" as const };
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            undoMissingMessage:
+              "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+            validateRedo: (current) => {
+              if (current.name !== previousName) {
+                return "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
+              }
+              return null;
+            },
+            validateUndo: (current) => {
+              if (current.name !== trimmedName) {
+                return "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
+              }
+              return null;
             },
           });
 
@@ -128,56 +208,53 @@ export function LocationsManagement({
           });
           setEditingLocation(null);
         } else {
-          const { entityId, ruleSetId: newRuleSetId } =
-            await createLocationMutation({
-              name: trimmedName,
-              practiceId,
-              sourceRuleSetId: ruleSetId,
-            });
+          const createResult = await createLocationMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            name: trimmedName,
+            practiceId,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          });
+          handleDraftMutationResult(createResult);
+          const { entityId } = createResult;
 
-          let currentLocationId = entityId;
-          onRegisterHistoryAction?.({
+          const locationLineageKey = entityId;
+          registerLineageCreateHistoryAction({
+            entitiesRef: locationsRef,
+            initialEntityId: entityId,
+            isMissingEntityError,
             label: "Standort erstellt",
-            redo: async () => {
+            lineageKey: locationLineageKey,
+            onRegisterHistoryAction,
+            runCreate: async () => {
+              const recreateResult = await createLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                lineageKey: locationLineageKey,
+                name: trimmedName,
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(recreateResult);
+              return { entityId: recreateResult.entityId };
+            },
+            runDelete: async (currentLocationId) => {
+              const undoResult = await deleteLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                locationId: currentLocationId,
+                locationLineageKey,
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            validateBeforeCreate: () => {
               const duplicate = locationsRef.current.find(
                 (location) => location.name === trimmedName,
               );
               if (duplicate) {
-                return {
-                  message:
-                    "Der Standort existiert bereits und kann nicht erneut erstellt werden.",
-                  status: "conflict" as const,
-                };
+                return "Der Standort existiert bereits und kann nicht erneut erstellt werden.";
               }
-
-              const recreateResult = await createLocationMutation({
-                name: trimmedName,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              currentLocationId = recreateResult.entityId;
-              return { status: "applied" as const };
-            },
-            undo: async () => {
-              try {
-                await deleteLocationMutation({
-                  locationId: currentLocationId,
-                  practiceId,
-                  sourceRuleSetId: newRuleSetId,
-                });
-                return { status: "applied" as const };
-              } catch (error: unknown) {
-                if (isMissingEntityError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Der Standort konnte nicht gelöscht werden.",
-                  status: "conflict" as const,
-                };
-              }
+              return null;
             },
           });
 
@@ -185,11 +262,6 @@ export function LocationsManagement({
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
           });
           setIsCreateDialogOpen(false);
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         }
 
         form.reset();
@@ -228,12 +300,47 @@ export function LocationsManagement({
       const deletedSnapshot = locationsRef.current.find(
         (location) => location._id === locationId,
       );
+      const deletedScheduleSnapshots: DeletedLocationScheduleSnapshot[] =
+        baseSchedulesRef.current
+          .filter((schedule) => schedule.locationId === locationId)
+          .map((schedule) => {
+            const practitioner = practitionersRef.current.find(
+              (entry) => entry._id === schedule.practitionerId,
+            );
+            if (!practitioner) {
+              throw new Error(
+                `[HISTORY:LOCATION_DELETE_PRACTITIONER_MISSING] Behandler ${schedule.practitionerId} der Arbeitszeit ${schedule._id} konnte nicht geladen werden.`,
+              );
+            }
+            return {
+              ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+              dayOfWeek: schedule.dayOfWeek,
+              endTime: schedule.endTime,
+              lineageKey: schedule.lineageKey,
+              practitionerId: schedule.practitionerId,
+              practitionerLineageKey: practitioner.lineageKey,
+              startTime: schedule.startTime,
+            };
+          });
 
-      const { ruleSetId: newRuleSetId } = await deleteLocationMutation({
+      const deleteArgs: {
+        expectedDraftRevision: null | number;
+        locationId: Id<"locations">;
+        locationLineageKey?: Id<"locations">;
+        practiceId: Id<"practices">;
+        selectedRuleSetId: Id<"ruleSets">;
+      } = {
+        expectedDraftRevision: getExpectedDraftRevision(),
         locationId,
         practiceId,
-        sourceRuleSetId: ruleSetId,
-      });
+        selectedRuleSetId: getSelectedRuleSetId(),
+      };
+      if (deletedSnapshot?.lineageKey) {
+        deleteArgs.locationLineageKey = deletedSnapshot.lineageKey;
+      }
+
+      const deleteResult = await deleteLocationMutation(deleteArgs);
+      handleDraftMutationResult(deleteResult);
 
       if (deletedSnapshot) {
         let currentLocationId = locationId;
@@ -241,26 +348,17 @@ export function LocationsManagement({
           label: "Standort gelöscht",
           redo: async () => {
             try {
-              await deleteLocationMutation({
+              const redoResult = await deleteLocationMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
+                locationLineageKey: deletedSnapshot.lineageKey,
                 practiceId,
-                sourceRuleSetId: newRuleSetId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
+              handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
             } catch (error: unknown) {
               if (isMissingEntityError(error)) {
-                const byName = locationsRef.current.find(
-                  (location) => location.name === deletedSnapshot.name,
-                );
-                if (!byName) {
-                  return { status: "applied" as const };
-                }
-                await deleteLocationMutation({
-                  locationId: byName._id,
-                  practiceId,
-                  sourceRuleSetId: newRuleSetId,
-                });
-                currentLocationId = byName._id;
                 return { status: "applied" as const };
               }
               return {
@@ -273,23 +371,62 @@ export function LocationsManagement({
             }
           },
           undo: async () => {
+            const existingByLineage = locationsRef.current.find(
+              (location) => location.lineageKey === deletedSnapshot.lineageKey,
+            );
+            if (existingByLineage) {
+              currentLocationId = existingByLineage._id;
+              return { status: "applied" as const };
+            }
+
             const duplicate = locationsRef.current.find(
               (location) => location.name === deletedSnapshot.name,
             );
             if (duplicate) {
               return {
-                message:
-                  "Der Standort kann nicht wiederhergestellt werden, weil bereits ein Standort mit diesem Namen existiert.",
+                message: `[HISTORY:LOCATION_NAME_CONFLICT] Der Standort kann nicht wiederhergestellt werden, weil bereits ein anderer Standort mit dem Namen "${deletedSnapshot.name}" existiert.`,
                 status: "conflict" as const,
               };
             }
 
             const recreateResult = await createLocationMutation({
+              expectedDraftRevision: getExpectedDraftRevision(),
+              lineageKey: deletedSnapshot.lineageKey,
               name: deletedSnapshot.name,
               practiceId,
-              sourceRuleSetId: newRuleSetId,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
+            handleDraftMutationResult(recreateResult);
             currentLocationId = recreateResult.entityId;
+
+            for (const schedule of deletedScheduleSnapshots) {
+              const existingByLineage = baseSchedulesRef.current.find(
+                (entry) => entry.lineageKey === schedule.lineageKey,
+              );
+              if (existingByLineage) {
+                continue;
+              }
+
+              const practitionerByLineage = practitionersRef.current.find(
+                (entry) => entry.lineageKey === schedule.practitionerLineageKey,
+              );
+              const practitionerIdForRestore =
+                practitionerByLineage?._id ?? schedule.practitionerId;
+
+              const scheduleResult = await createBaseScheduleMutation({
+                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+                dayOfWeek: schedule.dayOfWeek,
+                endTime: schedule.endTime,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                lineageKey: schedule.lineageKey,
+                locationId: currentLocationId,
+                practiceId,
+                practitionerId: practitionerIdForRestore,
+                selectedRuleSetId: getSelectedRuleSetId(),
+                startTime: schedule.startTime,
+              });
+              handleDraftMutationResult(scheduleResult);
+            }
             return { status: "applied" as const };
           },
         });
@@ -298,11 +435,6 @@ export function LocationsManagement({
       toast.success("Standort gelöscht", {
         description: `Standort "${name}" wurde erfolgreich gelöscht.`,
       });
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-        onRuleSetCreated(newRuleSetId);
-      }
     } catch (error: unknown) {
       captureError(error, {
         context: "LocationsManagement - Delete location",

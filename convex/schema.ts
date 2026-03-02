@@ -499,6 +499,7 @@ export default defineSchema({
     createdAt: v.int64(),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
     lastModified: v.int64(),
+    lineageKey: v.optional(v.id("appointmentTypes")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("appointmentTypes")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
@@ -508,7 +509,9 @@ export default defineSchema({
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_name", ["ruleSetId", "name"])
     .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   baseSchedules: defineTable({
     breakTimes: v.optional(
@@ -521,6 +524,7 @@ export default defineSchema({
     ),
     dayOfWeek: v.number(), // 0 = Sunday, 1 = Monday, etc.
     endTime: v.string(), // "17:00"
+    lineageKey: v.optional(v.id("baseSchedules")), // Stable identity across copied rule sets
     locationId: v.id("locations"), // Required location for the schedule
     parentId: v.optional(v.id("baseSchedules")), // Reference to the entity this was copied from
     practiceId: v.id("practices"), // Multi-tenancy support
@@ -534,7 +538,9 @@ export default defineSchema({
     .index("by_ruleSetId_practitionerId", ["ruleSetId", "practitionerId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   blockedSlots: defineTable({
     // Core blocked slot fields
@@ -840,6 +846,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   locations: defineTable({
+    lineageKey: v.optional(v.id("locations")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("locations")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
@@ -849,7 +856,9 @@ export default defineSchema({
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_name", ["ruleSetId", "name"])
     .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   patients: defineTable({
     // Patient identification fields (from GDT file)
@@ -890,6 +899,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   practitioners: defineTable({
+    lineageKey: v.optional(v.id("practitioners")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("practitioners")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
@@ -900,11 +910,14 @@ export default defineSchema({
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_name", ["ruleSetId", "name"])
     .index("by_parentId", ["parentId"])
-    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"]),
+    .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   ruleSets: defineTable({
     createdAt: v.number(),
     description: v.string(),
+    draftRevision: v.number(), // 0 for saved rule sets; monotonic for unsaved drafts
     parentVersion: v.optional(v.id("ruleSets")), // Single parent (git-like model)
     practiceId: v.id("practices"),
     saved: v.boolean(), // true = saved rule set, false = unsaved/draft rule set

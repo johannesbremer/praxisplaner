@@ -5,7 +5,7 @@ import { Edit, Plus, Trash2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,33 +22,53 @@ import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
+import {
+  registerLineageCreateHistoryAction,
+  registerLineageUpdateHistoryAction,
+} from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
   !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|practitioner not found|arzt.*nicht gefunden/i.test(
+  /already deleted|bereits gelöscht|practitioner not found|arzt.*nicht gefunden|behandler.*nicht gefunden|PRACTITIONER_RESOLVE_FAILED/i.test(
     error.message,
   );
 
 interface PractitionerDialogProps {
+  expectedDraftRevision: null | number;
   isOpen: boolean;
   onClose: () => void;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  practitioner?: Doc<"practitioners"> | undefined;
+  practitioner?: PractitionerWithLineage | undefined;
   ruleSetId: Id<"ruleSets">;
 }
 
 interface PractitionerManagementProps {
+  expectedDraftRevision: null | number;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
 
+type PractitionersResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+type PractitionerWithLineage = PractitionersResult[number];
+
 export default function PractitionerManagement({
+  expectedDraftRevision,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -56,7 +76,7 @@ export default function PractitionerManagement({
 }: PractitionerManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
-    Doc<"practitioners"> | undefined
+    PractitionerWithLineage | undefined
   >();
 
   const { captureError } = useErrorTracking();
@@ -64,7 +84,7 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<Doc<"practitioners">[]>(
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
     practitionersQuery ?? [],
   );
   useEffect(() => {
@@ -76,50 +96,108 @@ export default function PractitionerManagement({
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
 
-  const handleEdit = (practitioner: Doc<"practitioners">) => {
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
+
+  const handleEdit = (practitioner: PractitionerWithLineage) => {
     setEditingPractitioner(practitioner);
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (practitionerId: Id<"practitioners">) => {
     try {
-      const practitionerName =
-        practitionersRef.current.find((entry) => entry._id === practitionerId)
-          ?.name ?? "";
+      const practitionerLineageKey = practitionersRef.current.find(
+        (entry) => entry._id === practitionerId,
+      )?.lineageKey;
       const deleteResult = await deleteWithDependenciesMutation({
+        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         practitionerId,
-        ...(practitionerName && { practitionerName }),
-        sourceRuleSetId: ruleSetId,
+        selectedRuleSetId: getSelectedRuleSetId(),
+        ...(practitionerLineageKey && { practitionerLineageKey }),
       });
-      const newRuleSetId = deleteResult.ruleSetId;
+      handleDraftMutationResult(deleteResult);
       let currentSnapshot = deleteResult.snapshot;
       let currentPractitionerId = currentSnapshot.practitioner.id;
       onRegisterHistoryAction?.({
         label: "Arzt gelöscht",
         redo: async () => {
+          const existingByLineage = practitionersRef.current.find(
+            (entry) =>
+              entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+          );
+          if (!existingByLineage) {
+            return { status: "applied" as const };
+          }
+          currentPractitionerId = existingByLineage._id;
+
           try {
             const redoResult = await deleteWithDependenciesMutation({
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
               practitionerId: currentPractitionerId,
-              practitionerName: currentSnapshot.practitioner.name,
-              sourceRuleSetId: newRuleSetId,
+              practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
+              selectedRuleSetId: getSelectedRuleSetId(),
             });
+            handleDraftMutationResult(redoResult);
             currentSnapshot = redoResult.snapshot;
             currentPractitionerId = currentSnapshot.practitioner.id;
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
-              const redoResult = await deleteWithDependenciesMutation({
-                practiceId,
-                practitionerId: currentSnapshot.practitioner.id,
-                practitionerName: currentSnapshot.practitioner.name,
-                sourceRuleSetId: newRuleSetId,
-              });
-              currentSnapshot = redoResult.snapshot;
-              currentPractitionerId = currentSnapshot.practitioner.id;
-              return { status: "applied" as const };
+              const currentByLineage = practitionersRef.current.find(
+                (entry) =>
+                  entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+              );
+              if (!currentByLineage) {
+                return { status: "applied" as const };
+              }
+              try {
+                const redoResult = await deleteWithDependenciesMutation({
+                  expectedDraftRevision: getExpectedDraftRevision(),
+                  practiceId,
+                  practitionerId: currentByLineage._id,
+                  practitionerLineageKey:
+                    currentSnapshot.practitioner.lineageKey,
+                  selectedRuleSetId: getSelectedRuleSetId(),
+                });
+                handleDraftMutationResult(redoResult);
+                currentSnapshot = redoResult.snapshot;
+                currentPractitionerId = currentSnapshot.practitioner.id;
+                return { status: "applied" as const };
+              } catch (retryError: unknown) {
+                if (isMissingEntityError(retryError)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    retryError instanceof Error
+                      ? retryError.message
+                      : "Der Arzt konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
+              }
             }
             return {
               message:
@@ -133,28 +211,16 @@ export default function PractitionerManagement({
         undo: async () => {
           try {
             const restoreResult = await restoreWithDependenciesMutation({
+              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
+              selectedRuleSetId: getSelectedRuleSetId(),
               snapshot: currentSnapshot,
-              sourceRuleSetId: newRuleSetId,
             });
+            handleDraftMutationResult(restoreResult);
             currentPractitionerId = restoreResult.restoredPractitionerId;
 
             return { status: "applied" as const };
           } catch (error: unknown) {
-            if (
-              error instanceof Error &&
-              /kann nicht wiederhergestellt werden, weil bereits ein arzt mit diesem namen existiert/i.test(
-                error.message,
-              )
-            ) {
-              const byName = practitionersRef.current.find(
-                (entry) => entry.name === currentSnapshot.practitioner.name,
-              );
-              if (byName) {
-                currentPractitionerId = byName._id;
-                return { status: "applied" as const };
-              }
-            }
             return {
               message:
                 error instanceof Error
@@ -166,11 +232,6 @@ export default function PractitionerManagement({
         },
       });
       toast.success("Arzt gelöscht");
-
-      // Notify parent if rule set changed (new unsaved rule set was created)
-      if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-        onRuleSetCreated(newRuleSetId);
-      }
     } catch (error: unknown) {
       captureError(error, {
         context: "practitioner_delete",
@@ -274,11 +335,13 @@ export default function PractitionerManagement({
       </CardContent>
 
       <PractitionerDialog
+        expectedDraftRevision={expectedDraftRevision}
         isOpen={isDialogOpen}
         onClose={handleDialogClose}
         practiceId={practiceId}
         practitioner={editingPractitioner}
         ruleSetId={ruleSetId}
+        {...(onDraftMutation && { onDraftMutation })}
         {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
@@ -287,8 +350,10 @@ export default function PractitionerManagement({
 }
 
 function PractitionerDialog({
+  expectedDraftRevision,
   isOpen,
   onClose,
+  onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
@@ -300,7 +365,7 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<Doc<"practitioners">[]>(
+  const practitionersRef = useRef<PractitionerWithLineage[]>(
     practitionersQuery ?? [],
   );
   useEffect(() => {
@@ -310,6 +375,29 @@ function PractitionerDialog({
   const createMutation = useMutation(api.entities.createPractitioner);
   const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
+  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision;
+  }, [expectedDraftRevision]);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
+
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+
+  const handleDraftMutationResult = (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
+    onDraftMutation?.(result);
+    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+      onRuleSetCreated(result.ruleSetId);
+    }
+  };
 
   const form = useForm({
     defaultValues: {
@@ -321,123 +409,114 @@ function PractitionerDialog({
 
         if (practitioner) {
           const beforeName = practitioner.name;
+          const practitionerLineageKey = practitioner.lineageKey;
           // Update existing practitioner - extract ruleSetId
-          const { ruleSetId: newRuleSetId } = await updateMutation({
+          const updateResult = await updateMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
             practitionerId: practitioner._id,
-            sourceRuleSetId: ruleSetId,
+            selectedRuleSetId: getSelectedRuleSetId(),
           });
-
-          onRegisterHistoryAction?.({
+          handleDraftMutationResult(updateResult);
+          registerLineageUpdateHistoryAction({
+            entitiesRef: practitionersRef,
+            initialEntityId: updateResult.entityId,
             label: "Arzt aktualisiert",
-            redo: async () => {
-              const current = practitionersRef.current.find(
-                (entry) => entry._id === practitioner._id,
-              );
-              if (current?.name !== beforeName) {
-                return {
-                  message:
-                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.",
-                  status: "conflict" as const,
-                };
-              }
-
-              await updateMutation({
+            lineageKey: practitionerLineageKey,
+            onRegisterHistoryAction,
+            redoMissingMessage:
+              "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
+            runRedo: async (currentPractitionerId) => {
+              const redoResult = await updateMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: trimmedName,
                 practiceId,
-                practitionerId: practitioner._id,
-                sourceRuleSetId: newRuleSetId,
+                practitionerId: currentPractitionerId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
-              return { status: "applied" as const };
+              handleDraftMutationResult(redoResult);
+              return { entityId: redoResult.entityId };
             },
-            undo: async () => {
-              const current = practitionersRef.current.find(
-                (entry) => entry._id === practitioner._id,
-              );
-              if (current?.name !== trimmedName) {
-                return {
-                  message:
-                    "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
-              await updateMutation({
+            runUndo: async (currentPractitionerId) => {
+              const undoResult = await updateMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeName,
                 practiceId,
-                practitionerId: practitioner._id,
-                sourceRuleSetId: newRuleSetId,
+                practitionerId: currentPractitionerId,
+                selectedRuleSetId: getSelectedRuleSetId(),
               });
-              return { status: "applied" as const };
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            undoMissingMessage:
+              "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
+            validateRedo: (current) => {
+              if (current.name !== beforeName) {
+                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
+              }
+              return null;
+            },
+            validateUndo: (current) => {
+              if (current.name !== trimmedName) {
+                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
+              }
+              return null;
             },
           });
 
           toast.success("Arzt aktualisiert");
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         } else {
           // Create new practitioner - extract both entityId and ruleSetId
-          const { entityId, ruleSetId: newRuleSetId } = await createMutation({
+          const createResult = await createMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
-            sourceRuleSetId: ruleSetId,
+            selectedRuleSetId: getSelectedRuleSetId(),
           });
+          handleDraftMutationResult(createResult);
+          const { entityId } = createResult;
 
-          let currentPractitionerId = entityId;
-          onRegisterHistoryAction?.({
+          const practitionerLineageKey = entityId;
+          registerLineageCreateHistoryAction({
+            entitiesRef: practitionersRef,
+            initialEntityId: entityId,
+            isMissingEntityError,
             label: "Arzt erstellt",
-            redo: async () => {
+            lineageKey: practitionerLineageKey,
+            onRegisterHistoryAction,
+            runCreate: async () => {
+              const recreateResult = await createMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                lineageKey: practitionerLineageKey,
+                name: trimmedName,
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(recreateResult);
+              return { entityId: recreateResult.entityId };
+            },
+            runDelete: async (currentPractitionerId) => {
+              const undoResult = await deleteMutation({
+                expectedDraftRevision: getExpectedDraftRevision(),
+                practiceId,
+                practitionerId: currentPractitionerId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              });
+              handleDraftMutationResult(undoResult);
+              return { entityId: undoResult.entityId };
+            },
+            validateBeforeCreate: () => {
               const duplicate = practitionersRef.current.find(
                 (entry) => entry.name === trimmedName,
               );
               if (duplicate) {
-                return {
-                  message:
-                    "Der Arzt existiert bereits und kann nicht erneut erstellt werden.",
-                  status: "conflict" as const,
-                };
+                return "Der Arzt existiert bereits und kann nicht erneut erstellt werden.";
               }
-
-              const recreateResult = await createMutation({
-                name: trimmedName,
-                practiceId,
-                sourceRuleSetId: newRuleSetId,
-              });
-              currentPractitionerId = recreateResult.entityId;
-              return { status: "applied" as const };
-            },
-            undo: async () => {
-              try {
-                await deleteMutation({
-                  practiceId,
-                  practitionerId: currentPractitionerId,
-                  sourceRuleSetId: newRuleSetId,
-                });
-                return { status: "applied" as const };
-              } catch (error: unknown) {
-                if (isMissingEntityError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Der Arzt konnte nicht gelöscht werden.",
-                  status: "conflict" as const,
-                };
-              }
+              return null;
             },
           });
           toast.success("Arzt erstellt");
-
-          // Notify parent if rule set changed (new unsaved rule set was created)
-          if (onRuleSetCreated && newRuleSetId !== ruleSetId) {
-            onRuleSetCreated(newRuleSetId);
-          }
         }
 
         onClose();

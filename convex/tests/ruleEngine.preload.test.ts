@@ -23,6 +23,7 @@ describe("ruleEngine preloaded day data", () => {
       const ruleSetId = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),
         description: "Rule Engine Preload Test Rule Set",
+        draftRevision: 0,
         practiceId,
         saved: true,
         version: 1,

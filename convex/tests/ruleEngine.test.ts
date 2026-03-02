@@ -69,6 +69,7 @@ async function createRuleSet(
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: saved ? "Test Rule Set" : "Unsaved Draft",
+      draftRevision: 0,
       practiceId,
       saved,
       version: 1,
