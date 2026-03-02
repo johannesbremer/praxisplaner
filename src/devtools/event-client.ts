@@ -54,7 +54,7 @@ class CalendarEventClient extends EventClient<CalendarDevtoolsEventMap> {
 
 export const CalendarDevtoolsEventClient = new CalendarEventClient();
 
-// Emit helper (only in dev)
+// Emit helper for calendar diagnostics when devtools are enabled.
 export function emitCalendarEvent<K extends keyof CalendarDevtoolsEventMap>(
   fullType: K,
   payload: CalendarDevtoolsEventMap[K],

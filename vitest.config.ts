@@ -3,6 +3,9 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  define: {
+    __ENABLE_DEVTOOLS__: "false",
+  },
   plugins: [
     react(),
     tsconfigPaths({
