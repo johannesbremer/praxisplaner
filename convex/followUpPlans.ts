@@ -131,6 +131,12 @@ export async function validateFollowUpPlan(
       );
     }
 
+    if (step.offsetValue % 5 !== 0) {
+      throw new Error(
+        `[FOLLOW_UP_PLAN:INVALID_OFFSET_STEP] Der Offset für Schritt "${trimmedStepId}" muss in 5er-Schritten angegeben werden.`,
+      );
+    }
+
     if (
       currentAppointmentTypeLineageKey &&
       step.appointmentTypeLineageKey === currentAppointmentTypeLineageKey

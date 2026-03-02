@@ -78,56 +78,50 @@ const followUpStepSchema = z.object({
   appointmentTypeLineageKey: z
     .string()
     .min(1, "Bitte wählen Sie eine Terminart"),
-  locationMode: z.enum(["inherit", "reselect"]),
-  note: z.string().optional(),
   offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
   offsetValue: z
     .number()
     .int("Der Offset muss eine ganze Zahl sein")
-    .min(0, "Der Offset darf nicht negativ sein"),
-  practitionerMode: z.enum(["inherit", "reselect"]),
-  required: z.boolean(),
-  searchMode: z.enum([
-    "exact_after_previous",
-    "same_day",
-    "first_available_on_or_after",
-  ]),
-  stepId: z
-    .string()
-    .min(1, "Bitte vergeben Sie eine Schritt-ID")
-    .max(50, "Schritt-ID darf maximal 50 Zeichen lang sein"),
+    .min(0, "Der Offset darf nicht negativ sein")
+    .refine((value) => value % 5 === 0, {
+      message: "Der Offset muss in 5er-Schritten angegeben werden",
+    }),
 });
+type FollowUpPlanFormStep = z.infer<typeof followUpStepSchema>;
 
-const createEmptyFollowUpStep = (nextIndex: number): FollowUpPlanStep => ({
+const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   appointmentTypeLineageKey: "" as Id<"appointmentTypes">,
-  locationMode: "inherit",
-  note: "",
   offsetUnit: "days",
   offsetValue: 0,
-  practitionerMode: "inherit",
-  required: true,
-  searchMode: "first_available_on_or_after",
-  stepId: `step-${nextIndex}`,
 });
 
+const getFollowUpSearchMode = (
+  step: FollowUpPlanFormStep,
+): FollowUpPlanStep["searchMode"] => {
+  if (step.offsetUnit !== "minutes") {
+    return "first_available_on_or_after";
+  }
+
+  return step.offsetValue === 0 ? "exact_after_previous" : "same_day";
+};
+
 const normalizeFollowUpPlanForSubmit = (
-  steps: z.infer<typeof followUpStepSchema>[],
+  steps: FollowUpPlanFormStep[],
 ): FollowUpPlanStep[] | undefined => {
   if (steps.length === 0) {
     return undefined;
   }
 
-  return steps.map((step) => ({
+  return steps.map((step, index) => ({
     appointmentTypeLineageKey:
       step.appointmentTypeLineageKey as Id<"appointmentTypes">,
-    locationMode: step.locationMode,
-    ...(step.note?.trim() ? { note: step.note.trim() } : {}),
+    locationMode: "inherit",
     offsetUnit: step.offsetUnit,
     offsetValue: step.offsetValue,
-    practitionerMode: step.practitionerMode,
-    required: step.required,
-    searchMode: step.searchMode,
-    stepId: step.stepId.trim(),
+    practitionerMode: "inherit",
+    required: true,
+    searchMode: getFollowUpSearchMode(step),
+    stepId: `step-${index + 1}`,
   }));
 };
 
@@ -138,6 +132,30 @@ const createFollowUpPlanCreateArgs = (
 const createFollowUpPlanUpdateArgs = (
   followUpPlan: FollowUpPlanStep[] | undefined,
 ) => ({ followUpPlan: followUpPlan ?? [] });
+
+const formatFollowUpOffset = (step: {
+  offsetUnit: FollowUpPlanStep["offsetUnit"];
+  offsetValue: number;
+}) => {
+  const unitLabel =
+    step.offsetUnit === "minutes"
+      ? step.offsetValue === 1
+        ? "Minute"
+        : "Minuten"
+      : step.offsetUnit === "days"
+        ? step.offsetValue === 1
+          ? "Tag"
+          : "Tage"
+        : step.offsetUnit === "weeks"
+          ? step.offsetValue === 1
+            ? "Woche"
+            : "Wochen"
+          : step.offsetValue === 1
+            ? "Monat"
+            : "Monate";
+
+  return `${step.offsetValue} ${unitLabel}`;
+};
 
 const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
   JSON.stringify(
@@ -350,7 +368,7 @@ export function AppointmentTypesManagement({
   const form = useForm({
     defaultValues: {
       duration: 30,
-      followUpPlan: [] as z.infer<typeof followUpStepSchema>[],
+      followUpPlan: [] as FollowUpPlanFormStep[],
       name: "",
       practitionerIds: [] as string[],
     },
@@ -612,8 +630,9 @@ export function AppointmentTypesManagement({
     form.setFieldValue(
       "followUpPlan",
       appointmentType.followUpPlan?.map((step) => ({
-        ...step,
-        note: step.note ?? "",
+        appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+        offsetUnit: step.offsetUnit,
+        offsetValue: step.offsetValue,
       })) ?? [],
     );
     form.setFieldValue("practitionerIds", validPractitionerIds);
@@ -871,7 +890,10 @@ export function AppointmentTypesManagement({
                           </FieldLegend>
                           <FieldDescription>
                             Optional: automatische Folgetermine nach diesem
-                            Starttermin.
+                            Starttermin. `0 Minuten` bedeutet direkt im
+                            Anschluss, weitere Minuten suchen am selben Tag,
+                            Tage/Wochen/Monate suchen ab dem gewaehlten Abstand
+                            den ersten freien Termin.
                           </FieldDescription>
                           <div className="space-y-3">
                             {field.state.value.length === 0 ? (
@@ -888,7 +910,7 @@ export function AppointmentTypesManagement({
 
                                 return (
                                   <form.Field
-                                    key={step.stepId || index}
+                                    key={`${index}-${step.appointmentTypeLineageKey}`}
                                     name={`followUpPlan[${index}]` as const}
                                   >
                                     {(itemField) => (
@@ -965,21 +987,6 @@ export function AppointmentTypesManagement({
 
                                         <div className="grid gap-4 md:grid-cols-2">
                                           <Field>
-                                            <FieldLabel>Schritt-ID</FieldLabel>
-                                            <Input
-                                              onChange={(e) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  stepId: e.target.value,
-                                                });
-                                              }}
-                                              value={
-                                                itemField.state.value.stepId
-                                              }
-                                            />
-                                          </Field>
-
-                                          <Field>
                                             <FieldLabel>
                                               Ziel-Terminart
                                             </FieldLabel>
@@ -1046,7 +1053,7 @@ export function AppointmentTypesManagement({
                                                   ),
                                                 });
                                               }}
-                                              step={1}
+                                              step={5}
                                               type="number"
                                               value={
                                                 itemField.state.value
@@ -1090,135 +1097,6 @@ export function AppointmentTypesManagement({
                                               </SelectContent>
                                             </Select>
                                           </Field>
-
-                                          <Field>
-                                            <FieldLabel>Suchmodus</FieldLabel>
-                                            <Select
-                                              onValueChange={(value) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  searchMode:
-                                                    value as FollowUpPlanStep["searchMode"],
-                                                });
-                                              }}
-                                              value={
-                                                itemField.state.value.searchMode
-                                              }
-                                            >
-                                              <SelectTrigger>
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="exact_after_previous">
-                                                  Exakt nach dem vorherigen
-                                                  Termin
-                                                </SelectItem>
-                                                <SelectItem value="same_day">
-                                                  Später am selben Tag
-                                                </SelectItem>
-                                                <SelectItem value="first_available_on_or_after">
-                                                  Erster Termin ab dem Datum
-                                                </SelectItem>
-                                              </SelectContent>
-                                            </Select>
-                                          </Field>
-
-                                          <Field>
-                                            <FieldLabel>Behandler</FieldLabel>
-                                            <Select
-                                              onValueChange={(value) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  practitionerMode:
-                                                    value as FollowUpPlanStep["practitionerMode"],
-                                                });
-                                              }}
-                                              value={
-                                                itemField.state.value
-                                                  .practitionerMode
-                                              }
-                                            >
-                                              <SelectTrigger>
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="inherit">
-                                                  Vom vorherigen Termin
-                                                  übernehmen
-                                                </SelectItem>
-                                                <SelectItem value="reselect">
-                                                  Neu auswählen
-                                                </SelectItem>
-                                              </SelectContent>
-                                            </Select>
-                                          </Field>
-
-                                          <Field>
-                                            <FieldLabel>Standort</FieldLabel>
-                                            <Select
-                                              onValueChange={(value) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  locationMode:
-                                                    value as FollowUpPlanStep["locationMode"],
-                                                });
-                                              }}
-                                              value={
-                                                itemField.state.value
-                                                  .locationMode
-                                              }
-                                            >
-                                              <SelectTrigger>
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="inherit">
-                                                  Vom vorherigen Termin
-                                                  übernehmen
-                                                </SelectItem>
-                                                <SelectItem value="reselect">
-                                                  Neu auswählen
-                                                </SelectItem>
-                                              </SelectContent>
-                                            </Select>
-                                          </Field>
-
-                                          <Field>
-                                            <FieldLabel>Hinweis</FieldLabel>
-                                            <Input
-                                              onChange={(e) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  note: e.target.value,
-                                                });
-                                              }}
-                                              placeholder="Optionaler Hinweis"
-                                              value={
-                                                itemField.state.value.note ?? ""
-                                              }
-                                            />
-                                          </Field>
-
-                                          <Field orientation="horizontal">
-                                            <Checkbox
-                                              checked={
-                                                itemField.state.value.required
-                                              }
-                                              id={`follow-up-required-${index}`}
-                                              onCheckedChange={(checked) => {
-                                                itemField.handleChange({
-                                                  ...itemField.state.value,
-                                                  required: checked === true,
-                                                });
-                                              }}
-                                            />
-                                            <FieldLabel
-                                              className="font-normal"
-                                              htmlFor={`follow-up-required-${index}`}
-                                            >
-                                              Schritt ist verpflichtend
-                                            </FieldLabel>
-                                          </Field>
                                         </div>
                                       </div>
                                     )}
@@ -1229,11 +1107,7 @@ export function AppointmentTypesManagement({
 
                             <Button
                               onClick={() => {
-                                field.pushValue(
-                                  createEmptyFollowUpStep(
-                                    field.state.value.length + 1,
-                                  ),
-                                );
+                                field.pushValue(createEmptyFollowUpStep());
                               }}
                               size="sm"
                               type="button"
@@ -1418,7 +1292,7 @@ export function AppointmentTypesManagement({
 
                               return (
                                 <Badge key={step.stepId} variant="outline">
-                                  {step.offsetValue} {step.offsetUnit} {"->"}{" "}
+                                  {formatFollowUpOffset(step)} {"->"}{" "}
                                   {target?.name ?? "Fehlende Terminart"}
                                 </Badge>
                               );

@@ -156,7 +156,7 @@ describe("appointment series", () => {
             appointmentTypeLineageKey: missingLineageKey,
             locationMode: "inherit",
             offsetUnit: "days",
-            offsetValue: 2,
+            offsetValue: 5,
             practitionerMode: "inherit",
             required: true,
             searchMode: "first_available_on_or_after",

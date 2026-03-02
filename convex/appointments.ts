@@ -280,26 +280,7 @@ export const getAppointments = query({
 
     return resultAppointments;
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("appointments"),
-      appointmentTypeId: v.id("appointmentTypes"),
-      appointmentTypeTitle: v.string(),
-      createdAt: v.int64(),
-      end: v.string(),
-      isSimulation: v.optional(v.boolean()),
-      lastModified: v.int64(),
-      locationId: v.id("locations"),
-      patientId: v.optional(v.id("patients")),
-      practiceId: v.id("practices"),
-      practitionerId: v.optional(v.id("practitioners")),
-      replacesAppointmentId: v.optional(v.id("appointments")),
-      start: v.string(),
-      title: v.string(),
-      userId: v.optional(v.id("users")),
-    }),
-  ),
+  returns: v.array(appointmentResultValidator),
 });
 
 // Query to get appointments in a date range
