@@ -76,7 +76,9 @@ const initializeReactScan = __ENABLE_DEVTOOLS__
   ? async () => {
       const { scan } = await import("react-scan");
       scan({
+        dangerouslyForceRunInProduction: !import.meta.env.DEV,
         enabled: true,
+        showToolbar: true,
       });
     }
   : null;

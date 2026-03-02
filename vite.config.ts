@@ -29,6 +29,7 @@ export default defineConfig(({ command }) => {
           eventBusConfig: {
             debug: false,
           },
+          removeDevtoolsOnBuild: false,
         }),
         ...basePlugins,
       ]
