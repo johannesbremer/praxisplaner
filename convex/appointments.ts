@@ -7,6 +7,10 @@ import type { DatabaseReader } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
+  type AppointmentBookingScope,
+  findConflictingAppointment,
+} from "./appointmentConflicts";
+import {
   appointmentSeriesArgsValidator,
   appointmentSeriesCreateResultValidator,
   appointmentSeriesPreviewResultValidator,
@@ -343,6 +347,7 @@ export const previewAppointmentSeries = query({
 export const createAppointmentSeries = mutation({
   args: {
     ...appointmentSeriesArgsValidator,
+    rootReplacesAppointmentId: v.optional(v.id("appointments")),
     rootTitle: v.string(),
   },
   handler: async (ctx, args) => {
@@ -435,7 +440,6 @@ export const createAppointment = mutation({
     }
 
     if (
-      isSimulation !== true &&
       appointmentType.followUpPlan &&
       appointmentType.followUpPlan.length > 0
     ) {
@@ -451,13 +455,35 @@ export const createAppointment = mutation({
         practiceId: args.practiceId,
         practitionerId: args.practitionerId,
         rootAppointmentTypeId: args.appointmentTypeId,
+        ...(replacesAppointmentId && {
+          rootReplacesAppointmentId: replacesAppointmentId,
+        }),
         rootTitle: args.title.trim(),
         ruleSetId: appointmentType.ruleSetId,
+        scope: getAppointmentBookingScope(isSimulation),
         start: args.start,
         ...(userId && { userId }),
       });
 
       return result.rootAppointmentId;
+    }
+
+    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+      candidate: {
+        end: args.end,
+        locationId: args.locationId,
+        ...(args.practitionerId && { practitionerId: args.practitionerId }),
+        start: args.start,
+      },
+      practiceId: args.practiceId,
+      scope: getAppointmentBookingScope(isSimulation),
+      ...(replacesAppointmentId && {
+        excludeAppointmentIds: [replacesAppointmentId],
+      }),
+    });
+
+    if (conflictingAppointment) {
+      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
     }
 
     const insertData = {
@@ -476,6 +502,12 @@ export const createAppointment = mutation({
   },
   returns: v.id("appointments"),
 });
+
+function getAppointmentBookingScope(
+  isSimulation: boolean | undefined,
+): AppointmentBookingScope {
+  return isSimulation === true ? "simulation" : "real";
+}
 
 // Mutation to update an existing appointment
 export const updateAppointment = mutation({

@@ -335,6 +335,7 @@ export function useCalendarLogic({
           date: selectedDate.toString(),
           practiceId,
           ruleSetId,
+          scope: "simulation",
           simulatedContext,
         }
       : // Real mode: check selectedAppointmentTypeId
@@ -346,6 +347,7 @@ export function useCalendarLogic({
             date: selectedDate.toString(),
             practiceId,
             ruleSetId,
+            scope: "real",
             simulatedContext: createSimulatedContext({
               appointmentTypeId: selectedAppointmentTypeId,
               locationId: selectedLocationId,
@@ -391,6 +393,7 @@ export function useCalendarLogic({
         isSimulation: boolean;
         locationId: Id<"locations">;
         practitionerId?: Id<"practitioners">;
+        replacesAppointmentId?: Id<"appointments">;
         start: string;
       },
       excludeId?: Id<"appointments">,
@@ -403,16 +406,19 @@ export function useCalendarLogic({
           continue;
         }
 
+        if (
+          candidate.replacesAppointmentId &&
+          existing._id === candidate.replacesAppointmentId
+        ) {
+          continue;
+        }
+
         if (existing.locationId !== candidate.locationId) {
           continue;
         }
 
         const existingPractitioner = existing.practitionerId;
         if (existingPractitioner !== candidate.practitionerId) {
-          continue;
-        }
-
-        if ((existing.isSimulation ?? false) !== candidate.isSimulation) {
           continue;
         }
 
@@ -850,6 +856,9 @@ export function useCalendarLogic({
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
               }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
+              }),
               start: createArgs.start,
             })
           ) {
@@ -1046,6 +1055,9 @@ export function useCalendarLogic({
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
+              }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
               start: createArgs.start,
             })

@@ -29,6 +29,7 @@ import { captureErrorGlobal } from "../utils/error-tracking";
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
+  isSimulation?: boolean;
   locationId: Id<"locations">;
   onAppointmentCreated?: (
     appointmentId: Id<"appointments">,
@@ -58,6 +59,7 @@ interface StaffAppointmentCreationModalProps {
 
 export function StaffAppointmentCreationModal({
   appointmentTypeId,
+  isSimulation = false,
   locationId,
   onAppointmentCreated,
   onOpenChange,
@@ -73,9 +75,6 @@ export function StaffAppointmentCreationModal({
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
-  );
-  const createAppointmentSeriesMutation = useMutation(
-    api.appointments.createAppointmentSeries,
   );
 
   // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation
@@ -108,6 +107,7 @@ export function StaffAppointmentCreationModal({
           date: today.toString(),
           practiceId,
           ruleSetId,
+          scope: isSimulation ? "simulation" : "real",
           simulatedContext: {
             appointmentTypeId,
             locationId,
@@ -152,6 +152,7 @@ export function StaffAppointmentCreationModal({
           practitionerId: nextAvailableSlot.practitionerId,
           rootAppointmentTypeId: appointmentTypeId,
           ruleSetId,
+          scope: isSimulation ? "simulation" : "real",
           start: nextAvailableSlot.startTime,
           ...(patient?.userId && { userId: patient.userId }),
         }
@@ -197,40 +198,22 @@ export function StaffAppointmentCreationModal({
       const startZoned = Temporal.ZonedDateTime.from(
         nextAvailableSlot.startTime,
       );
-      let newAppointmentId: Id<"appointments"> | undefined;
-      if (hasFollowUpPlan) {
-        const createdSeries = await createAppointmentSeriesMutation({
-          locationId,
-          ...(patient.dateOfBirth && {
-            patientDateOfBirth: patient.dateOfBirth,
-          }),
-          ...(patientId && { patientId }),
-          practiceId,
-          practitionerId: nextAvailableSlot.practitionerId,
-          rootAppointmentTypeId: appointmentTypeId,
-          rootTitle: title.trim(),
-          ruleSetId,
-          start: startZoned.toString(),
-          ...(userId && { userId }),
-        });
-        newAppointmentId = createdSeries.rootAppointmentId;
-      } else {
-        newAppointmentId = await runCreateAppointment({
-          appointmentTypeId,
-          end: startZoned
-            .add({
-              minutes: appointmentType.duration,
-            })
-            .toString(),
-          locationId,
-          ...(patientId && { patientId }),
-          ...(userId && { userId }),
-          practiceId,
-          practitionerId: nextAvailableSlot.practitionerId,
-          start: startZoned.toString(),
-          title,
-        });
-      }
+      const newAppointmentId = await runCreateAppointment({
+        appointmentTypeId,
+        end: startZoned
+          .add({
+            minutes: appointmentType.duration,
+          })
+          .toString(),
+        ...(isSimulation && { isSimulation: true }),
+        locationId,
+        ...(patientId && { patientId }),
+        ...(userId && { userId }),
+        practiceId,
+        practitionerId: nextAvailableSlot.practitionerId,
+        start: startZoned.toString(),
+        title,
+      });
 
       // Notify about the created appointment for selection
       const recipient:

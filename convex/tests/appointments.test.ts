@@ -268,4 +268,77 @@ describe("appointments self-service cancellation", () => {
     );
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
   });
+
+  test("createAppointment rejects occupied simulation slots instead of replacing them", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "staff@example.com",
+      subject: "workos_staff_simulation_conflict",
+    });
+    const practiceId = await authed.mutation(api.practices.createPractice, {
+      name: "Simulation Conflict Practice",
+    });
+    const baseData = await authed.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice?.currentActiveRuleSetId) {
+        throw new Error("Practice should have an active rule set");
+      }
+      const ruleSetId = practice.currentActiveRuleSetId;
+
+      const locationId = await ctx.db.insert("locations", {
+        name: "Main Location",
+        practiceId,
+        ruleSetId,
+      });
+
+      const practitionerId = await ctx.db.insert("practitioners", {
+        name: "Dr. Appointments",
+        practiceId,
+        ruleSetId,
+      });
+
+      const now = BigInt(Date.now());
+      const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Checkup",
+        practiceId,
+        ruleSetId,
+      });
+
+      return {
+        appointmentTypeId,
+        locationId,
+        practiceId,
+        practitionerId,
+      };
+    });
+    const userId = await createUser(
+      t,
+      "workos_staff_simulation_conflict_user",
+      "staff-simulation-conflict@example.com",
+    );
+    const window = makeSlotWindow(4);
+
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        end: window.end,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Simulationskollision",
+      }),
+    ).rejects.toThrow("bereits belegt");
+  });
 });
