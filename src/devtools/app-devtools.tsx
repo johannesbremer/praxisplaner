@@ -65,8 +65,8 @@ function AppDevtools() {
 
     const devtools = new TanStackDevtoolsCore({
       config: {
-        defaultOpen: !import.meta.env.DEV,
-        position: "bottom-right",
+        defaultOpen: false,
+        position: "bottom-left",
       },
       eventBusConfig: { debug: false },
       plugins,
