@@ -6,9 +6,17 @@ import type { DatabaseReader } from "./_generated/server";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  appointmentSeriesArgsValidator,
+  appointmentSeriesCreateResultValidator,
+  appointmentSeriesPreviewResultValidator,
+  createAppointmentSeries as createAppointmentSeriesHelper,
+  previewAppointmentSeries as previewAppointmentSeriesHelper,
+} from "./appointmentSeries";
 import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
+  ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
 import {
@@ -22,6 +30,26 @@ type AppointmentScope = "all" | "real" | "simulation";
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
+const appointmentResultValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("appointments"),
+  appointmentTypeId: v.id("appointmentTypes"),
+  appointmentTypeTitle: v.string(),
+  createdAt: v.int64(),
+  end: v.string(),
+  isSimulation: v.optional(v.boolean()),
+  lastModified: v.int64(),
+  locationId: v.id("locations"),
+  patientId: v.optional(v.id("patients")),
+  practiceId: v.id("practices"),
+  practitionerId: v.optional(v.id("practitioners")),
+  replacesAppointmentId: v.optional(v.id("appointments")),
+  seriesId: v.optional(v.string()),
+  seriesStepIndex: v.optional(v.number()),
+  start: v.string(),
+  title: v.string(),
+  userId: v.optional(v.id("users")),
+});
 
 function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
   return appointment.cancelledAt !== undefined;
@@ -318,26 +346,52 @@ export const getAppointmentsInRange = query({
       .filter((appointment) => appointment.isSimulation !== true)
       .toSorted((a, b) => a.start.localeCompare(b.start));
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("appointments"),
-      appointmentTypeId: v.id("appointmentTypes"),
-      appointmentTypeTitle: v.string(),
-      createdAt: v.int64(),
-      end: v.string(),
-      isSimulation: v.optional(v.boolean()),
-      lastModified: v.int64(),
-      locationId: v.id("locations"),
-      patientId: v.optional(v.id("patients")),
-      practiceId: v.id("practices"),
-      practitionerId: v.optional(v.id("practitioners")),
-      replacesAppointmentId: v.optional(v.id("appointments")),
-      start: v.string(),
-      title: v.string(),
-      userId: v.optional(v.id("users")),
-    }),
-  ),
+  returns: v.array(appointmentResultValidator),
+});
+
+export const previewAppointmentSeries = query({
+  args: appointmentSeriesArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    return await previewAppointmentSeriesHelper(ctx, args);
+  },
+  returns: appointmentSeriesPreviewResultValidator,
+});
+
+export const createAppointmentSeries = mutation({
+  args: {
+    ...appointmentSeriesArgsValidator,
+    rootTitle: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+
+    if (!args.patientId && !args.userId) {
+      throw new Error("Either patientId or userId must be provided.");
+    }
+
+    if (args.patientId) {
+      const patient = await ctx.db.get("patients", args.patientId);
+      if (!patient) {
+        throw new Error(`Patient with ID ${args.patientId} not found`);
+      }
+    }
+
+    if (args.userId) {
+      const user = await ctx.db.get("users", args.userId);
+      if (!user) {
+        throw new Error(`User with ID ${args.userId} not found`);
+      }
+    }
+
+    return await createAppointmentSeriesHelper(ctx, {
+      ...args,
+      rootTitle: args.rootTitle.trim(),
+    });
+  },
+  returns: appointmentSeriesCreateResultValidator,
 });
 
 // Mutation to create a new appointment
@@ -397,6 +451,32 @@ export const createAppointment = mutation({
       throw new Error(
         `Appointment type with ID ${args.appointmentTypeId} not found`,
       );
+    }
+
+    if (
+      isSimulation !== true &&
+      appointmentType.followUpPlan &&
+      appointmentType.followUpPlan.length > 0
+    ) {
+      if (!args.practitionerId) {
+        throw new Error(
+          "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
+        );
+      }
+
+      const result = await createAppointmentSeriesHelper(ctx, {
+        locationId: args.locationId,
+        ...(patientId && { patientId }),
+        practiceId: args.practiceId,
+        practitionerId: args.practitionerId,
+        rootAppointmentTypeId: args.appointmentTypeId,
+        rootTitle: args.title.trim(),
+        ruleSetId: appointmentType.ruleSetId,
+        start: args.start,
+        ...(userId && { userId }),
+      });
+
+      return result.rootAppointmentId;
     }
 
     const insertData = {
@@ -569,27 +649,7 @@ export const getBookedAppointmentForCurrentUser = query({
 
     return null;
   },
-  returns: v.union(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("appointments"),
-      appointmentTypeId: v.id("appointmentTypes"),
-      appointmentTypeTitle: v.string(),
-      createdAt: v.int64(),
-      end: v.string(),
-      isSimulation: v.optional(v.boolean()),
-      lastModified: v.int64(),
-      locationId: v.id("locations"),
-      patientId: v.optional(v.id("patients")),
-      practiceId: v.id("practices"),
-      practitionerId: v.optional(v.id("practitioners")),
-      replacesAppointmentId: v.optional(v.id("appointments")),
-      start: v.string(),
-      title: v.string(),
-      userId: v.optional(v.id("users")),
-    }),
-    v.null(),
-  ),
+  returns: v.union(appointmentResultValidator, v.null()),
 });
 
 // Query to get all appointments for a patient (past, present, and future)
@@ -638,26 +698,7 @@ export const getAppointmentsForPatient = query({
       .filter((appointment) => isVisibleAppointment(appointment))
       .toSorted((a, b) => a.start.localeCompare(b.start));
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("appointments"),
-      appointmentTypeId: v.id("appointmentTypes"),
-      appointmentTypeTitle: v.string(),
-      createdAt: v.int64(),
-      end: v.string(),
-      isSimulation: v.optional(v.boolean()),
-      lastModified: v.int64(),
-      locationId: v.id("locations"),
-      patientId: v.optional(v.id("patients")),
-      practiceId: v.id("practices"),
-      practitionerId: v.optional(v.id("practitioners")),
-      replacesAppointmentId: v.optional(v.id("appointments")),
-      start: v.string(),
-      title: v.string(),
-      userId: v.optional(v.id("users")),
-    }),
-  ),
+  returns: v.array(appointmentResultValidator),
 });
 
 // Internal mutation to delete all simulated appointments
