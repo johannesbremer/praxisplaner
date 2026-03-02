@@ -1,6 +1,13 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
-import { Package2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Package2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -30,6 +37,13 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -55,9 +69,90 @@ interface AppointmentTypesManagementProps {
 
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
+type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
 type PractitionersResult =
   (typeof api.entities.getPractitioners)["_returnType"];
 type PractitionerWithLineage = PractitionersResult[number];
+
+const followUpStepSchema = z.object({
+  appointmentTypeLineageKey: z
+    .string()
+    .min(1, "Bitte wählen Sie eine Terminart"),
+  locationMode: z.enum(["inherit", "reselect"]),
+  note: z.string().optional(),
+  offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
+  offsetValue: z
+    .number()
+    .int("Der Offset muss eine ganze Zahl sein")
+    .min(0, "Der Offset darf nicht negativ sein"),
+  practitionerMode: z.enum(["inherit", "reselect"]),
+  required: z.boolean(),
+  searchMode: z.enum([
+    "exact_after_previous",
+    "same_day",
+    "first_available_on_or_after",
+  ]),
+  stepId: z
+    .string()
+    .min(1, "Bitte vergeben Sie eine Schritt-ID")
+    .max(50, "Schritt-ID darf maximal 50 Zeichen lang sein"),
+});
+
+const createEmptyFollowUpStep = (nextIndex: number): FollowUpPlanStep => ({
+  appointmentTypeLineageKey: "" as Id<"appointmentTypes">,
+  locationMode: "inherit",
+  note: "",
+  offsetUnit: "days",
+  offsetValue: 0,
+  practitionerMode: "inherit",
+  required: true,
+  searchMode: "first_available_on_or_after",
+  stepId: `step-${nextIndex}`,
+});
+
+const normalizeFollowUpPlanForSubmit = (
+  steps: z.infer<typeof followUpStepSchema>[],
+): FollowUpPlanStep[] | undefined => {
+  if (steps.length === 0) {
+    return undefined;
+  }
+
+  return steps.map((step) => ({
+    appointmentTypeLineageKey:
+      step.appointmentTypeLineageKey as Id<"appointmentTypes">,
+    locationMode: step.locationMode,
+    ...(step.note?.trim() ? { note: step.note.trim() } : {}),
+    offsetUnit: step.offsetUnit,
+    offsetValue: step.offsetValue,
+    practitionerMode: step.practitionerMode,
+    required: step.required,
+    searchMode: step.searchMode,
+    stepId: step.stepId.trim(),
+  }));
+};
+
+const createFollowUpPlanCreateArgs = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+) => (followUpPlan === undefined ? {} : { followUpPlan });
+
+const createFollowUpPlanUpdateArgs = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+) => ({ followUpPlan: followUpPlan ?? [] });
+
+const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
+  JSON.stringify(
+    (steps ?? []).map((step) => ({
+      appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+      locationMode: step.locationMode,
+      note: step.note ?? null,
+      offsetUnit: step.offsetUnit,
+      offsetValue: step.offsetValue,
+      practitionerMode: step.practitionerMode,
+      required: step.required,
+      searchMode: step.searchMode,
+      stepId: step.stepId,
+    })),
+  );
 
 // Form schema using Zod
 const formSchema = z.object({
@@ -68,6 +163,7 @@ const formSchema = z.object({
     .refine((val) => val % 5 === 0, {
       message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
     }),
+  followUpPlan: z.array(followUpStepSchema),
   name: z
     .string()
     .min(2, "Name muss mindestens 2 Zeichen lang sein")
@@ -254,12 +350,16 @@ export function AppointmentTypesManagement({
   const form = useForm({
     defaultValues: {
       duration: 30,
+      followUpPlan: [] as z.infer<typeof followUpStepSchema>[],
       name: "",
       practitionerIds: [] as string[],
     },
     onSubmit: async ({ value }) => {
       try {
         const trimmedName = value.name.trim();
+        const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
+          value.followUpPlan,
+        );
         const formPractitionerIds =
           value.practitionerIds as Id<"practitioners">[];
         const formPractitionerSnapshots =
@@ -279,11 +379,13 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             duration: editingAppointmentType.duration,
+            followUpPlan: editingAppointmentType.followUpPlan,
             name: editingAppointmentType.name,
             practitionerIds: editingAppointmentType.allowedPractitionerIds,
           };
           const afterState = {
             duration: value.duration,
+            followUpPlan: normalizedFollowUpPlan,
             name: trimmedName,
             practitionerIds: resolvedFormPractitionerIds.ids,
           };
@@ -303,6 +405,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: afterState.practitionerIds,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
@@ -328,6 +431,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanUpdateArgs(afterState.followUpPlan),
               });
               handleDraftMutationResult(redoResult);
               return { entityId: redoResult.entityId };
@@ -349,6 +453,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanUpdateArgs(beforeState.followUpPlan),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -359,6 +464,8 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
+                serializeFollowUpPlan(current.followUpPlan) !==
+                  serializeFollowUpPlan(beforeState.followUpPlan) ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
@@ -374,6 +481,8 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== afterState.name ||
                 current.duration !== afterState.duration ||
+                serializeFollowUpPlan(current.followUpPlan) !==
+                  serializeFollowUpPlan(afterState.followUpPlan) ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
@@ -403,6 +512,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -425,6 +535,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
               handleDraftMutationResult(recreateResult);
               return { entityId: recreateResult.entityId };
@@ -498,6 +609,13 @@ export function AppointmentTypesManagement({
     setEditingAppointmentType(appointmentType);
     form.setFieldValue("name", appointmentType.name);
     form.setFieldValue("duration", appointmentType.duration);
+    form.setFieldValue(
+      "followUpPlan",
+      appointmentType.followUpPlan?.map((step) => ({
+        ...step,
+        note: step.note ?? "",
+      })) ?? [],
+    );
     form.setFieldValue("practitionerIds", validPractitionerIds);
 
     if (
@@ -516,6 +634,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         duration: appointmentType.duration,
+        followUpPlan: appointmentType.followUpPlan,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerIds: appointmentType.allowedPractitionerIds,
@@ -575,6 +694,8 @@ export function AppointmentTypesManagement({
             );
             const isSameDefinition =
               existingByLineage.duration === deletedSnapshot.duration &&
+              serializeFollowUpPlan(existingByLineage.followUpPlan) ===
+                serializeFollowUpPlan(deletedSnapshot.followUpPlan) &&
               samePractitionerLineageIds(
                 existingPractitionerLineageIds,
                 deletedPractitionerLineageIds,
@@ -605,6 +726,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
           });
           handleDraftMutationResult(recreateResult);
           currentAppointmentTypeId = recreateResult.entityId;
@@ -730,6 +852,407 @@ export function AppointmentTypesManagement({
                               .join(", ")}
                           </FieldError>
                         </Field>
+                      );
+                    }}
+                  </form.Field>
+
+                  <form.Field mode="array" name="followUpPlan">
+                    {(field) => {
+                      const availableTargets = appointmentTypes.filter(
+                        (appointmentType) =>
+                          appointmentType.lineageKey !==
+                          editingAppointmentType?.lineageKey,
+                      );
+
+                      return (
+                        <FieldSet>
+                          <FieldLegend variant="label">
+                            Kettentermine
+                          </FieldLegend>
+                          <FieldDescription>
+                            Optional: automatische Folgetermine nach diesem
+                            Starttermin.
+                          </FieldDescription>
+                          <div className="space-y-3">
+                            {field.state.value.length === 0 ? (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                Keine Kettentermine konfiguriert.
+                              </div>
+                            ) : (
+                              field.state.value.map((step, index) => {
+                                const targetExists = availableTargets.some(
+                                  (appointmentType) =>
+                                    appointmentType.lineageKey ===
+                                    step.appointmentTypeLineageKey,
+                                );
+
+                                return (
+                                  <form.Field
+                                    key={step.stepId || index}
+                                    name={`followUpPlan[${index}]` as const}
+                                  >
+                                    {(itemField) => (
+                                      <div className="rounded-lg border p-4 space-y-4">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="text-sm font-medium">
+                                            Schritt {index + 1}
+                                          </div>
+                                          <div className="flex gap-1">
+                                            <Button
+                                              disabled={index === 0}
+                                              onClick={() => {
+                                                if (index === 0) {
+                                                  return;
+                                                }
+                                                const current =
+                                                  itemField.state.value;
+                                                const previous =
+                                                  field.state.value[index - 1];
+                                                if (!previous) {
+                                                  return;
+                                                }
+                                                itemField.handleChange(
+                                                  previous,
+                                                );
+                                                field.replaceValue(
+                                                  index - 1,
+                                                  current,
+                                                );
+                                              }}
+                                              size="icon"
+                                              type="button"
+                                              variant="ghost"
+                                            >
+                                              <ArrowUp className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              disabled={
+                                                index ===
+                                                field.state.value.length - 1
+                                              }
+                                              onClick={() => {
+                                                const current =
+                                                  itemField.state.value;
+                                                const next =
+                                                  field.state.value[index + 1];
+                                                if (!next) {
+                                                  return;
+                                                }
+                                                itemField.handleChange(next);
+                                                field.replaceValue(
+                                                  index + 1,
+                                                  current,
+                                                );
+                                              }}
+                                              size="icon"
+                                              type="button"
+                                              variant="ghost"
+                                            >
+                                              <ArrowDown className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              onClick={() => {
+                                                field.removeValue(index);
+                                              }}
+                                              size="icon"
+                                              type="button"
+                                              variant="ghost"
+                                            >
+                                              <Trash2 className="h-4 w-4 text-destructive" />
+                                            </Button>
+                                          </div>
+                                        </div>
+
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                          <Field>
+                                            <FieldLabel>Schritt-ID</FieldLabel>
+                                            <Input
+                                              onChange={(e) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  stepId: e.target.value,
+                                                });
+                                              }}
+                                              value={
+                                                itemField.state.value.stepId
+                                              }
+                                            />
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>
+                                              Ziel-Terminart
+                                            </FieldLabel>
+                                            <Select
+                                              onValueChange={(value) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  appointmentTypeLineageKey:
+                                                    value as Id<"appointmentTypes">,
+                                                });
+                                              }}
+                                              {...(itemField.state.value
+                                                .appointmentTypeLineageKey
+                                                ? {
+                                                    value:
+                                                      itemField.state.value
+                                                        .appointmentTypeLineageKey,
+                                                  }
+                                                : {})}
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="Terminart wählen" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {!targetExists &&
+                                                  itemField.state.value
+                                                    .appointmentTypeLineageKey && (
+                                                    <SelectItem
+                                                      value={
+                                                        itemField.state.value
+                                                          .appointmentTypeLineageKey
+                                                      }
+                                                    >
+                                                      Fehlende Terminart
+                                                    </SelectItem>
+                                                  )}
+                                                {availableTargets.map(
+                                                  (appointmentType) => (
+                                                    <SelectItem
+                                                      key={
+                                                        appointmentType.lineageKey
+                                                      }
+                                                      value={
+                                                        appointmentType.lineageKey
+                                                      }
+                                                    >
+                                                      {appointmentType.name}
+                                                    </SelectItem>
+                                                  ),
+                                                )}
+                                              </SelectContent>
+                                            </Select>
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>Offset</FieldLabel>
+                                            <Input
+                                              min={0}
+                                              onChange={(e) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  offsetValue: Number(
+                                                    e.target.value,
+                                                  ),
+                                                });
+                                              }}
+                                              step={1}
+                                              type="number"
+                                              value={
+                                                itemField.state.value
+                                                  .offsetValue
+                                              }
+                                            />
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>
+                                              Offset-Einheit
+                                            </FieldLabel>
+                                            <Select
+                                              onValueChange={(value) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  offsetUnit:
+                                                    value as FollowUpPlanStep["offsetUnit"],
+                                                });
+                                              }}
+                                              value={
+                                                itemField.state.value.offsetUnit
+                                              }
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="minutes">
+                                                  Minuten
+                                                </SelectItem>
+                                                <SelectItem value="days">
+                                                  Tage
+                                                </SelectItem>
+                                                <SelectItem value="weeks">
+                                                  Wochen
+                                                </SelectItem>
+                                                <SelectItem value="months">
+                                                  Monate
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>Suchmodus</FieldLabel>
+                                            <Select
+                                              onValueChange={(value) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  searchMode:
+                                                    value as FollowUpPlanStep["searchMode"],
+                                                });
+                                              }}
+                                              value={
+                                                itemField.state.value.searchMode
+                                              }
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="exact_after_previous">
+                                                  Exakt nach dem vorherigen
+                                                  Termin
+                                                </SelectItem>
+                                                <SelectItem value="same_day">
+                                                  Später am selben Tag
+                                                </SelectItem>
+                                                <SelectItem value="first_available_on_or_after">
+                                                  Erster Termin ab dem Datum
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>Behandler</FieldLabel>
+                                            <Select
+                                              onValueChange={(value) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  practitionerMode:
+                                                    value as FollowUpPlanStep["practitionerMode"],
+                                                });
+                                              }}
+                                              value={
+                                                itemField.state.value
+                                                  .practitionerMode
+                                              }
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="inherit">
+                                                  Vom vorherigen Termin
+                                                  übernehmen
+                                                </SelectItem>
+                                                <SelectItem value="reselect">
+                                                  Neu auswählen
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>Standort</FieldLabel>
+                                            <Select
+                                              onValueChange={(value) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  locationMode:
+                                                    value as FollowUpPlanStep["locationMode"],
+                                                });
+                                              }}
+                                              value={
+                                                itemField.state.value
+                                                  .locationMode
+                                              }
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="inherit">
+                                                  Vom vorherigen Termin
+                                                  übernehmen
+                                                </SelectItem>
+                                                <SelectItem value="reselect">
+                                                  Neu auswählen
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </Field>
+
+                                          <Field>
+                                            <FieldLabel>Hinweis</FieldLabel>
+                                            <Input
+                                              onChange={(e) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  note: e.target.value,
+                                                });
+                                              }}
+                                              placeholder="Optionaler Hinweis"
+                                              value={
+                                                itemField.state.value.note ?? ""
+                                              }
+                                            />
+                                          </Field>
+
+                                          <Field orientation="horizontal">
+                                            <Checkbox
+                                              checked={
+                                                itemField.state.value.required
+                                              }
+                                              id={`follow-up-required-${index}`}
+                                              onCheckedChange={(checked) => {
+                                                itemField.handleChange({
+                                                  ...itemField.state.value,
+                                                  required: checked === true,
+                                                });
+                                              }}
+                                            />
+                                            <FieldLabel
+                                              className="font-normal"
+                                              htmlFor={`follow-up-required-${index}`}
+                                            >
+                                              Schritt ist verpflichtend
+                                            </FieldLabel>
+                                          </Field>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </form.Field>
+                                );
+                              })
+                            )}
+
+                            <Button
+                              onClick={() => {
+                                field.pushValue(
+                                  createEmptyFollowUpStep(
+                                    field.state.value.length + 1,
+                                  ),
+                                );
+                              }}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Kettentermin hinzufügen
+                            </Button>
+                          </div>
+                          <FieldError>
+                            {field.state.meta.errors
+                              .map((error) =>
+                                typeof error === "string"
+                                  ? error
+                                  : (error?.message ?? ""),
+                              )
+                              .join(", ")}
+                          </FieldError>
+                        </FieldSet>
                       );
                     }}
                   </form.Field>
@@ -880,6 +1403,29 @@ export function AppointmentTypesManagement({
                       <div className="text-sm text-muted-foreground mb-2">
                         Dauer: {appointmentType.duration} Minuten
                       </div>
+                      {(appointmentType.followUpPlan?.length ?? 0) > 0 && (
+                        <div className="mb-2 space-y-1">
+                          <div className="text-sm font-medium">
+                            {appointmentType.followUpPlan?.length} Kettentermine
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {appointmentType.followUpPlan?.map((step) => {
+                              const target = appointmentTypes.find(
+                                (candidate) =>
+                                  candidate.lineageKey ===
+                                  step.appointmentTypeLineageKey,
+                              );
+
+                              return (
+                                <Badge key={step.stepId} variant="outline">
+                                  {step.offsetValue} {step.offsetUnit} {"->"}{" "}
+                                  {target?.name ?? "Fehlende Terminart"}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       {appointmentTypePractitioners.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {appointmentTypePractitioners.map((practitioner) => (
