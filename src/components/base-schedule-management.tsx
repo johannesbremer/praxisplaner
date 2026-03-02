@@ -389,6 +389,7 @@ export default function BaseScheduleManagement({
     ruleSetId: Id<"ruleSets">;
   }) => {
     expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -796,6 +797,7 @@ function BaseScheduleDialog({
     ruleSetId: Id<"ruleSets">;
   }) => {
     expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -1106,42 +1108,10 @@ function BaseScheduleDialog({
           const oldLineageKeys = oldSchedulePayloads.map(
             (payload) => payload.lineageKey,
           );
-          const countExistingByLineage = (
-            lineageKeys: Id<"baseSchedules">[],
-          ): number => {
-            let count = 0;
-            for (const lineageKey of lineageKeys) {
-              if (
-                schedulesRef.current.some(
-                  (entry) => entry.lineageKey === lineageKey,
-                )
-              ) {
-                count += 1;
-              }
-            }
-            return count;
-          };
 
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
-              const currentOldCount = countExistingByLineage(oldLineageKeys);
-              const currentNewCount = countExistingByLineage(newLineageKeys);
-
-              if (
-                currentOldCount === 0 &&
-                currentNewCount === newLineageKeys.length
-              ) {
-                return { status: "applied" as const };
-              }
-              if (currentOldCount !== oldLineageKeys.length) {
-                return {
-                  message:
-                    "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher wiederhergestellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
               const redoResult = await replaceScheduleSetMutation({
                 expectedAbsentLineageKeys: newLineageKeys,
                 expectedDraftRevision: getExpectedDraftRevision(),
@@ -1160,23 +1130,6 @@ function BaseScheduleDialog({
               return { status: "applied" as const };
             },
             undo: async () => {
-              const currentOldCount = countExistingByLineage(oldLineageKeys);
-              const currentNewCount = countExistingByLineage(newLineageKeys);
-
-              if (
-                currentNewCount === 0 &&
-                currentOldCount === oldLineageKeys.length
-              ) {
-                return { status: "applied" as const };
-              }
-              if (currentNewCount !== newLineageKeys.length) {
-                return {
-                  message:
-                    "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher zurückgesetzt werden.",
-                  status: "conflict" as const,
-                };
-              }
-
               const undoResult = await replaceScheduleSetMutation({
                 expectedAbsentLineageKeys: oldLineageKeys,
                 expectedDraftRevision: getExpectedDraftRevision(),

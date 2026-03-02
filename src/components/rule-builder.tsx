@@ -178,6 +178,7 @@ export function RuleBuilder({
     ruleSetId: Id<"ruleSets">;
   }) => {
     expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
     onDraftMutation?.(result);
     if (onRuleCreated && result.ruleSetId !== ruleSetId) {
       onRuleCreated(result.ruleSetId);

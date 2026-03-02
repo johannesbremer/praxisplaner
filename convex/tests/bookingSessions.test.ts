@@ -401,7 +401,16 @@ function makeSelectedSlot(
     duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
-    startTime: "2026-03-01T09:00:00+01:00[Europe/Berlin]",
+    startTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin")
+      .add({ days: 1 })
+      .with({
+        hour: 9,
+        millisecond: 0,
+        minute: 0,
+        nanosecond: 0,
+        second: 0,
+      })
+      .toString(),
   };
 }
 

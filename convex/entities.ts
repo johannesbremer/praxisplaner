@@ -2068,6 +2068,79 @@ export const replaceBaseScheduleSet = mutation({
     }
 
     const expectedAbsentLineageKeys = new Set(args.expectedAbsentLineageKeys);
+    const replacementLineageKeys = new Set(
+      args.replacementSchedules.map((schedule) => schedule.lineageKey),
+    );
+    const expectedPresentLineageKeySet = new Set(
+      args.expectedPresentLineageKeys,
+    );
+    const presentExpectedLineageKeys = new Set<Id<"baseSchedules">>();
+    for (const lineageKey of args.expectedPresentLineageKeys) {
+      const existing = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+        )
+        .first();
+      if (existing) {
+        presentExpectedLineageKeys.add(lineageKey);
+      }
+    }
+    const presentExpectedAbsentLineageKeys = new Set<Id<"baseSchedules">>();
+    for (const lineageKey of expectedAbsentLineageKeys) {
+      const existing = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+        )
+        .first();
+      if (existing) {
+        presentExpectedAbsentLineageKeys.add(lineageKey);
+      }
+    }
+
+    const allExpectedPresentExist =
+      presentExpectedLineageKeys.size === expectedPresentLineageKeySet.size;
+    const noExpectedAbsentExist = presentExpectedAbsentLineageKeys.size === 0;
+    const targetAlreadyApplied =
+      presentExpectedLineageKeys.size === 0 &&
+      presentExpectedAbsentLineageKeys.size === replacementLineageKeys.size;
+
+    if (targetAlreadyApplied) {
+      const existingCreatedIds: Id<"baseSchedules">[] = [];
+      for (const lineageKey of replacementLineageKeys) {
+        const existing = await ctx.db
+          .query("baseSchedules")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+          )
+          .first();
+        if (!existing) {
+          throw new Error(
+            "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher ersetzt werden.",
+          );
+        }
+        existingCreatedIds.push(existing._id);
+      }
+      const currentDraftRevision = await ctx.db.get("ruleSets", ruleSetId);
+      if (!currentDraftRevision) {
+        throw new Error(
+          `[INVARIANT:RULE_SET_NOT_FOUND] Regelset ${ruleSetId} konnte nicht geladen werden.`,
+        );
+      }
+      return {
+        createdScheduleIds: existingCreatedIds,
+        deletedScheduleIds: [],
+        draftRevision: currentDraftRevision.draftRevision,
+        ruleSetId,
+      };
+    }
+
+    if (!allExpectedPresentExist || !noExpectedAbsentExist) {
+      throw new Error(
+        "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher ersetzt werden.",
+      );
+    }
 
     for (const lineageKey of expectedAbsentLineageKeys) {
       const existing = await ctx.db
@@ -2079,15 +2152,6 @@ export const replaceBaseScheduleSet = mutation({
       if (existing) {
         throw new Error(
           "Die Änderung kann nicht angewendet werden, weil alte und neue Arbeitszeiten gleichzeitig vorhanden sind.",
-        );
-      }
-    }
-
-    for (const presentId of expectedPresentIds) {
-      const existing = await ctx.db.get("baseSchedules", presentId);
-      if (existing?.ruleSetId !== ruleSetId) {
-        throw new Error(
-          "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher ersetzt werden.",
         );
       }
     }

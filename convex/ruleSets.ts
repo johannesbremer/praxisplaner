@@ -7,7 +7,7 @@ import { v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -799,7 +799,7 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
  * Backfill draftRevision on rule sets and validate unsaved-draft invariant.
  * Intended for one-time migrations during pre-production refactors.
  */
-export const backfillRuleSetDraftRevisions = mutation({
+export const backfillRuleSetDraftRevisions = internalMutation({
   args: {},
   handler: async (ctx) => {
     const allRuleSets = await ctx.db.query("ruleSets").collect();
