@@ -125,6 +125,41 @@ export function isSlotStartInFuture(
   }
 }
 
+export function slotOverlapsAppointment(
+  slot: Pick<
+    CandidateSlot,
+    "duration" | "locationId" | "practitionerId" | "startTime"
+  >,
+  appointment: Pick<
+    Doc<"appointments">,
+    "end" | "locationId" | "practitionerId" | "start"
+  >,
+): boolean {
+  if (slot.locationId !== appointment.locationId) {
+    return false;
+  }
+
+  if (slot.practitionerId !== appointment.practitionerId) {
+    return false;
+  }
+
+  const slotZoned = Temporal.ZonedDateTime.from(slot.startTime);
+  const slotEndZoned = slotZoned.add({
+    minutes: slot.duration,
+  });
+  const appointmentStart = Temporal.ZonedDateTime.from(
+    appointment.start,
+  ).toInstant();
+  const appointmentEnd = Temporal.ZonedDateTime.from(
+    appointment.end,
+  ).toInstant();
+
+  return (
+    Temporal.Instant.compare(slotZoned.toInstant(), appointmentEnd) < 0 &&
+    Temporal.Instant.compare(slotEndZoned.toInstant(), appointmentStart) > 0
+  );
+}
+
 export function slotOverlapsBlockedSlot(
   slot: Pick<CandidateSlot, "duration" | "practitionerId" | "startTime">,
   blockedSlot: Doc<"blockedSlots">,

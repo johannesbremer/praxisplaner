@@ -294,6 +294,7 @@ export function CalendarSidebar() {
         selectedLocationId && (
           <StaffAppointmentCreationModal
             appointmentTypeId={selectedAppointmentTypeId}
+            isSimulation={simulatedContext !== undefined}
             locationId={selectedLocationId}
             onOpenChange={handleModalClose}
             onPendingTitleChange={onPendingTitleChange}

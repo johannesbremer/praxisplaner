@@ -356,4 +356,90 @@ describe("appointment series", () => {
 
     expect(appointments).toHaveLength(0);
   });
+
+  test("createAppointment routes simulation bookings with follow-up plans through the same series path", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "minutes",
+            offsetValue: 0,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "exact_after_previous",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      return rootAppointmentTypeId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: rootAppointmentTypeId,
+      end: rootEnd,
+      isSimulation: true,
+      locationId,
+      practiceId,
+      practitionerId,
+      start: rootStart,
+      title: "Simulierter Kettentermin",
+    });
+
+    const appointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+        .collect();
+    });
+
+    expect(appointments).toHaveLength(2);
+    expect(appointments.every((appointment) => appointment.isSimulation)).toBe(
+      true,
+    );
+    expect(
+      new Set(appointments.map((appointment) => appointment.seriesId)).size,
+    ).toBe(1);
+  });
 });
