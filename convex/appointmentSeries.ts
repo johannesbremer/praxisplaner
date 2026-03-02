@@ -6,6 +6,10 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 import { internal } from "./_generated/api";
 import {
+  type AppointmentBookingScope,
+  findConflictingAppointment,
+} from "./appointmentConflicts";
+import {
   type FollowUpStep,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
@@ -66,6 +70,7 @@ export const appointmentSeriesArgsValidator = {
   practitionerId: v.id("practitioners"),
   rootAppointmentTypeId: v.id("appointmentTypes"),
   ruleSetId: v.id("ruleSets"),
+  scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
   start: v.string(),
   userId: v.optional(v.id("users")),
 };
@@ -98,8 +103,10 @@ export async function createAppointmentSeries(
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
+    rootReplacesAppointmentId?: Id<"appointments">;
     rootTitle: string;
     ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
     start: string;
     userId?: Id<"users">;
   },
@@ -118,18 +125,45 @@ export async function createAppointmentSeries(
   const createdSteps: (PlannedSeriesStep & {
     appointmentId: Id<"appointments">;
   })[] = [];
+  const scope = args.scope ?? "real";
 
   for (const [index, step] of preview.steps.entries()) {
+    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+      candidate: {
+        end: step.end,
+        locationId: step.locationId,
+        practitionerId: step.practitionerId,
+        start: step.start,
+      },
+      practiceId: args.practiceId,
+      scope,
+      ...(index === 0 &&
+        args.rootReplacesAppointmentId && {
+          excludeAppointmentIds: [args.rootReplacesAppointmentId],
+        }),
+    });
+
+    if (conflictingAppointment) {
+      throw new Error(
+        `Der Termin fuer Schritt ${step.seriesStepIndex + 1} ist nicht mehr verfuegbar.`,
+      );
+    }
+
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeId: step.appointmentTypeId,
       appointmentTypeTitle: step.appointmentTypeTitle,
       createdAt: now,
       end: step.end,
+      ...(scope === "simulation" && { isSimulation: true }),
       lastModified: now,
       locationId: step.locationId,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
       practitionerId: step.practitionerId,
+      ...(index === 0 &&
+        args.rootReplacesAppointmentId && {
+          replacesAppointmentId: args.rootReplacesAppointmentId,
+        }),
       seriesId,
       seriesStepIndex: step.seriesStepIndex,
       start: step.start,
@@ -172,6 +206,7 @@ export async function previewAppointmentSeries(
     practitionerId: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
     ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
     start: string;
     userId?: Id<"users">;
   },
@@ -211,6 +246,7 @@ export async function previewAppointmentSeries(
     practitionerId: args.practitionerId,
     requestedAt,
     ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
   });
 
   const selectedRootSlot = rootSlots.find(
@@ -269,6 +305,7 @@ export async function previewAppointmentSeries(
       ...(practitionerId && { practitionerId }),
       requestedAt,
       ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
       step,
       targetAppointmentType,
     });
@@ -351,6 +388,7 @@ async function findSlotForFollowUpStep(
     previousStep: PlannedSeriesStep;
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
     step: FollowUpStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
@@ -372,6 +410,7 @@ async function findSlotForFollowUpStep(
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
     });
 
     return (
@@ -395,6 +434,7 @@ async function findSlotForFollowUpStep(
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
     });
 
     return (
@@ -420,6 +460,7 @@ async function findSlotForFollowUpStep(
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
     });
 
     const matchingSlot = slots.find((slot) => {
@@ -484,6 +525,7 @@ async function queryAvailableSlotsForDay(
     practitionerId?: Id<"practitioners">;
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
   },
 ) {
   const result = await ctx.runQuery(
@@ -492,6 +534,7 @@ async function queryAvailableSlotsForDay(
       date: args.date,
       practiceId: args.practiceId,
       ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
       simulatedContext: {
         appointmentTypeId: args.appointmentType._id,
         ...(args.locationId && { locationId: args.locationId }),

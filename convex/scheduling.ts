@@ -7,6 +7,10 @@ import type { AppointmentContext } from "./ruleEngine";
 
 import { internal } from "./_generated/api";
 import { internalQuery, query } from "./_generated/server";
+import {
+  type AppointmentBookingScope,
+  getEffectiveAppointmentsForScope,
+} from "./appointmentConflicts";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
   buildPreloadedDayData,
@@ -17,6 +21,7 @@ import {
   generateCandidateSlotsForDay,
   isSlotStartInFuture,
   SCHEDULING_TIMEZONE,
+  slotOverlapsAppointment,
   slotOverlapsBlockedSlot,
 } from "./schedulingCore";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -128,6 +133,7 @@ const getSlotsForDayArgs = {
   enforceFutureOnly: v.optional(v.boolean()),
   practiceId: v.id("practices"),
   ruleSetId: v.optional(v.id("ruleSets")),
+  scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
   simulatedContext: simulatedContextValidator,
 };
 
@@ -138,6 +144,7 @@ async function getSlotsForDayImpl(
     enforceFutureOnly?: boolean;
     practiceId: Id<"practices">;
     ruleSetId?: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
     simulatedContext: {
       appointmentTypeId?: Id<"appointmentTypes">;
       locationId?: Id<"locations">;
@@ -160,6 +167,7 @@ async function getSlotsForDayImpl(
   const targetPlainDate = Temporal.PlainDate.from(args.date);
 
   const log: string[] = [`Getting slots for single day: ${args.date}`];
+  const appointmentScope = args.scope ?? "real";
 
   // Fetch blocked slots for this practice and date using efficient date range query
   const dayStart = targetPlainDate
@@ -185,15 +193,12 @@ async function getSlotsForDayImpl(
     .filter((q) => q.lt(q.field("start"), dayEnd))
     .collect();
 
-  // Determine if we're in simulation mode based on context presence
-  const isSimulationMode = !!args.simulatedContext.appointmentTypeId;
-
-  // Filter blocked slots by simulation scope
-  const blockedSlotsForDay = allBlockedSlots.filter((blockedSlot) => {
-    // In simulation mode, include both real and simulated blocked slots
-    // In real mode, only include real blocked slots
-    return isSimulationMode ? true : !blockedSlot.isSimulation;
-  });
+  const blockedSlotsForDay =
+    appointmentScope === "simulation"
+      ? combineBlockedSlotsForSimulation(allBlockedSlots)
+      : allBlockedSlots.filter(
+          (blockedSlot) => blockedSlot.isSimulation !== true,
+        );
 
   log.push(`Found ${blockedSlotsForDay.length} blocked slots for this day`);
 
@@ -330,6 +335,27 @@ async function getSlotsForDayImpl(
     log.push(
       `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
     );
+
+    const effectiveAppointments = getEffectiveAppointmentsForScope(
+      preloadedData.appointments,
+      appointmentScope,
+    );
+
+    for (const slot of candidateSlots) {
+      if (slot.status === "BLOCKED") {
+        continue;
+      }
+
+      const overlappingAppointment = effectiveAppointments.find((appointment) =>
+        slotOverlapsAppointment(slot, appointment),
+      );
+
+      if (overlappingAppointment) {
+        slot.status = "BLOCKED";
+      }
+    }
+
+    log.push("Marked slots blocked by existing appointments");
 
     // Pre-evaluate day-invariant rules once for the entire day
     // Use the simulatedContext since appointmentTypeId and locationId are fixed for the entire query
@@ -498,6 +524,9 @@ async function getSlotsForDayImpl(
         slot.reason =
           ruleDescriptionCache.get(slot.blockedByRuleId) ||
           "Dieser Zeitfenster ist durch eine Regel blockiert.";
+      } else {
+        slot.reason =
+          "Dieser Zeitfenster ist bereits durch einen Termin belegt.";
       }
     }
   }
@@ -526,6 +555,25 @@ export const getSlotsForDayInternal = internalQuery({
   },
   returns: availableSlotsResultValidator,
 });
+
+function combineBlockedSlotsForSimulation(
+  blockedSlots: Doc<"blockedSlots">[],
+): Doc<"blockedSlots">[] {
+  const simulationSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation === true,
+  );
+  const replacedIds = new Set(
+    simulationSlots.map((slot) => slot.replacesBlockedSlotId).filter(Boolean),
+  );
+
+  const realSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation !== true && !replacedIds.has(slot._id),
+  );
+
+  return [...realSlots, ...simulationSlots].toSorted((a, b) =>
+    a.start.localeCompare(b.start),
+  );
+}
 
 /**
  * Get blocked slots for a day without requiring appointment type.
