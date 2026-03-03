@@ -229,6 +229,14 @@ export function NewCalendar({
     selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
   );
 
+  const selectedSeriesId =
+    appointments.find(
+      (appointment) => appointment.convexId === selectedAppointmentId,
+    )?.resource?.seriesId ??
+    patientAppointments?.find(
+      (appointment) => appointment._id === selectedAppointmentId,
+    )?.seriesId;
+
   // Convert selected patient data to PatientInfo format for the sidebar
   const selectedPatientInfo: PatientInfo | undefined = (() => {
     if (selectedPatient?.type === "patient" && selectedPatientData) {
@@ -556,6 +564,7 @@ export function NewCalendar({
                           ? selectedPatient.id
                           : null
                       }
+                      selectedSeriesId={selectedSeriesId ?? null}
                       selectedUserId={
                         selectedPatient?.type === "user"
                           ? selectedPatient.id
@@ -658,6 +667,7 @@ export function NewCalendar({
               patient={selectedPatientInfo ?? patient}
               patientAppointments={patientAppointments}
               selectedAppointmentId={selectedAppointmentId}
+              selectedSeriesId={selectedSeriesId}
               showGdtAlert={showGdtAlert}
             />
           </div>
