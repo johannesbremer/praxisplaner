@@ -171,6 +171,98 @@ describe("appointment series", () => {
     ).rejects.toThrow("FOLLOW_UP_PLAN:APPOINTMENT_TYPE_NOT_FOUND");
   });
 
+  test("createAppointmentType applies offset validation per unit", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 20,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        duration: 30,
+        expectedDraftRevision: null,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "minutes",
+            offsetValue: 7,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "same_day",
+            stepId: "step-1",
+          },
+        ],
+        name: "Ungueltig Minuten",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET_STEP");
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        duration: 30,
+        expectedDraftRevision: null,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 0,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        name: "Ungueltig Tage",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET");
+
+    const validResult = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      followUpPlan: [
+        {
+          appointmentTypeLineageKey: targetAppointmentTypeId,
+          locationMode: "inherit",
+          offsetUnit: "days",
+          offsetValue: 3,
+          practitionerMode: "inherit",
+          required: true,
+          searchMode: "first_available_on_or_after",
+          stepId: "step-1",
+        },
+      ],
+      name: "Gueltig Tage",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    expect(validResult.entityId).toBeDefined();
+  });
+
   test("previewAppointmentSeries scans period-based follow-ups top to bottom within the day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
