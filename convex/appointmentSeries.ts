@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { SchedulingResultSlot } from "./scheduling";
 
 import { internal } from "./_generated/api";
 import {
@@ -94,6 +95,12 @@ type SeriesPlannerCtx =
   | Pick<MutationCtx, "db" | "runQuery">
   | Pick<QueryCtx, "db" | "runQuery">;
 
+interface SeriesPlanningState {
+  baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
+  eligibleWeekdays: Map<string, number[]>;
+  slotCache: Map<string, SchedulingResultSlot[]>;
+}
+
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
@@ -111,7 +118,8 @@ export async function createAppointmentSeries(
     userId?: Id<"users">;
   },
 ) {
-  const preview = await previewAppointmentSeries(ctx, args);
+  const planningState = createSeriesPlanningState();
+  const preview = await previewAppointmentSeries(ctx, args, planningState);
   if (preview.status === "blocked") {
     throw new Error(
       preview.failureMessage ||
@@ -165,7 +173,7 @@ export async function createAppointmentSeries(
           replacesAppointmentId: args.rootReplacesAppointmentId,
         }),
       seriesId,
-      seriesStepIndex: step.seriesStepIndex,
+      seriesStepIndex: toStoredSeriesStepIndex(step.seriesStepIndex),
       start: step.start,
       title:
         index === 0
@@ -210,6 +218,7 @@ export async function previewAppointmentSeries(
     start: string;
     userId?: Id<"users">;
   },
+  planningState = createSeriesPlanningState(),
 ) {
   void args.userId;
 
@@ -241,6 +250,7 @@ export async function previewAppointmentSeries(
     appointmentType: rootAppointmentType,
     date: rootStart.toPlainDate().toString(),
     locationId: args.locationId,
+    planningState,
     ...(patientDateOfBirth && { patientDateOfBirth }),
     practiceId: args.practiceId,
     practitionerId: args.practitionerId,
@@ -300,6 +310,7 @@ export async function previewAppointmentSeries(
     const matchingSlot = await findSlotForFollowUpStep(ctx, {
       ...(locationId && { locationId }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
+      planningState,
       practiceId: args.practiceId,
       previousStep,
       ...(practitionerId && { practitionerId }),
@@ -378,11 +389,20 @@ function createSeriesId(): string {
   return `series_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createSeriesPlanningState(): SeriesPlanningState {
+  return {
+    baseSchedulesByRuleSet: new Map(),
+    eligibleWeekdays: new Map(),
+    slotCache: new Map(),
+  };
+}
+
 async function findSlotForFollowUpStep(
   ctx: SeriesPlannerCtx,
   args: {
     locationId?: Id<"locations">;
     patientDateOfBirth?: string;
+    planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     previousStep: PlannedSeriesStep;
@@ -403,6 +423,7 @@ async function findSlotForFollowUpStep(
       appointmentType: args.targetAppointmentType,
       date: earliestStart.toPlainDate().toString(),
       ...(args.locationId && { locationId: args.locationId }),
+      planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
       }),
@@ -427,6 +448,7 @@ async function findSlotForFollowUpStep(
       appointmentType: args.targetAppointmentType,
       date: earliestStart.toPlainDate().toString(),
       ...(args.locationId && { locationId: args.locationId }),
+      planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
       }),
@@ -447,12 +469,21 @@ async function findSlotForFollowUpStep(
     );
   }
 
-  for (let dayOffset = 0; dayOffset <= MAX_SERIES_SEARCH_DAYS; dayOffset++) {
-    const searchDate = earliestStart.toPlainDate().add({ days: dayOffset });
+  const searchDates = await getSearchDatesOnOrAfter(ctx, {
+    earliestStart,
+    ...(args.locationId && { locationId: args.locationId }),
+    planningState: args.planningState,
+    practiceId: args.practiceId,
+    ...(args.practitionerId && { practitionerId: args.practitionerId }),
+    ruleSetId: args.ruleSetId,
+  });
+
+  for (const { dayOffset, searchDate } of searchDates) {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
       date: searchDate.toString(),
       ...(args.locationId && { locationId: args.locationId }),
+      planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
       }),
@@ -484,6 +515,96 @@ async function findSlotForFollowUpStep(
   }
 
   return null;
+}
+
+async function getEligibleWeekdays(
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  args: {
+    locationId?: Id<"locations">;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const cacheKey = [
+    args.ruleSetId,
+    args.practiceId,
+    args.locationId ?? "",
+    args.practitionerId ?? "",
+  ].join("|");
+  const cachedWeekdays = args.planningState.eligibleWeekdays.get(cacheKey);
+  if (cachedWeekdays) {
+    return cachedWeekdays;
+  }
+
+  let baseSchedulesPromise = args.planningState.baseSchedulesByRuleSet.get(
+    args.ruleSetId,
+  );
+  if (!baseSchedulesPromise) {
+    baseSchedulesPromise = ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+    args.planningState.baseSchedulesByRuleSet.set(
+      args.ruleSetId,
+      baseSchedulesPromise,
+    );
+  }
+
+  const baseSchedules = await baseSchedulesPromise;
+  const weekdays = [
+    ...new Set(
+      baseSchedules
+        .filter((schedule) => schedule.practiceId === args.practiceId)
+        .filter((schedule) =>
+          args.locationId ? schedule.locationId === args.locationId : true,
+        )
+        .filter((schedule) =>
+          args.practitionerId
+            ? schedule.practitionerId === args.practitionerId
+            : true,
+        )
+        .map((schedule) => schedule.dayOfWeek),
+    ),
+  ].toSorted((left, right) => left - right);
+
+  args.planningState.eligibleWeekdays.set(cacheKey, weekdays);
+  return weekdays;
+}
+
+async function getSearchDatesOnOrAfter(
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  args: {
+    earliestStart: Temporal.ZonedDateTime;
+    locationId?: Id<"locations">;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const eligibleWeekdays = await getEligibleWeekdays(ctx, args);
+
+  if (eligibleWeekdays.length === 0) {
+    return [];
+  }
+
+  const searchDates: { dayOffset: number; searchDate: Temporal.PlainDate }[] =
+    [];
+  for (let dayOffset = 0; dayOffset <= MAX_SERIES_SEARCH_DAYS; dayOffset++) {
+    const searchDate = args.earliestStart
+      .toPlainDate()
+      .add({ days: dayOffset });
+    const scheduleDayOfWeek =
+      searchDate.dayOfWeek === 7 ? 0 : searchDate.dayOfWeek;
+    if (!eligibleWeekdays.includes(scheduleDayOfWeek)) {
+      continue;
+    }
+    searchDates.push({ dayOffset, searchDate });
+  }
+
+  return searchDates;
 }
 
 async function loadRootAppointmentType(
@@ -521,6 +642,7 @@ async function queryAvailableSlotsForDay(
     date: string;
     locationId?: Id<"locations">;
     patientDateOfBirth?: string;
+    planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     requestedAt: string;
@@ -528,6 +650,22 @@ async function queryAvailableSlotsForDay(
     scope?: AppointmentBookingScope;
   },
 ) {
+  const cacheKey = [
+    args.appointmentType._id,
+    args.date,
+    args.locationId ?? "",
+    args.patientDateOfBirth ?? "",
+    args.practiceId,
+    args.practitionerId ?? "",
+    args.requestedAt,
+    args.ruleSetId,
+    args.scope ?? "real",
+  ].join("|");
+  const cachedSlots = args.planningState.slotCache.get(cacheKey);
+  if (cachedSlots) {
+    return cachedSlots;
+  }
+
   const result = await ctx.runQuery(
     internal.scheduling.getSlotsForDayInternal,
     {
@@ -549,7 +687,7 @@ async function queryAvailableSlotsForDay(
     },
   );
 
-  return result.slots
+  const slots = result.slots
     .filter((slot) => slot.status === "AVAILABLE")
     .filter((slot) =>
       args.appointmentType.allowedPractitionerIds.includes(slot.practitionerId),
@@ -561,6 +699,8 @@ async function queryAvailableSlotsForDay(
       args.locationId ? slot.locationId === args.locationId : true,
     )
     .toSorted((left, right) => left.startTime.localeCompare(right.startTime));
+  args.planningState.slotCache.set(cacheKey, slots);
+  return slots;
 }
 
 async function resolvePatientDateOfBirth(
@@ -580,4 +720,14 @@ async function resolvePatientDateOfBirth(
 
   const patient = await ctx.db.get("patients", args.patientId);
   return patient?.dateOfBirth;
+}
+
+function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
+  if (!Number.isInteger(seriesStepIndex) || seriesStepIndex < 0) {
+    throw new Error(
+      `[APPOINTMENT_SERIES:INVALID_STEP_INDEX] Ungueltiger seriesStepIndex ${seriesStepIndex}.`,
+    );
+  }
+
+  return BigInt(seriesStepIndex);
 }
