@@ -1661,6 +1661,7 @@ export function useCalendarLogic({
             locationId: appointment.locationId,
             patientId: appointment.patientId,
             practitionerId: appointment.practitionerId,
+            seriesId: appointment.seriesId,
             userId: appointment.userId,
           },
           startTime: formatTime(startZoned.toPlainTime()),

@@ -171,7 +171,7 @@ describe("appointments self-service cancellation", () => {
     expect(visibleAppointments).toHaveLength(0);
   });
 
-  test("getBookedAppointmentForCurrentUser returns only uncancelled future appointments", async () => {
+  test("getBookedAppointmentsForCurrentUser returns all uncancelled future appointments in ascending order", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
     const authId = "workos_booked_user";
@@ -183,10 +183,15 @@ describe("appointments self-service cancellation", () => {
       window: makeSlotWindow(-2),
     });
 
-    const futureAppointmentId = await insertAppointment(t, {
+    const firstFutureAppointmentId = await insertAppointment(t, {
       ...baseData,
       userId,
       window: makeSlotWindow(3),
+    });
+    const secondFutureAppointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(5),
     });
 
     const authed = t.withIdentity({
@@ -194,21 +199,26 @@ describe("appointments self-service cancellation", () => {
       subject: authId,
     });
 
-    const upcomingAppointment = await authed.query(
-      api.appointments.getBookedAppointmentForCurrentUser,
+    const upcomingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
       {},
     );
-    expect(upcomingAppointment?._id).toBe(futureAppointmentId);
+    expect(upcomingAppointments.map((appointment) => appointment._id)).toEqual([
+      firstFutureAppointmentId,
+      secondFutureAppointmentId,
+    ]);
 
     await authed.mutation(api.appointments.cancelOwnAppointment, {
-      appointmentId: futureAppointmentId,
+      appointmentId: firstFutureAppointmentId,
     });
 
     const afterCancellation = await authed.query(
-      api.appointments.getBookedAppointmentForCurrentUser,
+      api.appointments.getBookedAppointmentsForCurrentUser,
       {},
     );
-    expect(afterCancellation).toBeNull();
+    expect(afterCancellation.map((appointment) => appointment._id)).toEqual([
+      secondFutureAppointmentId,
+    ]);
   });
 
   test("getBookedAppointmentForCurrentUser ignores simulation appointments", async () => {
@@ -338,5 +348,72 @@ describe("appointments self-service cancellation", () => {
         title: "Simulationskollision",
       }),
     ).rejects.toThrow("bereits belegt");
+  });
+
+  test("cancelOwnAppointment cancels all future appointments in a series when the root appointment is cancelled", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_series_cancel_user";
+    const userId = await createUser(t, authId, "series-cancel@example.com");
+    const rootWindow = makeSlotWindow(4);
+    const followUpStart = Temporal.ZonedDateTime.from(rootWindow.start)
+      .add({ days: 5 })
+      .toString();
+    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+      .add({ minutes: 30 })
+      .toString();
+    const seriesId = "series_test_cancel";
+
+    const rootAppointmentId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const appointmentId = await ctx.db.insert("appointments", {
+        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: rootWindow.end,
+        lastModified: now,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        seriesId,
+        seriesStepIndex: 0n,
+        start: rootWindow.start,
+        title: "Root",
+        userId,
+      });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: followUpEnd,
+        lastModified: now,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        seriesId,
+        seriesStepIndex: 1n,
+        start: followUpStart,
+        title: "Follow-up",
+        userId,
+      });
+
+      return appointmentId;
+    });
+
+    const authed = t.withIdentity({
+      email: "series-cancel@example.com",
+      subject: authId,
+    });
+
+    await authed.mutation(api.appointments.cancelOwnAppointment, {
+      appointmentId: rootAppointmentId,
+    });
+
+    const remainingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      {},
+    );
+    expect(remainingAppointments).toHaveLength(0);
   });
 });
