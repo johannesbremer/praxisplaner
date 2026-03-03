@@ -747,12 +747,13 @@ export const updateAppointmentType = mutation({
       updates.allowedPractitionerIds = resolved;
     }
     if (args.followUpPlan !== undefined) {
-      updates.followUpPlan = await validateFollowUpPlan(
+      const validatedFollowUpPlan = await validateFollowUpPlan(
         ctx.db,
         ruleSetId,
         args.followUpPlan as FollowUpPlan,
         requireAppointmentTypeLineageKey(appointmentType),
       );
+      updates.followUpPlan = validatedFollowUpPlan ?? [];
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching
