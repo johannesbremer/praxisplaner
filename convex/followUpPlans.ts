@@ -125,17 +125,7 @@ export async function validateFollowUpPlan(
     }
     seenStepIds.add(trimmedStepId);
 
-    if (!Number.isInteger(step.offsetValue) || step.offsetValue < 0) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss eine ganze Zahl ab 0 sein.`,
-      );
-    }
-
-    if (step.offsetValue % 5 !== 0) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:INVALID_OFFSET_STEP] Der Offset für Schritt "${trimmedStepId}" muss in 5er-Schritten angegeben werden.`,
-      );
-    }
+    validateFollowUpOffsetValue(step, trimmedStepId);
 
     if (
       currentAppointmentTypeLineageKey &&
@@ -166,4 +156,37 @@ function buildMissingAppointmentTypeError(
   return new Error(
     `[FOLLOW_UP_PLAN:APPOINTMENT_TYPE_NOT_FOUND] Terminart mit lineageKey ${lineageKey} wurde im Regelset ${ruleSetId} nicht gefunden.`,
   );
+}
+
+function validateFollowUpOffsetValue(
+  step: FollowUpStep,
+  trimmedStepId: string,
+) {
+  if (!Number.isInteger(step.offsetValue)) {
+    throw new TypeError(
+      `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss eine ganze Zahl sein.`,
+    );
+  }
+
+  if (step.offsetUnit === "minutes") {
+    if (step.offsetValue < 0) {
+      throw new Error(
+        `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss bei Minuten mindestens 0 sein.`,
+      );
+    }
+
+    if (step.offsetValue % 5 !== 0) {
+      throw new Error(
+        `[FOLLOW_UP_PLAN:INVALID_OFFSET_STEP] Der Offset für Schritt "${trimmedStepId}" muss bei Minuten in 5er-Schritten angegeben werden.`,
+      );
+    }
+
+    return;
+  }
+
+  if (step.offsetValue < 1) {
+    throw new Error(
+      `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss für Tage, Wochen und Monate mindestens 1 sein.`,
+    );
+  }
 }
