@@ -397,6 +397,21 @@ function createSeriesPlanningState(): SeriesPlanningState {
   };
 }
 
+function findFirstSlotOnDate(
+  slots: SchedulingResultSlot[],
+  searchDate: Temporal.PlainDate,
+) {
+  return (
+    slots.find(
+      (slot) =>
+        slot.locationId !== undefined &&
+        Temporal.ZonedDateTime.from(slot.startTime)
+          .toPlainDate()
+          .equals(searchDate),
+    ) ?? null
+  );
+}
+
 async function findSlotForFollowUpStep(
   ctx: SeriesPlannerCtx,
   args: {
@@ -476,9 +491,10 @@ async function findSlotForFollowUpStep(
     practiceId: args.practiceId,
     ...(args.practitionerId && { practitionerId: args.practitionerId }),
     ruleSetId: args.ruleSetId,
+    step: args.step,
   });
 
-  for (const { dayOffset, searchDate } of searchDates) {
+  for (const searchDate of searchDates) {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
       date: searchDate.toString(),
@@ -494,20 +510,9 @@ async function findSlotForFollowUpStep(
       ...(args.scope && { scope: args.scope }),
     });
 
-    const matchingSlot = slots.find((slot) => {
-      if (slot.locationId === undefined) {
-        return false;
-      }
-
-      if (dayOffset === 0) {
-        return (
-          Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >=
-          earliestStart.epochMilliseconds
-        );
-      }
-
-      return true;
-    });
+    const matchingSlot =
+      findFirstSlotOnDate(slots, searchDate) ??
+      slots.find((slot) => slot.locationId !== undefined);
 
     if (matchingSlot) {
       return matchingSlot;
@@ -573,6 +578,43 @@ async function getEligibleWeekdays(
   return weekdays;
 }
 
+function getFollowUpSearchWindow(
+  earliestStart: Temporal.ZonedDateTime,
+  step: FollowUpStep,
+): {
+  endDate: Temporal.PlainDate;
+  startDate: Temporal.PlainDate;
+} {
+  const targetDate = earliestStart.toPlainDate();
+
+  switch (step.offsetUnit) {
+    case "days": {
+      return {
+        endDate: targetDate,
+        startDate: targetDate,
+      };
+    }
+    case "minutes": {
+      return {
+        endDate: targetDate,
+        startDate: targetDate,
+      };
+    }
+    case "months": {
+      return {
+        endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
+        startDate: targetDate,
+      };
+    }
+    case "weeks": {
+      return {
+        endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
+        startDate: targetDate,
+      };
+    }
+  }
+}
+
 async function getSearchDatesOnOrAfter(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -582,6 +624,7 @@ async function getSearchDatesOnOrAfter(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     ruleSetId: Id<"ruleSets">;
+    step: FollowUpStep;
   },
 ) {
   const eligibleWeekdays = await getEligibleWeekdays(ctx, args);
@@ -590,18 +633,27 @@ async function getSearchDatesOnOrAfter(
     return [];
   }
 
-  const searchDates: { dayOffset: number; searchDate: Temporal.PlainDate }[] =
-    [];
-  for (let dayOffset = 0; dayOffset <= MAX_SERIES_SEARCH_DAYS; dayOffset++) {
-    const searchDate = args.earliestStart
-      .toPlainDate()
-      .add({ days: dayOffset });
+  const { endDate, startDate } = getFollowUpSearchWindow(
+    args.earliestStart,
+    args.step,
+  );
+  const totalDays = startDate.until(endDate).days;
+  if (totalDays > MAX_SERIES_SEARCH_DAYS) {
+    throw new Error(
+      `[APPOINTMENT_SERIES:SEARCH_WINDOW_TOO_LARGE] Suchfenster überschreitet ${MAX_SERIES_SEARCH_DAYS} Tage.`,
+    );
+  }
+
+  const searchDates: Temporal.PlainDate[] = [];
+
+  for (let dayOffset = 0; dayOffset <= totalDays; dayOffset++) {
+    const searchDate = startDate.add({ days: dayOffset });
     const scheduleDayOfWeek =
       searchDate.dayOfWeek === 7 ? 0 : searchDate.dayOfWeek;
     if (!eligibleWeekdays.includes(scheduleDayOfWeek)) {
       continue;
     }
-    searchDates.push({ dayOffset, searchDate });
+    searchDates.push(searchDate);
   }
 
   return searchDates;

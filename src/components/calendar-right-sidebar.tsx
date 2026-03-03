@@ -38,6 +38,7 @@ interface CalendarRightSidebarProps {
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
+  selectedSeriesId?: string | undefined;
   showGdtAlert?: boolean | undefined;
 }
 
@@ -95,6 +96,7 @@ export function CalendarRightSidebar({
   patient,
   patientAppointments,
   selectedAppointmentId,
+  selectedSeriesId,
   showGdtAlert,
 }: CalendarRightSidebarProps) {
   const { isMobile, open, openMobile, setOpenMobile } = useRightSidebar();
@@ -148,6 +150,7 @@ export function CalendarRightSidebar({
               patientAppointments={patientAppointments}
               patientDisplayName={patientDisplayName}
               selectedAppointmentId={selectedAppointmentId}
+              selectedSeriesId={selectedSeriesId}
               showGdtAlert={showGdtAlert}
             />
           </div>
@@ -186,6 +189,7 @@ export function CalendarRightSidebar({
             patientAppointments={patientAppointments}
             patientDisplayName={patientDisplayName}
             selectedAppointmentId={selectedAppointmentId}
+            selectedSeriesId={selectedSeriesId}
             showGdtAlert={showGdtAlert}
           />
         </div>
@@ -266,6 +270,7 @@ function RightSidebarContent({
   patientAppointments,
   patientDisplayName,
   selectedAppointmentId,
+  selectedSeriesId,
   showGdtAlert,
 }: {
   handleOpenInPvs: () => void;
@@ -274,6 +279,7 @@ function RightSidebarContent({
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
   selectedAppointmentId: Id<"appointments"> | undefined;
+  selectedSeriesId: string | undefined;
   showGdtAlert: boolean | undefined;
 }) {
   const bookingFieldEntries =
@@ -378,7 +384,9 @@ function RightSidebarContent({
                     <div className="space-y-1">
                       {patientAppointments.toReversed().map((appointment) => {
                         const isSelected =
-                          selectedAppointmentId === appointment._id;
+                          selectedAppointmentId === appointment._id ||
+                          (selectedSeriesId !== undefined &&
+                            appointment.seriesId === selectedSeriesId);
                         return (
                           <button
                             className={cn(

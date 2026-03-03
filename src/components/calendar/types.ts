@@ -24,6 +24,7 @@ export interface Appointment {
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
+    seriesId?: Doc<"appointments">["seriesId"];
     title?: string;
     userId?: Doc<"appointments">["userId"];
   };

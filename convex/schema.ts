@@ -490,6 +490,7 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
+    .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
     .index("by_userId_start", ["userId", "start"]),
 
