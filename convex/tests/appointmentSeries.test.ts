@@ -441,5 +441,68 @@ describe("appointment series", () => {
     expect(
       new Set(appointments.map((appointment) => appointment.seriesId)).size,
     ).toBe(1);
+    expect(
+      appointments
+        .map((appointment) => appointment.seriesStepIndex)
+        .toSorted((left, right) => Number(left ?? 0n) - Number(right ?? 0n)),
+    ).toEqual([0n, 1n]);
+  });
+
+  test("updateAppointmentType clears follow-up plans without patching undefined", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 20,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    const created = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      followUpPlan: [
+        {
+          appointmentTypeLineageKey: targetAppointmentTypeId,
+          locationMode: "inherit",
+          offsetUnit: "days",
+          offsetValue: 5,
+          practitionerMode: "inherit",
+          required: true,
+          searchMode: "first_available_on_or_after",
+          stepId: "step-1",
+        },
+      ],
+      name: "Root",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    await t.mutation(api.entities.updateAppointmentType, {
+      appointmentTypeId: created.entityId,
+      expectedDraftRevision: created.draftRevision,
+      followUpPlan: [],
+      practiceId,
+      selectedRuleSetId: created.ruleSetId,
+    });
+
+    const updatedAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", created.entityId);
+    });
+
+    expect(updatedAppointmentType?.followUpPlan).toEqual([]);
   });
 });

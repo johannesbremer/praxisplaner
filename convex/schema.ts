@@ -475,7 +475,7 @@ export default defineSchema({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
-    seriesStepIndex: v.optional(v.number()),
+    seriesStepIndex: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
 
     // Metadata
