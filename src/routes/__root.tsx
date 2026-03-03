@@ -1,11 +1,7 @@
 // src/routes/__root.tsx
-// react-scan must be imported before React and TanStack Start
 import type { QueryClient } from "@tanstack/react-query";
 
-import { TanStackDevtools } from "@tanstack/react-devtools";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
-import { hotkeysDevtoolsPlugin } from "@tanstack/react-hotkeys-devtools";
-import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 import {
   ClientOnly,
   createRootRouteWithContext,
@@ -14,14 +10,11 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { useEffect } from "react";
-import { scan } from "react-scan";
 import { Toaster } from "sonner";
 
-import { CalendarDevtoolsPanel } from "../devtools/calendar-devtools-panel";
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
@@ -74,6 +67,21 @@ import {
   UndoRedoControlsProvider,
   useGlobalUndoRedoControls,
 } from "../hooks/use-global-undo-redo-controls";
+
+const LazyAppDevtools = __ENABLE_DEVTOOLS__
+  ? React.lazy(() => import("../devtools/app-devtools"))
+  : null;
+
+const initializeReactScan = __ENABLE_DEVTOOLS__
+  ? async () => {
+      const { scan } = await import("react-scan");
+      scan({
+        dangerouslyForceRunInProduction: !import.meta.env.DEV,
+        enabled: true,
+        showToolbar: true,
+      });
+    }
+  : null;
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -253,9 +261,15 @@ function RootComponent() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    // Make sure to run this only after hydration
-    scan({
-      enabled: true,
+    if (!initializeReactScan) {
+      return;
+    }
+
+    void initializeReactScan().catch((error: unknown) => {
+      captureErrorGlobal(error, {
+        context: "React Scan initialization",
+        errorType: "devtools_initialization",
+      });
     });
   }, []);
 
@@ -266,30 +280,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <ClientOnly fallback={null}>
-          <TanStackDevtools
-            eventBusConfig={{ debug: false }}
-            plugins={[
-              hotkeysDevtoolsPlugin(),
-              {
-                name: "TanStack Query",
-                render: <ReactQueryDevtoolsPanel />,
-              },
-              {
-                name: "TanStack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-              ...(import.meta.env.DEV
-                ? [
-                    {
-                      name: "Calendar Diagnostics",
-                      render: <CalendarDevtoolsPanel />,
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        </ClientOnly>
+        {LazyAppDevtools ? (
+          <ClientOnly fallback={null}>
+            <React.Suspense fallback={null}>
+              <LazyAppDevtools />
+            </React.Suspense>
+          </ClientOnly>
+        ) : null}
         <Toaster offset={72} position="top-right" richColors />
         <Scripts />
       </body>
