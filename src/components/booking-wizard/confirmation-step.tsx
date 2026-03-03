@@ -62,22 +62,20 @@ export function BookedAppointmentsSummary({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {appointments.map((appointment) =>
-          (() => {
-            const practitionerName = appointment.practitionerId
-              ? practitionerNamesById?.[appointment.practitionerId]
-              : undefined;
+        {appointments.map((appointment) => {
+          const practitionerName = appointment.practitionerId
+            ? practitionerNamesById?.[appointment.practitionerId]
+            : undefined;
 
-            return (
-              <BookedAppointmentsSummaryItem
-                appointment={appointment}
-                key={appointment._id}
-                {...(onCancelled ? { onCancelled } : {})}
-                {...(practitionerName ? { practitionerName } : {})}
-              />
-            );
-          })(),
-        )}
+          return (
+            <BookedAppointmentsSummaryItem
+              appointment={appointment}
+              key={appointment._id}
+              {...(onCancelled ? { onCancelled } : {})}
+              {...(practitionerName ? { practitionerName } : {})}
+            />
+          );
+        })}
       </CardContent>
     </Card>
   );

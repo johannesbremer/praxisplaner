@@ -220,7 +220,7 @@ function AuthenticatedBookingFlow() {
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
-  const bookedAppointment = useQuery(
+  const bookedAppointments = useQuery(
     api.appointments.getBookedAppointmentsForCurrentUser,
     { refreshNonce: bookedAppointmentRefreshNonce },
   );
@@ -432,7 +432,7 @@ function AuthenticatedBookingFlow() {
     },
   );
 
-  const nextBookedAppointment = bookedAppointment?.[0];
+  const nextBookedAppointment = bookedAppointments?.[0];
   const bookedAppointmentId = nextBookedAppointment?._id;
   const bookedAppointmentStart = nextBookedAppointment?.start;
   useEffect(() => {
@@ -464,12 +464,12 @@ function AuthenticatedBookingFlow() {
   }, [bookedAppointmentId, bookedAppointmentStart]);
 
   const isShowingBookedAppointment =
-    bookedAppointment !== undefined && bookedAppointment.length > 0;
+    bookedAppointments !== undefined && bookedAppointments.length > 0;
   const isSessionAtConfirmationStep =
     session?.state.step === "existing-confirmation" ||
     session?.state.step === "new-confirmation";
   const shouldReturnToCalendarAfterAppointmentElapsed =
-    bookedAppointment?.length === 0 && isSessionAtConfirmationStep;
+    bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
 
   useEffect(() => {
     if (
@@ -659,7 +659,7 @@ function AuthenticatedBookingFlow() {
     showBackButton = false;
     stepContent = (
       <BookedAppointmentsSummary
-        appointments={bookedAppointment}
+        appointments={bookedAppointments}
         onCancelled={handleBookedAppointmentCancelled}
         practitionerNamesById={practitionerNamesById}
       />

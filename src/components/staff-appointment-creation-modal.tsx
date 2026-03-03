@@ -279,6 +279,20 @@ export function StaffAppointmentCreationModal({
     }
   };
 
+  const isSeriesPreviewLoading =
+    hasFollowUpPlan && seriesPreview === undefined;
+  const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
+  const isSubmitDisabled =
+    !form.state.canSubmit ||
+    (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
+  const submitButtonLabel = hasFollowUpPlan
+    ? isSeriesPreviewLoading
+      ? "Kettentermine werden geprüft..."
+      : isSeriesPreviewBlocked
+        ? "Kettentermine nicht planbar"
+        : "Termin erstellen"
+    : "Termin erstellen";
+
   return (
     <>
       <Dialog onOpenChange={handleDialogOpenChange} open={open}>
@@ -388,6 +402,14 @@ export function StaffAppointmentCreationModal({
               </div>
 
               <DialogFooter>
+                {hasFollowUpPlan &&
+                  (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
+                    <div className="mr-auto text-sm text-muted-foreground">
+                      {isSeriesPreviewLoading
+                        ? "Die Kettentermine werden noch geprüft."
+                        : "Der Termin kann erst erstellt werden, wenn alle Kettentermine planbar sind."}
+                    </div>
+                  )}
                 <Button
                   onClick={() => {
                     setMode(null);
@@ -398,15 +420,10 @@ export function StaffAppointmentCreationModal({
                   Zurück
                 </Button>
                 <Button
-                  disabled={
-                    !form.state.canSubmit ||
-                    (hasFollowUpPlan &&
-                      (seriesPreview === undefined ||
-                        seriesPreview.status === "blocked"))
-                  }
+                  disabled={isSubmitDisabled}
                   type="submit"
                 >
-                  Termin erstellen
+                  {submitButtonLabel}
                 </Button>
               </DialogFooter>
             </form>
