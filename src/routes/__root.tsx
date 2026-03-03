@@ -265,7 +265,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    void initializeReactScan();
+    void initializeReactScan().catch((error: unknown) => {
+      captureErrorGlobal(error, {
+        context: "React Scan initialization",
+        errorType: "devtools_initialization",
+      });
+    });
   }, []);
 
   return (
