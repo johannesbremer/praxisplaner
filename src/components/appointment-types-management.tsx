@@ -74,25 +74,49 @@ type PractitionersResult =
   (typeof api.entities.getPractitioners)["_returnType"];
 type PractitionerWithLineage = PractitionersResult[number];
 
-const followUpStepSchema = z.object({
-  appointmentTypeLineageKey: z
-    .string()
-    .min(1, "Bitte wählen Sie eine Terminart"),
-  offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
-  offsetValue: z
-    .number()
-    .int("Der Offset muss eine ganze Zahl sein")
-    .min(0, "Der Offset darf nicht negativ sein")
-    .refine((value) => value % 5 === 0, {
-      message: "Der Offset muss in 5er-Schritten angegeben werden",
-    }),
-});
+const followUpStepSchema = z
+  .object({
+    appointmentTypeLineageKey: z
+      .string()
+      .min(1, "Bitte wählen Sie eine Terminart"),
+    offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
+    offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
+  })
+  .superRefine((step, ctx) => {
+    if (step.offsetUnit === "minutes") {
+      if (step.offsetValue < 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Minuten dürfen nicht negativ sein",
+          path: ["offsetValue"],
+        });
+      }
+
+      if (step.offsetValue % 5 !== 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Minuten müssen in 5er-Schritten angegeben werden",
+          path: ["offsetValue"],
+        });
+      }
+
+      return;
+    }
+
+    if (step.offsetValue < 1) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Tage, Wochen und Monate müssen mindestens 1 sein",
+        path: ["offsetValue"],
+      });
+    }
+  });
 type FollowUpPlanFormStep = z.infer<typeof followUpStepSchema>;
 
 const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   appointmentTypeLineageKey: "" as Id<"appointmentTypes">,
   offsetUnit: "days",
-  offsetValue: 0,
+  offsetValue: 1,
 });
 
 const getFollowUpSearchMode = (
@@ -117,7 +141,10 @@ const normalizeFollowUpPlanForSubmit = (
       step.appointmentTypeLineageKey as Id<"appointmentTypes">,
     locationMode: "inherit",
     offsetUnit: step.offsetUnit,
-    offsetValue: step.offsetValue,
+    offsetValue: normalizeFollowUpOffsetValue(
+      step.offsetUnit,
+      step.offsetValue,
+    ),
     practitionerMode: "inherit",
     required: true,
     searchMode: getFollowUpSearchMode(step),
@@ -159,6 +186,33 @@ const formatFollowUpOffset = (step: {
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
+
+const normalizeFollowUpOffsetValue = (
+  offsetUnit: FollowUpPlanFormStep["offsetUnit"],
+  rawValue: number,
+) => {
+  const normalizedInteger = Number.isFinite(rawValue)
+    ? Math.trunc(rawValue)
+    : 0;
+
+  if (offsetUnit === "minutes") {
+    return Math.max(0, Math.round(normalizedInteger / 5) * 5);
+  }
+
+  return Math.max(1, normalizedInteger);
+};
+
+const normalizeFollowUpPlanForForm = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+): FollowUpPlanFormStep[] =>
+  (followUpPlan ?? []).map((step) => ({
+    appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+    offsetUnit: step.offsetUnit,
+    offsetValue: normalizeFollowUpOffsetValue(
+      step.offsetUnit,
+      step.offsetValue,
+    ),
+  }));
 
 const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
   JSON.stringify(
@@ -632,11 +686,7 @@ export function AppointmentTypesManagement({
     form.setFieldValue("duration", appointmentType.duration);
     form.setFieldValue(
       "followUpPlan",
-      appointmentType.followUpPlan?.map((step) => ({
-        appointmentTypeLineageKey: step.appointmentTypeLineageKey,
-        offsetUnit: step.offsetUnit,
-        offsetValue: step.offsetValue,
-      })) ?? [],
+      normalizeFollowUpPlanForForm(appointmentType.followUpPlan),
     );
     form.setFieldValue("practitionerIds", validPractitionerIds);
 
@@ -1039,19 +1089,54 @@ export function AppointmentTypesManagement({
                                             <Field>
                                               <FieldLabel>Versatz</FieldLabel>
                                               <Input
-                                                min={0}
-                                                onChange={(e) => {
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    offsetValue:
+                                                min={
+                                                  itemField.state.value
+                                                    .offsetUnit === "minutes"
+                                                    ? 0
+                                                    : 1
+                                                }
+                                                onBlur={(e) => {
+                                                  const normalizedOffsetValue =
+                                                    normalizeFollowUpOffsetValue(
+                                                      itemField.state.value
+                                                        .offsetUnit,
                                                       parseNumberInput(
                                                         e.target.valueAsNumber,
                                                         itemField.state.value
                                                           .offsetValue,
                                                       ),
+                                                    );
+
+                                                  if (
+                                                    normalizedOffsetValue !==
+                                                    itemField.state.value
+                                                      .offsetValue
+                                                  ) {
+                                                    itemField.handleChange({
+                                                      ...itemField.state.value,
+                                                      offsetValue:
+                                                        normalizedOffsetValue,
+                                                    });
+                                                  }
+                                                }}
+                                                onChange={(e) => {
+                                                  const rawValue =
+                                                    parseNumberInput(
+                                                      e.target.valueAsNumber,
+                                                      itemField.state.value
+                                                        .offsetValue,
+                                                    );
+                                                  itemField.handleChange({
+                                                    ...itemField.state.value,
+                                                    offsetValue: rawValue,
                                                   });
                                                 }}
-                                                step={5}
+                                                step={
+                                                  itemField.state.value
+                                                    .offsetUnit === "minutes"
+                                                    ? 5
+                                                    : 1
+                                                }
                                                 type="number"
                                                 value={
                                                   itemField.state.value
@@ -1064,10 +1149,17 @@ export function AppointmentTypesManagement({
                                               <FieldLabel>Einheit</FieldLabel>
                                               <Select
                                                 onValueChange={(value) => {
+                                                  const nextOffsetUnit =
+                                                    value as FollowUpPlanStep["offsetUnit"];
                                                   itemField.handleChange({
                                                     ...itemField.state.value,
-                                                    offsetUnit:
-                                                      value as FollowUpPlanStep["offsetUnit"],
+                                                    offsetUnit: nextOffsetUnit,
+                                                    offsetValue:
+                                                      normalizeFollowUpOffsetValue(
+                                                        nextOffsetUnit,
+                                                        itemField.state.value
+                                                          .offsetValue,
+                                                      ),
                                                   });
                                                 }}
                                                 value={
