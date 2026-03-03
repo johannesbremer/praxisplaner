@@ -279,8 +279,7 @@ export function StaffAppointmentCreationModal({
     }
   };
 
-  const isSeriesPreviewLoading =
-    hasFollowUpPlan && seriesPreview === undefined;
+  const isSeriesPreviewLoading = hasFollowUpPlan && seriesPreview === undefined;
   const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
   const isSubmitDisabled =
     !form.state.canSubmit ||
@@ -419,10 +418,7 @@ export function StaffAppointmentCreationModal({
                 >
                   Zurück
                 </Button>
-                <Button
-                  disabled={isSubmitDisabled}
-                  type="submit"
-                >
+                <Button disabled={isSubmitDisabled} type="submit">
                   {submitButtonLabel}
                 </Button>
               </DialogFooter>
