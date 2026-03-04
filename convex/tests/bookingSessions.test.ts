@@ -383,7 +383,6 @@ function makePastSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
@@ -397,7 +396,6 @@ function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin")
@@ -417,7 +415,6 @@ function makeSoonSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    duration: 30,
     practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
@@ -1731,7 +1728,6 @@ describe("bookingSessions slot selection validation", () => {
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
     const selectedSlot: SelectedSlotInput = {
-      duration: 30,
       practitionerId,
       practitionerName: "Dr. Test",
       startTime: nextWeekdayAt(1, 9, 0),

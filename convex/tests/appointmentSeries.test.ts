@@ -73,6 +73,25 @@ async function createBasePractice(
   });
 }
 
+async function createPatient(
+  t: ReturnType<typeof createAuthedTestContext>,
+  args: {
+    dateOfBirth?: string;
+    patientId: number;
+    practiceId: Id<"practices">;
+  },
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db.insert("patients", {
+      createdAt: BigInt(Date.now()),
+      ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
+      lastModified: BigInt(Date.now()),
+      patientId: args.patientId,
+      practiceId: args.practiceId,
+    });
+  });
+}
+
 async function createUser(
   t: ReturnType<typeof createAuthedTestContext>,
   authId: string,
@@ -1204,6 +1223,109 @@ describe("appointment series", () => {
           .toString(),
       }),
     ).rejects.toThrow("CHAIN_NON_ROOT_UPDATE_FORBIDDEN");
+  });
+
+  test("updating a root series appointment with a different patient refreshes the stored patient DOB", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_patient_user",
+      "series-patient@example.com",
+    );
+    const originalPatientId = await createPatient(t, {
+      dateOfBirth: "1980-01-01",
+      patientId: 1001,
+      practiceId,
+    });
+    const replacementPatientId = await createPatient(t, {
+      dateOfBirth: "2015-05-05",
+      patientId: 1002,
+      practiceId,
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        patientId: originalPatientId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    await t.mutation(api.appointments.updateAppointment, {
+      id: createdSeries.rootAppointmentId,
+      patientId: replacementPatientId,
+    });
+
+    const seriesRecord = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeries")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+
+    expect(seriesRecord?.patientId).toBe(replacementPatientId);
+    expect(seriesRecord?.patientDateOfBirth).toBe("2015-05-05");
   });
 
   test("deleting a non-root series appointment removes the whole chain", async () => {
