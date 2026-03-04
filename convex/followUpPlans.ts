@@ -4,7 +4,7 @@ import type {
 } from "convex/server";
 import type { Infer } from "convex/values";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
@@ -74,7 +74,6 @@ export function normalizeFollowUpPlan(
   return followUpPlan.map((step) => ({
     ...step,
     ...(step.note?.trim() ? { note: step.note.trim() } : {}),
-    offsetValue: Math.trunc(step.offsetValue),
     required: step.required,
   }));
 }
@@ -113,14 +112,16 @@ export async function validateFollowUpPlan(
   for (const step of normalizedPlan) {
     const trimmedStepId = step.stepId.trim();
     if (trimmedStepId.length === 0) {
-      throw new Error(
-        "[FOLLOW_UP_PLAN:STEP_ID_REQUIRED] Jeder Kettentermin-Schritt benötigt eine Kennung.",
+      throw followUpPlanError(
+        "FOLLOW_UP_PLAN:STEP_ID_REQUIRED",
+        "Jeder Kettentermin-Schritt benötigt eine Kennung.",
       );
     }
 
     if (seenStepIds.has(trimmedStepId)) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:DUPLICATE_STEP_ID] Die Schritt-ID "${trimmedStepId}" ist mehrfach vergeben.`,
+      throw followUpPlanError(
+        "FOLLOW_UP_PLAN:DUPLICATE_STEP_ID",
+        `Die Schritt-ID "${trimmedStepId}" ist mehrfach vergeben.`,
       );
     }
     seenStepIds.add(trimmedStepId);
@@ -131,8 +132,9 @@ export async function validateFollowUpPlan(
       currentAppointmentTypeLineageKey &&
       step.appointmentTypeLineageKey === currentAppointmentTypeLineageKey
     ) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:SELF_REFERENCE] Terminart ${currentAppointmentTypeLineageKey} darf sich nicht selbst als Folgetermin referenzieren.`,
+      throw followUpPlanError(
+        "FOLLOW_UP_PLAN:SELF_REFERENCE",
+        `Terminart ${currentAppointmentTypeLineageKey} darf sich nicht selbst als Folgetermin referenzieren.`,
       );
     }
 
@@ -153,9 +155,14 @@ function buildMissingAppointmentTypeError(
   lineageKey: Id<"appointmentTypes">,
   ruleSetId: Id<"ruleSets">,
 ): Error {
-  return new Error(
-    `[FOLLOW_UP_PLAN:APPOINTMENT_TYPE_NOT_FOUND] Terminart mit lineageKey ${lineageKey} wurde im Regelset ${ruleSetId} nicht gefunden.`,
+  return followUpPlanError(
+    "FOLLOW_UP_PLAN:APPOINTMENT_TYPE_NOT_FOUND",
+    `Terminart mit lineageKey ${lineageKey} wurde im Regelset ${ruleSetId} nicht gefunden.`,
   );
+}
+
+function followUpPlanError(code: string, message: string) {
+  return new ConvexError({ code, message });
 }
 
 function validateFollowUpOffsetValue(
@@ -163,21 +170,24 @@ function validateFollowUpOffsetValue(
   trimmedStepId: string,
 ) {
   if (!Number.isInteger(step.offsetValue)) {
-    throw new TypeError(
-      `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss eine ganze Zahl sein.`,
+    throw followUpPlanError(
+      "FOLLOW_UP_PLAN:INVALID_OFFSET",
+      `Der Offset für Schritt "${trimmedStepId}" muss eine ganze Zahl sein.`,
     );
   }
 
   if (step.offsetUnit === "minutes") {
     if (step.offsetValue < 0) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss bei Minuten mindestens 0 sein.`,
+      throw followUpPlanError(
+        "FOLLOW_UP_PLAN:INVALID_OFFSET",
+        `Der Offset für Schritt "${trimmedStepId}" muss bei Minuten mindestens 0 sein.`,
       );
     }
 
     if (step.offsetValue % 5 !== 0) {
-      throw new Error(
-        `[FOLLOW_UP_PLAN:INVALID_OFFSET_STEP] Der Offset für Schritt "${trimmedStepId}" muss bei Minuten in 5er-Schritten angegeben werden.`,
+      throw followUpPlanError(
+        "FOLLOW_UP_PLAN:INVALID_OFFSET_STEP",
+        `Der Offset für Schritt "${trimmedStepId}" muss bei Minuten in 5er-Schritten angegeben werden.`,
       );
     }
 
@@ -185,8 +195,9 @@ function validateFollowUpOffsetValue(
   }
 
   if (step.offsetValue < 1) {
-    throw new Error(
-      `[FOLLOW_UP_PLAN:INVALID_OFFSET] Der Offset für Schritt "${trimmedStepId}" muss für Tage, Wochen und Monate mindestens 1 sein.`,
+    throw followUpPlanError(
+      "FOLLOW_UP_PLAN:INVALID_OFFSET",
+      `Der Offset für Schritt "${trimmedStepId}" muss für Tage, Wochen und Monate mindestens 1 sein.`,
     );
   }
 }

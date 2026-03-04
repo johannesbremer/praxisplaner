@@ -239,6 +239,29 @@ describe("appointment series", () => {
       }),
     ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET");
 
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        duration: 30,
+        expectedDraftRevision: null,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 1.5,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        name: "Ungueltig Kommazahl",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET");
+
     const validResult = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
       expectedDraftRevision: null,
@@ -777,11 +800,25 @@ describe("appointment series", () => {
       },
     );
 
+    const storedSeries = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeries")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+
+    expect(storedSeries?.rootAppointmentId).toBe(
+      createdSeries.rootAppointmentId,
+    );
+    expect(storedSeries?.followUpPlanSnapshot).toHaveLength(1);
+
     const shiftedRootStart = Temporal.ZonedDateTime.from(rootStart)
       .add({ days: 1 })
       .toString();
     const shiftedRootEnd = Temporal.ZonedDateTime.from(rootStart)
-      .add({ days: 1, minutes: 30 })
+      .add({ days: 1, minutes: 45 })
       .toString();
 
     await t.mutation(api.appointments.updateAppointment, {
@@ -807,6 +844,18 @@ describe("appointment series", () => {
     expect(sortedUpdatedAppointments).toHaveLength(2);
     expect(sortedUpdatedAppointments[0]?.start).toBe(shiftedRootStart);
     expect(
+      calculateDurationMinutes(
+        sortedUpdatedAppointments[0]?.end ?? shiftedRootEnd,
+        sortedUpdatedAppointments[0]?.start ?? shiftedRootStart,
+      ),
+    ).toBe(45);
+    expect(
+      calculateDurationMinutes(
+        sortedUpdatedAppointments[1]?.end ?? shiftedRootStart,
+        sortedUpdatedAppointments[1]?.start ?? shiftedRootStart,
+      ),
+    ).toBe(30);
+    expect(
       Temporal.ZonedDateTime.from(
         sortedUpdatedAppointments[1]?.start ?? shiftedRootStart,
       )
@@ -828,4 +877,209 @@ describe("appointment series", () => {
     });
     expect(remainingAppointments).toHaveLength(0);
   });
+
+  test("updating a non-root series appointment is rejected", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_update_user",
+      "series-update@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(followUpAppointmentId).toBeDefined();
+    if (!followUpAppointmentId) {
+      throw new Error("Follow-up appointment should exist");
+    }
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        id: followUpAppointmentId,
+        start: Temporal.ZonedDateTime.from(
+          createdSeries.steps[1]?.start ?? rootStart,
+        )
+          .add({ hours: 1 })
+          .toString(),
+      }),
+    ).rejects.toThrow("CHAIN_NON_ROOT_UPDATE_FORBIDDEN");
+  });
+
+  test("deleting a non-root series appointment removes the whole chain", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_delete_user",
+      "series-delete@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(followUpAppointmentId).toBeDefined();
+    if (!followUpAppointmentId) {
+      throw new Error("Follow-up appointment should exist");
+    }
+
+    await t.mutation(api.appointments.deleteAppointment, {
+      id: followUpAppointmentId,
+    });
+
+    const remainingAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    const remainingSeriesRecord = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeries")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+
+    expect(remainingAppointments).toHaveLength(0);
+    expect(remainingSeriesRecord).toBeNull();
+  });
 });
+
+function calculateDurationMinutes(end: string, start: string) {
+  return (
+    (Temporal.ZonedDateTime.from(end).epochMilliseconds -
+      Temporal.ZonedDateTime.from(start).epochMilliseconds) /
+    60_000
+  );
+}

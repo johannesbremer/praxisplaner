@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,6 +16,7 @@ import {
   appointmentSeriesPreviewResultValidator,
   createAppointmentSeries as createAppointmentSeriesHelper,
   previewAppointmentSeries as previewAppointmentSeriesHelper,
+  replanAppointmentSeries,
 } from "./appointmentSeries";
 import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
 import {
@@ -31,6 +32,7 @@ import {
 
 type AppointmentDoc = Doc<"appointments">;
 type AppointmentScope = "all" | "real" | "simulation";
+type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
@@ -49,11 +51,49 @@ const appointmentResultValidator = v.object({
   practitionerId: v.optional(v.id("practitioners")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
+  seriesStepId: v.optional(v.string()),
   seriesStepIndex: v.optional(v.int64()),
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
 });
+
+function appointmentChainError(code: string, message: string) {
+  return new ConvexError({ code, message });
+}
+
+function calculateDurationMinutes(end: string, start: string): number {
+  const minutes =
+    (Temporal.ZonedDateTime.from(end).epochMilliseconds -
+      Temporal.ZonedDateTime.from(start).epochMilliseconds) /
+    60_000;
+
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    throw appointmentChainError(
+      "CHAIN_REPLAN_FAILED",
+      "Die Terminlänge muss eine positive ganze Zahl sein.",
+    );
+  }
+
+  return minutes;
+}
+
+function calculateShiftedEnd(end: string, start: string, nextStart: string) {
+  const durationMinutes = calculateDurationMinutes(end, start);
+  return Temporal.ZonedDateTime.from(nextStart)
+    .add({ minutes: durationMinutes })
+    .toString();
+}
+
+async function getAppointmentSeriesRecord(
+  db: DatabaseReader,
+  seriesId: string,
+): Promise<AppointmentSeriesDoc | null> {
+  return await db
+    .query("appointmentSeries")
+    .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
+    .first();
+}
 
 async function getSeriesAppointments(
   db: DatabaseReader,
@@ -74,14 +114,16 @@ async function getSeriesAppointments(
   });
 }
 
-function getSeriesTimeDeltaMilliseconds(
-  currentTime: string,
-  nextTime: string,
-): number {
-  return (
-    Temporal.ZonedDateTime.from(nextTime).epochMilliseconds -
-    Temporal.ZonedDateTime.from(currentTime).epochMilliseconds
-  );
+function getSeriesStepKey(appointment: AppointmentDoc): string {
+  if (appointment.seriesStepId) {
+    return appointment.seriesStepId;
+  }
+
+  if (appointment.seriesStepIndex === 0n) {
+    return "root";
+  }
+
+  return `index:${Number(appointment.seriesStepIndex ?? 0n)}`;
 }
 
 function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
@@ -104,16 +146,6 @@ function isAppointmentInFuture(
 
 function isVisibleAppointment(appointment: AppointmentDoc): boolean {
   return !isAppointmentCancelled(appointment);
-}
-
-function shiftAppointmentTime(time: string, deltaMilliseconds: number): string {
-  if (deltaMilliseconds === 0) {
-    return time;
-  }
-
-  return Temporal.ZonedDateTime.from(time)
-    .add({ milliseconds: deltaMilliseconds })
-    .toString();
 }
 
 /**
@@ -568,7 +600,7 @@ export const updateAppointment = mutation({
     const { id, ...updateData } = args;
     const existingAppointment = await ctx.db.get("appointments", id);
     if (!existingAppointment) {
-      throw new Error("Appointment not found");
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
     await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
 
@@ -595,110 +627,172 @@ export const updateAppointment = mutation({
       }
     }
 
-    const isRootSeriesAppointment =
-      existingAppointment.seriesId !== undefined &&
-      existingAppointment.seriesStepIndex === 0n;
-
-    if (isRootSeriesAppointment) {
+    if (existingAppointment.seriesId !== undefined) {
       const seriesId = existingAppointment.seriesId;
       if (!seriesId) {
-        throw new Error("Appointment series metadata is incomplete.");
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Appointment series metadata is incomplete.",
+        );
       }
+
+      if (existingAppointment.seriesStepIndex !== 0n) {
+        throw appointmentChainError(
+          "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
+          "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
+        );
+      }
+
+      if (
+        filteredUpdateData.appointmentTypeId !== undefined &&
+        filteredUpdateData.appointmentTypeId !==
+          existingAppointment.appointmentTypeId
+      ) {
+        throw appointmentChainError(
+          "CHAIN_REPLAN_FAILED",
+          "Die Terminart eines Kettentermins kann nach der Buchung nicht geändert werden.",
+        );
+      }
+
+      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+      if (!seriesRecord) {
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+        );
+      }
+
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
       const seriesAppointmentIds = seriesAppointments.map(
         (appointment) => appointment._id,
       );
-      const startDeltaMilliseconds =
-        filteredUpdateData.start === undefined
-          ? 0
-          : getSeriesTimeDeltaMilliseconds(
+      const updatedStart =
+        filteredUpdateData.start ?? existingAppointment.start;
+      const updatedEnd =
+        filteredUpdateData.end ??
+        (filteredUpdateData.start === undefined
+          ? existingAppointment.end
+          : calculateShiftedEnd(
+              existingAppointment.end,
               existingAppointment.start,
               filteredUpdateData.start,
-            );
-      const endDeltaMilliseconds =
-        filteredUpdateData.end === undefined
-          ? filteredUpdateData.start === undefined
-            ? 0
-            : startDeltaMilliseconds
-          : getSeriesTimeDeltaMilliseconds(
-              existingAppointment.end,
-              filteredUpdateData.end,
-            );
-      for (const seriesAppointment of seriesAppointments) {
-        const candidateStart =
-          seriesAppointment._id === id && filteredUpdateData.start !== undefined
-            ? filteredUpdateData.start
-            : shiftAppointmentTime(
-                seriesAppointment.start,
-                startDeltaMilliseconds,
-              );
-        const candidateEnd =
-          seriesAppointment._id === id && filteredUpdateData.end !== undefined
-            ? filteredUpdateData.end
-            : shiftAppointmentTime(seriesAppointment.end, endDeltaMilliseconds);
-        const candidatePractitionerId =
-          filteredUpdateData.practitionerId ?? seriesAppointment.practitionerId;
-        const candidateLocationId =
-          filteredUpdateData.locationId ?? seriesAppointment.locationId;
-        const conflictingAppointment = await findConflictingAppointment(
-          ctx.db,
-          {
-            candidate: {
-              end: candidateEnd,
-              locationId: candidateLocationId,
-              ...(candidatePractitionerId && {
-                practitionerId: candidatePractitionerId,
-              }),
-              start: candidateStart,
-            },
-            excludeAppointmentIds: seriesAppointmentIds,
-            practiceId: existingAppointment.practiceId,
-            scope: getAppointmentBookingScope(existingAppointment.isSimulation),
-          },
+            ));
+      const practitionerId =
+        filteredUpdateData.practitionerId ?? existingAppointment.practitionerId;
+
+      if (!practitionerId) {
+        throw appointmentChainError(
+          "CHAIN_REPLAN_FAILED",
+          "Kettentermine benötigen einen Behandler auf dem Starttermin.",
         );
+      }
 
-        if (conflictingAppointment) {
-          throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+      const plannedSteps = await replanAppointmentSeries(ctx, {
+        excludedAppointmentIds: seriesAppointmentIds,
+        locationId:
+          filteredUpdateData.locationId ?? existingAppointment.locationId,
+        ...(seriesRecord.patientDateOfBirth && {
+          patientDateOfBirth: seriesRecord.patientDateOfBirth,
+        }),
+        ...((filteredUpdateData.patientId ?? existingAppointment.patientId)
+          ? {
+              patientId:
+                filteredUpdateData.patientId ?? existingAppointment.patientId,
+            }
+          : {}),
+        practiceId: existingAppointment.practiceId,
+        practitionerId,
+        rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+        scope: getAppointmentBookingScope(existingAppointment.isSimulation),
+        series: seriesRecord,
+        start: updatedStart,
+        ...((filteredUpdateData.userId ?? existingAppointment.userId)
+          ? { userId: filteredUpdateData.userId ?? existingAppointment.userId }
+          : {}),
+      });
+
+      const now = BigInt(Date.now());
+      const resolvedPatientId =
+        filteredUpdateData.patientId ?? existingAppointment.patientId;
+      const resolvedUserId =
+        filteredUpdateData.userId ?? existingAppointment.userId;
+      const existingByStepKey = new Map(
+        seriesAppointments.map((appointment) => [
+          getSeriesStepKey(appointment),
+          appointment,
+        ]),
+      );
+      const touchedAppointmentIds = new Set<Id<"appointments">>();
+
+      for (const step of plannedSteps) {
+        const matchingAppointment = existingByStepKey.get(step.stepId);
+        const title =
+          step.seriesStepIndex === 0
+            ? (filteredUpdateData.title?.trim() ?? existingAppointment.title)
+            : `Folgetermin: ${step.appointmentTypeTitle}`;
+
+        if (matchingAppointment) {
+          await ctx.db.patch("appointments", matchingAppointment._id, {
+            appointmentTypeId: step.appointmentTypeId,
+            appointmentTypeTitle: step.appointmentTypeTitle,
+            end: step.end,
+            lastModified: now,
+            locationId: step.locationId,
+            ...(resolvedPatientId && { patientId: resolvedPatientId }),
+            practitionerId: step.practitionerId,
+            seriesId,
+            seriesStepId: step.stepId,
+            seriesStepIndex: BigInt(step.seriesStepIndex),
+            start: step.start,
+            title,
+            ...(resolvedUserId && { userId: resolvedUserId }),
+          });
+          touchedAppointmentIds.add(matchingAppointment._id);
+          continue;
         }
+
+        const insertedAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeId: step.appointmentTypeId,
+          appointmentTypeTitle: step.appointmentTypeTitle,
+          createdAt: now,
+          end: step.end,
+          ...(existingAppointment.isSimulation === true && {
+            isSimulation: true,
+          }),
+          lastModified: now,
+          locationId: step.locationId,
+          ...(resolvedPatientId && { patientId: resolvedPatientId }),
+          practiceId: existingAppointment.practiceId,
+          practitionerId: step.practitionerId,
+          seriesId,
+          seriesStepId: step.stepId,
+          seriesStepIndex: BigInt(step.seriesStepIndex),
+          start: step.start,
+          title,
+          ...(resolvedUserId && { userId: resolvedUserId }),
+        });
+        touchedAppointmentIds.add(insertedAppointmentId);
       }
 
       for (const seriesAppointment of seriesAppointments) {
-        const patchData: Record<string, unknown> = {
-          end:
-            seriesAppointment._id === id && filteredUpdateData.end !== undefined
-              ? filteredUpdateData.end
-              : shiftAppointmentTime(
-                  seriesAppointment.end,
-                  endDeltaMilliseconds,
-                ),
-          lastModified: BigInt(Date.now()),
-          locationId:
-            filteredUpdateData.locationId ?? seriesAppointment.locationId,
-          ...(filteredUpdateData.patientId && {
-            patientId: filteredUpdateData.patientId,
-          }),
-          ...(filteredUpdateData.practitionerId && {
-            practitionerId: filteredUpdateData.practitionerId,
-          }),
-          start:
-            seriesAppointment._id === id &&
-            filteredUpdateData.start !== undefined
-              ? filteredUpdateData.start
-              : shiftAppointmentTime(
-                  seriesAppointment.start,
-                  startDeltaMilliseconds,
-                ),
-          ...(filteredUpdateData.userId && {
-            userId: filteredUpdateData.userId,
-          }),
-        };
-
-        if (seriesAppointment._id === id) {
-          Object.assign(patchData, filteredUpdateData);
+        if (!touchedAppointmentIds.has(seriesAppointment._id)) {
+          await ctx.db.delete("appointments", seriesAppointment._id);
         }
-
-        await ctx.db.patch("appointments", seriesAppointment._id, patchData);
       }
+
+      await ctx.db.patch("appointmentSeries", seriesRecord._id, {
+        lastModified: now,
+        ...(filteredUpdateData.patientId !== undefined && {
+          patientId: filteredUpdateData.patientId,
+        }),
+        ...(seriesRecord.rootAppointmentId !== id && {
+          rootAppointmentId: id,
+        }),
+        rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+        ...(filteredUpdateData.userId !== undefined && {
+          userId: filteredUpdateData.userId,
+        }),
+      });
 
       return null;
     }
@@ -722,21 +816,25 @@ export const deleteAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     const existingAppointment = await ctx.db.get("appointments", args.id);
     if (!existingAppointment) {
-      throw new Error("Appointment not found");
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
     await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
 
-    if (
-      existingAppointment.seriesId !== undefined &&
-      existingAppointment.seriesStepIndex === 0n
-    ) {
+    if (existingAppointment.seriesId !== undefined) {
       const seriesId = existingAppointment.seriesId;
       if (!seriesId) {
-        throw new Error("Appointment series metadata is incomplete.");
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Appointment series metadata is incomplete.",
+        );
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
       for (const seriesAppointment of seriesAppointments) {
         await ctx.db.delete("appointments", seriesAppointment._id);
+      }
+      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+      if (seriesRecord) {
+        await ctx.db.delete("appointmentSeries", seriesRecord._id);
       }
       return null;
     }
@@ -757,7 +855,7 @@ export const cancelOwnAppointment = mutation({
     const appointment = await ctx.db.get("appointments", args.appointmentId);
 
     if (!appointment) {
-      throw new Error("Appointment not found");
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
 
     if (appointment.userId !== userId) {
@@ -778,13 +876,13 @@ export const cancelOwnAppointment = mutation({
     }
 
     const now = BigInt(nowEpochMilliseconds);
-    const isRootSeriesAppointment =
-      appointment.seriesId !== undefined && appointment.seriesStepIndex === 0n;
-
-    if (isRootSeriesAppointment) {
+    if (appointment.seriesId !== undefined) {
       const seriesId = appointment.seriesId;
       if (!seriesId) {
-        throw new Error("Appointment series metadata is incomplete.");
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Appointment series metadata is incomplete.",
+        );
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
       for (const seriesAppointment of seriesAppointments) {

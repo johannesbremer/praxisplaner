@@ -131,6 +131,7 @@ export const getAvailableDates = query({
 const getSlotsForDayArgs = {
   date: v.string(), // ISO date string for the specific day (e.g., "2025-10-21")
   enforceFutureOnly: v.optional(v.boolean()),
+  excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
   practiceId: v.id("practices"),
   ruleSetId: v.optional(v.id("ruleSets")),
   scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
@@ -142,6 +143,7 @@ async function getSlotsForDayImpl(
   args: {
     date: string;
     enforceFutureOnly?: boolean;
+    excludedAppointmentIds?: Id<"appointments">[];
     practiceId: Id<"practices">;
     ruleSetId?: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
@@ -168,6 +170,7 @@ async function getSlotsForDayImpl(
 
   const log: string[] = [`Getting slots for single day: ${args.date}`];
   const appointmentScope = args.scope ?? "real";
+  const excludedAppointmentIds = new Set(args.excludedAppointmentIds);
 
   // Fetch blocked slots for this practice and date using efficient date range query
   const dayStart = targetPlainDate
@@ -346,8 +349,10 @@ async function getSlotsForDayImpl(
         continue;
       }
 
-      const overlappingAppointment = effectiveAppointments.find((appointment) =>
-        slotOverlapsAppointment(slot, appointment),
+      const overlappingAppointment = effectiveAppointments.find(
+        (appointment) =>
+          !excludedAppointmentIds.has(appointment._id) &&
+          slotOverlapsAppointment(slot, appointment),
       );
 
       if (overlappingAppointment) {
