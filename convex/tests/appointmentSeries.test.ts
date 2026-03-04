@@ -479,6 +479,150 @@ describe("appointment series", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  test("previewAppointmentSeries skips weekends for day-based follow-ups and uses the next working day", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 20,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 1,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const fridayRootStart = Temporal.PlainDate.from("2026-03-06")
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: fridayRootStart,
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(
+      Temporal.ZonedDateTime.from(preview.steps[1]?.start ?? fridayRootStart)
+        .toPlainDate()
+        .toString(),
+    ).toBe("2026-03-09");
+  });
+
+  test("previewAppointmentSeries skips public holidays for day-based follow-ups and uses the next working day", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 20,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 1,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const rootStart = Temporal.PlainDate.from("2026-05-13")
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(
+      Temporal.ZonedDateTime.from(preview.steps[1]?.start ?? rootStart)
+        .toPlainDate()
+        .toString(),
+    ).toBe("2026-05-15");
+  });
+
   test("createAppointmentSeries fails atomically when a required follow-up slot cannot be found", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

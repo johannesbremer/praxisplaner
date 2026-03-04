@@ -14,6 +14,7 @@ import {
   type FollowUpStep,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
+import { isPublicHoliday } from "./publicHolidays";
 
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const MAX_SERIES_SEARCH_DAYS = 370;
@@ -533,9 +534,7 @@ export function resolveFollowUpSearchPolicy(
       : "same_day_after_offset";
   }
 
-  return step.offsetUnit === "days"
-    ? "target_day_only"
-    : "target_date_or_later";
+  return "target_date_or_later";
 }
 
 export function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
@@ -822,6 +821,9 @@ async function getSearchDatesOnOrAfter(
     const scheduleDayOfWeek =
       searchDate.dayOfWeek === 7 ? 0 : searchDate.dayOfWeek;
     if (!eligibleWeekdays.includes(scheduleDayOfWeek)) {
+      continue;
+    }
+    if (isPublicHoliday(searchDate)) {
       continue;
     }
     searchDates.push(searchDate);
