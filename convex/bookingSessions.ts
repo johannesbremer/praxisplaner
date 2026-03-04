@@ -7,6 +7,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { createAppointmentFromTrustedSource } from "./appointments";
 import {
   beihilfeStatusValidator,
   type BookingSessionStep,
@@ -926,11 +927,6 @@ function assertSlotStartIsInFuture(startTime: string): void {
   if (Temporal.Instant.compare(slotStartInstant, now) <= 0) {
     throw new Error("Appointments must be booked in the future");
   }
-}
-
-function calculateEndTime(startTime: string, durationMinutes: number): string {
-  const start = Temporal.ZonedDateTime.from(startTime);
-  return start.add({ minutes: durationMinutes }).toString();
 }
 
 async function loadStepSnapshot(
@@ -1905,7 +1901,6 @@ export const selectNewPatientSlot = mutation({
     }
 
     const state = session.state;
-    const now = BigInt(Date.now());
     const reasonDescription = args.reasonDescription.trim();
 
     if (reasonDescription.length === 0) {
@@ -1967,16 +1962,8 @@ export const selectNewPatientSlot = mutation({
       calendarStep,
     );
 
-    // Create the appointment
-    const appointmentId = await ctx.db.insert("appointments", {
+    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      appointmentTypeTitle: selectedAppointmentType.name,
-      createdAt: now,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
-      lastModified: now,
       locationId: state.locationId,
       practiceId: session.practiceId,
       practitionerId: args.selectedSlot.practitionerId,
@@ -2204,8 +2191,6 @@ export const selectExistingPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
-    const now = BigInt(Date.now());
-
     const appointmentType = await ctx.db.get(
       "appointmentTypes",
       args.appointmentTypeId,
@@ -2223,16 +2208,8 @@ export const selectExistingPatientSlot = mutation({
       startTime: args.selectedSlot.startTime,
     });
 
-    // Create the appointment
-    const appointmentId = await ctx.db.insert("appointments", {
+    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      appointmentTypeTitle: appointmentType.name,
-      createdAt: now,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
-      lastModified: now,
       locationId: state.locationId,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,

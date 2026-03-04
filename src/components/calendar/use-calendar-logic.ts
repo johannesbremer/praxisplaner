@@ -276,6 +276,27 @@ export function useCalendarLogic({
     blockedSlotDocMapRef.current = blockedSlotDocMap;
   }, [blockedSlotDocMap]);
 
+  const isNonRootSeriesAppointment = useCallback((appointmentId?: string) => {
+    if (!appointmentId) {
+      return false;
+    }
+
+    const appointmentDoc = appointmentDocMapRef.current.get(
+      appointmentId as Id<"appointments">,
+    );
+    return (
+      appointmentDoc?.seriesId !== undefined &&
+      appointmentDoc.seriesStepIndex !== undefined &&
+      appointmentDoc.seriesStepIndex !== 0n
+    );
+  }, []);
+
+  const showNonRootSeriesEditToast = useCallback(() => {
+    toast.info(
+      "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
+    );
+  }, []);
+
   // Use ruleSetId if provided (simulation mode), otherwise get from active
   const practitionersData = useQuery(
     ruleSetId
@@ -306,11 +327,15 @@ export function useCalendarLogic({
   const appointmentTypeMap = useMemo(() => {
     const map = new Map<
       Id<"appointmentTypes">,
-      { duration: number; name: string }
+      { duration: number; hasFollowUpPlan: boolean; name: string }
     >();
     if (appointmentTypesData) {
       for (const at of appointmentTypesData) {
-        map.set(at._id, { duration: at.duration, name: at.name });
+        map.set(at._id, {
+          duration: at.duration,
+          hasFollowUpPlan: (at.followUpPlan?.length ?? 0) > 0,
+          name: at.name,
+        });
       }
     }
     return map;
@@ -330,6 +355,7 @@ export function useCalendarLogic({
           date: selectedDate.toString(),
           practiceId,
           ruleSetId,
+          scope: "simulation",
           simulatedContext,
         }
       : // Real mode: check selectedAppointmentTypeId
@@ -341,6 +367,7 @@ export function useCalendarLogic({
             date: selectedDate.toString(),
             practiceId,
             ruleSetId,
+            scope: "real",
             simulatedContext: createSimulatedContext({
               appointmentTypeId: selectedAppointmentTypeId,
               locationId: selectedLocationId,
@@ -386,6 +413,7 @@ export function useCalendarLogic({
         isSimulation: boolean;
         locationId: Id<"locations">;
         practitionerId?: Id<"practitioners">;
+        replacesAppointmentId?: Id<"appointments">;
         start: string;
       },
       excludeId?: Id<"appointments">,
@@ -398,16 +426,19 @@ export function useCalendarLogic({
           continue;
         }
 
+        if (
+          candidate.replacesAppointmentId &&
+          existing._id === candidate.replacesAppointmentId
+        ) {
+          continue;
+        }
+
         if (existing.locationId !== candidate.locationId) {
           continue;
         }
 
         const existingPractitioner = existing.practitionerId;
         if (existingPractitioner !== candidate.practitionerId) {
-          continue;
-        }
-
-        if ((existing.isSimulation ?? false) !== candidate.isSimulation) {
           continue;
         }
 
@@ -826,6 +857,13 @@ export function useCalendarLogic({
 
   const runCreateAppointment = useCallback(
     async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+      const appointmentTypeInfo = appointmentTypeMap.get(
+        args.appointmentTypeId,
+      );
+      if (appointmentTypeInfo?.hasFollowUpPlan) {
+        return await createAppointmentMutation(args);
+      }
+
       const createdId = await runCreateAppointmentInternal(args);
       if (!createdId) {
         return createdId;
@@ -844,6 +882,9 @@ export function useCalendarLogic({
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
+              }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
               start: createArgs.start,
             })
@@ -879,6 +920,8 @@ export function useCalendarLogic({
       return createdId;
     },
     [
+      appointmentTypeMap,
+      createAppointmentMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
@@ -889,6 +932,11 @@ export function useCalendarLogic({
   const runUpdateAppointment = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
       const before = appointmentDocMapRef.current.get(args.id);
+      if (before?.seriesId) {
+        await updateAppointmentMutation(args);
+        return;
+      }
+
       await runUpdateAppointmentInternal(args);
 
       if (!before) {
@@ -991,12 +1039,22 @@ export function useCalendarLogic({
         },
       });
     },
-    [hasAppointmentConflict, pushHistoryAction, runUpdateAppointmentInternal],
+    [
+      hasAppointmentConflict,
+      pushHistoryAction,
+      runUpdateAppointmentInternal,
+      updateAppointmentMutation,
+    ],
   );
 
   const runDeleteAppointment = useCallback(
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
       const deleted = appointmentDocMapRef.current.get(args.id);
+      if (deleted?.seriesId) {
+        await deleteAppointmentMutation(args);
+        return;
+      }
+
       await runDeleteAppointmentInternal(args);
 
       if (!deleted) {
@@ -1042,6 +1100,9 @@ export function useCalendarLogic({
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
               }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
+              }),
               start: createArgs.start,
             })
           ) {
@@ -1063,6 +1124,7 @@ export function useCalendarLogic({
       });
     },
     [
+      deleteAppointmentMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
@@ -1646,6 +1708,7 @@ export function useCalendarLogic({
             locationId: appointment.locationId,
             patientId: appointment.patientId,
             practitionerId: appointment.practitionerId,
+            seriesId: appointment.seriesId,
             userId: appointment.userId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
@@ -2666,6 +2729,13 @@ export function useCalendarLogic({
       return;
     }
 
+    if (isNonRootSeriesAppointment(draggedAppointment.convexId)) {
+      showNonRootSeriesEditToast();
+      setDraggedAppointment(null);
+      setDragPreview({ column: "", slot: 0, visible: false });
+      return;
+    }
+
     const finalSlot = dragPreview.slot;
     const newTime = slotToTime(finalSlot);
 
@@ -2739,6 +2809,11 @@ export function useCalendarLogic({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isNonRootSeriesAppointment(appointmentId)) {
+      showNonRootSeriesEditToast();
+      return;
+    }
+
     const targetAppointment = appointments.find(
       (apt) => apt.id === appointmentId,
     );
@@ -3000,12 +3075,23 @@ export function useCalendarLogic({
       return;
     }
 
+    if (isNonRootSeriesAppointment(appointment.convexId)) {
+      showNonRootSeriesEditToast();
+      return;
+    }
+
     // Editing appointments is now done via the new appointment flow dialog
     toast.info("Bearbeiten von Terminen ist über den neuen Dialog möglich.");
   };
 
   const handleDeleteAppointment = (appointment: Appointment) => {
-    if (appointment.convexId && confirm("Termin löschen?")) {
+    const confirmMessage =
+      appointment.convexId &&
+      appointmentDocMapRef.current.get(appointment.convexId)?.seriesId
+        ? "Dieser Termin gehört zu einer Kette. Beim Löschen wird die gesamte Terminserie entfernt. Fortfahren?"
+        : "Termin löschen?";
+
+    if (appointment.convexId && confirm(confirmMessage)) {
       void runDeleteAppointment({
         id: appointment.convexId,
       });

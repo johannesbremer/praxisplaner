@@ -1,6 +1,6 @@
 // Confirmation step component (Final step for both paths)
 
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
 import { useState } from "react";
@@ -33,10 +33,52 @@ interface AppointmentConfirmationCardProps {
   title: string;
 }
 
+interface BookedAppointmentsSummaryProps {
+  appointments: Doc<"appointments">[];
+  onCancelled?: () => Promise<void> | void;
+  practitionerNamesById?: Partial<Record<Id<"practitioners">, string>>;
+}
+
 interface BookedAppointmentSummaryProps {
   appointment: Doc<"appointments">;
   onCancelled?: () => Promise<void> | void;
   practitionerName?: string;
+}
+
+export function BookedAppointmentsSummary({
+  appointments,
+  onCancelled,
+  practitionerNamesById,
+}: BookedAppointmentsSummaryProps) {
+  return (
+    <Card className="max-w-3xl mx-auto">
+      <CardHeader className="text-center">
+        <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+          <CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+        </div>
+        <CardTitle className="text-2xl">Ihre zukünftigen Termine</CardTitle>
+        <CardDescription>
+          Hier sehen Sie alle aktuell gebuchten zukünftigen Termine.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {appointments.map((appointment) => {
+          const practitionerName = appointment.practitionerId
+            ? practitionerNamesById?.[appointment.practitionerId]
+            : undefined;
+
+          return (
+            <BookedAppointmentsSummaryItem
+              appointment={appointment}
+              key={appointment._id}
+              {...(onCancelled ? { onCancelled } : {})}
+              {...(practitionerName ? { practitionerName } : {})}
+            />
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function BookedAppointmentSummary({
@@ -67,10 +109,17 @@ export function BookedAppointmentSummary({
   );
 }
 
-export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
+export function ConfirmationStep({
+  ruleSetId,
+  sessionId,
+  state,
+}: StepComponentProps) {
   const returnToCalendarSelection = useMutation(
     api.bookingSessions.returnToCalendarSelectionAfterCancellation,
   );
+  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+    ruleSetId,
+  });
   const { cancelAppointment, isCancelled, isCancelling } =
     useAppointmentCancellation(async () => {
       await returnToCalendarSelection({ sessionId });
@@ -95,12 +144,16 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
   const selectedSlot = state.selectedSlot;
   const personalData = state.personalData;
   const appointmentId = state.appointmentId;
+  const duration =
+    appointmentTypes?.find(
+      (appointmentType) => appointmentType._id === state.appointmentTypeId,
+    )?.duration ?? 0;
 
   return (
     <AppointmentConfirmationCard
       appointmentId={appointmentId}
       description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
-      duration={selectedSlot.duration}
+      duration={duration}
       isCancelled={isCancelled}
       isCancelling={isCancelling}
       onCancel={() => {
@@ -215,6 +268,80 @@ function AppointmentConfirmationCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function BookedAppointmentsSummaryItem({
+  appointment,
+  onCancelled,
+  practitionerName,
+}: BookedAppointmentSummaryProps) {
+  const { cancelAppointment, isCancelled, isCancelling } =
+    useAppointmentCancellation(onCancelled);
+  const duration = getDurationMinutes(appointment.end, appointment.start);
+  const resolvedPractitionerName = practitionerName ?? "Behandlungsteam";
+
+  return (
+    <div className="rounded-lg border p-4 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="font-medium">{appointment.appointmentTypeTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {formatDate(appointment.start)} um {formatTime(appointment.start)}{" "}
+            Uhr
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Behandler/in: {resolvedPractitionerName}
+          </p>
+        </div>
+        {appointment.seriesId ? (
+          <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+            Kette
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button
+          className="flex-1"
+          onClick={() => {
+            downloadICS(
+              String(appointment._id),
+              appointment.start,
+              duration,
+              appointment.appointmentTypeTitle,
+              "Praxis",
+              resolvedPractitionerName,
+            );
+          }}
+          variant="outline"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Zum Kalender hinzufügen
+        </Button>
+        <Button
+          className="flex-1"
+          disabled={isCancelled || isCancelling}
+          onClick={() => {
+            void cancelAppointment(appointment._id);
+          }}
+          variant="destructive"
+        >
+          {isCancelled
+            ? "Termin storniert"
+            : isCancelling
+              ? "Storniere..."
+              : "Termin stornieren"}
+        </Button>
+      </div>
+
+      {appointment.seriesId ? (
+        <p className="text-sm text-muted-foreground">
+          Das Stornieren dieses Kettentermins storniert die gesamte verbleibende
+          Terminserie.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

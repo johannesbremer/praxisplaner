@@ -8,11 +8,14 @@
  * @module
  */
 
+import type * as appointmentConflicts from "../appointmentConflicts.js";
+import type * as appointmentSeries from "../appointmentSeries.js";
 import type * as appointments from "../appointments.js";
 import type * as auth from "../auth.js";
 import type * as bookingSessions from "../bookingSessions.js";
 import type * as copyOnWrite from "../copyOnWrite.js";
 import type * as entities from "../entities.js";
+import type * as followUpPlans from "../followUpPlans.js";
 import type * as gdt_processing from "../gdt/processing.js";
 import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
@@ -20,10 +23,12 @@ import type * as http from "../http.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practices from "../practices.js";
+import type * as publicHolidays from "../publicHolidays.js";
 import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
+import type * as schedulingCore from "../schedulingCore.js";
 import type * as tests_test_utils from "../tests/test_utils.js";
 import type * as userIdentity from "../userIdentity.js";
 import type * as users from "../users.js";
@@ -36,11 +41,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  appointmentConflicts: typeof appointmentConflicts;
+  appointmentSeries: typeof appointmentSeries;
   appointments: typeof appointments;
   auth: typeof auth;
   bookingSessions: typeof bookingSessions;
   copyOnWrite: typeof copyOnWrite;
   entities: typeof entities;
+  followUpPlans: typeof followUpPlans;
   "gdt/processing": typeof gdt_processing;
   "gdt/types": typeof gdt_types;
   "gdt/validation": typeof gdt_validation;
@@ -48,10 +56,12 @@ declare const fullApi: ApiFromModules<{
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
   practices: typeof practices;
+  publicHolidays: typeof publicHolidays;
   ruleEngine: typeof ruleEngine;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
+  schedulingCore: typeof schedulingCore;
   "tests/test_utils": typeof tests_test_utils;
   userIdentity: typeof userIdentity;
   users: typeof users;

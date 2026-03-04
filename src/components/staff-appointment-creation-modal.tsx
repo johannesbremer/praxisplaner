@@ -29,6 +29,7 @@ import { captureErrorGlobal } from "../utils/error-tracking";
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
+  isSimulation?: boolean;
   locationId: Id<"locations">;
   onAppointmentCreated?: (
     appointmentId: Id<"appointments">,
@@ -58,6 +59,7 @@ interface StaffAppointmentCreationModalProps {
 
 export function StaffAppointmentCreationModal({
   appointmentTypeId,
+  isSimulation = false,
   locationId,
   onAppointmentCreated,
   onOpenChange,
@@ -92,6 +94,7 @@ export function StaffAppointmentCreationModal({
   const appointmentType = appointmentTypes?.find(
     (type) => type._id === appointmentTypeId,
   );
+  const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
 
   // Query for next available slot - only query when modal is open
   const today = Temporal.Now.plainDateISO();
@@ -104,6 +107,7 @@ export function StaffAppointmentCreationModal({
           date: today.toString(),
           practiceId,
           ruleSetId,
+          scope: isSimulation ? "simulation" : "real",
           simulatedContext: {
             appointmentTypeId,
             locationId,
@@ -119,14 +123,41 @@ export function StaffAppointmentCreationModal({
       : "skip",
   );
 
-  const nextAvailableSlot = availableSlots?.slots.find(
-    (slot) => slot.status === "AVAILABLE",
+  const nextAvailableSlot = useMemo(
+    () =>
+      availableSlots?.slots.find(
+        (slot) =>
+          slot.status === "AVAILABLE" &&
+          appointmentType?.allowedPractitionerIds.includes(slot.practitionerId),
+      ),
+    [appointmentType?.allowedPractitionerIds, availableSlots?.slots],
   );
 
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPatientFromGdt = patient?.convexPatientId !== undefined;
   const hasUserLinkedPatient = patient?.userId !== undefined;
   const hasAnyPatient = hasPatientFromGdt || hasUserLinkedPatient;
+  const seriesPreview = useQuery(
+    api.appointments.previewAppointmentSeries,
+    open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
+      ? {
+          locationId,
+          ...(patient?.dateOfBirth && {
+            patientDateOfBirth: patient.dateOfBirth,
+          }),
+          ...(patient?.convexPatientId && {
+            patientId: patient.convexPatientId,
+          }),
+          practiceId,
+          practitionerId: nextAvailableSlot.practitionerId,
+          rootAppointmentTypeId: appointmentTypeId,
+          ruleSetId,
+          scope: isSimulation ? "simulation" : "real",
+          start: nextAvailableSlot.startTime,
+          ...(patient?.userId && { userId: patient.userId }),
+        }
+      : "skip",
+  );
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
@@ -150,7 +181,7 @@ export function StaffAppointmentCreationModal({
 
   // Helper function to create appointment with a patient selection
   const createAppointmentWithPatient = async () => {
-    if (!nextAvailableSlot) {
+    if (!nextAvailableSlot || !appointmentType) {
       return;
     }
 
@@ -167,13 +198,14 @@ export function StaffAppointmentCreationModal({
       const startZoned = Temporal.ZonedDateTime.from(
         nextAvailableSlot.startTime,
       );
-      const endZoned = startZoned.add({
-        minutes: nextAvailableSlot.duration,
-      });
-
       const newAppointmentId = await runCreateAppointment({
         appointmentTypeId,
-        end: endZoned.toString(),
+        end: startZoned
+          .add({
+            minutes: appointmentType.duration,
+          })
+          .toString(),
+        ...(isSimulation && { isSimulation: true }),
         locationId,
         ...(patientId && { patientId }),
         ...(userId && { userId }),
@@ -197,7 +229,11 @@ export function StaffAppointmentCreationModal({
         onAppointmentCreated?.(newAppointmentId, recipient);
       }
 
-      toast.success("Termin erfolgreich erstellt");
+      toast.success(
+        hasFollowUpPlan
+          ? "Kettentermine erfolgreich erstellt"
+          : "Termin erfolgreich erstellt",
+      );
 
       // Reset and close after successful creation
       onOpenChange(false, true);
@@ -242,6 +278,19 @@ export function StaffAppointmentCreationModal({
       handleClose(false);
     }
   };
+
+  const isSeriesPreviewLoading = hasFollowUpPlan && seriesPreview === undefined;
+  const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
+  const isSubmitDisabled =
+    !form.state.canSubmit ||
+    (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
+  const submitButtonLabel = hasFollowUpPlan
+    ? isSeriesPreviewLoading
+      ? "Kettentermine werden geprüft..."
+      : isSeriesPreviewBlocked
+        ? "Kettentermine nicht planbar"
+        : "Termin erstellen"
+    : "Termin erstellen";
 
   return (
     <>
@@ -294,9 +343,72 @@ export function StaffAppointmentCreationModal({
                     )}
                   </span>
                 </div>
+
+                {hasFollowUpPlan && (
+                  <div className="rounded-md border p-3 space-y-2">
+                    <div className="text-sm font-medium">
+                      Geplante Kettentermine
+                    </div>
+                    {seriesPreview === undefined ? (
+                      <div className="text-sm text-muted-foreground">
+                        Prüfe verfügbare Folgetermine...
+                      </div>
+                    ) : seriesPreview.status === "blocked" ? (
+                      <div className="text-sm text-destructive">
+                        {seriesPreview.failureMessage ||
+                          "Die Kettentermine konnten nicht geplant werden."}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {seriesPreview.steps.map((step) => (
+                          <div
+                            className="flex items-start justify-between gap-4 text-sm"
+                            key={step.stepId}
+                          >
+                            <div>
+                              <div className="font-medium">
+                                {step.seriesStepIndex + 1}.{" "}
+                                {step.appointmentTypeTitle}
+                              </div>
+                              {step.note && (
+                                <div className="text-muted-foreground">
+                                  {step.note}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right text-muted-foreground">
+                              <div>
+                                {Temporal.ZonedDateTime.from(step.start)
+                                  .toPlainDate()
+                                  .toLocaleString("de-DE")}
+                              </div>
+                              <div>
+                                {Temporal.ZonedDateTime.from(step.start)
+                                  .toPlainTime()
+                                  .toLocaleString("de-DE", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}{" "}
+                                Uhr
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <DialogFooter>
+                {hasFollowUpPlan &&
+                  (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
+                    <div className="mr-auto text-sm text-muted-foreground">
+                      {isSeriesPreviewLoading
+                        ? "Die Kettentermine werden noch geprüft."
+                        : "Der Termin kann erst erstellt werden, wenn alle Kettentermine planbar sind."}
+                    </div>
+                  )}
                 <Button
                   onClick={() => {
                     setMode(null);
@@ -306,8 +418,8 @@ export function StaffAppointmentCreationModal({
                 >
                   Zurück
                 </Button>
-                <Button disabled={!form.state.canSubmit} type="submit">
-                  Termin erstellen
+                <Button disabled={isSubmitDisabled} type="submit">
+                  {submitButtonLabel}
                 </Button>
               </DialogFooter>
             </form>
@@ -358,6 +470,7 @@ export function StaffAppointmentCreationModal({
                       {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                         .toPlainDate()
                         .toLocaleString("de-DE")}
+                      {hasFollowUpPlan ? " (mit Kettenterminen)" : ""}
                     </>
                   ) : (
                     "Nächster verfügbarer Termin"

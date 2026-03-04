@@ -59,6 +59,7 @@ interface CalendarGridProps {
   onSelectAppointment?: (appointment: Appointment) => void;
   selectedAppointmentId?: Id<"appointments"> | null;
   selectedPatientId?: Id<"patients"> | null;
+  selectedSeriesId?: null | string;
   selectedUserId?: Id<"users"> | null;
   slotDuration: number;
   slotToTime: (slot: number) => string;
@@ -92,6 +93,7 @@ export function CalendarGrid({
   onSelectAppointment,
   selectedAppointmentId,
   selectedPatientId,
+  selectedSeriesId,
   selectedUserId,
   slotDuration,
   slotToTime,
@@ -103,7 +105,11 @@ export function CalendarGrid({
       .filter((apt) => apt.column === column)
       .map((appointment) => {
         const isDragging = draggedAppointment?.id === appointment.id;
-        const isSelected = selectedAppointmentId === appointment.convexId;
+        const isSelected =
+          selectedAppointmentId === appointment.convexId ||
+          (selectedSeriesId !== null &&
+            selectedSeriesId !== undefined &&
+            appointment.resource?.seriesId === selectedSeriesId);
         // Check if this appointment belongs to the selected patient
         const isRelatedToSelectedPatient =
           (selectedPatientId !== null &&

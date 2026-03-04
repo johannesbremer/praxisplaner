@@ -28,7 +28,7 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
-  BookedAppointmentSummary,
+  BookedAppointmentsSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -220,8 +220,8 @@ function AuthenticatedBookingFlow() {
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
-  const bookedAppointment = useQuery(
-    api.appointments.getBookedAppointmentForCurrentUser,
+  const bookedAppointments = useQuery(
+    api.appointments.getBookedAppointmentsForCurrentUser,
     { refreshNonce: bookedAppointmentRefreshNonce },
   );
   const practitioners = useQuery(
@@ -432,8 +432,9 @@ function AuthenticatedBookingFlow() {
     },
   );
 
-  const bookedAppointmentId = bookedAppointment?._id;
-  const bookedAppointmentStart = bookedAppointment?.start;
+  const nextBookedAppointment = bookedAppointments?.[0];
+  const bookedAppointmentId = nextBookedAppointment?._id;
+  const bookedAppointmentStart = nextBookedAppointment?.start;
   useEffect(() => {
     if (!bookedAppointmentStart) {
       return;
@@ -463,12 +464,12 @@ function AuthenticatedBookingFlow() {
   }, [bookedAppointmentId, bookedAppointmentStart]);
 
   const isShowingBookedAppointment =
-    bookedAppointment !== null && bookedAppointment !== undefined;
+    bookedAppointments !== undefined && bookedAppointments.length > 0;
   const isSessionAtConfirmationStep =
     session?.state.step === "existing-confirmation" ||
     session?.state.step === "new-confirmation";
   const shouldReturnToCalendarAfterAppointmentElapsed =
-    bookedAppointment === null && isSessionAtConfirmationStep;
+    bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
 
   useEffect(() => {
     if (
@@ -647,22 +648,20 @@ function AuthenticatedBookingFlow() {
       });
     };
 
-    const bookedPractitionerName = bookedAppointment.practitionerId
-      ? practitioners?.find(
-          (practitioner) =>
-            practitioner._id === bookedAppointment.practitionerId,
-        )?.name
-      : undefined;
+    const practitionerNamesById = Object.fromEntries(
+      (practitioners ?? []).map((practitioner) => [
+        practitioner._id,
+        practitioner.name,
+      ]),
+    ) as Partial<Record<Id<"practitioners">, string>>;
 
     currentGroup = "confirmation";
     showBackButton = false;
     stepContent = (
-      <BookedAppointmentSummary
-        appointment={bookedAppointment}
+      <BookedAppointmentsSummary
+        appointments={bookedAppointments}
         onCancelled={handleBookedAppointmentCancelled}
-        {...(bookedPractitionerName
-          ? { practitionerName: bookedPractitionerName }
-          : {})}
+        practitionerNamesById={practitionerNamesById}
       />
     );
   } else {
