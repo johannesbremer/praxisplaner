@@ -126,6 +126,12 @@ function makeSlotWindow(daysOffset: number): SlotWindow {
   };
 }
 
+function nextWeekday(weekday: number): Temporal.PlainDate {
+  const today = Temporal.Now.plainDateISO("Europe/Berlin");
+  const delta = (weekday - today.dayOfWeek + 7) % 7;
+  return today.add({ days: delta === 0 ? 7 : delta });
+}
+
 describe("appointments self-service cancellation", () => {
   test("cancelOwnAppointment only allows cancelling the authenticated user's own appointment", async () => {
     const t = createTestContext();
@@ -277,6 +283,149 @@ describe("appointments self-service cancellation", () => {
       {},
     );
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
+  });
+
+  test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "series-owner@example.com",
+      subject: "workos_series_owner",
+    });
+    const practiceId = await authed.mutation(api.practices.createPractice, {
+      name: "Series Cancellation Practice",
+    });
+    const baseData = await authed.run(async (ctx) => {
+      const users = await ctx.db.query("users").collect();
+      const user = users.find(
+        (candidate) => candidate.authId === "workos_series_owner",
+      );
+      if (!user) {
+        throw new Error("Authenticated user should be provisioned");
+      }
+
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice?.currentActiveRuleSetId) {
+        throw new Error("Practice should have an active rule set");
+      }
+      const ruleSetId = practice.currentActiveRuleSetId;
+
+      const locationId = await ctx.db.insert("locations", {
+        name: "Main Location",
+        practiceId,
+        ruleSetId,
+      });
+
+      const practitionerId = await ctx.db.insert("practitioners", {
+        name: "Dr. Series",
+        practiceId,
+        ruleSetId,
+      });
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await ctx.db.insert("baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationId,
+          practiceId,
+          practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      return {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        userId: user._id,
+      };
+    });
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 10, minute: 0 },
+        timeZone: "Europe/Berlin",
+      })
+      .toString();
+
+    const createdSeries = await authed.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        rootAppointmentTypeId: baseData.rootAppointmentTypeId,
+        rootTitle: "Kette",
+        ruleSetId: baseData.ruleSetId,
+        start,
+        userId: baseData.userId,
+      },
+    );
+
+    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(followUpAppointmentId).toBeDefined();
+    if (!followUpAppointmentId) {
+      throw new Error("Follow-up appointment should exist");
+    }
+
+    await authed.mutation(api.appointments.cancelOwnAppointment, {
+      appointmentId: followUpAppointmentId,
+    });
+
+    const cancelledSeries = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+
+    expect(cancelledSeries).toHaveLength(2);
+    expect(
+      cancelledSeries.every((appointment) => appointment.cancelledAt),
+    ).toBe(true);
   });
 
   test("createAppointment rejects occupied simulation slots instead of replacing them", async () => {

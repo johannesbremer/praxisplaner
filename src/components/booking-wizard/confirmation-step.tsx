@@ -323,6 +323,13 @@ function BookedAppointmentsSummaryItem({
               : "Termin stornieren"}
         </Button>
       </div>
+
+      {appointment.seriesId ? (
+        <p className="text-sm text-muted-foreground">
+          Das Stornieren dieses Kettentermins storniert die gesamte verbleibende
+          Terminserie.
+        </p>
+      ) : null}
     </div>
   );
 }
