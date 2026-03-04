@@ -23,6 +23,7 @@ import type * as http from "../http.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practices from "../practices.js";
+import type * as publicHolidays from "../publicHolidays.js";
 import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
   practices: typeof practices;
+  publicHolidays: typeof publicHolidays;
   ruleEngine: typeof ruleEngine;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;

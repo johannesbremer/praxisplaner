@@ -929,11 +929,6 @@ function assertSlotStartIsInFuture(startTime: string): void {
   }
 }
 
-function calculateEndTime(startTime: string, durationMinutes: number): string {
-  const start = Temporal.ZonedDateTime.from(startTime);
-  return start.add({ minutes: durationMinutes }).toString();
-}
-
 async function loadStepSnapshot(
   ctx: StepReadCtx,
   sessionId: Id<"bookingSessions">,
@@ -1969,10 +1964,6 @@ export const selectNewPatientSlot = mutation({
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
       locationId: state.locationId,
       practiceId: session.practiceId,
       practitionerId: args.selectedSlot.practitionerId,
@@ -2219,10 +2210,6 @@ export const selectExistingPatientSlot = mutation({
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
       locationId: state.locationId,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,

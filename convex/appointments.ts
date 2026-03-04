@@ -82,6 +82,12 @@ function calculateDurationMinutes(end: string, start: string): number {
   return minutes;
 }
 
+function calculateEndFromDuration(start: string, durationMinutes: number) {
+  return Temporal.ZonedDateTime.from(start)
+    .add({ minutes: durationMinutes })
+    .toString();
+}
+
 function calculateShiftedEnd(end: string, start: string, nextStart: string) {
   const durationMinutes = calculateDurationMinutes(end, start);
   return Temporal.ZonedDateTime.from(nextStart)
@@ -150,6 +156,21 @@ function isAppointmentInFuture(
 
 function isVisibleAppointment(appointment: AppointmentDoc): boolean {
   return !isAppointmentCancelled(appointment);
+}
+
+async function resolveAppointmentPatientDateOfBirth(
+  db: DatabaseReader,
+  args: {
+    fallbackDateOfBirth?: string;
+    patientId?: Id<"patients">;
+  },
+): Promise<string | undefined> {
+  if (args.patientId) {
+    const patient = await db.get("patients", args.patientId);
+    return patient?.dateOfBirth;
+  }
+
+  return args.fallbackDateOfBirth;
 }
 
 /**
@@ -459,7 +480,6 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
-    end: string;
     isSimulation?: boolean;
     locationId: Id<"locations">;
     patientId?: Id<"patients">;
@@ -538,9 +558,11 @@ export async function createAppointmentFromTrustedSource(
     return result.rootAppointmentId;
   }
 
+  const end = calculateEndFromDuration(args.start, appointmentType.duration);
+
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
-      end: args.end,
+      end,
       locationId: args.locationId,
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       start: args.start,
@@ -560,6 +582,7 @@ export async function createAppointmentFromTrustedSource(
     ...rest,
     appointmentTypeTitle: appointmentType.name,
     createdAt: now,
+    end,
     isSimulation: isSimulation ?? false,
     lastModified: now,
     ...(patientId && { patientId }),
@@ -686,6 +709,16 @@ export const updateAppointment = mutation({
       const seriesAppointmentIds = seriesAppointments.map(
         (appointment) => appointment._id,
       );
+      const resolvedPatientId =
+        filteredUpdateData.patientId ?? existingAppointment.patientId;
+      const resolvedPatientDateOfBirth =
+        await resolveAppointmentPatientDateOfBirth(ctx.db, {
+          ...(filteredUpdateData.patientId === undefined &&
+            seriesRecord.patientDateOfBirth && {
+              fallbackDateOfBirth: seriesRecord.patientDateOfBirth,
+            }),
+          ...(resolvedPatientId && { patientId: resolvedPatientId }),
+        });
       const updatedStart =
         filteredUpdateData.start ?? existingAppointment.start;
       const updatedEnd =
@@ -711,15 +744,10 @@ export const updateAppointment = mutation({
         excludedAppointmentIds: seriesAppointmentIds,
         locationId:
           filteredUpdateData.locationId ?? existingAppointment.locationId,
-        ...(seriesRecord.patientDateOfBirth && {
-          patientDateOfBirth: seriesRecord.patientDateOfBirth,
+        ...(resolvedPatientDateOfBirth && {
+          patientDateOfBirth: resolvedPatientDateOfBirth,
         }),
-        ...((filteredUpdateData.patientId ?? existingAppointment.patientId)
-          ? {
-              patientId:
-                filteredUpdateData.patientId ?? existingAppointment.patientId,
-            }
-          : {}),
+        ...(resolvedPatientId && { patientId: resolvedPatientId }),
         practiceId: existingAppointment.practiceId,
         practitionerId,
         rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
@@ -732,8 +760,6 @@ export const updateAppointment = mutation({
       });
 
       const now = BigInt(Date.now());
-      const resolvedPatientId =
-        filteredUpdateData.patientId ?? existingAppointment.patientId;
       const resolvedUserId =
         filteredUpdateData.userId ?? existingAppointment.userId;
       const existingByStepKey = new Map(
@@ -800,18 +826,24 @@ export const updateAppointment = mutation({
         }
       }
 
-      await ctx.db.patch("appointmentSeries", seriesRecord._id, {
+      await ctx.db.replace("appointmentSeries", seriesRecord._id, {
+        createdAt: seriesRecord.createdAt,
+        followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
         lastModified: now,
-        ...(filteredUpdateData.patientId !== undefined && {
-          patientId: filteredUpdateData.patientId,
+        ...(resolvedPatientDateOfBirth && {
+          patientDateOfBirth: resolvedPatientDateOfBirth,
         }),
-        ...(seriesRecord.rootAppointmentId !== id && {
-          rootAppointmentId: id,
-        }),
+        ...(resolvedPatientId && { patientId: resolvedPatientId }),
+        practiceId: seriesRecord.practiceId,
+        rootAppointmentId: id,
+        rootAppointmentTypeId: seriesRecord.rootAppointmentTypeId,
+        rootAppointmentTypeLineageKey:
+          seriesRecord.rootAppointmentTypeLineageKey,
         rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
-        ...(filteredUpdateData.userId !== undefined && {
-          userId: filteredUpdateData.userId,
-        }),
+        ruleSetIdAtBooking: seriesRecord.ruleSetIdAtBooking,
+        scope: seriesRecord.scope,
+        seriesId: seriesRecord.seriesId,
+        ...(resolvedUserId && { userId: resolvedUserId }),
       });
 
       return null;

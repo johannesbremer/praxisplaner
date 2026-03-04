@@ -1,6 +1,6 @@
 // Confirmation step component (Final step for both paths)
 
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
 import { useState } from "react";
@@ -109,10 +109,17 @@ export function BookedAppointmentSummary({
   );
 }
 
-export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
+export function ConfirmationStep({
+  ruleSetId,
+  sessionId,
+  state,
+}: StepComponentProps) {
   const returnToCalendarSelection = useMutation(
     api.bookingSessions.returnToCalendarSelectionAfterCancellation,
   );
+  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+    ruleSetId,
+  });
   const { cancelAppointment, isCancelled, isCancelling } =
     useAppointmentCancellation(async () => {
       await returnToCalendarSelection({ sessionId });
@@ -137,12 +144,16 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
   const selectedSlot = state.selectedSlot;
   const personalData = state.personalData;
   const appointmentId = state.appointmentId;
+  const duration =
+    appointmentTypes?.find(
+      (appointmentType) => appointmentType._id === state.appointmentTypeId,
+    )?.duration ?? 0;
 
   return (
     <AppointmentConfirmationCard
       appointmentId={appointmentId}
       description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
-      duration={selectedSlot.duration}
+      duration={duration}
       isCancelled={isCancelled}
       isCancelling={isCancelling}
       onCancel={() => {
