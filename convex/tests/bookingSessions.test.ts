@@ -427,6 +427,18 @@ function makeSoonSelectedSlot(
   };
 }
 
+function nextWeekdayAt(weekday: number, hour: number, minute: number): string {
+  const today = Temporal.Now.plainDateISO("Europe/Berlin");
+  const delta = (weekday - today.dayOfWeek + 7) % 7;
+  return today
+    .add({ days: delta === 0 ? 7 : delta })
+    .toZonedDateTime({
+      plainTime: { hour, minute },
+      timeZone: "Europe/Berlin",
+    })
+    .toString();
+}
+
 describe("bookingSessions user identity handling", () => {
   test("create bootstraps missing authenticated user", async () => {
     const t = createTestContext();
@@ -1649,6 +1661,107 @@ describe("bookingSessions slot selection validation", () => {
         sessionId,
       }),
     ).rejects.toThrow("Selected slot is no longer available");
+  });
+
+  test("selectNewPatientSlot books Kettentermine through the shared appointment path", async () => {
+    const t = createTestContext();
+    const {
+      appointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      ruleSetId,
+    } = await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "slot_selection_chain_booking");
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.patch("appointmentTypes", appointmentTypeId, {
+        lineageKey: appointmentTypeId,
+      });
+
+      const followUpAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Kontrolle",
+          practiceId,
+          ruleSetId,
+        },
+      );
+      await ctx.db.patch("appointmentTypes", followUpAppointmentTypeId, {
+        lineageKey: followUpAppointmentTypeId,
+      });
+
+      await ctx.db.patch("appointmentTypes", appointmentTypeId, {
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+      });
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await ctx.db.insert("baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationId,
+          practiceId,
+          practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+    });
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
+
+    const selectedSlot: SelectedSlotInput = {
+      duration: 30,
+      practitionerId,
+      practitionerName: "Dr. Test",
+      startTime: nextWeekdayAt(1, 9, 0),
+    };
+
+    await authed.mutation(api.bookingSessions.selectNewPatientSlot, {
+      appointmentTypeId,
+      reasonDescription: "Kontrolle",
+      selectedSlot,
+      sessionId,
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    assertSessionExists(session, "Session should exist after booking");
+    assertStateStep(session.state, "new-confirmation");
+
+    const bookedAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      {},
+    );
+    const seriesRecords = await t.run(async (ctx) => {
+      return await ctx.db.query("appointmentSeries").collect();
+    });
+
+    expect(bookedAppointments).toHaveLength(2);
+    expect(seriesRecords).toHaveLength(1);
+    expect(
+      new Set(bookedAppointments.map((appointment) => appointment.seriesId))
+        .size,
+    ).toBe(1);
   });
 });
 
