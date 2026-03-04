@@ -2,7 +2,11 @@ import { ConvexError, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, QueryCtx } from "./_generated/server";
+import type {
+  DatabaseReader,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -451,6 +455,122 @@ export const createAppointmentSeries = mutation({
   returns: appointmentSeriesCreateResultValidator,
 });
 
+export async function createAppointmentFromTrustedSource(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    end: string;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    replacesAppointmentId?: Id<"appointments">;
+    start: string;
+    title: string;
+    userId?: Id<"users">;
+  },
+) {
+  const now = BigInt(Date.now());
+  const { isSimulation, patientId, replacesAppointmentId, userId, ...rest } =
+    args;
+
+  if (replacesAppointmentId && isSimulation !== true) {
+    throw new Error(
+      "Only simulated appointments can replace existing appointments.",
+    );
+  }
+
+  // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
+  if (!isSimulation && !patientId && !userId) {
+    throw new Error("Either patientId or userId must be provided.");
+  }
+
+  // If a patientId is provided, verify it exists
+  if (patientId) {
+    const patient = await ctx.db.get("patients", patientId);
+    if (!patient) {
+      throw new Error(`Patient with ID ${patientId} not found`);
+    }
+  }
+
+  if (userId) {
+    const user = await ctx.db.get("users", userId);
+    if (!user) {
+      throw new Error(`User with ID ${userId} not found`);
+    }
+  }
+
+  // Look up the appointment type to get its name at booking time
+  const appointmentType = await ctx.db.get(
+    "appointmentTypes",
+    args.appointmentTypeId,
+  );
+  if (!appointmentType) {
+    throw new Error(
+      `Appointment type with ID ${args.appointmentTypeId} not found`,
+    );
+  }
+
+  if (appointmentType.followUpPlan && appointmentType.followUpPlan.length > 0) {
+    if (!args.practitionerId) {
+      throw new Error(
+        "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
+      );
+    }
+
+    const result = await createAppointmentSeriesHelper(ctx, {
+      locationId: args.locationId,
+      ...(patientId && { patientId }),
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      rootAppointmentTypeId: args.appointmentTypeId,
+      ...(replacesAppointmentId && {
+        rootReplacesAppointmentId: replacesAppointmentId,
+      }),
+      rootTitle: args.title.trim(),
+      ruleSetId: appointmentType.ruleSetId,
+      scope: getAppointmentBookingScope(isSimulation),
+      start: args.start,
+      ...(userId && { userId }),
+    });
+
+    return result.rootAppointmentId;
+  }
+
+  const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+    candidate: {
+      end: args.end,
+      locationId: args.locationId,
+      ...(args.practitionerId && { practitionerId: args.practitionerId }),
+      start: args.start,
+    },
+    practiceId: args.practiceId,
+    scope: getAppointmentBookingScope(isSimulation),
+    ...(replacesAppointmentId && {
+      excludeAppointmentIds: [replacesAppointmentId],
+    }),
+  });
+
+  if (conflictingAppointment) {
+    throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+  }
+
+  const insertData = {
+    ...rest,
+    appointmentTypeTitle: appointmentType.name,
+    createdAt: now,
+    isSimulation: isSimulation ?? false,
+    lastModified: now,
+    ...(patientId && { patientId }),
+    ...(userId && { userId }),
+    ...(replacesAppointmentId !== undefined && {
+      replacesAppointmentId,
+    }),
+  };
+  return await ctx.db.insert("appointments", insertData);
+}
+
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
@@ -469,107 +589,7 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const now = BigInt(Date.now());
-    const { isSimulation, patientId, replacesAppointmentId, userId, ...rest } =
-      args;
-
-    if (replacesAppointmentId && isSimulation !== true) {
-      throw new Error(
-        "Only simulated appointments can replace existing appointments.",
-      );
-    }
-
-    // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
-    if (!isSimulation && !patientId && !userId) {
-      throw new Error("Either patientId or userId must be provided.");
-    }
-
-    // If a patientId is provided, verify it exists
-    if (patientId) {
-      const patient = await ctx.db.get("patients", patientId);
-      if (!patient) {
-        throw new Error(`Patient with ID ${patientId} not found`);
-      }
-    }
-
-    if (userId) {
-      const user = await ctx.db.get("users", userId);
-      if (!user) {
-        throw new Error(`User with ID ${userId} not found`);
-      }
-    }
-
-    // Look up the appointment type to get its name at booking time
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
-      args.appointmentTypeId,
-    );
-    if (!appointmentType) {
-      throw new Error(
-        `Appointment type with ID ${args.appointmentTypeId} not found`,
-      );
-    }
-
-    if (
-      appointmentType.followUpPlan &&
-      appointmentType.followUpPlan.length > 0
-    ) {
-      if (!args.practitionerId) {
-        throw new Error(
-          "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
-        );
-      }
-
-      const result = await createAppointmentSeriesHelper(ctx, {
-        locationId: args.locationId,
-        ...(patientId && { patientId }),
-        practiceId: args.practiceId,
-        practitionerId: args.practitionerId,
-        rootAppointmentTypeId: args.appointmentTypeId,
-        ...(replacesAppointmentId && {
-          rootReplacesAppointmentId: replacesAppointmentId,
-        }),
-        rootTitle: args.title.trim(),
-        ruleSetId: appointmentType.ruleSetId,
-        scope: getAppointmentBookingScope(isSimulation),
-        start: args.start,
-        ...(userId && { userId }),
-      });
-
-      return result.rootAppointmentId;
-    }
-
-    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
-      candidate: {
-        end: args.end,
-        locationId: args.locationId,
-        ...(args.practitionerId && { practitionerId: args.practitionerId }),
-        start: args.start,
-      },
-      practiceId: args.practiceId,
-      scope: getAppointmentBookingScope(isSimulation),
-      ...(replacesAppointmentId && {
-        excludeAppointmentIds: [replacesAppointmentId],
-      }),
-    });
-
-    if (conflictingAppointment) {
-      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
-    }
-
-    const insertData = {
-      ...rest,
-      appointmentTypeTitle: appointmentType.name, // Store appointment type name at booking time
-      createdAt: now,
-      isSimulation: isSimulation ?? false,
-      lastModified: now,
-      ...(patientId && { patientId }),
-      ...(userId && { userId }),
-      ...(replacesAppointmentId !== undefined && {
-        replacesAppointmentId,
-      }),
-    };
-    return await ctx.db.insert("appointments", insertData);
+    return await createAppointmentFromTrustedSource(ctx, args);
   },
   returns: v.id("appointments"),
 });

@@ -667,6 +667,98 @@ describe("appointment series", () => {
     ).toEqual([0n, 1n]);
   });
 
+  test("createAppointment routes real bookings with follow-up plans through the same series path", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_real_series_user",
+      "real-series-user@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: rootAppointmentTypeId,
+      end: rootEnd,
+      locationId,
+      practiceId,
+      practitionerId,
+      start: rootStart,
+      title: "Realer Kettentermin",
+      userId,
+    });
+
+    const appointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+        .collect();
+    });
+    const seriesRecord = await t.run(async (ctx) => {
+      return await ctx.db.query("appointmentSeries").first();
+    });
+
+    expect(appointments).toHaveLength(2);
+    expect(
+      new Set(appointments.map((appointment) => appointment.seriesId)).size,
+    ).toBe(1);
+    expect(seriesRecord?.rootAppointmentId).toBeDefined();
+  });
+
   test("updateAppointmentType clears follow-up plans without patching undefined", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
