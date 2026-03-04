@@ -3,7 +3,7 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-import { followUpPlanValidator } from "./followUpPlans";
+import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
 // ================================
 // BOOKING SESSION VALIDATORS
@@ -475,6 +475,7 @@ export default defineSchema({
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
+    seriesStepId: v.optional(v.string()),
     seriesStepIndex: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
 
@@ -493,6 +494,26 @@ export default defineSchema({
     .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
     .index("by_userId_start", ["userId", "start"]),
+
+  appointmentSeries: defineTable({
+    createdAt: v.int64(),
+    followUpPlanSnapshot: v.array(followUpStepValidator),
+    lastModified: v.int64(),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    rootAppointmentId: v.id("appointments"),
+    rootAppointmentTypeId: v.id("appointmentTypes"),
+    rootAppointmentTypeLineageKey: v.id("appointmentTypes"),
+    rootDurationMinutes: v.number(),
+    ruleSetIdAtBooking: v.id("ruleSets"),
+    scope: v.union(v.literal("real"), v.literal("simulation")),
+    seriesId: v.string(),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_rootAppointmentId", ["rootAppointmentId"])
+    .index("by_seriesId", ["seriesId"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)
