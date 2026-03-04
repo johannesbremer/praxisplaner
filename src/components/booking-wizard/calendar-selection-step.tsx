@@ -53,7 +53,6 @@ type CalendarSelectionState = Extract<
 >;
 
 interface SlotInfo {
-  duration: number;
   practitionerId: Id<"practitioners">;
   practitionerName: string;
   startTime: string;
@@ -173,7 +172,6 @@ export function CalendarSelectionStep({
     }
 
     const slotData = {
-      duration: appointmentType.duration,
       practitionerId: selectedSlot.practitionerId,
       practitionerName: selectedSlot.practitionerName,
       startTime: selectedSlot.startTime,
@@ -401,7 +399,6 @@ export function CalendarSelectionStep({
                           key={`${slot.practitionerId}-${slot.startTime}`}
                           onClick={() => {
                             handleSelectSlot({
-                              duration: slot.duration,
                               practitionerId: slot.practitionerId,
                               practitionerName: slot.practitionerName,
                               startTime: slot.startTime,

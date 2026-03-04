@@ -105,7 +105,6 @@ export const emergencyContactValidator = v.object({
 });
 
 export const selectedSlotValidator = v.object({
-  duration: v.number(),
   practitionerId: v.id("practitioners"),
   practitionerName: v.string(),
   startTime: v.string(),
