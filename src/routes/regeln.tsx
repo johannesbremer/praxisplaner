@@ -62,6 +62,10 @@ import { useLocalHistory } from "../hooks/use-local-history";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
+  frontendErrorFromUnknown,
+  wrapAsyncResult,
+} from "../utils/frontend-errors";
+import {
   EXISTING_PATIENT_SEGMENT,
   NEW_PATIENT_SEGMENT,
   type RegelnSearchParams,
@@ -205,58 +209,69 @@ function LogicView() {
   }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
 
   const performClearSimulatedAppointments = useCallback(
-    async (options: { silent?: boolean }) => {
-      const { silent = false } = options;
-      if (!currentPractice) {
-        return 0;
-      }
-      try {
-        const result = await deleteAllSimulatedDataMutation({
-          practiceId: currentPractice._id,
-        });
-        const totalDeleted = result.total;
-
-        if (!silent) {
-          if (totalDeleted > 0) {
-            const parts = [];
-            if (result.appointmentsDeleted > 0) {
-              parts.push(
-                `${result.appointmentsDeleted} Termin${result.appointmentsDeleted === 1 ? "" : "e"}`,
-              );
-            }
-            if (result.blockedSlotsDeleted > 0) {
-              parts.push(
-                `${result.blockedSlotsDeleted} Sperrung${result.blockedSlotsDeleted === 1 ? "" : "en"}`,
-              );
-            }
-            toast.success(`${parts.join(" und ")} gelöscht`);
-          } else {
-            toast.info("Keine Simulationsdaten vorhanden");
+    (options: { silent?: boolean }) =>
+      wrapAsyncResult(
+        async () => {
+          const { silent = false } = options;
+          if (!currentPractice) {
+            return 0;
           }
-        }
 
-        return totalDeleted;
-      } catch (error: unknown) {
-        captureError(error, {
-          context: "simulation_clear",
-        });
+          const result = await deleteAllSimulatedDataMutation({
+            practiceId: currentPractice._id,
+          });
+          const totalDeleted = result.total;
 
-        const description =
-          error instanceof Error ? error.message : "Unbekannter Fehler";
+          if (!silent) {
+            if (totalDeleted > 0) {
+              const parts = [];
+              if (result.appointmentsDeleted > 0) {
+                parts.push(
+                  `${result.appointmentsDeleted} Termin${result.appointmentsDeleted === 1 ? "" : "e"}`,
+                );
+              }
+              if (result.blockedSlotsDeleted > 0) {
+                parts.push(
+                  `${result.blockedSlotsDeleted} Sperrung${result.blockedSlotsDeleted === 1 ? "" : "en"}`,
+                );
+              }
+              toast.success(`${parts.join(" und ")} gelöscht`);
+            } else {
+              toast.info("Keine Simulationsdaten vorhanden");
+            }
+          }
 
-        toast.error("Simulationsdaten konnten nicht gelöscht werden", {
-          description,
-        });
-        throw error;
-      }
-    },
+          return totalDeleted;
+        },
+        (error) => {
+          captureError(error, {
+            context: "simulation_clear",
+          });
+
+          const frontendError = frontendErrorFromUnknown(error, {
+            kind: "invalid_state",
+            message:
+              error instanceof Error ? error.message : "Unbekannter Fehler",
+            source: "performClearSimulatedAppointments",
+          });
+
+          toast.error("Simulationsdaten konnten nicht gelöscht werden", {
+            description: frontendError.message,
+          });
+
+          return frontendError;
+        },
+      ),
     [captureError, currentPractice, deleteAllSimulatedDataMutation],
   );
 
   const handleClearSimulatedAppointments = useCallback(async () => {
     try {
       setIsClearingSimulatedAppointments(true);
-      await performClearSimulatedAppointments({});
+      await performClearSimulatedAppointments({}).match(
+        () => 0,
+        () => 0,
+      );
     } finally {
       setIsClearingSimulatedAppointments(false);
     }
@@ -614,7 +629,10 @@ function LogicView() {
         ruleSetId: undefined,
       });
 
-      await performClearSimulatedAppointments({ silent: true });
+      await performClearSimulatedAppointments({ silent: true }).match(
+        () => 0,
+        () => 0,
+      );
     } finally {
       setIsResettingSimulation(false);
     }

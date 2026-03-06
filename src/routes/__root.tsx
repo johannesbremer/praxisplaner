@@ -298,7 +298,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayout() {
-  const controls = useGlobalUndoRedoControls();
+  const controls = useGlobalUndoRedoControls().match(
+    (value) => value,
+    () => null,
+  );
   const canUndo = controls?.canUndo ?? false;
   const canRedo = controls?.canRedo ?? false;
   const isHistoryOperationRunningRef = React.useRef(false);

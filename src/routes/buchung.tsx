@@ -46,6 +46,7 @@ import {
   PvsConsentStep,
   type StepComponentProps,
 } from "../components/booking-wizard/index";
+import { invalidStateError } from "../utils/frontend-errors";
 
 export const Route = createFileRoute("/buchung")({
   component: BookingPage,
@@ -667,23 +668,39 @@ function AuthenticatedBookingFlow() {
     );
   } else {
     if (!resolvedSessionId || !session) {
-      throw new Error("Session missing while rendering booking wizard");
+      const error = invalidStateError(
+        "Session missing while rendering booking wizard",
+        "AuthenticatedBookingFlow",
+      );
+      stepContent = (
+        <Card className="max-w-xl mx-auto">
+          <CardHeader>
+            <CardTitle>Sitzung konnte nicht geladen werden</CardTitle>
+            <CardDescription>{error.message}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={handleStartOver}>Buchung neu starten</Button>
+          </CardContent>
+        </Card>
+      );
+      currentGroup = "info";
+      showBackButton = false;
+    } else {
+      currentGroup = getStepGroup(session.state.step);
+      showBackButton = canGoBack(session.state.step);
+      stepContent = (
+        <StepRenderer
+          onStartOver={handleStartOver}
+          step={session.state.step}
+          stepProps={{
+            practiceId: currentPractice._id,
+            ruleSetId: practiceActiveRuleSetId,
+            sessionId: resolvedSessionId,
+            state: session.state,
+          }}
+        />
+      );
     }
-
-    currentGroup = getStepGroup(session.state.step);
-    showBackButton = canGoBack(session.state.step);
-    stepContent = (
-      <StepRenderer
-        onStartOver={handleStartOver}
-        step={session.state.step}
-        stepProps={{
-          practiceId: currentPractice._id,
-          ruleSetId: practiceActiveRuleSetId,
-          sessionId: resolvedSessionId,
-          state: session.state,
-        }}
-      />
-    );
   }
 
   return (

@@ -10,6 +10,7 @@ import vitest from "@vitest/eslint-plugin";
 import jsdoc from "eslint-plugin-jsdoc";
 import jsonc from "eslint-plugin-jsonc";
 import n from "eslint-plugin-n";
+import neverthrow from "eslint-plugin-neverthrow";
 import packageJson from "eslint-plugin-package-json";
 import perfectionist from "eslint-plugin-perfectionist";
 import pluginRouter from "@tanstack/eslint-plugin-router";
@@ -171,6 +172,14 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-assignment": "off",
       "unicorn/consistent-function-scoping": "off",
     },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    ignores: ["src/tests/**", "**/*.test.*", "convex/**"],
+    plugins: {
+      neverthrow,
+    },
+    rules: {},
   },
   {
     extends: [yml.configs["flat/standard"], yml.configs["flat/prettier"]],

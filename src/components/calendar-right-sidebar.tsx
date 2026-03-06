@@ -6,6 +6,7 @@ import {
   ExternalLink,
   PanelRightIcon,
 } from "lucide-react";
+import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,6 +29,11 @@ import type { PatientInfo } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
 import { formatZonedDateTimeDE } from "../utils/date-utils";
+import {
+  captureFrontendError,
+  type FrontendError,
+  missingContextError,
+} from "../utils/frontend-errors";
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = Doc<"appointments">;
@@ -97,100 +103,110 @@ export function CalendarRightSidebar({
   selectedAppointmentId,
   showGdtAlert,
 }: CalendarRightSidebarProps) {
-  const { isMobile, open, openMobile, setOpenMobile } = useRightSidebar();
+  const sidebarResult = useRightSidebar();
 
-  const patientDisplayName = patient
-    ? patient.firstName && patient.lastName
-      ? `${patient.title ? `${patient.title} ` : ""}${patient.firstName} ${patient.lastName}`
-      : patient.patientId
-        ? `Patient ${patient.patientId}`
-        : patient.email
-          ? patient.email
-          : "Kein Patient ausgewählt"
-    : "Kein Patient ausgewählt";
+  return sidebarResult.match(
+    ({ isMobile, open, openMobile, setOpenMobile }) => {
+      const patientDisplayName = patient
+        ? patient.firstName && patient.lastName
+          ? `${patient.title ? `${patient.title} ` : ""}${patient.firstName} ${patient.lastName}`
+          : patient.patientId
+            ? `Patient ${patient.patientId}`
+            : patient.email
+              ? patient.email
+              : "Kein Patient ausgewählt"
+        : "Kein Patient ausgewählt";
 
-  const handleOpenInPvs = () => {
-    if (patient?.patientId) {
-      dispatchCustomEvent("praxisplaner:openInPvs", {
-        patientId: patient.patientId,
-      });
-      // Close mobile sidebar when opening patient in PVS
+      const handleOpenInPvs = () => {
+        if (patient?.patientId) {
+          dispatchCustomEvent("praxisplaner:openInPvs", {
+            patientId: patient.patientId,
+          });
+          // Close mobile sidebar when opening patient in PVS
+          if (isMobile) {
+            setOpenMobile(false);
+          }
+        }
+      };
+
+      // Mobile: render as a Sheet overlay
       if (isMobile) {
-        setOpenMobile(false);
+        return (
+          <Sheet onOpenChange={setOpenMobile} open={openMobile}>
+            <SheetContent
+              className="bg-background text-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
+              data-mobile="true"
+              data-sidebar="sidebar"
+              side="right"
+              style={
+                {
+                  "--sidebar-width": RIGHT_SIDEBAR_WIDTH_MOBILE,
+                } as React.CSSProperties
+              }
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>Patientendaten</SheetTitle>
+                <SheetDescription>Zeigt Patientendaten an.</SheetDescription>
+              </SheetHeader>
+              <div className="flex h-full w-full flex-col">
+                <RightSidebarContent
+                  handleOpenInPvs={handleOpenInPvs}
+                  onSelectAppointment={onSelectAppointment}
+                  patient={patient}
+                  patientAppointments={patientAppointments}
+                  patientDisplayName={patientDisplayName}
+                  selectedAppointmentId={selectedAppointmentId}
+                  showGdtAlert={showGdtAlert}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        );
       }
-    }
-  };
 
-  // Mobile: render as a Sheet overlay
-  if (isMobile) {
-    return (
-      <Sheet onOpenChange={setOpenMobile} open={openMobile}>
-        <SheetContent
-          className="bg-background text-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
-          data-mobile="true"
-          data-sidebar="sidebar"
-          side="right"
+      // Desktop: render as a sidebar that pushes content
+      return (
+        <div
+          className="group peer text-sidebar-foreground hidden md:block h-full relative"
+          data-side="right"
+          data-state={open ? "expanded" : "collapsed"}
           style={
-            {
-              "--sidebar-width": RIGHT_SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
+            { "--sidebar-width": RIGHT_SIDEBAR_WIDTH } as React.CSSProperties
           }
         >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Patientendaten</SheetTitle>
-            <SheetDescription>Zeigt Patientendaten an.</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">
-            <RightSidebarContent
-              handleOpenInPvs={handleOpenInPvs}
-              onSelectAppointment={onSelectAppointment}
-              patient={patient}
-              patientAppointments={patientAppointments}
-              patientDisplayName={patientDisplayName}
-              selectedAppointmentId={selectedAppointmentId}
-              showGdtAlert={showGdtAlert}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-    );
-  }
-
-  // Desktop: render as a sidebar that pushes content
-  return (
-    <div
-      className="group peer text-sidebar-foreground hidden md:block h-full relative"
-      data-side="right"
-      data-state={open ? "expanded" : "collapsed"}
-      style={{ "--sidebar-width": RIGHT_SIDEBAR_WIDTH } as React.CSSProperties}
-    >
-      {/* Gap element that pushes the content */}
-      <div
-        className={cn(
-          "bg-transparent transition-[width] duration-200 ease-linear h-full",
-          open ? "w-(--sidebar-width)" : "w-0",
-        )}
-      />
-      {/* Actual sidebar container */}
-      <div
-        className={cn(
-          "absolute top-0 z-10 hidden h-full w-(--sidebar-width) transition-[right] duration-200 ease-linear md:flex border-l",
-          open ? "right-0" : "right-[calc(var(--sidebar-width)*-1)]",
-        )}
-      >
-        <div className="bg-background flex h-full w-full flex-col">
-          <RightSidebarContent
-            handleOpenInPvs={handleOpenInPvs}
-            onSelectAppointment={onSelectAppointment}
-            patient={patient}
-            patientAppointments={patientAppointments}
-            patientDisplayName={patientDisplayName}
-            selectedAppointmentId={selectedAppointmentId}
-            showGdtAlert={showGdtAlert}
+          {/* Gap element that pushes the content */}
+          <div
+            className={cn(
+              "bg-transparent transition-[width] duration-200 ease-linear h-full",
+              open ? "w-(--sidebar-width)" : "w-0",
+            )}
           />
+          {/* Actual sidebar container */}
+          <div
+            className={cn(
+              "absolute top-0 z-10 hidden h-full w-(--sidebar-width) transition-[right] duration-200 ease-linear md:flex border-l",
+              open ? "right-0" : "right-[calc(var(--sidebar-width)*-1)]",
+            )}
+          >
+            <div className="bg-background flex h-full w-full flex-col">
+              <RightSidebarContent
+                handleOpenInPvs={handleOpenInPvs}
+                onSelectAppointment={onSelectAppointment}
+                patient={patient}
+                patientAppointments={patientAppointments}
+                patientDisplayName={patientDisplayName}
+                selectedAppointmentId={selectedAppointmentId}
+                showGdtAlert={showGdtAlert}
+              />
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      );
+    },
+    (error) => {
+      captureFrontendError(error, undefined, "calendar-right-sidebar-context");
+      return null;
+    },
   );
 }
 
@@ -233,30 +249,37 @@ export function RightSidebarProvider({
 }
 
 export function RightSidebarTrigger({ className }: { className?: string }) {
-  const { toggleSidebar } = useRightSidebar();
-
-  return (
-    <Button
-      className={cn("size-7", className)}
-      onClick={toggleSidebar}
-      size="icon"
-      title="Patientendaten anzeigen"
-      variant="ghost"
-    >
-      <PanelRightIcon />
-      <span className="sr-only">Patientendaten anzeigen</span>
-    </Button>
+  return useRightSidebar().match(
+    ({ toggleSidebar }) => (
+      <Button
+        className={cn("size-7", className)}
+        onClick={toggleSidebar}
+        size="icon"
+        title="Patientendaten anzeigen"
+        variant="ghost"
+      >
+        <PanelRightIcon />
+        <span className="sr-only">Patientendaten anzeigen</span>
+      </Button>
+    ),
+    (error) => {
+      captureFrontendError(error, undefined, "right-sidebar-trigger-context");
+      return null;
+    },
   );
 }
 
-export function useRightSidebar() {
+export function useRightSidebar(): Result<
+  RightSidebarContextProps,
+  FrontendError
+> {
   const context = React.useContext(RightSidebarContext);
   if (!context) {
-    throw new Error(
-      "useRightSidebar must be used within a RightSidebarProvider",
+    return err(
+      missingContextError("useRightSidebar", "a RightSidebarProvider"),
     );
   }
-  return context;
+  return ok(context);
 }
 
 function RightSidebarContent({
