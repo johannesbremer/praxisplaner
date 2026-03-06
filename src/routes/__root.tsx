@@ -24,6 +24,7 @@ import { Toaster } from "sonner";
 import { CalendarDevtoolsPanel } from "../devtools/calendar-devtools-panel";
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
+import { captureFrontendError } from "../utils/frontend-errors";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
 
 // Client-only PostHog wrapper component
@@ -300,7 +301,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 function RootLayout() {
   const controls = useGlobalUndoRedoControls().match(
     (value) => value,
-    () => null,
+    (error) => {
+      captureFrontendError(error, undefined, "root-layout-undo-redo-controls");
+      return null;
+    },
   );
   const canUndo = controls?.canUndo ?? false;
   const canRedo = controls?.canRedo ?? false;

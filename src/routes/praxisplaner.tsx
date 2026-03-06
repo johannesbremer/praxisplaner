@@ -47,6 +47,7 @@ import {
   parseDateDE,
 } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
+import { captureFrontendError } from "../utils/frontend-errors";
 import {
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
@@ -907,7 +908,7 @@ function PraxisPlanerComponent() {
           const observeSucceeded = observeResult.match(
             () => true,
             (error) => {
-              captureError(error, {
+              captureFrontendError(error, {
                 context: "Failed to start FileSystemObserver",
                 directoryName: gdtDirectoryHandle.name,
                 errorType: "file_system_observer_setup",

@@ -29,7 +29,10 @@ import {
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
-import { invalidStateError } from "../utils/frontend-errors";
+import {
+  captureFrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
@@ -322,7 +325,7 @@ export function LocationsManagement({
       const deletedScheduleSnapshots = deletedScheduleSnapshotsResult.match(
         (value) => value,
         (error) => {
-          captureError(error, {
+          captureFrontendError(error, {
             context: "location_delete_practitioner_resolution",
             locationId,
             practiceId,

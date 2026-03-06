@@ -3,7 +3,11 @@
 import { errAsync, ResultAsync } from "neverthrow";
 
 import { captureErrorGlobal } from "./error-tracking";
-import { browserApiError, frontendErrorFromUnknown } from "./frontend-errors";
+import {
+  browserApiError,
+  captureFrontendError,
+  frontendErrorFromUnknown,
+} from "./frontend-errors";
 
 /**
  * Utility functions for safely using browser APIs that may not be available in all environments.
@@ -140,7 +144,7 @@ export class SafeFileSystemObserver {
         "Observer not initialized",
         "SafeFileSystemObserver.observe",
       );
-      captureErrorGlobal(error, {
+      captureFrontendError(error, {
         context: "FileSystemObserver observe called without initialization",
         errorType: "browser_api",
       });
@@ -168,7 +172,7 @@ export class SafeFileSystemObserver {
         "Observer not initialized",
         "SafeFileSystemObserver.unobserve",
       );
-      captureErrorGlobal(error, {
+      captureFrontendError(error, {
         context: "FileSystemObserver unobserve called without initialization",
         errorType: "browser_api",
       });

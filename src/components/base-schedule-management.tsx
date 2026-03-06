@@ -42,7 +42,10 @@ import { api } from "@/convex/_generated/api";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { useErrorTracking } from "../utils/error-tracking";
-import { invalidStateError } from "../utils/frontend-errors";
+import {
+  captureFrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 const DAYS_OF_WEEK = [
   { label: "Montag", value: 1 },
@@ -517,7 +520,7 @@ export default function BaseScheduleManagement({
       ).match(
         (value) => value,
         (error) => {
-          captureError(error, {
+          captureFrontendError(error, {
             context: "base_schedule_group_delete_payload_resolution",
             practiceId,
             scheduleIds,
