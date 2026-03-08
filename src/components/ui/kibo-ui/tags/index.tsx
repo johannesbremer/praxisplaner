@@ -1,6 +1,7 @@
 "use client";
 
 import { XIcon } from "lucide-react";
+import { err, ok, type Result } from "neverthrow";
 import {
   type ComponentProps,
   createContext,
@@ -28,6 +29,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import {
+  captureFrontendError,
+  type FrontendError,
+  missingContextError,
+} from "@/src/utils/frontend-errors";
 
 interface TagsContextType {
   onOpenChange: (open: boolean) => void;
@@ -42,14 +48,14 @@ interface TagsContextType {
 
 const TagsContext = createContext<TagsContextType | undefined>(undefined);
 
-const useTagsContext = () => {
+const useTagsContext = (): Result<TagsContextType, FrontendError> => {
   const context = useContext(TagsContext);
 
   if (!context) {
-    throw new Error("useTagsContext must be used within a TagsProvider");
+    return err(missingContextError("useTagsContext", "a TagsProvider"));
   }
 
-  return context;
+  return ok(context);
 };
 
 export interface TagsProps {
@@ -175,16 +181,20 @@ export const TagsContent = ({
   className,
   ...props
 }: TagsContentProps) => {
-  const { width } = useTagsContext();
-
-  return (
-    <PopoverContent
-      className={cn("p-0", className)}
-      style={{ width }}
-      {...props}
-    >
-      <Command>{children}</Command>
-    </PopoverContent>
+  return useTagsContext().match(
+    ({ width }) => (
+      <PopoverContent
+        className={cn("p-0", className)}
+        style={{ width }}
+        {...props}
+      >
+        <Command>{children}</Command>
+      </PopoverContent>
+    ),
+    (error) => {
+      captureFrontendError(error, undefined, "tags-content-context");
+      return null;
+    },
   );
 };
 

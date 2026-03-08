@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 
 import type { Appointment, NewCalendarProps } from "./calendar/types";
 
+import { captureFrontendError } from "../utils/frontend-errors";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -55,26 +56,39 @@ function CalendarGridWithSidebarOpening({
   onSelectAppointment,
   ...gridProps
 }: React.ComponentProps<typeof CalendarGrid>) {
-  const { isMobile, setOpen, setOpenMobile } = useRightSidebar();
+  const sidebarResult = useRightSidebar();
 
-  const handleSelectWithSidebar = useCallback(
-    (appointment: Appointment) => {
-      onSelectAppointment?.(appointment);
-      // Open the sidebar to show appointment details
-      if (isMobile) {
-        setOpenMobile(true);
-      } else {
-        setOpen(true);
-      }
+  return sidebarResult.match(
+    ({ isMobile, setOpen, setOpenMobile }) => {
+      const handleSelectWithSidebar = (appointment: Appointment) => {
+        onSelectAppointment?.(appointment);
+        if (isMobile) {
+          setOpenMobile(true);
+        } else {
+          setOpen(true);
+        }
+      };
+
+      return (
+        <CalendarGrid
+          {...gridProps}
+          onSelectAppointment={handleSelectWithSidebar}
+        />
+      );
     },
-    [onSelectAppointment, isMobile, setOpen, setOpenMobile],
-  );
-
-  return (
-    <CalendarGrid
-      {...gridProps}
-      onSelectAppointment={handleSelectWithSidebar}
-    />
+    (error) => {
+      captureFrontendError(
+        error,
+        undefined,
+        "calendar-grid-with-sidebar-opening-context",
+      );
+      return (
+        <CalendarGrid
+          {...gridProps}
+          {...(onSelectAppointment ? { onSelectAppointment } : {})}
+        />
+      );
+    },
   );
 }
 

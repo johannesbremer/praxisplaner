@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar";
 
 import { createSimulatedContext } from "../../lib/utils";
+import { captureFrontendError } from "../utils/frontend-errors";
 import {
   getPublicHolidays,
   isPublicHolidaySync,
@@ -29,11 +30,52 @@ import {
   temporalToDate,
 } from "../utils/time-calculations";
 import { AppointmentTypeSelector } from "./appointment-type-selector";
-import { useCalendarContext } from "./calendar-context";
+import {
+  type CalendarContextValue,
+  useCalendarContext,
+} from "./calendar-context";
 import { LocationSelector } from "./location-selector";
 import { StaffAppointmentCreationModal } from "./staff-appointment-creation-modal";
 
+const FALLBACK_CALENDAR_CONTEXT: CalendarContextValue = {
+  currentTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin"),
+  onDateChange: () => 0,
+  onLocationSelect: () => 0,
+  selectedDate: Temporal.Now.plainDateISO("Europe/Berlin"),
+  selectedLocationId: undefined,
+};
+
 export function CalendarSidebar() {
+  const calendarContextResult = useCalendarContext();
+  const sidebarResult = useSidebar();
+
+  const calendarContext = calendarContextResult.match(
+    (value) => value,
+    (error) => {
+      captureFrontendError(error, undefined, "calendar-sidebar-context");
+      return FALLBACK_CALENDAR_CONTEXT;
+    },
+  );
+  const sidebarContext = sidebarResult.match(
+    (value) => value,
+    (error) => {
+      captureFrontendError(
+        error,
+        undefined,
+        "calendar-sidebar-sidebar-context",
+      );
+      return {
+        isMobile: false,
+        open: false,
+        openMobile: false,
+        setOpen: () => 0,
+        setOpenMobile: () => 0,
+        state: "collapsed" as const,
+        toggleSidebar: () => 0,
+      };
+    },
+  );
+
   const {
     currentTime,
     isBlockingModeActive,
@@ -54,59 +96,50 @@ export function CalendarSidebar() {
     selectedDate,
     selectedLocationId,
     simulatedContext,
-  } = useCalendarContext();
+  } = calendarContext;
 
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile } = sidebarContext;
 
   const [showCreationModal, setShowCreationModal] = useState(false);
 
   // Stable callback to prevent re-renders
-  const handleTypeSelect = useCallback(
-    (typeId: Id<"appointmentTypes">) => {
-      if (onAppointmentTypeSelect) {
-        onAppointmentTypeSelect(typeId);
-        setShowCreationModal(true);
-        // Close mobile sidebar when appointment type is selected
-        if (isMobile) {
-          setOpenMobile(false);
-        }
+  const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
+    if (onAppointmentTypeSelect) {
+      onAppointmentTypeSelect(typeId);
+      setShowCreationModal(true);
+      if (isMobile) {
+        setOpenMobile(false);
       }
-    },
-    [onAppointmentTypeSelect, isMobile, setOpenMobile],
-  );
+    }
+  };
 
   // Handle deselection of appointment type
-  const handleTypeDeselect = useCallback(() => {
+  const handleTypeDeselect = () => {
     if (onAppointmentTypeSelect) {
       onAppointmentTypeSelect();
     }
-  }, [onAppointmentTypeSelect]);
+  };
 
   // Handle blocking mode change and close mobile sidebar
-  const handleBlockingModeChange = useCallback(
-    (active: boolean) => {
-      if (onBlockingModeChange) {
-        onBlockingModeChange(active);
-        // Close mobile sidebar when blocking mode is activated
-        if (active && isMobile) {
-          setOpenMobile(false);
-        }
+  const handleBlockingModeChange = (active: boolean) => {
+    if (onBlockingModeChange) {
+      onBlockingModeChange(active);
+      if (active && isMobile) {
+        setOpenMobile(false);
       }
-    },
-    [onBlockingModeChange, isMobile, setOpenMobile],
-  );
+    }
+  };
 
   // Handle modal close - optionally reset appointment type selection
-  const handleModalClose = useCallback(
-    (open: boolean, shouldResetAppointmentType?: boolean) => {
-      setShowCreationModal(open);
-      if (!open && shouldResetAppointmentType && onAppointmentTypeSelect) {
-        // Reset appointment type selection when modal closes (unless manual placement was chosen)
-        onAppointmentTypeSelect();
-      }
-    },
-    [onAppointmentTypeSelect],
-  );
+  const handleModalClose = (
+    open: boolean,
+    shouldResetAppointmentType?: boolean,
+  ) => {
+    setShowCreationModal(open);
+    if (!open && shouldResetAppointmentType && onAppointmentTypeSelect) {
+      onAppointmentTypeSelect();
+    }
+  };
 
   // Load public holidays as Temporal.PlainDate
   const [publicHolidayDates, setPublicHolidayDates] = useState<

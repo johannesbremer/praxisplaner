@@ -1,4 +1,7 @@
+import { err, ok, type Result } from "neverthrow";
 import { createContext, useContext, useEffect, useState } from "react";
+
+import { missingContextError } from "@/src/utils/frontend-errors";
 
 type Theme = "dark" | "light" | "system";
 
@@ -74,12 +77,15 @@ export function ThemeProvider({
   );
 }
 
-export const useTheme = () => {
+export const useTheme = (): Result<
+  ThemeProviderState,
+  ReturnType<typeof missingContextError>
+> => {
   const context = useContext(ThemeProviderContext);
 
   if (context === undefined) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    return err(missingContextError("useTheme", "a ThemeProvider"));
   }
 
-  return context;
+  return ok(context);
 };
