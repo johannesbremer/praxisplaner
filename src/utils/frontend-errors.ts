@@ -4,6 +4,7 @@ import { captureErrorGlobal } from "./error-tracking";
 
 export interface FrontendError {
   cause?: unknown;
+  expected?: boolean;
   kind: FrontendErrorKind;
   message: string;
   source: string;
@@ -23,7 +24,9 @@ export function browserApiError(
   source: string,
   cause?: unknown,
 ): FrontendError {
-  return createFrontendError("browser_api", message, source, cause);
+  return createFrontendError("browser_api", message, source, cause, {
+    expected: true,
+  });
 }
 
 export function captureFrontendError(
@@ -31,6 +34,10 @@ export function captureFrontendError(
   context?: Record<string, unknown>,
   dedupeKey?: string,
 ): void {
+  if (error.expected) {
+    return;
+  }
+
   const key = dedupeKey ?? `${error.source}:${error.kind}:${error.message}`;
   if (reportedErrorKeys.has(key)) {
     return;
@@ -58,9 +65,13 @@ export function createFrontendError(
   message: string,
   source: string,
   cause?: unknown,
+  options?: {
+    expected?: boolean;
+  },
 ): FrontendError {
   return {
     ...(cause === undefined ? {} : { cause }),
+    ...(options?.expected ? { expected: true } : {}),
     kind,
     message,
     source,

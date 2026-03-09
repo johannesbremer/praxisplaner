@@ -384,6 +384,40 @@ const toMutationSchedulePayload = (
       })),
   );
 
+const toCreatedSchedulePayload = (
+  createData: {
+    breakTimes?: { end: string; start: string }[];
+    dayOfWeek: number;
+    endTime: string;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+    startTime: string;
+  },
+  lineageKey: Id<"baseSchedules">,
+  practitionerLineageById: ReadonlyMap<
+    Id<"practitioners">,
+    Id<"practitioners">
+  >,
+  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
+): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
+  resolveLocationLineageIdFromSnapshot(
+    createData.locationId,
+    locationLineageById,
+  ).andThen((locationLineageId) =>
+    resolvePractitionerLineageIdFromSnapshot(
+      createData.practitionerId,
+      practitionerLineageById,
+    ).map((practitionerLineageId) => ({
+      ...(createData.breakTimes && { breakTimes: createData.breakTimes }),
+      dayOfWeek: createData.dayOfWeek,
+      endTime: createData.endTime,
+      lineageKey,
+      locationLineageId,
+      practitionerLineageId,
+      startTime: createData.startTime,
+    })),
+  );
+
 const isBaseScheduleMissingError = (error: unknown) =>
   error instanceof Error &&
   !/source rule set not found/i.test(error.message) &&
@@ -601,7 +635,7 @@ export default function BaseScheduleManagement({
               ).match(
                 (value) => value,
                 (error) => {
-                  captureError(error, {
+                  captureFrontendError(error, {
                     context: "base_schedule_group_delete_undo_payload",
                     practiceId,
                   });
@@ -930,7 +964,7 @@ function BaseScheduleDialog({
           buildPractitionerLineageByIdMap(practitionersRef.current).match(
             (value) => value,
             (error) => {
-              captureError(error, {
+              captureFrontendError(error, {
                 context: "base_schedule_practitioner_lineage_snapshot",
                 practiceId,
               });
@@ -943,7 +977,7 @@ function BaseScheduleDialog({
         ).match(
           (value) => value,
           (error) => {
-            captureError(error, {
+            captureFrontendError(error, {
               context: "base_schedule_location_lineage_snapshot",
               practiceId,
             });
@@ -1031,29 +1065,15 @@ function BaseScheduleDialog({
 
             const result = await createScheduleMutation(createData);
             handleDraftMutationResult(result);
-            const createdPayload = Result.combine([
-              resolveLocationLineageIdFromSnapshot(
-                createData.locationId,
-                locationLineageByIdAtSubmitStart,
-              ),
-              resolvePractitionerLineageIdFromSnapshot(
-                createData.practitionerId,
-                practitionerLineageByIdAtSubmitStart,
-              ),
-            ]).match(
-              ([locationLineageId, practitionerLineageId]) => ({
-                ...(createData.breakTimes && {
-                  breakTimes: createData.breakTimes,
-                }),
-                dayOfWeek: createData.dayOfWeek,
-                endTime: createData.endTime,
-                lineageKey: result.entityId,
-                locationLineageId,
-                practitionerLineageId,
-                startTime: createData.startTime,
-              }),
+            const createdPayload = toCreatedSchedulePayload(
+              createData,
+              result.entityId,
+              practitionerLineageByIdAtSubmitStart,
+              locationLineageByIdAtSubmitStart,
+            ).match(
+              (value) => value,
               (error) => {
-                captureError(error, {
+                captureFrontendError(error, {
                   context: "base_schedule_created_payload",
                   practiceId,
                 });
@@ -1142,29 +1162,15 @@ function BaseScheduleDialog({
 
             const result = await createScheduleMutation(createData);
             handleDraftMutationResult(result);
-            const createdPayload = Result.combine([
-              resolveLocationLineageIdFromSnapshot(
-                createData.locationId,
-                locationLineageByIdAtSubmitStart,
-              ),
-              resolvePractitionerLineageIdFromSnapshot(
-                createData.practitionerId,
-                practitionerLineageByIdAtSubmitStart,
-              ),
-            ]).match(
-              ([locationLineageId, practitionerLineageId]) => ({
-                ...(createData.breakTimes && {
-                  breakTimes: createData.breakTimes,
-                }),
-                dayOfWeek: createData.dayOfWeek,
-                endTime: createData.endTime,
-                lineageKey: result.entityId,
-                locationLineageId,
-                practitionerLineageId,
-                startTime: createData.startTime,
-              }),
+            const createdPayload = toCreatedSchedulePayload(
+              createData,
+              result.entityId,
+              practitionerLineageByIdAtSubmitStart,
+              locationLineageByIdAtSubmitStart,
+            ).match(
+              (value) => value,
               (error) => {
-                captureError(error, {
+                captureFrontendError(error, {
                   context: "base_schedule_created_payload",
                   practiceId,
                 });
@@ -1203,7 +1209,7 @@ function BaseScheduleDialog({
                 ).match(
                   (value) => value,
                   (error) => {
-                    captureError(error, {
+                    captureFrontendError(error, {
                       context: "base_schedule_create_redo_payload",
                       practiceId,
                     });
@@ -1287,7 +1293,7 @@ function BaseScheduleDialog({
           ).match(
             (value) => value,
             (error) => {
-              captureError(error, {
+              captureFrontendError(error, {
                 context: "base_schedule_old_payloads",
                 practiceId,
               });

@@ -2,7 +2,6 @@
 
 import { errAsync, ResultAsync } from "neverthrow";
 
-import { captureErrorGlobal } from "./error-tracking";
 import {
   browserApiError,
   captureFrontendError,
@@ -90,10 +89,11 @@ export class SafeFileSystemObserver {
     ) => Promise<void> | void,
   ) {
     if (!isFileSystemObserverSupported()) {
-      const error = new Error(
+      const error = browserApiError(
         "FileSystemObserver is not supported in this environment",
+        "SafeFileSystemObserver.constructor",
       );
-      captureErrorGlobal(error, {
+      captureFrontendError(error, {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
       });
@@ -157,6 +157,7 @@ export class SafeFileSystemObserver {
       ),
       (error) =>
         frontendErrorFromUnknown(error, {
+          expected: false,
           kind: "browser_api",
           message: "Observer could not start observing the directory",
           source: "SafeFileSystemObserver.observe",
@@ -182,6 +183,7 @@ export class SafeFileSystemObserver {
       this.observer.unobserve(handle as unknown as FileSystemDirectoryHandle),
       (error) =>
         frontendErrorFromUnknown(error, {
+          expected: false,
           kind: "browser_api",
           message: "Observer could not stop observing the directory",
           source: "SafeFileSystemObserver.unobserve",

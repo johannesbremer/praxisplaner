@@ -13,6 +13,7 @@ import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-r
 import { useLocalHistory } from "../../hooks/use-local-history";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
+  captureFrontendError,
   invalidStateError,
   resultFromNullable,
 } from "../../utils/frontend-errors";
@@ -2218,24 +2219,29 @@ export function useCalendarLogic({
             timeZone: TIMEZONE,
           });
         } else {
-          const parsedStartResult = resultFromNullable(
+          const parsedStart = resultFromNullable(
             safeParseISOToZoned(options.startISO),
             invalidStateError(
               `Invalid start ISO string: ${options.startISO}`,
               "convertRealAppointmentToSimulation.startISO",
             ),
+          ).match(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "Failed to parse start time",
+                error: error.message,
+                startISO: options.startISO,
+                startTime: appointment.startTime,
+              });
+              toast.error("Startzeit konnte nicht ermittelt werden");
+              return null;
+            },
           );
-          if (parsedStartResult.isErr()) {
-            captureErrorGlobal(parsedStartResult.error, {
-              context: "Failed to parse start time",
-              error: parsedStartResult.error.message,
-              startISO: options.startISO,
-              startTime: appointment.startTime,
-            });
-            toast.error("Startzeit konnte nicht ermittelt werden");
+          if (!parsedStart) {
             return null;
           }
-          startZoned = parsedStartResult.value;
+          startZoned = parsedStart;
         }
       } catch (error) {
         captureErrorGlobal(error, {
@@ -2255,24 +2261,29 @@ export function useCalendarLogic({
         if (options.endISO === undefined) {
           endZoned = startZoned.add({ minutes: appointment.duration });
         } else {
-          const parsedEndResult = resultFromNullable(
+          const parsedEnd = resultFromNullable(
             safeParseISOToZoned(options.endISO),
             invalidStateError(
               `Invalid end ISO string: ${options.endISO}`,
               "convertRealAppointmentToSimulation.endISO",
             ),
+          ).match(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "Failed to parse end time",
+                duration: appointment.duration,
+                endISO: options.endISO,
+                error: error.message,
+              });
+              toast.error("Endzeit konnte nicht ermittelt werden");
+              return null;
+            },
           );
-          if (parsedEndResult.isErr()) {
-            captureErrorGlobal(parsedEndResult.error, {
-              context: "Failed to parse end time",
-              duration: appointment.duration,
-              endISO: options.endISO,
-              error: parsedEndResult.error.message,
-            });
-            toast.error("Endzeit konnte nicht ermittelt werden");
+          if (!parsedEnd) {
             return null;
           }
-          endZoned = parsedEndResult.value;
+          endZoned = parsedEnd;
         }
       } catch (error) {
         captureErrorGlobal(error, {
