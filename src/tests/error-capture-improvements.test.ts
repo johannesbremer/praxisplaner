@@ -1,162 +1,171 @@
-// src/tests/error-capture-improvements.test.ts
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import type {
+  FileSystemDirectoryHandle,
+  FileSystemObserverOptions,
+} from "../types";
 
-import { captureErrorGlobal } from "../utils/error-tracking";
+import { SafeFileSystemObserver } from "../utils/browser-api";
+import {
+  browserApiError,
+  captureFrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
-// Mock the error tracking
-vi.mock("../utils/error-tracking");
+describe("Frontend error handling", () => {
+  type FileSystemObserverConstructor = new (
+    callback: (_records: readonly unknown[]) => Promise<void> | void,
+  ) => {
+    disconnect(): void;
+    observe(
+      handle: FileSystemDirectoryHandle,
+      options?: FileSystemObserverOptions,
+    ): Promise<void>;
+    unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
+  };
 
-describe("Error Capture Improvements", () => {
+  type MutableGlobals = typeof globalThis & {
+    FileSystemObserver?: FileSystemObserverConstructor;
+    posthog?: { captureException: ReturnType<typeof vi.fn> };
+  };
+
+  const mutableGlobalThis = globalThis as MutableGlobals;
+  const originalFileSystemObserver = mutableGlobalThis.FileSystemObserver;
+  const originalPosthog = mutableGlobalThis.posthog;
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    mutableGlobalThis.posthog = {
+      captureException: vi.fn(),
+    };
   });
 
-  describe("SafeFileSystemObserver", () => {
-    test("should capture errors instead of throwing when FileSystemObserver is not supported", async () => {
-      // Mock unsupported environment
-      vi.doMock("../utils/browser-api", () => ({
-        isFileSystemObserverSupported: () => false,
-        SafeFileSystemObserver: class {
-          observer = null;
-
-          constructor() {
-            const error = new Error(
-              "FileSystemObserver is not supported in this environment",
-            );
-            captureErrorGlobal(error, {
-              context: "FileSystemObserver not supported",
-              errorType: "browser_compatibility",
-            });
-          }
-
-          disconnect() {
-            // Cleanup logic would go here
-            return;
-          }
-
-          observe() {
-            const error = new Error("Observer not initialized");
-            captureErrorGlobal(error, {
-              context:
-                "FileSystemObserver observe called without initialization",
-              errorType: "browser_api",
-            });
-            return Promise.reject(error);
-          }
-
-          unobserve() {
-            const error = new Error("Observer not initialized");
-            captureErrorGlobal(error, {
-              context:
-                "FileSystemObserver unobserve called without initialization",
-              errorType: "browser_api",
-            });
-            return Promise.reject(error);
-          }
-        },
-      }));
-
-      const { SafeFileSystemObserver } = await import("../utils/browser-api");
-      const mockCallback = vi.fn();
-
-      // This should not throw anymore
-      expect(() => {
-        new SafeFileSystemObserver(mockCallback);
-      }).not.toThrow();
-
-      // But it should capture the error
-      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
-        expect.any(Error),
-        expect.objectContaining({
-          context: "FileSystemObserver not supported",
-          errorType: "browser_compatibility",
-        }),
+  afterEach(() => {
+    if (originalFileSystemObserver) {
+      mutableGlobalThis.FileSystemObserver = originalFileSystemObserver;
+    } else {
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "FileSystemObserver",
       );
-    });
+    }
 
-    test("should return rejected promise from observe method when observer is not initialized", async () => {
-      vi.doMock("../utils/browser-api", () => ({
-        isFileSystemObserverSupported: () => false,
-        SafeFileSystemObserver: class {
-          observer = null;
-
-          disconnect() {
-            // Cleanup logic would go here
-            return;
-          }
-
-          observe() {
-            const error = new Error("Observer not initialized");
-            captureErrorGlobal(error, {
-              context:
-                "FileSystemObserver observe called without initialization",
-              errorType: "browser_api",
-            });
-            return Promise.reject(error);
-          }
-        },
-      }));
-
-      const { SafeFileSystemObserver } = await import("../utils/browser-api");
-      const mockCallback = vi.fn();
-      const observer = new SafeFileSystemObserver(mockCallback);
-
-      // Mock directory handle
-      const mockHandle = {} as import("../types").FileSystemDirectoryHandle;
-
-      // This should return a rejected promise instead of throwing
-      await expect(observer.observe(mockHandle)).rejects.toThrow(
-        "Observer not initialized",
-      );
-
-      // And it should capture the error
-      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
-        expect.any(Error),
-        expect.objectContaining({
-          context: "FileSystemObserver observe called without initialization",
-          errorType: "browser_api",
-        }),
-      );
-    });
+    if (originalPosthog) {
+      mutableGlobalThis.posthog = originalPosthog;
+    } else {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, "posthog");
+    }
   });
 
-  describe("Form validation error handling", () => {
-    test("should verify that validation errors are captured and not thrown", () => {
-      // This test documents the expected behavior change in base-schedule-management.tsx
-      // Form validation errors should now be captured with error tracking and show
-      // user-friendly messages instead of being thrown and caught by try-catch
+  test("expected frontend errors are handled locally without reporting to PostHog", () => {
+    captureFrontendError(
+      browserApiError(
+        "FileSystemObserver is not supported in this environment",
+        "SafeFileSystemObserver.constructor",
+      ),
+      { context: "FileSystemObserver not supported" },
+      "expected-browser-api-error",
+    );
 
-      const validationError = new Error(
-        "Bitte wählen Sie mindestens einen Wochentag aus",
-      );
+    expect(mutableGlobalThis.posthog?.captureException).not.toHaveBeenCalled();
+  });
 
-      // Simulate the improved validation error handling
-      const handleValidationError = (
-        error: Error,
-        context: Record<string, unknown>,
-      ) => {
-        captureErrorGlobal(error, context);
-        // Return early instead of throwing
-        return { error: error.message, success: false };
-      };
+  test("unexpected frontend errors are reported to PostHog with structured metadata", () => {
+    captureFrontendError(
+      invalidStateError(
+        "Broken schedule lineage snapshot",
+        "base_schedule_created_payload",
+      ),
+      { context: "history_restore" },
+      "unexpected-invalid-state-error",
+    );
 
-      const result = handleValidationError(validationError, {
-        context: "base_schedule_validation",
-        validationField: "daysOfWeek",
-      });
+    expect(
+      mutableGlobalThis.posthog?.captureException,
+    ).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        message: "Broken schedule lineage snapshot",
+        name: "FrontendError:invalid_state",
+      }),
+      expect.objectContaining({
+        context: "history_restore",
+        frontendErrorKind: "invalid_state",
+        frontendErrorMessage: "Broken schedule lineage snapshot",
+        frontendErrorSource: "base_schedule_created_payload",
+      }),
+    );
+  });
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe(
-        "Bitte wählen Sie mindestens einen Wochentag aus",
-      );
-      expect(captureErrorGlobal).toHaveBeenCalledExactlyOnceWith(
-        validationError,
-        expect.objectContaining({
-          context: "base_schedule_validation",
-          validationField: "daysOfWeek",
-        }),
-      );
+  test("unsupported FileSystemObserver degrades to Err results instead of throwing", async () => {
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "FileSystemObserver",
+    );
+    const onChange = vi.fn();
+
+    expect(() => {
+      new SafeFileSystemObserver(onChange);
+    }).not.toThrow();
+
+    const observer = new SafeFileSystemObserver(onChange);
+    const handle = {} as FileSystemDirectoryHandle;
+
+    const observeResult = await observer.observe(handle);
+    expect(observeResult.isErr()).toBe(true);
+    expect(observeResult._unsafeUnwrapErr()).toMatchObject({
+      expected: true,
+      kind: "browser_api",
+      message: "Observer not initialized",
+      source: "SafeFileSystemObserver.observe",
+    });
+
+    expect(mutableGlobalThis.posthog?.captureException).not.toHaveBeenCalled();
+  });
+
+  test("observer failures are returned as frontend error values instead of rejected promises", async () => {
+    class MockFileSystemObserver {
+      disconnect() {
+        return;
+      }
+
+      observe(
+        handle: FileSystemDirectoryHandle,
+        options?: FileSystemObserverOptions,
+      ): Promise<void> {
+        void handle;
+        void options;
+        return Promise.reject(new Error("Permission denied"));
+      }
+
+      unobserve(handle: FileSystemDirectoryHandle): Promise<void> {
+        void handle;
+        return Promise.reject(new Error("Permission denied"));
+      }
+    }
+
+    (
+      globalThis as typeof globalThis & {
+        FileSystemObserver: typeof MockFileSystemObserver;
+      }
+    ).FileSystemObserver = MockFileSystemObserver;
+
+    const observer = new SafeFileSystemObserver(vi.fn());
+    const handle = {} as FileSystemDirectoryHandle;
+
+    const observeResult = await observer.observe(handle);
+    expect(observeResult.isErr()).toBe(true);
+    expect(observeResult._unsafeUnwrapErr()).toMatchObject({
+      kind: "browser_api",
+      message: "Observer could not start observing the directory",
+      source: "SafeFileSystemObserver.observe",
+    });
+
+    const unobserveResult = await observer.unobserve(handle);
+    expect(unobserveResult.isErr()).toBe(true);
+    expect(unobserveResult._unsafeUnwrapErr()).toMatchObject({
+      kind: "browser_api",
+      message: "Observer could not stop observing the directory",
+      source: "SafeFileSystemObserver.unobserve",
     });
   });
 });

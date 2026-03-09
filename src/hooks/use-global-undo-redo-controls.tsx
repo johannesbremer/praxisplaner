@@ -1,3 +1,4 @@
+import { err, ok, type Result } from "neverthrow";
 import {
   createContext,
   useCallback,
@@ -7,6 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
+
+import {
+  captureFrontendError,
+  type FrontendError,
+  missingContextError,
+} from "../utils/frontend-errors";
 
 interface UndoRedoControls {
   canRedo: boolean;
@@ -84,30 +91,51 @@ export function UndoRedoControlsProvider({
   );
 }
 
-export function useGlobalUndoRedoControls() {
+export function useGlobalUndoRedoControls(): Result<
+  null | UndoRedoControls,
+  FrontendError
+> {
   const context = useContext(UndoRedoControlsContext);
   if (!context) {
-    throw new Error(
-      "useGlobalUndoRedoControls must be used within UndoRedoControlsProvider",
+    return err(
+      missingContextError(
+        "useGlobalUndoRedoControls",
+        "UndoRedoControlsProvider",
+      ),
     );
   }
 
-  return context.controls;
+  return ok(context.controls);
 }
 
 export function useRegisterGlobalUndoRedoControls(
   controls: null | UndoRedoControls,
 ) {
-  const context = useContext(UndoRedoControlsContext);
+  const rawContext = useContext(UndoRedoControlsContext);
+  const contextResult: Result<UndoRedoControlsContextValue, FrontendError> =
+    rawContext
+      ? ok(rawContext)
+      : err(
+          missingContextError(
+            "useRegisterGlobalUndoRedoControls",
+            "UndoRedoControlsProvider",
+          ),
+        );
   const ownerIdRef = useRef(Symbol("undo-redo-controls-owner"));
   const controlsRef = useRef<null | UndoRedoControls>(controls);
-  if (!context) {
-    throw new Error(
-      "useRegisterGlobalUndoRedoControls must be used within UndoRedoControlsProvider",
-    );
-  }
-
-  const { clearControls, setControls } = context;
+  const context = contextResult.match(
+    (value) => value,
+    (error) => {
+      captureFrontendError(
+        error,
+        undefined,
+        "register-global-undo-redo-controls-context",
+      );
+      return null;
+    },
+  );
+  const clearControls = context?.clearControls;
+  const setControls = context?.setControls;
   const canUndo = controls?.canUndo ?? false;
   const canRedo = controls?.canRedo ?? false;
   const hasControls = controls !== null;
@@ -126,6 +154,10 @@ export function useRegisterGlobalUndoRedoControls(
 
   useEffect(() => {
     const ownerId = ownerIdRef.current;
+
+    if (!clearControls || !setControls) {
+      return;
+    }
 
     if (hasControls) {
       setControls(
@@ -152,6 +184,10 @@ export function useRegisterGlobalUndoRedoControls(
 
   useEffect(() => {
     const ownerId = ownerIdRef.current;
+
+    if (!clearControls) {
+      return;
+    }
 
     return () => {
       clearControls(ownerId);

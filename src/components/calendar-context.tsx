@@ -2,6 +2,7 @@
 
 import type React from "react";
 
+import { err, ok, type Result } from "neverthrow";
 import { createContext, useContext } from "react";
 import { Temporal } from "temporal-polyfill";
 
@@ -9,11 +10,16 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 
+import {
+  type FrontendError,
+  missingContextError,
+} from "../utils/frontend-errors";
+
 /**
  * Calendar context interface defining all shared state and actions
  * that calendar components need access to.
  */
-interface CalendarContextValue {
+export interface CalendarContextValue {
   // Date and time state
   currentTime: Temporal.ZonedDateTime;
   onDateChange: (date: Temporal.PlainDate) => void;
@@ -84,16 +90,17 @@ const CalendarContext = createContext<CalendarContextValue | null>(null);
  * Hook to access calendar context.
  * Throws an error if used outside of CalendarProvider.
  */
-export function useCalendarContext(): CalendarContextValue {
+export function useCalendarContext(): Result<
+  CalendarContextValue,
+  FrontendError
+> {
   const context = useContext(CalendarContext);
 
   if (!context) {
-    throw new Error(
-      "useCalendarContext must be used within a CalendarProvider",
-    );
+    return err(missingContextError("useCalendarContext", "a CalendarProvider"));
   }
 
-  return context;
+  return ok(context);
 }
 
 /**

@@ -1,6 +1,12 @@
 // src/utils/browser-api.ts
 
-import { captureErrorGlobal } from "./error-tracking";
+import { errAsync, ResultAsync } from "neverthrow";
+
+import {
+  browserApiError,
+  captureFrontendError,
+  frontendErrorFromUnknown,
+} from "./frontend-errors";
 
 /**
  * Utility functions for safely using browser APIs that may not be available in all environments.
@@ -83,10 +89,11 @@ export class SafeFileSystemObserver {
     ) => Promise<void> | void,
   ) {
     if (!isFileSystemObserverSupported()) {
-      const error = new Error(
+      const error = browserApiError(
         "FileSystemObserver is not supported in this environment",
+        "SafeFileSystemObserver.constructor",
       );
-      captureErrorGlobal(error, {
+      captureFrontendError(error, {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
       });
@@ -131,34 +138,56 @@ export class SafeFileSystemObserver {
   observe(
     handle: import("../types").FileSystemDirectoryHandle,
     options?: import("../types").FileSystemObserverOptions,
-  ): Promise<void> {
+  ): ResultAsync<void, ReturnType<typeof browserApiError>> {
     if (!this.observer) {
-      const error = new Error("Observer not initialized");
-      captureErrorGlobal(error, {
+      const error = browserApiError(
+        "Observer not initialized",
+        "SafeFileSystemObserver.observe",
+      );
+      captureFrontendError(error, {
         context: "FileSystemObserver observe called without initialization",
         errorType: "browser_api",
       });
-      return Promise.reject(error);
+      return errAsync(error);
     }
-    return this.observer.observe(
-      handle as unknown as FileSystemDirectoryHandle,
-      options,
+    return ResultAsync.fromPromise(
+      this.observer.observe(
+        handle as unknown as FileSystemDirectoryHandle,
+        options,
+      ),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          expected: false,
+          kind: "browser_api",
+          message: "Observer could not start observing the directory",
+          source: "SafeFileSystemObserver.observe",
+        }),
     );
   }
 
   unobserve(
     handle: import("../types").FileSystemDirectoryHandle,
-  ): Promise<void> {
+  ): ResultAsync<void, ReturnType<typeof browserApiError>> {
     if (!this.observer) {
-      const error = new Error("Observer not initialized");
-      captureErrorGlobal(error, {
+      const error = browserApiError(
+        "Observer not initialized",
+        "SafeFileSystemObserver.unobserve",
+      );
+      captureFrontendError(error, {
         context: "FileSystemObserver unobserve called without initialization",
         errorType: "browser_api",
       });
-      return Promise.reject(error);
+      return errAsync(error);
     }
-    return this.observer.unobserve(
-      handle as unknown as FileSystemDirectoryHandle,
+    return ResultAsync.fromPromise(
+      this.observer.unobserve(handle as unknown as FileSystemDirectoryHandle),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          expected: false,
+          kind: "browser_api",
+          message: "Observer could not stop observing the directory",
+          source: "SafeFileSystemObserver.unobserve",
+        }),
     );
   }
 }

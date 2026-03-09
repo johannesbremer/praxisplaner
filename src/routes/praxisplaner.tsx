@@ -47,6 +47,7 @@ import {
   parseDateDE,
 } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
+import { captureFrontendError } from "../utils/frontend-errors";
 import {
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
@@ -901,7 +902,27 @@ function PraxisPlanerComponent() {
           });
 
           // Start observing the directory
-          await observer.observe(gdtDirectoryHandle, { recursive: false });
+          const observeResult = await observer.observe(gdtDirectoryHandle, {
+            recursive: false,
+          });
+          const observeSucceeded = observeResult.match(
+            () => true,
+            (error) => {
+              captureFrontendError(error, {
+                context: "Failed to start FileSystemObserver",
+                directoryName: gdtDirectoryHandle.name,
+                errorType: "file_system_observer_setup",
+              });
+              addGdtLog(
+                `❌ Error setting up FileSystemObserver for "${gdtDirectoryHandle.name}": ${error.message}`,
+              );
+              setGdtDirPermission("error");
+              return false;
+            },
+          );
+          if (!observeSucceeded) {
+            return;
+          }
           gdtFileObserverRef.current = observer;
           addGdtLog(
             `👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`,

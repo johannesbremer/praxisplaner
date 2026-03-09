@@ -2,6 +2,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Calendar, Clock, Edit, Plus, Trash2 } from "lucide-react";
+import { err, ok, Result } from "neverthrow";
 import React, { useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -41,6 +42,10 @@ import { api } from "@/convex/_generated/api";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { useErrorTracking } from "../utils/error-tracking";
+import {
+  captureFrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 const DAYS_OF_WEEK = [
   { label: "Montag", value: 1 },
@@ -125,25 +130,31 @@ const requireLineageKey = <TId extends string>(
     entityId: string;
     entityType: "Arbeitszeit" | "Behandler" | "Standort";
   },
-): TId => {
+): Result<TId, ReturnType<typeof invalidStateError>> => {
   if (!lineageKey) {
-    throw new Error(
-      `[HISTORY:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} hat keinen lineageKey.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} hat keinen lineageKey.`,
+        "requireLineageKey",
+      ),
     );
   }
-  return lineageKey;
+  return ok(lineageKey);
 };
 
 const resolvePractitionerLineageId = (
   practitionerId: Id<"practitioners">,
   practitioners: PractitionerMatchEntity[] | undefined,
-): Id<"practitioners"> => {
+): Result<Id<"practitioners">, ReturnType<typeof invalidStateError>> => {
   const practitioner = practitioners?.find(
     (entry) => entry._id === practitionerId,
   );
   if (!practitioner) {
-    throw new Error(
-      `[HISTORY:PRACTITIONER_NOT_FOUND] Behandler ${practitionerId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:PRACTITIONER_NOT_FOUND] Behandler ${practitionerId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+        "resolvePractitionerLineageId",
+      ),
     );
   }
   return requireLineageKey(practitioner.lineageKey, {
@@ -155,11 +166,14 @@ const resolvePractitionerLineageId = (
 const resolveLocationLineageId = (
   locationId: Id<"locations">,
   locations: LocationMatchEntity[] | undefined,
-): Id<"locations"> => {
+): Result<Id<"locations">, ReturnType<typeof invalidStateError>> => {
   const location = locations?.find((entry) => entry._id === locationId);
   if (!location) {
-    throw new Error(
-      `[HISTORY:LOCATION_NOT_FOUND] Standort ${locationId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:LOCATION_NOT_FOUND] Standort ${locationId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+        "resolveLocationLineageId",
+      ),
     );
   }
   return requireLineageKey(location.lineageKey, {
@@ -171,31 +185,37 @@ const resolveLocationLineageId = (
 const resolvePractitionerIdByLineage = (
   practitionerLineageId: Id<"practitioners">,
   practitioners: PractitionerMatchEntity[] | undefined,
-): Id<"practitioners"> => {
+): Result<Id<"practitioners">, ReturnType<typeof invalidStateError>> => {
   const practitioner = practitioners?.find(
     (entry) => entry.lineageKey === practitionerLineageId,
   );
   if (!practitioner) {
-    throw new Error(
-      `[HISTORY:PRACTITIONER_LINEAGE_NOT_FOUND] Behandler mit lineageKey ${practitionerLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:PRACTITIONER_LINEAGE_NOT_FOUND] Behandler mit lineageKey ${practitionerLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+        "resolvePractitionerIdByLineage",
+      ),
     );
   }
-  return practitioner._id;
+  return ok(practitioner._id);
 };
 
 const resolveLocationIdByLineage = (
   locationLineageId: Id<"locations">,
   locations: LocationMatchEntity[] | undefined,
-): Id<"locations"> => {
+): Result<Id<"locations">, ReturnType<typeof invalidStateError>> => {
   const location = locations?.find(
     (entry) => entry.lineageKey === locationLineageId,
   );
   if (!location) {
-    throw new Error(
-      `[HISTORY:LOCATION_LINEAGE_NOT_FOUND] Standort mit lineageKey ${locationLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:LOCATION_LINEAGE_NOT_FOUND] Standort mit lineageKey ${locationLineageId} konnte im aktuellen Regelset nicht aufgelöst werden.`,
+        "resolveLocationIdByLineage",
+      ),
     );
   }
-  return location._id;
+  return ok(location._id);
 };
 
 const matchesSchedulePayload = (
@@ -205,65 +225,81 @@ const matchesSchedulePayload = (
   requireLineageKey(schedule.lineageKey, {
     entityId: schedule._id,
     entityType: "Arbeitszeit",
-  }) === payload.lineageKey;
+  }).match(
+    (lineageKey) => lineageKey === payload.lineageKey,
+    () => false,
+  );
 
 const toSchedulePayload = (
   schedule: Doc<"baseSchedules">,
   practitioners: PractitionerMatchEntity[] | undefined,
   locations: LocationMatchEntity[] | undefined,
-): SchedulePayload => ({
-  ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-  dayOfWeek: schedule.dayOfWeek,
-  endTime: schedule.endTime,
-  lineageKey: requireLineageKey(schedule.lineageKey, {
+): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
+  requireLineageKey(schedule.lineageKey, {
     entityId: schedule._id,
     entityType: "Arbeitszeit",
-  }),
-  locationLineageId: resolveLocationLineageId(schedule.locationId, locations),
-  practitionerLineageId: resolvePractitionerLineageId(
-    schedule.practitionerId,
-    practitioners,
-  ),
-  startTime: schedule.startTime,
-});
+  }).andThen((lineageKey) =>
+    resolveLocationLineageId(schedule.locationId, locations).andThen(
+      (locationLineageId) =>
+        resolvePractitionerLineageId(
+          schedule.practitionerId,
+          practitioners,
+        ).map((practitionerLineageId) => ({
+          ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+          dayOfWeek: schedule.dayOfWeek,
+          endTime: schedule.endTime,
+          lineageKey,
+          locationLineageId,
+          practitionerLineageId,
+          startTime: schedule.startTime,
+        })),
+    ),
+  );
 
 const buildLocationLineageByIdMap = (
   locations: LocationMatchEntity[] | undefined,
-): ReadonlyMap<Id<"locations">, Id<"locations">> =>
-  new Map(
-    (locations ?? []).map((location) => [
-      location._id,
+): Result<
+  ReadonlyMap<Id<"locations">, Id<"locations">>,
+  ReturnType<typeof invalidStateError>
+> =>
+  Result.combine(
+    (locations ?? []).map((location) =>
       requireLineageKey(location.lineageKey, {
         entityId: location._id,
         entityType: "Standort",
-      }),
-    ]),
-  );
+      }).map((lineageKey) => [location._id, lineageKey] as const),
+    ),
+  ).map((entries) => new Map(entries));
 
 const buildPractitionerLineageByIdMap = (
   practitioners: PractitionerMatchEntity[] | undefined,
-): ReadonlyMap<Id<"practitioners">, Id<"practitioners">> =>
-  new Map(
-    (practitioners ?? []).map((practitioner) => [
-      practitioner._id,
+): Result<
+  ReadonlyMap<Id<"practitioners">, Id<"practitioners">>,
+  ReturnType<typeof invalidStateError>
+> =>
+  Result.combine(
+    (practitioners ?? []).map((practitioner) =>
       requireLineageKey(practitioner.lineageKey, {
         entityId: practitioner._id,
         entityType: "Behandler",
-      }),
-    ]),
-  );
+      }).map((lineageKey) => [practitioner._id, lineageKey] as const),
+    ),
+  ).map((entries) => new Map(entries));
 
 const resolveLocationLineageIdFromSnapshot = (
   locationId: Id<"locations">,
   locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
-): Id<"locations"> => {
+): Result<Id<"locations">, ReturnType<typeof invalidStateError>> => {
   const locationLineageId = locationLineageById.get(locationId);
   if (!locationLineageId) {
-    throw new Error(
-      `[HISTORY:LOCATION_LINEAGE_SNAPSHOT_MISSING] Standort ${locationId} fehlt im Lineage-Snapshot für diese Aktion.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:LOCATION_LINEAGE_SNAPSHOT_MISSING] Standort ${locationId} fehlt im Lineage-Snapshot für diese Aktion.`,
+        "resolveLocationLineageIdFromSnapshot",
+      ),
     );
   }
-  return locationLineageId;
+  return ok(locationLineageId);
 };
 
 const resolvePractitionerLineageIdFromSnapshot = (
@@ -272,14 +308,17 @@ const resolvePractitionerLineageIdFromSnapshot = (
     Id<"practitioners">,
     Id<"practitioners">
   >,
-): Id<"practitioners"> => {
+): Result<Id<"practitioners">, ReturnType<typeof invalidStateError>> => {
   const practitionerLineageId = practitionerLineageById.get(practitionerId);
   if (!practitionerLineageId) {
-    throw new Error(
-      `[HISTORY:PRACTITIONER_LINEAGE_SNAPSHOT_MISSING] Behandler ${practitionerId} fehlt im Lineage-Snapshot für diese Aktion.`,
+    return err(
+      invalidStateError(
+        `[HISTORY:PRACTITIONER_LINEAGE_SNAPSHOT_MISSING] Behandler ${practitionerId} fehlt im Lineage-Snapshot für diese Aktion.`,
+        "resolvePractitionerLineageIdFromSnapshot",
+      ),
     );
   }
-  return practitionerLineageId;
+  return ok(practitionerLineageId);
 };
 
 const toSchedulePayloadFromLineageSnapshot = (
@@ -289,41 +328,95 @@ const toSchedulePayloadFromLineageSnapshot = (
     Id<"practitioners">
   >,
   locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
-): SchedulePayload => ({
-  ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-  dayOfWeek: schedule.dayOfWeek,
-  endTime: schedule.endTime,
-  lineageKey: requireLineageKey(schedule.lineageKey, {
+): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
+  requireLineageKey(schedule.lineageKey, {
     entityId: schedule._id,
     entityType: "Arbeitszeit",
-  }),
-  locationLineageId: resolveLocationLineageIdFromSnapshot(
-    schedule.locationId,
-    locationLineageById,
-  ),
-  practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
-    schedule.practitionerId,
-    practitionerLineageById,
-  ),
-  startTime: schedule.startTime,
-});
+  }).andThen((lineageKey) =>
+    resolveLocationLineageIdFromSnapshot(
+      schedule.locationId,
+      locationLineageById,
+    ).andThen((locationLineageId) =>
+      resolvePractitionerLineageIdFromSnapshot(
+        schedule.practitionerId,
+        practitionerLineageById,
+      ).map((practitionerLineageId) => ({
+        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        lineageKey,
+        locationLineageId,
+        practitionerLineageId,
+        startTime: schedule.startTime,
+      })),
+    ),
+  );
 
 const toMutationSchedulePayload = (
   payload: SchedulePayload,
   practitioners: PractitionerMatchEntity[] | undefined,
   locations: LocationMatchEntity[] | undefined,
-) => ({
-  ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
-  dayOfWeek: payload.dayOfWeek,
-  endTime: payload.endTime,
-  lineageKey: payload.lineageKey,
-  locationId: resolveLocationIdByLineage(payload.locationLineageId, locations),
-  practitionerId: resolvePractitionerIdByLineage(
-    payload.practitionerLineageId,
-    practitioners,
-  ),
-  startTime: payload.startTime,
-});
+): Result<
+  {
+    breakTimes?: { end: string; start: string }[];
+    dayOfWeek: number;
+    endTime: string;
+    lineageKey: Id<"baseSchedules">;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+    startTime: string;
+  },
+  ReturnType<typeof invalidStateError>
+> =>
+  resolveLocationIdByLineage(payload.locationLineageId, locations).andThen(
+    (locationId) =>
+      resolvePractitionerIdByLineage(
+        payload.practitionerLineageId,
+        practitioners,
+      ).map((practitionerId) => ({
+        ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
+        dayOfWeek: payload.dayOfWeek,
+        endTime: payload.endTime,
+        lineageKey: payload.lineageKey,
+        locationId,
+        practitionerId,
+        startTime: payload.startTime,
+      })),
+  );
+
+const toCreatedSchedulePayload = (
+  createData: {
+    breakTimes?: { end: string; start: string }[];
+    dayOfWeek: number;
+    endTime: string;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+    startTime: string;
+  },
+  lineageKey: Id<"baseSchedules">,
+  practitionerLineageById: ReadonlyMap<
+    Id<"practitioners">,
+    Id<"practitioners">
+  >,
+  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
+): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
+  resolveLocationLineageIdFromSnapshot(
+    createData.locationId,
+    locationLineageById,
+  ).andThen((locationLineageId) =>
+    resolvePractitionerLineageIdFromSnapshot(
+      createData.practitionerId,
+      practitionerLineageById,
+    ).map((practitionerLineageId) => ({
+      ...(createData.breakTimes && { breakTimes: createData.breakTimes }),
+      dayOfWeek: createData.dayOfWeek,
+      endTime: createData.endTime,
+      lineageKey,
+      locationLineageId,
+      practitionerLineageId,
+      startTime: createData.startTime,
+    })),
+  );
 
 const isBaseScheduleMissingError = (error: unknown) =>
   error instanceof Error &&
@@ -450,13 +543,29 @@ export default function BaseScheduleManagement({
       const deletedSchedules = schedulesRef.current.filter((schedule) =>
         scheduleIds.includes(schedule._id),
       );
-      const deletedSchedulePayloads = deletedSchedules.map((schedule) =>
-        toSchedulePayload(
-          schedule,
-          practitionersRef.current,
-          locationsRef.current,
+      const deletedSchedulePayloads = Result.combine(
+        deletedSchedules.map((schedule) =>
+          toSchedulePayload(
+            schedule,
+            practitionersRef.current,
+            locationsRef.current,
+          ),
         ),
+      ).match(
+        (value) => value,
+        (error) => {
+          captureFrontendError(error, {
+            context: "base_schedule_group_delete_payload_resolution",
+            practiceId,
+            scheduleIds,
+          });
+          toast.error(error.message);
+          return null;
+        },
       );
+      if (!deletedSchedulePayloads) {
+        return;
+      }
 
       for (const scheduleId of scheduleIds) {
         const result = await deleteScheduleMutation({
@@ -497,7 +606,13 @@ export default function BaseScheduleManagement({
                   if (isBaseScheduleMissingError(error)) {
                     continue;
                   }
-                  throw error;
+                  return {
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Arbeitszeiten konnten nicht erneut gelöscht werden.",
+                    status: "conflict" as const,
+                  };
                 }
               }
             }
@@ -513,12 +628,29 @@ export default function BaseScheduleManagement({
               if (existingSchedules.length > 0) {
                 continue;
               }
+              const mutationPayload = toMutationSchedulePayload(
+                payload,
+                practitionersRef.current,
+                locationsRef.current,
+              ).match(
+                (value) => value,
+                (error) => {
+                  captureFrontendError(error, {
+                    context: "base_schedule_group_delete_undo_payload",
+                    practiceId,
+                  });
+                  return null;
+                },
+              );
+              if (!mutationPayload) {
+                return {
+                  message:
+                    "Arbeitszeiten konnten nicht wiederhergestellt werden.",
+                  status: "conflict" as const,
+                };
+              }
               const undoResult = await createScheduleMutation({
-                ...toMutationSchedulePayload(
-                  payload,
-                  practitionersRef.current,
-                  locationsRef.current,
-                ),
+                ...mutationPayload,
                 expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: payload.lineageKey,
                 practiceId,
@@ -829,10 +961,36 @@ function BaseScheduleDialog({
         const createdSchedulePayloads: SchedulePayload[] = [];
         const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
         const practitionerLineageByIdAtSubmitStart =
-          buildPractitionerLineageByIdMap(practitionersRef.current);
+          buildPractitionerLineageByIdMap(practitionersRef.current).match(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "base_schedule_practitioner_lineage_snapshot",
+                practiceId,
+              });
+              toast.error(error.message);
+              return null;
+            },
+          );
         const locationLineageByIdAtSubmitStart = buildLocationLineageByIdMap(
           locationsRef.current,
+        ).match(
+          (value) => value,
+          (error) => {
+            captureFrontendError(error, {
+              context: "base_schedule_location_lineage_snapshot",
+              practiceId,
+            });
+            toast.error(error.message);
+            return null;
+          },
         );
+        if (
+          !practitionerLineageByIdAtSubmitStart ||
+          !locationLineageByIdAtSubmitStart
+        ) {
+          return;
+        }
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -907,23 +1065,26 @@ function BaseScheduleDialog({
 
             const result = await createScheduleMutation(createData);
             handleDraftMutationResult(result);
-            createdSchedulePayloads.push({
-              ...(createData.breakTimes && {
-                breakTimes: createData.breakTimes,
-              }),
-              dayOfWeek: createData.dayOfWeek,
-              endTime: createData.endTime,
-              lineageKey: result.entityId,
-              locationLineageId: resolveLocationLineageIdFromSnapshot(
-                createData.locationId,
-                locationLineageByIdAtSubmitStart,
-              ),
-              practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
-                createData.practitionerId,
-                practitionerLineageByIdAtSubmitStart,
-              ),
-              startTime: createData.startTime,
-            });
+            const createdPayload = toCreatedSchedulePayload(
+              createData,
+              result.entityId,
+              practitionerLineageByIdAtSubmitStart,
+              locationLineageByIdAtSubmitStart,
+            ).match(
+              (value) => value,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "base_schedule_created_payload",
+                  practiceId,
+                });
+                toast.error(error.message);
+                return null;
+              },
+            );
+            if (!createdPayload) {
+              return;
+            }
+            createdSchedulePayloads.push(createdPayload);
             createdScheduleIds.push(result.entityId);
           }
 
@@ -1001,23 +1162,26 @@ function BaseScheduleDialog({
 
             const result = await createScheduleMutation(createData);
             handleDraftMutationResult(result);
-            createdSchedulePayloads.push({
-              ...(createData.breakTimes && {
-                breakTimes: createData.breakTimes,
-              }),
-              dayOfWeek: createData.dayOfWeek,
-              endTime: createData.endTime,
-              lineageKey: result.entityId,
-              locationLineageId: resolveLocationLineageIdFromSnapshot(
-                createData.locationId,
-                locationLineageByIdAtSubmitStart,
-              ),
-              practitionerLineageId: resolvePractitionerLineageIdFromSnapshot(
-                createData.practitionerId,
-                practitionerLineageByIdAtSubmitStart,
-              ),
-              startTime: createData.startTime,
-            });
+            const createdPayload = toCreatedSchedulePayload(
+              createData,
+              result.entityId,
+              practitionerLineageByIdAtSubmitStart,
+              locationLineageByIdAtSubmitStart,
+            ).match(
+              (value) => value,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "base_schedule_created_payload",
+                  practiceId,
+                });
+                toast.error(error.message);
+                return null;
+              },
+            );
+            if (!createdPayload) {
+              return;
+            }
+            createdSchedulePayloads.push(createdPayload);
             createdScheduleIds.push(result.entityId);
           }
 
@@ -1038,12 +1202,29 @@ function BaseScheduleDialog({
                 if (existingSchedules.length > 0) {
                   continue;
                 }
+                const mutationPayload = toMutationSchedulePayload(
+                  payload,
+                  practitionersRef.current,
+                  locationsRef.current,
+                ).match(
+                  (value) => value,
+                  (error) => {
+                    captureFrontendError(error, {
+                      context: "base_schedule_create_redo_payload",
+                      practiceId,
+                    });
+                    return null;
+                  },
+                );
+                if (!mutationPayload) {
+                  return {
+                    message:
+                      "Arbeitszeiten konnten nicht erneut erstellt werden.",
+                    status: "conflict" as const,
+                  };
+                }
                 const redoResult = await createScheduleMutation({
-                  ...toMutationSchedulePayload(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  ...mutationPayload,
                   expectedDraftRevision: getExpectedDraftRevision(),
                   lineageKey: payload.lineageKey,
                   practiceId,
@@ -1078,7 +1259,13 @@ function BaseScheduleDialog({
                       // If another action already removed this ID, desired state is still satisfied.
                       continue;
                     }
-                    throw error;
+                    return {
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : "Arbeitszeiten konnten nicht rückgängig gemacht werden.",
+                      status: "conflict" as const,
+                    };
                   }
                 }
               }
@@ -1095,13 +1282,28 @@ function BaseScheduleDialog({
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
-          const oldSchedulePayloads = deletedScheduleSnapshots.map((previous) =>
-            toSchedulePayloadFromLineageSnapshot(
-              previous,
-              practitionerLineageByIdAtSubmitStart,
-              locationLineageByIdAtSubmitStart,
+          const oldSchedulePayloads = Result.combine(
+            deletedScheduleSnapshots.map((previous) =>
+              toSchedulePayloadFromLineageSnapshot(
+                previous,
+                practitionerLineageByIdAtSubmitStart,
+                locationLineageByIdAtSubmitStart,
+              ),
             ),
+          ).match(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "base_schedule_old_payloads",
+                practiceId,
+              });
+              toast.error(error.message);
+              return null;
+            },
           );
+          if (!oldSchedulePayloads) {
+            return;
+          }
           const newLineageKeys = createdSchedulePayloads.map(
             (payload) => payload.lineageKey,
           );
@@ -1112,36 +1314,62 @@ function BaseScheduleDialog({
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
-              const redoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: newLineageKeys,
-                expectedDraftRevision: getExpectedDraftRevision(),
-                expectedPresentLineageKeys: oldLineageKeys,
-                practiceId,
-                replacementSchedules: createdSchedulePayloads.map((payload) =>
+              const replacementSchedules = Result.combine(
+                createdSchedulePayloads.map((payload) =>
                   toMutationSchedulePayload(
                     payload,
                     practitionersRef.current,
                     locationsRef.current,
                   ),
                 ),
+              ).match(
+                (value) => value,
+                () => null,
+              );
+              if (!replacementSchedules) {
+                return {
+                  message:
+                    "Arbeitszeiten konnten nicht erneut angewendet werden.",
+                  status: "conflict" as const,
+                };
+              }
+              const redoResult = await replaceScheduleSetMutation({
+                expectedAbsentLineageKeys: newLineageKeys,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                expectedPresentLineageKeys: oldLineageKeys,
+                practiceId,
+                replacementSchedules,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
             },
             undo: async () => {
-              const undoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: oldLineageKeys,
-                expectedDraftRevision: getExpectedDraftRevision(),
-                expectedPresentLineageKeys: newLineageKeys,
-                practiceId,
-                replacementSchedules: oldSchedulePayloads.map((payload) =>
+              const replacementSchedules = Result.combine(
+                oldSchedulePayloads.map((payload) =>
                   toMutationSchedulePayload(
                     payload,
                     practitionersRef.current,
                     locationsRef.current,
                   ),
                 ),
+              ).match(
+                (value) => value,
+                () => null,
+              );
+              if (!replacementSchedules) {
+                return {
+                  message:
+                    "Arbeitszeiten konnten nicht wiederhergestellt werden.",
+                  status: "conflict" as const,
+                };
+              }
+              const undoResult = await replaceScheduleSetMutation({
+                expectedAbsentLineageKeys: oldLineageKeys,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                expectedPresentLineageKeys: newLineageKeys,
+                practiceId,
+                replacementSchedules,
                 selectedRuleSetId: getSelectedRuleSetId(),
               });
               handleDraftMutationResult(undoResult);

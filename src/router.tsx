@@ -11,6 +11,7 @@ import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuth } from "convex/react";
+import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
 import { createContext, useCallback, useContext, useMemo } from "react";
 import toast from "react-hot-toast";
@@ -19,39 +20,74 @@ import type { FileRouteTypes } from "./routeTree.gen";
 
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
+import {
+  captureFrontendError,
+  configurationError,
+  type FrontendError,
+  missingContextError,
+  resultFromNullable,
+} from "./utils/frontend-errors";
 
 // Type-safe WorkOS callback route path
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
+interface RouterConfig {
+  convexUrl: string;
+  redirectUri: string;
+  workosClientId: string;
+}
 
-function getSiteOrigin(): string {
+function getSiteOrigin(): Result<string, FrontendError> {
   const fromEnv = import.meta.env["VITE_CONVEX_SITE_URL"] as string | undefined;
   if (!import.meta.env.SSR) {
-    return globalThis.window.location.origin;
+    return ok(globalThis.window.location.origin);
   }
   if (fromEnv) {
-    return fromEnv;
+    return ok(fromEnv);
   }
-  throw new Error(
-    "Missing VITE_CONVEX_SITE_URL for SSR redirectUri construction",
+  return err(
+    configurationError(
+      "Missing VITE_CONVEX_SITE_URL for SSR redirectUri construction",
+      "getSiteOrigin",
+    ),
   );
 }
 
-const WORKOS_REDIRECT_URI = new URL(CALLBACK_PATH, getSiteOrigin()).toString();
-
 // WorkOS AuthKit configuration
-function getWorkOSClientId(): string {
+function getConvexUrl(): Result<string, FrontendError> {
+  const convexUrl = import.meta.env["VITE_CONVEX_URL"] as string | undefined;
+  return resultFromNullable(
+    convexUrl,
+    configurationError(
+      "VITE_CONVEX_URL environment variable is required",
+      "getConvexUrl",
+    ),
+  );
+}
+
+function getRouterConfig(): Result<RouterConfig, FrontendError> {
+  return getSiteOrigin().andThen((siteOrigin) =>
+    getWorkOSClientId().andThen((workosClientId) =>
+      getConvexUrl().map((convexUrl) => ({
+        convexUrl,
+        redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
+        workosClientId,
+      })),
+    ),
+  );
+}
+
+function getWorkOSClientId(): Result<string, FrontendError> {
   const clientId = import.meta.env["VITE_WORKOS_CLIENT_ID"] as
     | string
     | undefined;
-  if (!clientId) {
-    throw new Error(
+  return resultFromNullable(
+    clientId,
+    configurationError(
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
-    );
-  }
-  return clientId;
+      "getWorkOSClientId",
+    ),
+  );
 }
-
-const WORKOS_CLIENT_ID = getWorkOSClientId();
 
 // Context for sharing ConvexQueryClient with the Wrap component
 const ConvexQueryClientContext = createContext<ConvexQueryClient | null>(null);
@@ -61,28 +97,25 @@ export function getRouter() {
     notifyManager.setScheduler(globalThis.requestAnimationFrame);
   }
 
-  const CONVEX_URL = import.meta.env["VITE_CONVEX_URL"] as string | undefined;
-
-  if (!CONVEX_URL) {
-    const errorMessage = "VITE_CONVEX_URL environment variable is required";
-    const error = new Error(errorMessage);
-    captureErrorGlobal(error, {
-      context: "Missing CONVEX_URL environment variable",
-      errorType: "configuration",
-    });
-
-    // For critical configuration errors, we still need to throw as the app cannot function
-    // but we've captured the error for monitoring first
-    throw error;
-  }
-  const convexQueryClient = new ConvexQueryClient(CONVEX_URL);
+  const routerConfig = getRouterConfig();
+  const convexQueryClient = routerConfig.match(
+    ({ convexUrl }) => new ConvexQueryClient(convexUrl),
+    (error) => {
+      captureFrontendError(error, { context: "Router configuration" });
+      return null;
+    },
+  );
 
   const queryClient: QueryClient = new QueryClient({
     defaultOptions: {
-      queries: {
-        queryFn: convexQueryClient.queryFn(),
-        queryKeyHashFn: convexQueryClient.hashFn(),
-      },
+      ...(convexQueryClient
+        ? {
+            queries: {
+              queryFn: convexQueryClient.queryFn(),
+              queryKeyHashFn: convexQueryClient.hashFn(),
+            },
+          }
+        : {}),
     },
     mutationCache: new MutationCache({
       onError: (error) => {
@@ -101,7 +134,7 @@ export function getRouter() {
       },
     }),
   });
-  convexQueryClient.connect(queryClient);
+  convexQueryClient?.connect(queryClient);
 
   const router = routerWithQueryClient(
     createTanStackRouter({
@@ -128,7 +161,19 @@ export function getRouter() {
       routeTree,
       Wrap: ({ children }) => (
         <ConvexQueryClientContext.Provider value={convexQueryClient}>
-          <AuthProviders>{children}</AuthProviders>
+          {routerConfig.match(
+            ({ redirectUri, workosClientId }) => (
+              <AuthProviders
+                clientId={workosClientId}
+                redirectUri={redirectUri}
+              >
+                {children}
+              </AuthProviders>
+            ),
+            (error) => (
+              <FatalConfigScreen error={error} />
+            ),
+          )}
         </ConvexQueryClientContext.Provider>
       ),
     }),
@@ -138,34 +183,49 @@ export function getRouter() {
   return router;
 }
 
-function AuthProviders({ children }: { children: React.ReactNode }) {
-  const convexQueryClient = useConvexQueryClient();
-
-  return (
-    <AuthProvidersInner
-      convexQueryClient={convexQueryClient}
-      redirectUri={WORKOS_REDIRECT_URI}
-    >
-      {children}
-    </AuthProvidersInner>
+function AuthProviders({
+  children,
+  clientId,
+  redirectUri,
+}: {
+  children: React.ReactNode;
+  clientId: string;
+  redirectUri: string;
+}) {
+  return useConvexQueryClient().match(
+    (convexQueryClient) => (
+      <AuthProvidersInner
+        clientId={clientId}
+        convexQueryClient={convexQueryClient}
+        redirectUri={redirectUri}
+      >
+        {children}
+      </AuthProvidersInner>
+    ),
+    (error) => {
+      captureFrontendError(error, undefined, "auth-providers-convex-context");
+      return (
+        <FatalConfigScreen
+          error={configurationError(error.message, error.source, error.cause)}
+        />
+      );
+    },
   );
 }
 
 function AuthProvidersInner({
   children,
+  clientId,
   convexQueryClient,
   redirectUri,
 }: {
   children: React.ReactNode;
+  clientId: string;
   convexQueryClient: ConvexQueryClient;
   redirectUri: string;
 }) {
   return (
-    <AuthKitProvider
-      clientId={WORKOS_CLIENT_ID}
-      devMode
-      redirectUri={redirectUri}
-    >
+    <AuthKitProvider clientId={clientId} devMode redirectUri={redirectUri}>
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
         useAuth={useConvexAuthFromWorkOS}
@@ -176,14 +236,21 @@ function AuthProvidersInner({
   );
 }
 
-function useConvexQueryClient(): ConvexQueryClient {
+function FatalConfigScreen({ error }: { error: FrontendError }) {
+  return (
+    <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
+      <h1>Konfigurationsfehler</h1>
+      <p>{error.message}</p>
+    </div>
+  );
+}
+
+function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {
   const client = useContext(ConvexQueryClientContext);
-  if (!client) {
-    throw new Error(
-      "useConvexQueryClient must be used within ConvexQueryClientContext",
-    );
-  }
-  return client;
+  return resultFromNullable(
+    client,
+    missingContextError("useConvexQueryClient", "ConvexQueryClientContext"),
+  );
 }
 
 /**

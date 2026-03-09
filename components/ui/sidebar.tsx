@@ -3,6 +3,7 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
+import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,11 @@ import {
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import {
+  captureFrontendError,
+  type FrontendError,
+  missingContextError,
+} from "@/src/utils/frontend-errors";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -31,6 +37,7 @@ const SIDEBAR_WIDTH = "18rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const noop = () => 0;
 
 // Helper function to set cookie (wrapped to satisfy eslint unicorn/no-document-cookie)
 interface SidebarContextProps {
@@ -50,6 +57,15 @@ function setSidebarCookie(value: boolean) {
 }
 
 const SidebarContext = React.createContext<null | SidebarContextProps>(null);
+const FALLBACK_SIDEBAR_CONTEXT = {
+  isMobile: false,
+  open: false,
+  openMobile: false,
+  setOpen: noop,
+  setOpenMobile: noop,
+  state: "collapsed" as const,
+  toggleSidebar: noop,
+} satisfies SidebarContextProps;
 
 function Sidebar({
   children,
@@ -63,7 +79,9 @@ function Sidebar({
   side?: "left" | "right";
   variant?: "floating" | "inset" | "sidebar";
 }) {
-  const { isMobile, openMobile, setOpenMobile, state } = useSidebar();
+  const { isMobile, openMobile, setOpenMobile, state } = useSidebarValue(
+    "sidebar-component-context",
+  );
 
   if (collapsible === "none") {
     return (
@@ -423,7 +441,7 @@ function SidebarProvider({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar } = useSidebarValue("sidebar-rail-context");
 
   return (
     <button
@@ -466,7 +484,7 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar } = useSidebarValue("sidebar-trigger-context");
 
   return (
     <Button
@@ -487,13 +505,23 @@ function SidebarTrigger({
   );
 }
 
-function useSidebar() {
+function useSidebar(): Result<SidebarContextProps, FrontendError> {
   const context = React.useContext(SidebarContext);
   if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.");
+    return err(missingContextError("useSidebar", "a SidebarProvider."));
   }
 
-  return context;
+  return ok(context);
+}
+
+function useSidebarValue(dedupeKey: string): SidebarContextProps {
+  return useSidebar().match(
+    (value) => value,
+    (error) => {
+      captureFrontendError(error, undefined, dedupeKey);
+      return FALLBACK_SIDEBAR_CONTEXT;
+    },
+  );
 }
 
 const sidebarMenuButtonVariants = cva(
@@ -587,7 +615,7 @@ function SidebarMenuButton({
     tooltip?: React.ComponentProps<typeof TooltipContent> | string;
   }) {
   const Comp = asChild ? Slot : "button";
-  const { isMobile, state } = useSidebar();
+  const { isMobile, state } = useSidebarValue("sidebar-menu-button-context");
 
   const button = (
     <Comp

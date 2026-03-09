@@ -17,9 +17,12 @@ import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 import * as regexp from "eslint-plugin-regexp";
 import eslintPluginUnicorn from "eslint-plugin-unicorn";
+import tsParser from "@typescript-eslint/parser";
 import yml from "eslint-plugin-yml";
 import tseslint from "typescript-eslint";
 import globals from "globals";
+
+import neverthrow from "./eslint/neverthrow-plugin.js";
 
 export default tseslint.config(
   {
@@ -34,6 +37,7 @@ export default tseslint.config(
       ".nitro",
       ".tanstack",
       "dist",
+      "eslint/neverthrow-plugin.js",
       ".github/instructions/convex.instructions.md",
       ".vercel/",
       "test-results/",
@@ -170,6 +174,26 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-unsafe-assignment": "off",
       "unicorn/consistent-function-scoping": "off",
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    ignores: ["src/tests/**", "**/*.test.*", "convex/**"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+        project: "./tsconfig.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    plugins: {
+      neverthrow,
+    },
+    rules: {
+      "neverthrow/must-use-result": "error",
     },
   },
   {

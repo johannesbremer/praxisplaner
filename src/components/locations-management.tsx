@@ -1,6 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit2, Plus, Trash2 } from "lucide-react";
+import { err, ok, Result } from "neverthrow";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,6 +29,10 @@ import {
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
+import {
+  captureFrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
@@ -40,15 +45,6 @@ type BaseSchedulesResult =
   (typeof api.entities.getBaseSchedules)["_returnType"];
 
 type BaseScheduleWithLineage = BaseSchedulesResult[number];
-interface DeletedLocationScheduleSnapshot {
-  breakTimes?: { end: string; start: string }[];
-  dayOfWeek: number;
-  endTime: string;
-  lineageKey: Id<"baseSchedules">;
-  practitionerId: Id<"practitioners">;
-  practitionerLineageKey: Id<"practitioners">;
-  startTime: string;
-}
 interface LocationsManagementProps {
   expectedDraftRevision: null | number;
   onDraftMutation?: (result: {
@@ -300,7 +296,7 @@ export function LocationsManagement({
       const deletedSnapshot = locationsRef.current.find(
         (location) => location._id === locationId,
       );
-      const deletedScheduleSnapshots: DeletedLocationScheduleSnapshot[] =
+      const deletedScheduleSnapshotsResult = Result.combine(
         baseSchedulesRef.current
           .filter((schedule) => schedule.locationId === locationId)
           .map((schedule) => {
@@ -308,11 +304,14 @@ export function LocationsManagement({
               (entry) => entry._id === schedule.practitionerId,
             );
             if (!practitioner) {
-              throw new Error(
-                `[HISTORY:LOCATION_DELETE_PRACTITIONER_MISSING] Behandler ${schedule.practitionerId} der Arbeitszeit ${schedule._id} konnte nicht geladen werden.`,
+              return err(
+                invalidStateError(
+                  `[HISTORY:LOCATION_DELETE_PRACTITIONER_MISSING] Behandler ${schedule.practitionerId} der Arbeitszeit ${schedule._id} konnte nicht geladen werden.`,
+                  "handleDeleteLocation",
+                ),
               );
             }
-            return {
+            return ok({
               ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
               dayOfWeek: schedule.dayOfWeek,
               endTime: schedule.endTime,
@@ -320,8 +319,27 @@ export function LocationsManagement({
               practitionerId: schedule.practitionerId,
               practitionerLineageKey: practitioner.lineageKey,
               startTime: schedule.startTime,
-            };
+            });
+          }),
+      );
+      const deletedScheduleSnapshots = deletedScheduleSnapshotsResult.match(
+        (value) => value,
+        (error) => {
+          captureFrontendError(error, {
+            context: "location_delete_practitioner_resolution",
+            locationId,
+            practiceId,
+            ruleSetId,
           });
+          toast.error("Standort konnte nicht gelöscht werden", {
+            description: error.message,
+          });
+          return null;
+        },
+      );
+      if (!deletedScheduleSnapshots) {
+        return;
+      }
 
       const deleteArgs: {
         expectedDraftRevision: null | number;
