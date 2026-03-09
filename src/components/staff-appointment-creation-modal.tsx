@@ -4,6 +4,7 @@ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarIcon, User } from "lucide-react";
+import { ResultAsync } from "neverthrow";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -26,6 +27,12 @@ import { api } from "@/convex/_generated/api";
 import type { PatientInfo } from "../types";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
+import {
+  captureFrontendError,
+  frontendErrorFromUnknown,
+  invalidStateError,
+  resultFromNullable,
+} from "../utils/frontend-errors";
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -178,68 +185,133 @@ export function StaffAppointmentCreationModal({
     return "Kein Patient";
   };
 
+  const getSelectedRecipient = () => {
+    const patientId = patient?.convexPatientId;
+    if (patientId) {
+      return {
+        patientId,
+        recipient: { id: patientId, type: "patient" as const },
+      };
+    }
+
+    const userId = patient?.userId;
+    if (userId) {
+      return {
+        recipient: { id: userId, type: "user" as const },
+        userId,
+      };
+    }
+
+    return null;
+  };
+
   // Helper function to create appointment with a patient selection
   const createAppointmentWithPatient = async () => {
-    if (!nextAvailableSlot || !appointmentType) {
+    const recipient = resultFromNullable(
+      getSelectedRecipient(),
+      invalidStateError(
+        "Bitte wählen Sie einen Patienten aus.",
+        "StaffAppointmentCreationModal.getSelectedRecipient",
+      ),
+    ).match(
+      (selectedRecipient) => selectedRecipient,
+      () => {
+        toast.error("Bitte wählen Sie einen Patienten aus.");
+        return null;
+      },
+    );
+    if (!recipient) {
       return;
     }
 
-    const patientId = patient?.convexPatientId;
-    const userId = patient?.userId;
-
-    if (!patientId && !userId) {
-      toast.error("Bitte wählen Sie einen Patienten aus.");
+    const slot = resultFromNullable(
+      nextAvailableSlot,
+      invalidStateError(
+        "Es wurde kein verfügbarer Termin gefunden.",
+        "StaffAppointmentCreationModal.nextAvailableSlot",
+      ),
+    ).match(
+      (availableSlot) => availableSlot,
+      (error) => {
+        toast.error(error.message);
+        return null;
+      },
+    );
+    if (!slot) {
       return;
     }
 
-    try {
-      // Parse as ZonedDateTime since scheduling query now returns that format
-      const startZoned = Temporal.ZonedDateTime.from(
-        nextAvailableSlot.startTime,
-      );
-      const newAppointmentId = await runCreateAppointment({
-        appointmentTypeId,
+    const selectedAppointmentType = resultFromNullable(
+      appointmentType,
+      invalidStateError(
+        "Die gewählte Terminart konnte nicht geladen werden.",
+        "StaffAppointmentCreationModal.appointmentType",
+      ),
+    ).match(
+      (loadedAppointmentType) => loadedAppointmentType,
+      (error) => {
+        toast.error(error.message);
+        return null;
+      },
+    );
+    if (!selectedAppointmentType) {
+      return;
+    }
+
+    await ResultAsync.fromPromise(
+      runCreateAppointment({
+        appointmentTypeId: selectedAppointmentType._id,
         ...(isSimulation && { isSimulation: true }),
         locationId,
-        ...(patientId && { patientId }),
-        ...(userId && { userId }),
+        ...(recipient.patientId && { patientId: recipient.patientId }),
         practiceId,
-        practitionerId: nextAvailableSlot.practitionerId,
-        start: startZoned.toString(),
+        practitionerId: slot.practitionerId,
+        start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
         title,
-      });
-
-      // Notify about the created appointment for selection
-      const recipient:
-        | undefined
-        | { id: Id<"patients">; type: "patient" }
-        | { id: Id<"users">; type: "user" } = patientId
-        ? { id: patientId, type: "patient" as const }
-        : userId
-          ? { id: userId, type: "user" as const }
-          : undefined;
-
-      if (newAppointmentId && recipient) {
-        onAppointmentCreated?.(newAppointmentId, recipient);
-      }
-
-      toast.success(
-        hasFollowUpPlan
-          ? "Kettentermine erfolgreich erstellt"
-          : "Termin erfolgreich erstellt",
+        ...(recipient.userId && { userId: recipient.userId }),
+      }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Fehler beim Erstellen des Termins",
+          source: "StaffAppointmentCreationModal.createAppointment",
+        }),
+    )
+      .andThen((appointmentId) =>
+        resultFromNullable(
+          appointmentId,
+          invalidStateError(
+            "Der Termin konnte nicht erstellt werden.",
+            "StaffAppointmentCreationModal.createAppointmentResult",
+          ),
+        ),
+      )
+      .match(
+        (appointmentId) => {
+          onAppointmentCreated?.(appointmentId, recipient.recipient);
+          toast.success(
+            hasFollowUpPlan
+              ? "Kettentermine erfolgreich erstellt"
+              : "Termin erfolgreich erstellt",
+          );
+          onOpenChange(false, true);
+          setMode(null);
+          setTitle("");
+          form.reset();
+        },
+        (error) => {
+          captureFrontendError(error, {
+            appointmentTypeId: selectedAppointmentType._id,
+            context:
+              "StaffAppointmentCreationModal.createAppointmentWithPatient",
+          });
+          captureErrorGlobal(error, {
+            context:
+              "StaffAppointmentCreationModal - createAppointmentWithPatient",
+          });
+          toast.error(error.message);
+        },
       );
-
-      // Reset and close after successful creation
-      onOpenChange(false, true);
-      setMode(null);
-      setTitle("");
-      form.reset();
-    } catch (error) {
-      captureErrorGlobal(error, {
-        context: "StaffAppointmentCreationModal - createAppointmentWithPatient",
-      });
-      toast.error("Fehler beim Erstellen des Termins");
-    }
   };
 
   const form = useForm({
