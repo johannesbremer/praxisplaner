@@ -45,7 +45,6 @@ export interface NewCalendarProps {
   onPatientRequired?:
     | ((params: {
         appointmentTypeId: Id<"appointmentTypes">;
-        end: string;
         isSimulation: boolean;
         locationId: Id<"locations">;
         practiceId: Id<"practices">;
