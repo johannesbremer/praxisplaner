@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
+import { ResultAsync } from "neverthrow";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -20,6 +21,11 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
+
+import {
+  captureFrontendError,
+  frontendErrorFromUnknown,
+} from "../../utils/frontend-errors";
 
 interface AppointmentConfirmationCardProps {
   appointmentId: Id<"appointments">;
@@ -430,23 +436,43 @@ function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
     }
 
     setIsCancelling(true);
-    try {
-      await cancelOwnAppointment({ appointmentId });
-      if (onCancelled) {
-        await onCancelled();
-      }
-      setIsCancelled(true);
-      toast.success("Termin wurde storniert");
-    } catch (error) {
-      toast.error("Termin konnte nicht storniert werden", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
+    await ResultAsync.fromPromise(
+      cancelOwnAppointment({ appointmentId }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Termin konnte nicht storniert werden.",
+          source: "ConfirmationStep.cancelAppointment",
+        }),
+    )
+      .andThen(() =>
+        ResultAsync.fromPromise(Promise.resolve(onCancelled?.()), (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message:
+              "Termin wurde storniert, aber die Ansicht konnte nicht aktualisiert werden.",
+            source: "ConfirmationStep.onCancelled",
+          }),
+        ),
+      )
+      .match(
+        () => {
+          setIsCancelled(true);
+          toast.success("Termin wurde storniert");
+        },
+        (error) => {
+          captureFrontendError(error, {
+            appointmentId,
+            context: "ConfirmationStep.cancelAppointment",
+          });
+          toast.error("Termin konnte nicht storniert werden", {
+            description: error.message || "Bitte versuchen Sie es erneut.",
+          });
+        },
+      )
+      .finally(() => {
+        setIsCancelling(false);
       });
-    } finally {
-      setIsCancelling(false);
-    }
   };
 
   return { cancelAppointment, isCancelled, isCancelling };

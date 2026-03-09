@@ -1,6 +1,7 @@
 // Calendar selection step component (Path A6 for new patients, Path B4 for existing patients)
 
 import { useMutation, useQuery } from "convex/react";
+import { ResultAsync } from "neverthrow";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -29,6 +30,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
+
+import {
+  captureFrontendError,
+  frontendErrorFromUnknown,
+  invalidStateError,
+  resultFromNullable,
+} from "../../utils/frontend-errors";
 
 const TIMEZONE = "Europe/Berlin";
 
@@ -177,31 +185,57 @@ export function CalendarSelectionStep({
       startTime: selectedSlot.startTime,
     };
 
-    try {
-      if (isNewPatient) {
-        await selectNewPatientSlot({
-          appointmentTypeId: selectedAppointmentTypeId,
-          reasonDescription: trimmedReason,
-          selectedSlot: slotData,
-          sessionId,
-        });
-      } else {
-        await selectExistingPatientSlot({
-          appointmentTypeId: selectedAppointmentTypeId,
-          reasonDescription: trimmedReason,
-          selectedSlot: slotData,
-          sessionId,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to select slot:", error);
-      toast.error("Termin konnte nicht ausgewählt werden", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
+    const selectedSlotValue = resultFromNullable(
+      selectedSlot,
+      invalidStateError(
+        "Bitte wählen Sie einen Termin aus.",
+        "CalendarSelectionStep.selectedSlot",
+      ),
+    ).match(
+      (slot) => slot,
+      (error) => {
+        toast.error(error.message);
+        return null;
+      },
+    );
+    if (!selectedSlotValue) {
+      return;
     }
+
+    await ResultAsync.fromPromise(
+      isNewPatient
+        ? selectNewPatientSlot({
+            appointmentTypeId: selectedAppointmentTypeId,
+            reasonDescription: trimmedReason,
+            selectedSlot: slotData,
+            sessionId,
+          })
+        : selectExistingPatientSlot({
+            appointmentTypeId: selectedAppointmentTypeId,
+            reasonDescription: trimmedReason,
+            selectedSlot: slotData,
+            sessionId,
+          }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Termin konnte nicht ausgewählt werden.",
+          source: "CalendarSelectionStep.handleConfirmSlot",
+        }),
+    ).match(
+      () => void 0,
+      (error) => {
+        captureFrontendError(error, {
+          appointmentTypeId: appointmentType._id,
+          isNewPatient,
+          sessionId,
+          slotStart: selectedSlotValue.startTime,
+        });
+        toast.error("Termin konnte nicht ausgewählt werden", {
+          description: error.message || "Bitte versuchen Sie es erneut.",
+        });
+      },
+    );
   };
 
   // Filter to only available slots

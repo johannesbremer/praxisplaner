@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
+import { err, ok, type Result, ResultAsync } from "neverthrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -14,6 +15,7 @@ import { useLocalHistory } from "../../hooks/use-local-history";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
+  frontendErrorFromUnknown,
   invalidStateError,
   resultFromNullable,
 } from "../../utils/frontend-errors";
@@ -42,6 +44,19 @@ function handleEditBlockedSlot(
     return false;
   }
   return true;
+}
+
+function parsePlainTimeResult(
+  value: string,
+  source: string,
+): Result<Temporal.PlainTime, ReturnType<typeof invalidStateError>> {
+  try {
+    return ok(Temporal.PlainTime.from(value));
+  } catch (error) {
+    return err(
+      invalidStateError(`Invalid time format: ${value}`, source, error),
+    );
+  }
 }
 
 /**
@@ -2298,6 +2313,7 @@ export function useCalendarLogic({
         toast.error("Termin hat keine gültige ID");
         return null;
       }
+      const originalAppointmentId = appointment.convexId;
 
       if (!simulatedContext) {
         toast.error(
@@ -2306,89 +2322,73 @@ export function useCalendarLogic({
         return appointment;
       }
 
-      let startZoned: Temporal.ZonedDateTime;
-      try {
-        if (options.startISO === undefined) {
-          const plainTime = Temporal.PlainTime.from(appointment.startTime);
-          startZoned = selectedDate.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-        } else {
-          const parsedStart = resultFromNullable(
-            safeParseISOToZoned(options.startISO),
-            invalidStateError(
-              `Invalid start ISO string: ${options.startISO}`,
-              "convertRealAppointmentToSimulation.startISO",
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "Failed to parse start time",
-                error: error.message,
-                startISO: options.startISO,
-                startTime: appointment.startTime,
-              });
-              toast.error("Startzeit konnte nicht ermittelt werden");
-              return null;
-            },
-          );
-          if (!parsedStart) {
-            return null;
-          }
-          startZoned = parsedStart;
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse start time",
-          error: error instanceof Error ? error.message : String(error),
-          startISO: options.startISO,
-          startTime: appointment.startTime,
-        });
-        toast.error("Startzeit konnte nicht ermittelt werden");
+      const startZoned =
+        options.startISO === undefined
+          ? parsePlainTimeResult(
+              appointment.startTime,
+              "convertRealAppointmentToSimulation.startTime",
+            ).match(
+              (plainTime) =>
+                selectedDate.toZonedDateTime({
+                  plainTime,
+                  timeZone: TIMEZONE,
+                }),
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse start time",
+                  startISO: options.startISO,
+                  startTime: appointment.startTime,
+                });
+                toast.error("Startzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            )
+          : resultFromNullable(
+              safeParseISOToZoned(options.startISO),
+              invalidStateError(
+                `Invalid start ISO string: ${options.startISO}`,
+                "convertRealAppointmentToSimulation.startISO",
+              ),
+            ).match(
+              (parsedStart) => parsedStart,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse start time",
+                  startISO: options.startISO,
+                  startTime: appointment.startTime,
+                });
+                toast.error("Startzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            );
+      if (!startZoned) {
         return null;
       }
 
       const startISO = options.startISO ?? startZoned.toString();
 
-      let endZoned: Temporal.ZonedDateTime;
-      try {
-        if (options.endISO === undefined) {
-          endZoned = startZoned.add({ minutes: appointment.duration });
-        } else {
-          const parsedEnd = resultFromNullable(
-            safeParseISOToZoned(options.endISO),
-            invalidStateError(
-              `Invalid end ISO string: ${options.endISO}`,
-              "convertRealAppointmentToSimulation.endISO",
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "Failed to parse end time",
-                duration: appointment.duration,
-                endISO: options.endISO,
-                error: error.message,
-              });
-              toast.error("Endzeit konnte nicht ermittelt werden");
-              return null;
-            },
-          );
-          if (!parsedEnd) {
-            return null;
-          }
-          endZoned = parsedEnd;
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse end time",
-          duration: appointment.duration,
-          endISO: options.endISO,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        toast.error("Endzeit konnte nicht ermittelt werden");
+      const endZoned =
+        options.endISO === undefined
+          ? startZoned.add({ minutes: appointment.duration })
+          : resultFromNullable(
+              safeParseISOToZoned(options.endISO),
+              invalidStateError(
+                `Invalid end ISO string: ${options.endISO}`,
+                "convertRealAppointmentToSimulation.endISO",
+              ),
+            ).match(
+              (parsedEnd) => parsedEnd,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse end time",
+                  duration: appointment.duration,
+                  endISO: options.endISO,
+                });
+                toast.error("Endzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            );
+      if (!endZoned) {
         return null;
       }
 
@@ -2422,83 +2422,120 @@ export function useCalendarLogic({
         return null;
       }
 
-      try {
-        // Appointment type is required
-        if (!appointment.resource?.appointmentTypeId) {
-          toast.error("Terminart fehlt");
+      const resource = resultFromNullable(
+        appointment.resource,
+        invalidStateError(
+          "Terminressource fehlt",
+          "convertRealAppointmentToSimulation.resource",
+        ),
+      ).match(
+        (resourceValue) => resourceValue,
+        (error) => {
+          toast.error(error.message);
           return null;
-        }
-
-        // Build appointment data with proper typing
-        const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
-          appointmentTypeId: appointment.resource.appointmentTypeId,
-          isSimulation: true,
-          locationId,
-          practiceId,
-          replacesAppointmentId: appointment.convexId,
-          start: startISO,
-          title: appointment.resource.title ?? appointment.title,
-        };
-
-        // Add optional fields only if they exist
-        if (appointment.resource.patientId !== undefined) {
-          appointmentData.patientId = appointment.resource.patientId;
-        }
-
-        if (practitionerId !== undefined) {
-          appointmentData.practitionerId = practitionerId;
-        }
-
-        const newId = await runCreateAppointment(appointmentData);
-
-        const durationMinutes =
-          options.durationMinutes ??
-          Math.max(
-            SLOT_DURATION,
-            Math.round(
-              startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
-            ),
-          );
-
-        const updatedAppointment: Appointment = {
-          ...appointment,
-          column: options.columnOverride ?? appointment.column,
-          convexId: newId,
-          duration: durationMinutes,
-          id: newId,
-          isSimulation: true,
-          replacesAppointmentId: appointment.convexId,
-          resource: {
-            ...appointment.resource,
-            isSimulation: true,
-            locationId,
-            practitionerId:
-              practitionerId ?? appointment.resource.practitionerId,
-          },
-          startTime: formatTime(startZoned.toPlainTime()),
-        };
-
-        // Convex optimistic updates will handle the UI update
-        return updatedAppointment;
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unbekannter Fehler";
-
-        captureErrorGlobal(error, {
-          appointmentId: appointment.convexId,
-          context: "NewCalendar - Failed to create simulated replacement",
-          errorMessage,
-          hasSimulatedContext: Boolean(simulatedContext),
-          locationId,
-          options,
-          practitionerId,
-        });
-
-        toast.error(
-          `Simulierter Termin konnte nicht erstellt werden: ${errorMessage}`,
-        );
+        },
+      );
+      if (!resource) {
         return null;
       }
+
+      const appointmentTypeId = resultFromNullable(
+        resource.appointmentTypeId,
+        invalidStateError(
+          "Terminart fehlt",
+          "convertRealAppointmentToSimulation.appointmentTypeId",
+        ),
+      ).match(
+        (appointmentTypeIdValue) => appointmentTypeIdValue,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
+      if (!appointmentTypeId) {
+        return null;
+      }
+
+      const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
+        appointmentTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        replacesAppointmentId: originalAppointmentId,
+        start: startISO,
+        title: resource.title ?? appointment.title,
+      };
+
+      if (resource.patientId !== undefined) {
+        appointmentData.patientId = resource.patientId;
+      }
+
+      if (practitionerId !== undefined) {
+        appointmentData.practitionerId = practitionerId;
+      }
+
+      return await ResultAsync.fromPromise(
+        runCreateAppointment(appointmentData),
+        (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message: "Simulierter Termin konnte nicht erstellt werden.",
+            source: "convertRealAppointmentToSimulation.createAppointment",
+          }),
+      )
+        .andThen((newId) =>
+          resultFromNullable(
+            newId,
+            invalidStateError(
+              "Simulierter Termin konnte nicht erstellt werden.",
+              "convertRealAppointmentToSimulation.createAppointmentResult",
+            ),
+          ),
+        )
+        .match(
+          (newId) => {
+            const durationMinutes =
+              options.durationMinutes ??
+              Math.max(
+                SLOT_DURATION,
+                Math.round(
+                  startZoned.until(endZoned, { largestUnit: "minutes" })
+                    .minutes,
+                ),
+              );
+
+            return {
+              ...appointment,
+              column: options.columnOverride ?? appointment.column,
+              convexId: newId,
+              duration: durationMinutes,
+              id: newId,
+              isSimulation: true,
+              replacesAppointmentId: originalAppointmentId,
+              resource: {
+                ...resource,
+                isSimulation: true,
+                locationId,
+                practitionerId: practitionerId ?? resource.practitionerId,
+              },
+              startTime: formatTime(startZoned.toPlainTime()),
+            };
+          },
+          (error) => {
+            captureFrontendError(error, {
+              appointmentId: appointment.convexId,
+              context: "NewCalendar - Failed to create simulated replacement",
+              hasSimulatedContext: Boolean(simulatedContext),
+              locationId,
+              options,
+              practitionerId,
+            });
+            toast.error(
+              `Simulierter Termin konnte nicht erstellt werden: ${error.message}`,
+            );
+            return null;
+          },
+        );
     },
     [
       simulatedContext,
@@ -2518,9 +2555,20 @@ export function useCalendarLogic({
         return null;
       }
 
-      const original = blockedSlotDocMapRef.current.get(blockedSlotId);
+      const original = resultFromNullable(
+        blockedSlotDocMapRef.current.get(blockedSlotId),
+        invalidStateError(
+          "Gesperrter Zeitraum wurde nicht gefunden.",
+          "convertRealBlockedSlotToSimulation.original",
+        ),
+      ).match(
+        (originalBlockedSlot) => originalBlockedSlot,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
       if (!original) {
-        toast.error("Gesperrter Zeitraum wurde nicht gefunden.");
         return null;
       }
 
@@ -2528,9 +2576,20 @@ export function useCalendarLogic({
         return original._id;
       }
 
-      const locationId = options.locationId ?? original.locationId;
+      const locationId = resultFromNullable(
+        options.locationId ?? original.locationId,
+        invalidStateError(
+          "Standort für den gesperrten Zeitraum fehlt.",
+          "convertRealBlockedSlotToSimulation.locationId",
+        ),
+      ).match(
+        (resolvedLocationId) => resolvedLocationId,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
       if (!locationId) {
-        toast.error("Standort für den gesperrten Zeitraum fehlt.");
         return null;
       }
 
@@ -2539,8 +2598,8 @@ export function useCalendarLogic({
       const endISO = options.endISO ?? original.end;
       const title = options.title || original.title || "Gesperrter Zeitraum";
 
-      try {
-        const newId = await runCreateBlockedSlot({
+      return await ResultAsync.fromPromise(
+        runCreateBlockedSlot({
           end: endISO,
           isSimulation: true,
           locationId,
@@ -2549,19 +2608,25 @@ export function useCalendarLogic({
           start: startISO,
           title,
           ...(practitionerId ? { practitionerId } : {}),
-        });
-
-        return newId;
-      } catch (error) {
-        captureErrorGlobal(error, {
-          blockedSlotId,
-          context: "NewCalendar - Failed to convert blocked slot",
-        });
-        toast.error(
-          "Simulierter gesperrter Zeitraum konnte nicht erstellt werden.",
-        );
-        return null;
-      }
+        }),
+        (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message:
+              "Simulierter gesperrter Zeitraum konnte nicht erstellt werden.",
+            source: "convertRealBlockedSlotToSimulation.createBlockedSlot",
+          }),
+      ).match(
+        (newId) => newId,
+        (error) => {
+          captureFrontendError(error, {
+            blockedSlotId,
+            context: "NewCalendar - Failed to convert blocked slot",
+          });
+          toast.error(error.message);
+          return null;
+        },
+      );
     },
     [runCreateBlockedSlot, simulatedContext],
   );
