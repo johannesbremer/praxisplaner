@@ -598,7 +598,6 @@ export async function createAppointmentFromTrustedSource(
 export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
-    end: v.string(),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientId: v.optional(v.id("patients")),

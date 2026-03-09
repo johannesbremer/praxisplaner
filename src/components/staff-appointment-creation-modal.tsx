@@ -45,7 +45,6 @@ interface StaffAppointmentCreationModalProps {
   ruleSetId: Id<"ruleSets">;
   runCreateAppointment?: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
-    end: string;
     isSimulation?: boolean;
     locationId: Id<"locations">;
     patientId?: Id<"patients">;
@@ -200,11 +199,6 @@ export function StaffAppointmentCreationModal({
       );
       const newAppointmentId = await runCreateAppointment({
         appointmentTypeId,
-        end: startZoned
-          .add({
-            minutes: appointmentType.duration,
-          })
-          .toString(),
         ...(isSimulation && { isSimulation: true }),
         locationId,
         ...(patientId && { patientId }),

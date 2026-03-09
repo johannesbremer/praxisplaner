@@ -490,7 +490,6 @@ describe("appointments self-service cancellation", () => {
     await expect(
       authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
-        end: window.end,
         isSimulation: true,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -558,9 +557,6 @@ describe("appointments self-service cancellation", () => {
       api.appointments.createAppointment,
       {
         appointmentTypeId: baseData.appointmentTypeId,
-        end: Temporal.ZonedDateTime.from(window.start)
-          .add({ minutes: 5 })
-          .toString(),
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
         practitionerId: baseData.practitionerId,

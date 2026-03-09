@@ -346,6 +346,21 @@ export function useCalendarLogic({
     return map;
   }, [appointmentTypesData]);
 
+  const getAppointmentCreationEnd = useCallback(
+    (args: {
+      appointmentTypeId: Id<"appointmentTypes">;
+      start: string;
+    }): string => {
+      const durationMinutes =
+        appointmentTypeMap.get(args.appointmentTypeId)?.duration ??
+        SLOT_DURATION;
+      return Temporal.ZonedDateTime.from(args.start)
+        .add({ minutes: durationMinutes })
+        .toString();
+    },
+    [appointmentTypeMap],
+  );
+
   // Query for available/blocked slots when:
   // 1. In simulation mode with appointment type selected, OR
   // 2. In real mode with appointment type selected via calendar sidebar
@@ -590,6 +605,10 @@ export function useCalendarLogic({
             optimisticArgs.appointmentTypeId,
           );
           const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
+          const optimisticEnd = getAppointmentCreationEnd({
+            appointmentTypeId: optimisticArgs.appointmentTypeId,
+            start: optimisticArgs.start,
+          });
 
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
@@ -597,7 +616,7 @@ export function useCalendarLogic({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             appointmentTypeTitle,
             createdAt: BigInt(now),
-            end: optimisticArgs.end,
+            end: optimisticEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
             locationId: optimisticArgs.locationId,
@@ -638,7 +657,12 @@ export function useCalendarLogic({
         },
       )(args);
     },
-    [createAppointmentMutation, appointmentsQueryArgs, appointmentTypeMap],
+    [
+      createAppointmentMutation,
+      appointmentsQueryArgs,
+      appointmentTypeMap,
+      getAppointmentCreationEnd,
+    ],
   );
 
   const runUpdateAppointmentInternal = useCallback(
@@ -876,13 +900,17 @@ export function useCalendarLogic({
 
       let currentAppointmentId: Id<"appointments"> = createdId;
       const createArgs = { ...args, isSimulation: args.isSimulation ?? false };
+      const createEnd = getAppointmentCreationEnd({
+        appointmentTypeId: createArgs.appointmentTypeId,
+        start: createArgs.start,
+      });
 
       pushHistoryAction({
         label: "Termin erstellt",
         redo: async () => {
           if (
             hasAppointmentConflict({
-              end: createArgs.end,
+              end: createEnd,
               isSimulation: createArgs.isSimulation,
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
@@ -931,6 +959,7 @@ export function useCalendarLogic({
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
+      getAppointmentCreationEnd,
     ],
   );
 
@@ -1070,7 +1099,6 @@ export function useCalendarLogic({
 
       const createArgs: Parameters<typeof createAppointmentMutation>[0] = {
         appointmentTypeId: deleted.appointmentTypeId,
-        end: deleted.end,
         isSimulation: deleted.isSimulation ?? false,
         locationId: deleted.locationId,
         ...(deleted.patientId && { patientId: deleted.patientId }),
@@ -1085,6 +1113,10 @@ export function useCalendarLogic({
         title: deleted.title,
         ...(deleted.userId && { userId: deleted.userId }),
       };
+      const createEnd = getAppointmentCreationEnd({
+        appointmentTypeId: createArgs.appointmentTypeId,
+        start: createArgs.start,
+      });
 
       pushHistoryAction({
         label: "Termin gelöscht",
@@ -1099,7 +1131,7 @@ export function useCalendarLogic({
         undo: async () => {
           if (
             hasAppointmentConflict({
-              end: createArgs.end,
+              end: createEnd,
               isSimulation: createArgs.isSimulation ?? false,
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
@@ -1134,6 +1166,7 @@ export function useCalendarLogic({
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
+      getAppointmentCreationEnd,
     ],
   );
 
@@ -2359,8 +2392,6 @@ export function useCalendarLogic({
         return null;
       }
 
-      const endISO = options.endISO ?? endZoned.toString();
-
       // Extract practitioner ID with proper type safety
       const practitionerId: Id<"practitioners"> | undefined =
         options.practitionerId ??
@@ -2401,7 +2432,6 @@ export function useCalendarLogic({
         // Build appointment data with proper typing
         const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
           appointmentTypeId: appointment.resource.appointmentTypeId,
-          end: endISO,
           isSimulation: true,
           locationId,
           practiceId,
@@ -2995,10 +3025,7 @@ export function useCalendarLogic({
           plainTime,
           timeZone: TIMEZONE,
         });
-        const endZoned = startZoned.add({ minutes: duration });
-
         const startISO = startZoned.toString();
-        const endISO = endZoned.toString();
 
         // Get appointment type name for fallback title
         const appointmentTypeInfo = appointmentTypeMap.get(
@@ -3010,7 +3037,6 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
-          end: endISO,
           isSimulation: true,
           locationId: simulatedContext.locationId,
           ...(patient?.convexPatientId && {
@@ -3056,10 +3082,7 @@ export function useCalendarLogic({
           plainTime,
           timeZone: TIMEZONE,
         });
-        const endZoned = startZoned.add({ minutes: duration });
-
         const startISO = startZoned.toString();
-        const endISO = endZoned.toString();
 
         // Get appointment type name for fallback title
         const appointmentTypeInfo = appointmentTypeMap.get(
@@ -3074,7 +3097,6 @@ export function useCalendarLogic({
           if (onPatientRequired) {
             onPatientRequired({
               appointmentTypeId: selectedAppointmentTypeId,
-              end: endISO,
               isSimulation: false,
               locationId: selectedLocationId,
               practiceId,
@@ -3094,7 +3116,6 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: selectedAppointmentTypeId,
-          end: endISO,
           isSimulation: false,
           locationId: selectedLocationId,
           ...(patient.convexPatientId && {

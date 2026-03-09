@@ -794,13 +794,9 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
-      .add({ minutes: 30 })
-      .toString();
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
-      end: rootEnd,
       isSimulation: true,
       locationId,
       practiceId,
@@ -890,13 +886,9 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
-      .add({ minutes: 30 })
-      .toString();
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
-      end: rootEnd,
       locationId,
       practiceId,
       practitionerId,
