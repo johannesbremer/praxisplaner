@@ -109,6 +109,20 @@ export function NewCalendar({
   // Ref for scrolling to appointments
   const calendarScrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const clearAppointmentCreationSelection = useCallback(() => {
+    setSelectedAppointmentTypeId(undefined);
+    setPendingAppointmentTitle(undefined);
+
+    if (simulatedContext && onUpdateSimulatedContext) {
+      const { locationId, patient, requestedAt } = simulatedContext;
+      onUpdateSimulatedContext({
+        ...(locationId && { locationId }),
+        patient,
+        ...(requestedAt && { requestedAt }),
+      });
+    }
+  }, [onUpdateSimulatedContext, simulatedContext]);
+
   // State for appointment type selection - must be defined before useCalendarLogic
   const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
     Id<"appointmentTypes"> | undefined
@@ -188,6 +202,7 @@ export function NewCalendar({
     workingPractitioners,
   } = useCalendarLogic({
     locationName,
+    onClearAppointmentTypeSelection: clearAppointmentCreationSelection,
     onDateChange,
     onLocationResolved,
     onUpdateSimulatedContext,
@@ -391,22 +406,21 @@ export function NewCalendar({
   const handleAppointmentSelection = useCallback(
     (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
       setSelectedAppointmentId(appointmentId);
-      handleAppointmentTypeSelect();
-      setPendingAppointmentTitle(undefined);
+      clearAppointmentCreationSelection();
       if (patient) {
         setSelectedPatient(patient);
       }
     },
-    [handleAppointmentTypeSelect],
+    [clearAppointmentCreationSelection],
   );
 
   const handleCreateAppointment = useCallback(
     async (...args: Parameters<typeof runCreateAppointment>) => {
       const previousAppointmentTypeId = selectedAppointmentTypeId;
       const previousPendingAppointmentTitle = pendingAppointmentTitle;
+      const previousSimulatedContext = simulatedContext;
 
-      handleAppointmentTypeSelect();
-      setPendingAppointmentTitle(undefined);
+      clearAppointmentCreationSelection();
 
       try {
         const createdAppointmentId = await runCreateAppointment(...args);
@@ -415,6 +429,9 @@ export function NewCalendar({
             handleAppointmentTypeSelect(previousAppointmentTypeId);
           }
           setPendingAppointmentTitle(previousPendingAppointmentTitle);
+          if (previousSimulatedContext && onUpdateSimulatedContext) {
+            onUpdateSimulatedContext(previousSimulatedContext);
+          }
         }
         return createdAppointmentId;
       } catch (error) {
@@ -422,14 +439,20 @@ export function NewCalendar({
           handleAppointmentTypeSelect(previousAppointmentTypeId);
         }
         setPendingAppointmentTitle(previousPendingAppointmentTitle);
+        if (previousSimulatedContext && onUpdateSimulatedContext) {
+          onUpdateSimulatedContext(previousSimulatedContext);
+        }
         throw error;
       }
     },
     [
+      clearAppointmentCreationSelection,
       handleAppointmentTypeSelect,
+      onUpdateSimulatedContext,
       pendingAppointmentTitle,
       runCreateAppointment,
       selectedAppointmentTypeId,
+      simulatedContext,
     ],
   );
 

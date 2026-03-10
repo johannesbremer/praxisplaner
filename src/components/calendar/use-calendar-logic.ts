@@ -64,6 +64,7 @@ function parsePlainTimeResult(
  */
 export function useCalendarLogic({
   locationName,
+  onClearAppointmentTypeSelection,
   onDateChange,
   onLocationResolved,
   onPatientRequired,
@@ -3110,6 +3111,10 @@ export function useCalendarLogic({
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
           title,
+        }).then((createdAppointmentId) => {
+          if (createdAppointmentId) {
+            onClearAppointmentTypeSelection?.();
+          }
         });
       } else {
         // Create real appointment - require appointment type to be selected
@@ -3189,6 +3194,10 @@ export function useCalendarLogic({
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
           title,
+        }).then((createdAppointmentId) => {
+          if (createdAppointmentId) {
+            onClearAppointmentTypeSelection?.();
+          }
         });
       }
     }
