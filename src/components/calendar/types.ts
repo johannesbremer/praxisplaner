@@ -38,6 +38,7 @@ export interface Appointment {
  */
 export interface NewCalendarProps {
   locationName?: string | undefined;
+  onClearAppointmentTypeSelection?: (() => void) | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
