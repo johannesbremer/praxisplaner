@@ -60,6 +60,7 @@ interface StaffAppointmentCreationModalProps {
     replacesAppointmentId?: Id<"appointments">;
     start: string;
     title: string;
+    userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;
 }
 
@@ -142,7 +143,9 @@ export function StaffAppointmentCreationModal({
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPatientFromGdt = patient?.convexPatientId !== undefined;
   const hasUserLinkedPatient = patient?.userId !== undefined;
-  const hasAnyPatient = hasPatientFromGdt || hasUserLinkedPatient;
+  const hasSimulationPatient = isSimulation;
+  const hasAnyPatient =
+    hasPatientFromGdt || hasUserLinkedPatient || hasSimulationPatient;
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
     open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
@@ -182,10 +185,18 @@ export function StaffAppointmentCreationModal({
       return patient.email ?? "Kein Patient";
     }
 
+    if (hasSimulationPatient) {
+      const parts = [patient?.firstName, patient?.lastName].filter(Boolean);
+      if (parts.length > 0) {
+        return parts.join(" ");
+      }
+      return "Simulationspatient";
+    }
+
     return "Kein Patient";
   };
 
-  const getSelectedRecipient = () => {
+  const getCreateTarget = () => {
     const patientId = patient?.convexPatientId;
     if (patientId) {
       return {
@@ -202,25 +213,29 @@ export function StaffAppointmentCreationModal({
       };
     }
 
+    if (isSimulation) {
+      return { recipient: undefined };
+    }
+
     return null;
   };
 
   // Helper function to create appointment with a patient selection
   const createAppointmentWithPatient = async () => {
-    const recipient = resultFromNullable(
-      getSelectedRecipient(),
+    const createTarget = resultFromNullable(
+      getCreateTarget(),
       invalidStateError(
         "Bitte wählen Sie einen Patienten aus.",
-        "StaffAppointmentCreationModal.getSelectedRecipient",
+        "StaffAppointmentCreationModal.getCreateTarget",
       ),
     ).match(
-      (selectedRecipient) => selectedRecipient,
+      (selectedTarget) => selectedTarget,
       () => {
         toast.error("Bitte wählen Sie einen Patienten aus.");
         return null;
       },
     );
-    if (!recipient) {
+    if (!createTarget) {
       return;
     }
 
@@ -263,12 +278,12 @@ export function StaffAppointmentCreationModal({
         appointmentTypeId: selectedAppointmentType._id,
         ...(isSimulation && { isSimulation: true }),
         locationId,
-        ...(recipient.patientId && { patientId: recipient.patientId }),
+        ...(createTarget.patientId && { patientId: createTarget.patientId }),
         practiceId,
         practitionerId: slot.practitionerId,
         start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
         title,
-        ...(recipient.userId && { userId: recipient.userId }),
+        ...(createTarget.userId && { userId: createTarget.userId }),
       }),
       (error) =>
         frontendErrorFromUnknown(error, {
@@ -288,7 +303,7 @@ export function StaffAppointmentCreationModal({
       )
       .match(
         (appointmentId) => {
-          onAppointmentCreated?.(appointmentId, recipient.recipient);
+          onAppointmentCreated?.(appointmentId, createTarget.recipient);
           toast.success(
             hasFollowUpPlan
               ? "Kettentermine erfolgreich erstellt"
