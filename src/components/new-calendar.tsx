@@ -402,14 +402,35 @@ export function NewCalendar({
 
   const handleCreateAppointment = useCallback(
     async (...args: Parameters<typeof runCreateAppointment>) => {
-      const createdAppointmentId = await runCreateAppointment(...args);
-      if (createdAppointmentId) {
-        handleAppointmentTypeSelect();
-        setPendingAppointmentTitle(undefined);
+      const previousAppointmentTypeId = selectedAppointmentTypeId;
+      const previousPendingAppointmentTitle = pendingAppointmentTitle;
+
+      handleAppointmentTypeSelect();
+      setPendingAppointmentTitle(undefined);
+
+      try {
+        const createdAppointmentId = await runCreateAppointment(...args);
+        if (!createdAppointmentId) {
+          if (previousAppointmentTypeId !== undefined) {
+            handleAppointmentTypeSelect(previousAppointmentTypeId);
+          }
+          setPendingAppointmentTitle(previousPendingAppointmentTitle);
+        }
+        return createdAppointmentId;
+      } catch (error) {
+        if (previousAppointmentTypeId !== undefined) {
+          handleAppointmentTypeSelect(previousAppointmentTypeId);
+        }
+        setPendingAppointmentTitle(previousPendingAppointmentTitle);
+        throw error;
       }
-      return createdAppointmentId;
     },
-    [handleAppointmentTypeSelect, runCreateAppointment],
+    [
+      handleAppointmentTypeSelect,
+      pendingAppointmentTitle,
+      runCreateAppointment,
+      selectedAppointmentTypeId,
+    ],
   );
 
   const handleBlockSlot = useCallback(
