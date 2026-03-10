@@ -219,6 +219,9 @@ async function getSlotsForDayImpl(
 
   if (ruleSetId) {
     log.push(`Using rule set: ${ruleSetId}`);
+  } else {
+    log.push("No rule set available for candidate slot generation");
+    return { log, slots: [] };
   }
 
   // Fetch relevant practitioners
@@ -257,6 +260,7 @@ async function getSlotsForDayImpl(
     date: targetPlainDate,
     ...(defaultLocationId && { locationId: defaultLocationId }),
     practiceId: args.practiceId,
+    ruleSetId,
   });
 
   if (args.enforceFutureOnly === true) {
@@ -616,6 +620,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       date: targetPlainDate,
       ...(args.locationId && { locationId: args.locationId }),
       practiceId: args.practiceId,
+      ruleSetId,
     });
 
     // NOTE: We intentionally do NOT mark manually blocked slots here.
