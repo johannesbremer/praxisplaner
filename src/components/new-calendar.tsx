@@ -310,17 +310,6 @@ export function NewCalendar({
     }
   }, []);
 
-  // Handler for selecting an appointment by ID (used after creation)
-  const handleAppointmentSelection = useCallback(
-    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
-      setSelectedAppointmentId(appointmentId);
-      if (patient) {
-        setSelectedPatient(patient);
-      }
-    },
-    [],
-  );
-
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);
 
@@ -371,7 +360,7 @@ export function NewCalendar({
   );
 
   const handleAppointmentTypeSelect = useCallback(
-    (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
+    (appointmentTypeId?: Id<"appointmentTypes">) => {
       setSelectedAppointmentTypeId(appointmentTypeId);
 
       // Update simulatedContext immediately when appointment type is selected
@@ -396,6 +385,31 @@ export function NewCalendar({
       }
     },
     [simulatedContext, onUpdateSimulatedContext],
+  );
+
+  // Handler for selecting an appointment by ID (used after creation)
+  const handleAppointmentSelection = useCallback(
+    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
+      setSelectedAppointmentId(appointmentId);
+      handleAppointmentTypeSelect();
+      setPendingAppointmentTitle(undefined);
+      if (patient) {
+        setSelectedPatient(patient);
+      }
+    },
+    [handleAppointmentTypeSelect],
+  );
+
+  const handleCreateAppointment = useCallback(
+    async (...args: Parameters<typeof runCreateAppointment>) => {
+      const createdAppointmentId = await runCreateAppointment(...args);
+      if (createdAppointmentId) {
+        handleAppointmentTypeSelect();
+        setPendingAppointmentTitle(undefined);
+      }
+      return createdAppointmentId;
+    },
+    [handleAppointmentTypeSelect, runCreateAppointment],
   );
 
   const handleBlockSlot = useCallback(
@@ -446,7 +460,7 @@ export function NewCalendar({
         patient: selectedPatientInfo ?? patient,
         practiceId: practiceId ?? undefined,
         ruleSetId,
-        runCreateAppointment,
+        runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
         selectedDate,
         selectedLocationId: simulatedContext?.locationId || selectedLocationId,
