@@ -34,8 +34,6 @@ import type { StepComponentProps } from "./types";
 import {
   captureFrontendError,
   frontendErrorFromUnknown,
-  invalidStateError,
-  resultFromNullable,
 } from "../../utils/frontend-errors";
 
 const TIMEZONE = "Europe/Berlin";
@@ -185,23 +183,6 @@ export function CalendarSelectionStep({
       startTime: selectedSlot.startTime,
     };
 
-    const selectedSlotValue = resultFromNullable(
-      selectedSlot,
-      invalidStateError(
-        "Bitte wählen Sie einen Termin aus.",
-        "CalendarSelectionStep.selectedSlot",
-      ),
-    ).match(
-      (slot) => slot,
-      (error) => {
-        toast.error(error.message);
-        return null;
-      },
-    );
-    if (!selectedSlotValue) {
-      return;
-    }
-
     await ResultAsync.fromPromise(
       isNewPatient
         ? selectNewPatientSlot({
@@ -229,7 +210,7 @@ export function CalendarSelectionStep({
           appointmentTypeId: appointmentType._id,
           isNewPatient,
           sessionId,
-          slotStart: selectedSlotValue.startTime,
+          slotStart: selectedSlot.startTime,
         });
         toast.error("Termin konnte nicht ausgewählt werden", {
           description: error.message || "Bitte versuchen Sie es erneut.",

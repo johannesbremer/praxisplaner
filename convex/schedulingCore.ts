@@ -24,29 +24,40 @@ export async function generateCandidateSlotsForDay(
     date: Temporal.PlainDate;
     locationId?: Id<"locations">;
     practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
   },
 ): Promise<CandidateSlot[]> {
-  const { date: targetPlainDate, locationId, practiceId } = args;
+  const { date: targetPlainDate, locationId, practiceId, ruleSetId } = args;
 
   const [practitioners, schedules] = await Promise.all([
     db
       .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect(),
     db
       .query("baseSchedules")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect(),
   ]);
 
+  const practitionersForPractice = practitioners.filter(
+    (practitioner) => practitioner.practiceId === practiceId,
+  );
   const practitionerNameById = new Map(
-    practitioners.map((practitioner) => [practitioner._id, practitioner.name]),
+    practitionersForPractice.map((practitioner) => [
+      practitioner._id,
+      practitioner.name,
+    ]),
   );
 
   const dayOfWeek =
     targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
 
   const filteredSchedules = schedules.filter((schedule) => {
+    if (schedule.practiceId !== practiceId) {
+      return false;
+    }
+
     if (schedule.dayOfWeek !== dayOfWeek) {
       return false;
     }

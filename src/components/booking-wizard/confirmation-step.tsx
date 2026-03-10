@@ -150,16 +150,41 @@ export function ConfirmationStep({
   const selectedSlot = state.selectedSlot;
   const personalData = state.personalData;
   const appointmentId = state.appointmentId;
-  const duration =
-    appointmentTypes?.find(
-      (appointmentType) => appointmentType._id === state.appointmentTypeId,
-    )?.duration ?? 0;
+  if (appointmentTypes === undefined) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Termin wird geladen</CardTitle>
+          <CardDescription>
+            Die Terminbestätigung wird vorbereitet.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const appointmentType = appointmentTypes.find(
+    (candidate) => candidate._id === state.appointmentTypeId,
+  );
+
+  if (!appointmentType) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Fehler</CardTitle>
+          <CardDescription>
+            Die Terminart konnte für die Bestätigung nicht geladen werden.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   return (
     <AppointmentConfirmationCard
       appointmentId={appointmentId}
       description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
-      duration={duration}
+      duration={appointmentType.duration}
       isCancelled={isCancelled}
       isCancelling={isCancelling}
       onCancel={() => {
