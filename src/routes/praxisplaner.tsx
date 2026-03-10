@@ -1152,6 +1152,7 @@ function PraxisPlanerComponent() {
                 onDateChange={handleDateChange}
                 onLocationResolved={handleLocationResolved}
                 patient={currentPatient ?? undefined}
+                practiceId={currentPractice?._id}
                 ruleSetId={activeRuleSet?._id}
                 selectedLocationId={selectedLocation?._id}
                 showGdtAlert={hasGdtConnectionIssue}
