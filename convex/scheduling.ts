@@ -217,12 +217,11 @@ async function getSlotsForDayImpl(
     }
   }
 
-  if (ruleSetId) {
-    log.push(`Using rule set: ${ruleSetId}`);
-  } else {
+  if (!ruleSetId) {
     log.push("No rule set available for candidate slot generation");
     return { log, slots: [] };
   }
+  log.push(`Using rule set: ${ruleSetId}`);
 
   // Fetch relevant practitioners
   const practitioners = await ctx.db
