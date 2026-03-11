@@ -302,6 +302,7 @@ export function CalendarSidebar() {
             patient={patient}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
+            selectedDate={selectedDate.toString()}
             {...(onAppointmentCreated && { onAppointmentCreated })}
             {...(runCreateAppointment && { runCreateAppointment })}
           />

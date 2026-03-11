@@ -62,6 +62,7 @@ interface StaffAppointmentCreationModalProps {
     title: string;
     userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;
+  selectedDate: string;
 }
 
 export function StaffAppointmentCreationModal({
@@ -76,6 +77,7 @@ export function StaffAppointmentCreationModal({
   practiceId,
   ruleSetId,
   runCreateAppointment: runCreateAppointmentProp,
+  selectedDate,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
   const [title, setTitle] = useState("");
@@ -104,14 +106,13 @@ export function StaffAppointmentCreationModal({
   const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
 
   // Query for next available slot - only query when modal is open
-  const today = Temporal.Now.plainDateISO();
   const [requestedAt] = useState(() => Temporal.Now.instant().toString());
 
   const availableSlots = useQuery(
     api.scheduling.getSlotsForDay,
     open && appointmentTypeId && locationId
       ? {
-          date: today.toString(),
+          date: selectedDate,
           practiceId,
           ruleSetId,
           scope: isSimulation ? "simulation" : "real",
