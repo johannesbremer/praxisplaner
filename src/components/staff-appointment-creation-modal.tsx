@@ -353,16 +353,28 @@ export function StaffAppointmentCreationModal({
 
   const isSeriesPreviewLoading = hasFollowUpPlan && seriesPreview === undefined;
   const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
+  const isNextAvailableSlotLoading = nextAvailableSlot === undefined;
+  const hasNoNextAvailableSlot = nextAvailableSlot === null;
   const isSubmitDisabled =
     !form.state.canSubmit ||
+    isNextAvailableSlotLoading ||
+    hasNoNextAvailableSlot ||
     (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
   const submitButtonLabel = hasFollowUpPlan
     ? isSeriesPreviewLoading
       ? "Kettentermine werden geprüft..."
       : isSeriesPreviewBlocked
         ? "Kettentermine nicht planbar"
-        : "Termin erstellen"
-    : "Termin erstellen";
+        : isNextAvailableSlotLoading
+          ? "Termin wird gesucht..."
+          : hasNoNextAvailableSlot
+            ? "Kein Termin verfügbar"
+            : "Termin erstellen"
+    : isNextAvailableSlotLoading
+      ? "Termin wird gesucht..."
+      : hasNoNextAvailableSlot
+        ? "Kein Termin verfügbar"
+        : "Termin erstellen";
 
   return (
     <>
@@ -378,7 +390,11 @@ export function StaffAppointmentCreationModal({
               <DialogHeader>
                 <DialogTitle>Nächster verfügbarer Termin</DialogTitle>
                 <DialogDescription>
-                  {nextAvailableSlot && (
+                  {isNextAvailableSlotLoading ? (
+                    <>Suche nach dem nächsten verfügbaren Termin...</>
+                  ) : hasNoNextAvailableSlot ? (
+                    <>Es konnte kein freier Termin gefunden werden.</>
+                  ) : (
                     <>
                       {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                         .toPlainDate()
@@ -421,7 +437,16 @@ export function StaffAppointmentCreationModal({
                     <div className="text-sm font-medium">
                       Geplante Kettentermine
                     </div>
-                    {seriesPreview === undefined ? (
+                    {isNextAvailableSlotLoading ? (
+                      <div className="text-sm text-muted-foreground">
+                        Suche zuerst den Starttermin...
+                      </div>
+                    ) : hasNoNextAvailableSlot ? (
+                      <div className="text-sm text-muted-foreground">
+                        Ohne freien Starttermin können keine Kettentermine
+                        geplant werden.
+                      </div>
+                    ) : seriesPreview === undefined ? (
                       <div className="text-sm text-muted-foreground">
                         Prüfe verfügbare Folgetermine...
                       </div>
@@ -481,6 +506,16 @@ export function StaffAppointmentCreationModal({
                         : "Der Termin kann erst erstellt werden, wenn alle Kettentermine planbar sind."}
                     </div>
                   )}
+                {!hasFollowUpPlan && isNextAvailableSlotLoading && (
+                  <div className="mr-auto text-sm text-muted-foreground">
+                    Der nächste verfügbare Termin wird gesucht.
+                  </div>
+                )}
+                {hasNoNextAvailableSlot && (
+                  <div className="mr-auto text-sm text-muted-foreground">
+                    Es konnte kein freier Termin gefunden werden.
+                  </div>
+                )}
                 <Button
                   onClick={() => {
                     setMode(null);
@@ -523,12 +558,7 @@ export function StaffAppointmentCreationModal({
 
                 <Button
                   className="w-full justify-start"
-                  disabled={
-                    nextAvailableSlot !== null &&
-                    nextAvailableSlot !== undefined
-                      ? !title.trim()
-                      : true
-                  }
+                  disabled={!title.trim()}
                   onClick={() => {
                     setMode("next");
                   }}
@@ -557,6 +587,12 @@ export function StaffAppointmentCreationModal({
                 {nextAvailableSlot === null && (
                   <div className="text-sm text-muted-foreground">
                     Es konnte kein freier Termin gefunden werden.
+                  </div>
+                )}
+
+                {isNextAvailableSlotLoading && (
+                  <div className="text-sm text-muted-foreground">
+                    Der nächste verfügbare Termin wird gesucht.
                   </div>
                 )}
 
