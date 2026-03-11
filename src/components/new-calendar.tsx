@@ -502,7 +502,7 @@ export function NewCalendar({
         onPendingTitleChange: setPendingAppointmentTitle,
         onUpdateSimulatedContext,
         patient: selectedPatientInfo ?? patient,
-        practiceId: practiceId ?? undefined,
+        practiceId,
         ruleSetId,
         runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
