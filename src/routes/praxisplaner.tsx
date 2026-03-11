@@ -1146,19 +1146,24 @@ function PraxisPlanerComponent() {
 
         <div className="flex-1 overflow-hidden">
           <TabsContent className="h-full" value={CALENDAR_TAB}>
-            {/* SidebarProvider required for calendar sidebar context */}
-            <SidebarProvider className="flex h-full w-full">
-              <PraxisCalendar
-                onDateChange={handleDateChange}
-                onLocationResolved={handleLocationResolved}
-                patient={currentPatient ?? undefined}
-                practiceId={currentPractice?._id}
-                ruleSetId={activeRuleSet?._id}
-                selectedLocationId={selectedLocation?._id}
-                showGdtAlert={hasGdtConnectionIssue}
-                simulationDate={selectedDate}
-              />
-            </SidebarProvider>
+            {currentPractice && activeRuleSet ? (
+              <SidebarProvider className="flex h-full w-full">
+                <PraxisCalendar
+                  onDateChange={handleDateChange}
+                  onLocationResolved={handleLocationResolved}
+                  patient={currentPatient ?? undefined}
+                  practiceId={currentPractice._id}
+                  ruleSetId={activeRuleSet._id}
+                  selectedLocationId={selectedLocation?._id}
+                  showGdtAlert={hasGdtConnectionIssue}
+                  simulationDate={selectedDate}
+                />
+              </SidebarProvider>
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                Kalender wird geladen.
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>

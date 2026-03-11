@@ -85,7 +85,7 @@ export function useCalendarLogic({
   const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
     Temporal.Now.zonedDateTimeISO(TIMEZONE),
   );
-  const [practiceId, setPracticeId] = useState(propPracticeId ?? null);
+  const practiceId = propPracticeId;
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<Appointment | null>(null);
@@ -170,47 +170,6 @@ export function useCalendarLogic({
     setPrevExternalLocationId(externalSelectedLocationId);
     setSelectedLocationId(externalSelectedLocationId);
   }
-
-  // Initialize practice
-  const initializePracticeMutation = useMutation(
-    api.practices.initializeDefaultPractice,
-  );
-
-  // Track if we've initialized to avoid re-running
-  const [hasInitialized, setHasInitialized] = useState(false);
-  const [prevPropPracticeId, setPrevPropPracticeId] = useState(propPracticeId);
-
-  // Sync practice ID from prop during render
-  if (propPracticeId && propPracticeId !== prevPropPracticeId) {
-    setPrevPropPracticeId(propPracticeId);
-    setHasInitialized(true);
-    if (practiceId !== propPracticeId) {
-      setPracticeId(propPracticeId);
-    }
-  }
-
-  // Initialize practice via mutation only once if no prop provided
-  useEffect(() => {
-    if (hasInitialized || propPracticeId) {
-      return;
-    }
-
-    const initPractice = async () => {
-      try {
-        const id = await initializePracticeMutation({});
-        setHasInitialized(true);
-        setPracticeId(id);
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "NewCalendar - Failed to initialize practice",
-          error: error instanceof Error ? error.message : String(error),
-          propPracticeId,
-        });
-      }
-    };
-
-    void initPractice();
-  }, [hasInitialized, initializePracticeMutation, propPracticeId]);
 
   // Get active rule set for entity ID remapping
   const activeRuleSetData = useQuery(

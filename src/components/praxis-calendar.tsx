@@ -22,8 +22,8 @@ interface PraxisCalendarProps {
     | ((context: SchedulingSimulatedContext) => void)
     | undefined;
   patient?: PatientInfo | undefined;
-  practiceId?: Id<"practices"> | undefined;
-  ruleSetId?: SchedulingRuleSetId | undefined;
+  practiceId: Id<"practices">;
+  ruleSetId: SchedulingRuleSetId;
   selectedLocationId?: Id<"locations"> | undefined;
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;

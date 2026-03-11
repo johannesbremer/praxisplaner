@@ -70,8 +70,8 @@ export interface NewCalendarProps {
     | undefined;
 
   patient?: PatientInfo | undefined;
-  practiceId?: Id<"practices"> | undefined;
-  ruleSetId?: SchedulingRuleSetId | undefined;
+  practiceId: Id<"practices">;
+  ruleSetId: SchedulingRuleSetId;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null> | undefined;
   selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;

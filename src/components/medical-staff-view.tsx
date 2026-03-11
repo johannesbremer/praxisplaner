@@ -18,7 +18,7 @@ interface MedicalStaffViewProps {
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
   practiceId: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  ruleSetId: SchedulingRuleSetId;
   simulatedContext: SchedulingSimulatedContext;
   simulationDate: Temporal.PlainDate;
 }

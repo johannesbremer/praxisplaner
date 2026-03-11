@@ -17,7 +17,7 @@ interface MedicalStaffDisplayProps {
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
   practiceId: Id<"practices">;
-  ruleSetId?: SchedulingRuleSetId;
+  ruleSetId: SchedulingRuleSetId;
   simulatedContext: SchedulingSimulatedContext;
   simulationDate: Temporal.PlainDate;
 }
@@ -39,7 +39,7 @@ export function MedicalStaffDisplay({
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           {...(patient && { patient })}
           practiceId={practiceId}
-          {...(ruleSetId && { ruleSetId })}
+          ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
           simulationDate={simulationDate}
         />
