@@ -108,8 +108,8 @@ export function StaffAppointmentCreationModal({
   // Query for next available slot - only query when modal is open
   const [requestedAt] = useState(() => Temporal.Now.instant().toString());
 
-  const availableSlots = useQuery(
-    api.scheduling.getSlotsForDay,
+  const nextAvailableSlot = useQuery(
+    api.scheduling.getNextAvailableSlot,
     open && appointmentTypeId && locationId
       ? {
           date: selectedDate,
@@ -129,16 +129,6 @@ export function StaffAppointmentCreationModal({
           },
         }
       : "skip",
-  );
-
-  const nextAvailableSlot = useMemo(
-    () =>
-      availableSlots?.slots.find(
-        (slot) =>
-          slot.status === "AVAILABLE" &&
-          appointmentType?.allowedPractitionerIds.includes(slot.practitionerId),
-      ),
-    [appointmentType?.allowedPractitionerIds, availableSlots?.slots],
   );
 
   // Determine if we have a patient (from GDT or user-linked booking)
@@ -533,7 +523,12 @@ export function StaffAppointmentCreationModal({
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!nextAvailableSlot || !title.trim()}
+                  disabled={
+                    nextAvailableSlot !== null &&
+                    nextAvailableSlot !== undefined
+                      ? !title.trim()
+                      : true
+                  }
                   onClick={() => {
                     setMode("next");
                   }}
@@ -559,9 +554,15 @@ export function StaffAppointmentCreationModal({
                   )}
                 </Button>
 
+                {nextAvailableSlot === null && (
+                  <div className="text-sm text-muted-foreground">
+                    Es konnte kein freier Termin gefunden werden.
+                  </div>
+                )}
+
                 <Button
                   className="w-full justify-start"
-                  disabled={availableSlots === undefined || !title.trim()}
+                  disabled={!title.trim()}
                   onClick={() => {
                     // Pass the title to the calendar for manual placement
                     onPendingTitleChange?.(title.trim());

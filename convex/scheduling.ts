@@ -46,6 +46,18 @@ export interface SchedulingResultSlot {
   status: "AVAILABLE" | "BLOCKED";
 }
 
+const schedulingResultSlotValidator = v.object({
+  blockedByBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockedByRuleId: v.optional(v.id("ruleConditions")),
+  duration: v.number(),
+  locationId: v.optional(v.id("locations")),
+  practitionerId: v.id("practitioners"),
+  practitionerName: v.string(),
+  reason: v.optional(v.string()),
+  startTime: v.string(),
+  status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
+});
+
 function getNowAsZonedString(): string {
   return Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString();
 }
@@ -157,7 +169,7 @@ async function getSlotsForDayImpl(
       requestedAt?: string;
     };
   },
-) {
+): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> {
   // Ensure appointmentTypeId is present for rule evaluation
   if (!args.simulatedContext.appointmentTypeId) {
     throw new Error(
@@ -548,7 +560,10 @@ async function getSlotsForDayImpl(
 
 export const getSlotsForDay = query({
   args: getSlotsForDayArgs,
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
     return await getSlotsForDayImpl(ctx, args);
@@ -556,9 +571,72 @@ export const getSlotsForDay = query({
   returns: availableSlotsResultValidator,
 });
 
+export const getNextAvailableSlot = query({
+  args: {
+    date: v.string(),
+    practiceId: v.id("practices"),
+    ruleSetId: v.optional(v.id("ruleSets")),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    simulatedContext: simulatedContextValidator,
+  },
+  handler: async (ctx, args): Promise<null | SchedulingResultSlot> => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+    if (!appointmentTypeId) {
+      throw new Error(
+        "appointmentTypeId is required in simulatedContext for scheduling queries",
+      );
+    }
+
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      appointmentTypeId,
+    );
+    if (!appointmentType) {
+      throw new Error(
+        `Appointment type with ID ${appointmentTypeId} not found`,
+      );
+    }
+
+    const allowedPractitionerIds = new Set(
+      appointmentType.allowedPractitionerIds,
+    );
+    const startDate = Temporal.PlainDate.from(args.date);
+    const maxSearchDays = 90;
+
+    for (let offset = 0; offset <= maxSearchDays; offset += 1) {
+      const day = startDate.add({ days: offset });
+      const dayResult: Awaited<ReturnType<typeof getSlotsForDayImpl>> =
+        await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+          ...args,
+          date: day.toString(),
+        });
+
+      const nextSlot: null | SchedulingResultSlot =
+        dayResult.slots.find(
+          (slot: SchedulingResultSlot) =>
+            slot.status === "AVAILABLE" &&
+            allowedPractitionerIds.has(slot.practitionerId),
+        ) ?? null;
+
+      if (nextSlot) {
+        return nextSlot;
+      }
+    }
+
+    return null;
+  },
+  returns: v.union(v.null(), schedulingResultSlotValidator),
+});
+
 export const getSlotsForDayInternal = internalQuery({
   args: getSlotsForDayArgs,
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     return await getSlotsForDayImpl(ctx, args);
   },
   returns: availableSlotsResultValidator,
