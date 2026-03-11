@@ -416,44 +416,9 @@ export function NewCalendar({
 
   const handleCreateAppointment = useCallback(
     async (...args: Parameters<typeof runCreateAppointment>) => {
-      const previousAppointmentTypeId = selectedAppointmentTypeId;
-      const previousPendingAppointmentTitle = pendingAppointmentTitle;
-      const previousSimulatedContext = simulatedContext;
-
-      clearAppointmentCreationSelection();
-
-      try {
-        const createdAppointmentId = await runCreateAppointment(...args);
-        if (!createdAppointmentId) {
-          if (previousAppointmentTypeId !== undefined) {
-            handleAppointmentTypeSelect(previousAppointmentTypeId);
-          }
-          setPendingAppointmentTitle(previousPendingAppointmentTitle);
-          if (previousSimulatedContext && onUpdateSimulatedContext) {
-            onUpdateSimulatedContext(previousSimulatedContext);
-          }
-        }
-        return createdAppointmentId;
-      } catch (error) {
-        if (previousAppointmentTypeId !== undefined) {
-          handleAppointmentTypeSelect(previousAppointmentTypeId);
-        }
-        setPendingAppointmentTitle(previousPendingAppointmentTitle);
-        if (previousSimulatedContext && onUpdateSimulatedContext) {
-          onUpdateSimulatedContext(previousSimulatedContext);
-        }
-        throw error;
-      }
+      return await runCreateAppointment(...args);
     },
-    [
-      clearAppointmentCreationSelection,
-      handleAppointmentTypeSelect,
-      onUpdateSimulatedContext,
-      pendingAppointmentTitle,
-      runCreateAppointment,
-      selectedAppointmentTypeId,
-      simulatedContext,
-    ],
+    [runCreateAppointment],
   );
 
   const handleBlockSlot = useCallback(
