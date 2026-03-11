@@ -912,9 +912,8 @@ async function queryAvailableSlotsForDay(
     return cachedSlots;
   }
 
-  const result = await ctx.runQuery(
-    internal.scheduling.getSlotsForDayInternal,
-    {
+  const result: { log: string[]; slots: SchedulingResultSlot[] } =
+    await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
       date: args.date,
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
@@ -933,8 +932,7 @@ async function queryAvailableSlotsForDay(
         },
         requestedAt: args.requestedAt,
       },
-    },
-  );
+    });
 
   const slots = result.slots
     .filter((slot) => slot.status === "AVAILABLE")
