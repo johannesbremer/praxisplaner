@@ -107,29 +107,9 @@ export function CalendarSidebar() {
     Id<"locations"> | undefined
   >();
 
-  const logAutomaticPlacement = (
-    event: string,
-    details?: Record<string, unknown>,
-  ) => {
-    console.info("[automatic-placement][calendar-sidebar]", event, {
-      creationModalAppointmentTypeId,
-      creationModalLocationId,
-      isSimulation: simulatedContext !== undefined,
-      practiceId,
-      ruleSetId,
-      selectedAppointmentTypeId,
-      selectedLocationId,
-      showCreationModal,
-      ...details,
-    });
-  };
-
   // Stable callback to prevent re-renders
   const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
     if (onAppointmentTypeSelect) {
-      logAutomaticPlacement("handleTypeSelect:start", {
-        clickedAppointmentTypeId: typeId,
-      });
       onAppointmentTypeSelect(typeId);
       setCreationModalAppointmentTypeId(typeId);
       setCreationModalLocationId(selectedLocationId);
@@ -142,7 +122,6 @@ export function CalendarSidebar() {
 
   // Handle deselection of appointment type
   const handleTypeDeselect = () => {
-    logAutomaticPlacement("handleTypeDeselect");
     if (onAppointmentTypeSelect) {
       onAppointmentTypeSelect();
     }
@@ -165,10 +144,6 @@ export function CalendarSidebar() {
     open: boolean,
     shouldResetAppointmentType?: boolean,
   ) => {
-    logAutomaticPlacement("handleModalClose", {
-      open,
-      shouldResetAppointmentType,
-    });
     setShowCreationModal(open);
     if (!open) {
       if (shouldResetAppointmentType && onAppointmentTypeSelect) {
@@ -241,20 +216,6 @@ export function CalendarSidebar() {
   const selectedDateFormatted = formatDateDE(selectedDate);
   const dayName = getDayName(selectedDate);
 
-  useEffect(() => {
-    logAutomaticPlacement("state:changed");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    creationModalAppointmentTypeId,
-    creationModalLocationId,
-    practiceId,
-    ruleSetId,
-    selectedAppointmentTypeId,
-    selectedLocationId,
-    showCreationModal,
-    simulatedContext,
-  ]);
-
   return (
     <>
       <Sidebar collapsible="offcanvas" side="left" variant="sidebar">
@@ -313,6 +274,7 @@ export function CalendarSidebar() {
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <AppointmentTypeSelector
+                      disableAutoDeselect={showCreationModal}
                       isBlockingModeActive={isBlockingModeActive}
                       onBlockingModeChange={handleBlockingModeChange}
                       onTypeDeselect={handleTypeDeselect}
