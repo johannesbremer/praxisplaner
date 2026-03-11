@@ -376,10 +376,6 @@ export function NewCalendar({
 
   const handleAppointmentTypeSelect = useCallback(
     (appointmentTypeId?: Id<"appointmentTypes">) => {
-      console.info("[automatic-placement][new-calendar] handleAppointmentTypeSelect", {
-        appointmentTypeId,
-        isSimulation: simulatedContext !== undefined,
-      });
       setSelectedAppointmentTypeId(appointmentTypeId);
 
       // Update simulatedContext immediately when appointment type is selected
@@ -409,10 +405,6 @@ export function NewCalendar({
   // Handler for selecting an appointment by ID (used after creation)
   const handleAppointmentSelection = useCallback(
     (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
-      console.info("[automatic-placement][new-calendar] handleAppointmentSelection", {
-        appointmentId,
-        patient,
-      });
       setSelectedAppointmentId(appointmentId);
       clearAppointmentCreationSelection();
       if (patient) {

@@ -5,7 +5,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarIcon, User } from "lucide-react";
 import { ResultAsync } from "neverthrow";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -81,30 +81,6 @@ export function StaffAppointmentCreationModal({
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
   const [title, setTitle] = useState("");
-
-  const logAutomaticPlacement = (
-    event: string,
-    details?: Record<string, unknown>,
-  ) => {
-    console.info("[automatic-placement][modal]", event, {
-      appointmentTypeId,
-      isSimulation,
-      locationId,
-      mode,
-      nextAvailableSlotState:
-        nextAvailableSlot === undefined
-          ? "loading"
-          : nextAvailableSlot === null
-            ? "missing"
-            : "ready",
-      open,
-      practiceId,
-      ruleSetId,
-      selectedDate,
-      title,
-      ...details,
-    });
-  };
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
@@ -361,7 +337,6 @@ export function StaffAppointmentCreationModal({
   });
 
   const handleClose = (shouldResetAppointmentType = true) => {
-    logAutomaticPlacement("handleClose", { shouldResetAppointmentType });
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
     setTitle("");
@@ -369,7 +344,6 @@ export function StaffAppointmentCreationModal({
   };
 
   const handleDialogOpenChange = (open: boolean) => {
-    logAutomaticPlacement("handleDialogOpenChange", { nextOpen: open });
     // When dialog closes (ESC, outside click, etc), don't reset appointment type
     // Only reset on explicit cancel button click
     if (!open) {
@@ -401,27 +375,6 @@ export function StaffAppointmentCreationModal({
       : hasNoNextAvailableSlot
         ? "Kein Termin verfügbar"
         : "Termin erstellen";
-
-  useEffect(() => {
-    logAutomaticPlacement("state:changed", {
-      hasFollowUpPlan,
-      hasNoNextAvailableSlot,
-      isNextAvailableSlotLoading,
-      isSeriesPreviewBlocked,
-      isSeriesPreviewLoading,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    hasFollowUpPlan,
-    hasNoNextAvailableSlot,
-    isNextAvailableSlotLoading,
-    isSeriesPreviewBlocked,
-    isSeriesPreviewLoading,
-    mode,
-    nextAvailableSlot,
-    open,
-    title,
-  ]);
 
   return (
     <>
@@ -607,9 +560,6 @@ export function StaffAppointmentCreationModal({
                   className="w-full justify-start"
                   disabled={!title.trim()}
                   onClick={() => {
-                    logAutomaticPlacement("click:next", {
-                      canOpenNextStep: true,
-                    });
                     setMode("next");
                   }}
                   variant="outline"
@@ -650,7 +600,6 @@ export function StaffAppointmentCreationModal({
                   className="w-full justify-start"
                   disabled={!title.trim()}
                   onClick={() => {
-                    logAutomaticPlacement("click:manual-placement");
                     // Pass the title to the calendar for manual placement
                     onPendingTitleChange?.(title.trim());
                     // Close modal but keep appointment type selected for manual placement
