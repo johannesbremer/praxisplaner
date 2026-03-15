@@ -3,6 +3,7 @@
 
 export { CalendarSelectionStep } from "./calendar-selection-step";
 export {
+  BookedAppointmentsSummary,
   BookedAppointmentSummary,
   ConfirmationStep,
 } from "./confirmation-step";

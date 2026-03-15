@@ -109,6 +109,20 @@ export function NewCalendar({
   // Ref for scrolling to appointments
   const calendarScrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const clearAppointmentCreationSelection = useCallback(() => {
+    setSelectedAppointmentTypeId(undefined);
+    setPendingAppointmentTitle(undefined);
+
+    if (simulatedContext && onUpdateSimulatedContext) {
+      const { locationId, patient, requestedAt } = simulatedContext;
+      onUpdateSimulatedContext({
+        ...(locationId && { locationId }),
+        patient,
+        ...(requestedAt && { requestedAt }),
+      });
+    }
+  }, [onUpdateSimulatedContext, simulatedContext]);
+
   // State for appointment type selection - must be defined before useCalendarLogic
   const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
     Id<"appointmentTypes"> | undefined
@@ -188,6 +202,7 @@ export function NewCalendar({
     workingPractitioners,
   } = useCalendarLogic({
     locationName,
+    onClearAppointmentTypeSelection: clearAppointmentCreationSelection,
     onDateChange,
     onLocationResolved,
     onUpdateSimulatedContext,
@@ -228,6 +243,14 @@ export function NewCalendar({
     api.users.getById,
     selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
   );
+
+  const selectedSeriesId =
+    appointments.find(
+      (appointment) => appointment.convexId === selectedAppointmentId,
+    )?.resource?.seriesId ??
+    patientAppointments?.find(
+      (appointment) => appointment._id === selectedAppointmentId,
+    )?.seriesId;
 
   // Convert selected patient data to PatientInfo format for the sidebar
   const selectedPatientInfo: PatientInfo | undefined = (() => {
@@ -302,17 +325,6 @@ export function NewCalendar({
     }
   }, []);
 
-  // Handler for selecting an appointment by ID (used after creation)
-  const handleAppointmentSelection = useCallback(
-    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
-      setSelectedAppointmentId(appointmentId);
-      if (patient) {
-        setSelectedPatient(patient);
-      }
-    },
-    [],
-  );
-
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);
 
@@ -363,7 +375,7 @@ export function NewCalendar({
   );
 
   const handleAppointmentTypeSelect = useCallback(
-    (appointmentTypeId: Id<"appointmentTypes"> | undefined) => {
+    (appointmentTypeId?: Id<"appointmentTypes">) => {
       setSelectedAppointmentTypeId(appointmentTypeId);
 
       // Update simulatedContext immediately when appointment type is selected
@@ -388,6 +400,25 @@ export function NewCalendar({
       }
     },
     [simulatedContext, onUpdateSimulatedContext],
+  );
+
+  // Handler for selecting an appointment by ID (used after creation)
+  const handleAppointmentSelection = useCallback(
+    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
+      setSelectedAppointmentId(appointmentId);
+      clearAppointmentCreationSelection();
+      if (patient) {
+        setSelectedPatient(patient);
+      }
+    },
+    [clearAppointmentCreationSelection],
+  );
+
+  const handleCreateAppointment = useCallback(
+    async (...args: Parameters<typeof runCreateAppointment>) => {
+      return await runCreateAppointment(...args);
+    },
+    [runCreateAppointment],
   );
 
   const handleBlockSlot = useCallback(
@@ -436,9 +467,9 @@ export function NewCalendar({
         onPendingTitleChange: setPendingAppointmentTitle,
         onUpdateSimulatedContext,
         patient: selectedPatientInfo ?? patient,
-        practiceId: practiceId ?? undefined,
+        practiceId,
         ruleSetId,
-        runCreateAppointment,
+        runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
         selectedDate,
         selectedLocationId: simulatedContext?.locationId || selectedLocationId,
@@ -556,6 +587,7 @@ export function NewCalendar({
                           ? selectedPatient.id
                           : null
                       }
+                      selectedSeriesId={selectedSeriesId ?? null}
                       selectedUserId={
                         selectedPatient?.type === "user"
                           ? selectedPatient.id
@@ -658,6 +690,7 @@ export function NewCalendar({
               patient={selectedPatientInfo ?? patient}
               patientAppointments={patientAppointments}
               selectedAppointmentId={selectedAppointmentId}
+              selectedSeriesId={selectedSeriesId}
               showGdtAlert={showGdtAlert}
             />
           </div>
