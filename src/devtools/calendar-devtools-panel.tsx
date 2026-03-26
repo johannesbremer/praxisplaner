@@ -42,12 +42,15 @@ export function CalendarDevtoolsPanel() {
   }>(null);
 
   React.useEffect(() => {
-    const offRender = CalendarDevtoolsEventClient.on("calendar-render", (e) => {
-      setRenders(e.payload.renders);
-      setLastRenderAt(e.payload.lastRenderAt);
-    });
+    const offRender = CalendarDevtoolsEventClient.on(
+      "custom-devtools:calendar-render",
+      (e) => {
+        setRenders(e.payload.renders);
+        setLastRenderAt(e.payload.lastRenderAt);
+      },
+    );
     const offApp = CalendarDevtoolsEventClient.on(
-      "calendar-appointments",
+      "custom-devtools:calendar-appointments",
       (e) => {
         setAppointments({
           count: e.payload.count,
@@ -56,28 +59,34 @@ export function CalendarDevtoolsPanel() {
         });
       },
     );
-    const offDrag = CalendarDevtoolsEventClient.on("calendar-drag", (e) => {
-      setDrag(e.payload);
-    });
+    const offDrag = CalendarDevtoolsEventClient.on(
+      "custom-devtools:calendar-drag",
+      (e) => {
+        setDrag(e.payload);
+      },
+    );
     const offAuto = CalendarDevtoolsEventClient.on(
-      "calendar-autoscroll",
+      "custom-devtools:calendar-autoscroll",
       (e) => {
         setAutoscroll(e.payload);
       },
     );
-    const offEffect = CalendarDevtoolsEventClient.on("calendar-effect", (e) => {
-      setEffects((prev) => {
-        const existing = prev.find((p) => p.name === e.payload.name);
-        if (existing) {
-          return prev.map((p) =>
-            p.name === e.payload.name ? { ...p, count: e.payload.count } : p,
-          );
-        }
-        return [...prev, { count: e.payload.count, name: e.payload.name }];
-      });
-    });
+    const offEffect = CalendarDevtoolsEventClient.on(
+      "custom-devtools:calendar-effect",
+      (e) => {
+        setEffects((prev) => {
+          const existing = prev.find((p) => p.name === e.payload.name);
+          if (existing) {
+            return prev.map((p) =>
+              p.name === e.payload.name ? { ...p, count: e.payload.count } : p,
+            );
+          }
+          return [...prev, { count: e.payload.count, name: e.payload.name }];
+        });
+      },
+    );
     const offPerf = CalendarDevtoolsEventClient.on(
-      "calendar-performance",
+      "custom-devtools:calendar-performance",
       (e) => {
         setPerf(e.payload);
       },

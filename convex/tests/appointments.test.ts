@@ -13,7 +13,9 @@ interface SlotWindow {
   start: string;
 }
 
-async function createAppointmentBaseData(t: ReturnType<typeof convexTest>) {
+type TestContext = ReturnType<typeof createTestContext>;
+
+async function createAppointmentBaseData(t: TestContext) {
   return await t.run(async (ctx) => {
     const practiceId = await ctx.db.insert("practices", {
       name: "Appointments Test Practice",
@@ -69,7 +71,7 @@ function createTestContext() {
 }
 
 async function createUser(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   authId: string,
   email: string,
 ) {
@@ -83,7 +85,7 @@ async function createUser(
 }
 
 async function insertAppointment(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
     locationId: Id<"locations">;

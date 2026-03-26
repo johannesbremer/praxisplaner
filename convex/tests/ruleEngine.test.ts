@@ -23,7 +23,7 @@ import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { ConditionTreeNode } from "../ruleEngine";
 
 import {
@@ -33,6 +33,8 @@ import {
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "./test.setup";
+
+type TestContext = ReturnType<typeof createTestContext>;
 
 // ================================
 // TEST HELPER FUNCTIONS
@@ -45,13 +47,13 @@ function createTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "ruleengine@example.com",
     subject: "workos_ruleengine",
-  }) as ReturnType<typeof convexTest>;
+  });
 }
 
 /**
  * Helper to create a practice and return its ID.
  */
-async function createPractice(t: ReturnType<typeof convexTest>) {
+async function createPractice(t: TestContext) {
   return await t.mutation(api.practices.createPractice, {
     name: "Test Practice",
   });
@@ -61,7 +63,7 @@ async function createPractice(t: ReturnType<typeof convexTest>) {
  * Helper to create a rule set for a practice.
  */
 async function createRuleSet(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   saved = false,
 ) {
@@ -82,7 +84,7 @@ async function createRuleSet(
  * Helper to create a practitioner in a rule set.
  */
 async function createPractitioner(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   name: string,
@@ -103,7 +105,7 @@ async function createPractitioner(
  * Helper to create a location in a rule set.
  */
 async function createLocation(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   name: string,
@@ -122,7 +124,7 @@ async function createLocation(
  * Helper to create an appointment type in a rule set.
  */
 async function createAppointmentType(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   name: string,
@@ -148,7 +150,7 @@ async function createAppointmentType(
  * This mimics what the UI does when creating rules through the dialog.
  */
 async function createRule(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   conditionTree: ConditionTreeNode,
@@ -214,7 +216,7 @@ async function createRule(
  * Helper to create an appointment (for testing concurrent/same-day counts).
  */
 async function createAppointment(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   practitionerId: Id<"practitioners">,
   locationId: Id<"locations">,
@@ -228,10 +230,10 @@ async function createAppointment(
     const startZoned = Temporal.ZonedDateTime.from(startTime);
     const endZoned = startZoned.add({ minutes: duration });
 
-    const appointmentType = (await ctx.db.get(
+    const appointmentType = await ctx.db.get(
       "appointmentTypes",
       appointmentTypeId,
-    )) as Doc<"appointmentTypes"> | null;
+    );
     if (!appointmentType) {
       throw new Error(`Appointment type ${appointmentTypeId} not found`);
     }
@@ -2912,7 +2914,7 @@ describe("Rule Engine: Real-World Scenarios", () => {
  * Helper to create a base schedule for testing slot generation.
  */
 async function createBaseSchedule(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   practitionerId: Id<"practitioners">,
