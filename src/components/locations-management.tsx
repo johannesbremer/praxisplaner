@@ -41,10 +41,6 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
-type BaseSchedulesResult =
-  (typeof api.entities.getBaseSchedules)["_returnType"];
-
-type BaseScheduleWithLineage = BaseSchedulesResult[number];
 interface LocationsManagementProps {
   expectedDraftRevision: null | number;
   onDraftMutation?: (result: {
@@ -56,12 +52,6 @@ interface LocationsManagementProps {
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
 }
-type LocationsResult = (typeof api.entities.getLocations)["_returnType"];
-type LocationWithLineage = LocationsResult[number];
-type PractitionersResult =
-  (typeof api.entities.getPractitioners)["_returnType"];
-
-type PractitionerWithLineage = PractitionersResult[number];
 
 export function LocationsManagement({
   expectedDraftRevision,
@@ -92,23 +82,19 @@ export function LocationsManagement({
   const createBaseScheduleMutation = useMutation(
     api.entities.createBaseSchedule,
   );
-  const locationsRef = useRef<LocationWithLineage[]>(locationsQuery ?? []);
+  const locationsRef = useRef(locationsQuery ?? []);
   useEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
-  const practitionersRef = useRef<PractitionerWithLineage[]>(
-    practitionersQuery ?? [],
-  );
+  const practitionersRef = useRef(practitionersQuery ?? []);
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
-  const baseSchedulesRef = useRef<BaseScheduleWithLineage[]>(
-    baseSchedulesQuery ?? [],
-  );
+  const baseSchedulesRef = useRef(baseSchedulesQuery ?? []);
   useEffect(() => {
     baseSchedulesRef.current = baseSchedulesQuery ?? [];
   }, [baseSchedulesQuery]);
-  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);

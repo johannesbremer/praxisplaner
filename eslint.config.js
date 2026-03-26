@@ -29,7 +29,9 @@ export default tseslint.config(
     ignores: [
       "**/*.snap",
       "node_modules",
+      ".agents/",
       "pnpm-lock.yaml",
+      "skills-lock.json",
       "convex/_generated/",
       "src/routeTree.gen.ts",
       "eslint.config.js",

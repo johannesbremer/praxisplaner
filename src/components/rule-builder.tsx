@@ -161,7 +161,7 @@ export function RuleBuilder({
   useEffect(() => {
     rulesRef.current = existingRules ?? [];
   }, [existingRules]);
-  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);

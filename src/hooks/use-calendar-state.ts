@@ -96,14 +96,11 @@ export function useCalendarState({
   initialLocationId,
 }: UseCalendarStateProps = {}): CalendarState {
   // Core state
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    initialDate ?? new Date(),
-  );
-  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState(initialDate ?? new Date());
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = useState<
-    Id<"locations"> | undefined
-  >(initialLocationId);
+  const [selectedLocationId, setSelectedLocationId] =
+    useState(initialLocationId);
 
   // Drag & Drop state
   const [draggedAppointment, setDraggedAppointment] =

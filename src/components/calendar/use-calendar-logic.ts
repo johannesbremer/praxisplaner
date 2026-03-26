@@ -69,9 +69,7 @@ export function useCalendarLogic({
   const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
     Temporal.Now.zonedDateTimeISO(TIMEZONE),
   );
-  const [practiceId, setPracticeId] = useState<Id<"practices"> | null>(
-    propPracticeId ?? null,
-  );
+  const [practiceId, setPracticeId] = useState(propPracticeId ?? null);
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<Appointment | null>(null);
@@ -114,8 +112,8 @@ export function useCalendarLogic({
 
   // Devtools instrumentation
   const [mountTime] = useState(() => Date.now());
-  const mountTimeRef = useRef<number>(mountTime);
-  const lastRenderRef = useRef<number>(mountTime);
+  const mountTimeRef = useRef(mountTime);
+  const lastRenderRef = useRef(mountTime);
   const renderCountRef = useRef(0);
   const effectCountersRef = useRef<Record<string, number>>({});
 
@@ -141,9 +139,9 @@ export function useCalendarLogic({
   });
 
   // Local state for selected location - sync with external prop changes during render
-  const [selectedLocationId, setSelectedLocationId] = useState<
-    Id<"locations"> | undefined
-  >(externalSelectedLocationId);
+  const [selectedLocationId, setSelectedLocationId] = useState(
+    externalSelectedLocationId,
+  );
   const [prevExternalLocationId, setPrevExternalLocationId] = useState(
     externalSelectedLocationId,
   );

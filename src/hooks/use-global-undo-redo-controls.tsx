@@ -122,7 +122,7 @@ export function useRegisterGlobalUndoRedoControls(
           ),
         );
   const ownerIdRef = useRef(Symbol("undo-redo-controls-owner"));
-  const controlsRef = useRef<null | UndoRedoControls>(controls);
+  const controlsRef = useRef(controls);
   const context = contextResult.match(
     (value) => value,
     (error) => {

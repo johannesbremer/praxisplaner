@@ -1,10 +1,12 @@
 pnpm-lock.yaml
 src/routeTree.gen.ts
 node_modules
+.agents
 .pnpm-store
 .output
 .nitro
 .tanstack
+skills-lock.json
 bundle-analysis.json
 stats.html
 .vercel/

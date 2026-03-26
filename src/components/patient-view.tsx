@@ -61,9 +61,9 @@ export function PatientView({
   simulatedContext,
 }: PatientViewProps) {
   // Track selected location in local state
-  const [selectedLocationId, setSelectedLocationId] = useState<
-    Id<"locations"> | undefined
-  >(simulatedContext.locationId);
+  const [selectedLocationId, setSelectedLocationId] = useState(
+    simulatedContext.locationId,
+  );
 
   // Track calendar navigation independently from simulation dateRange
   // Derive from dateRange.start to avoid setting state in effect

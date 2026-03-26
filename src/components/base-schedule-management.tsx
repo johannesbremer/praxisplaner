@@ -463,9 +463,7 @@ export default function BaseScheduleManagement({
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
-  const expectedDraftRevisionRef = React.useRef<null | number>(
-    expectedDraftRevision,
-  );
+  const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
   React.useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
@@ -910,9 +908,7 @@ function BaseScheduleDialog({
   React.useEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
-  const expectedDraftRevisionRef = React.useRef<null | number>(
-    expectedDraftRevision,
-  );
+  const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
   React.useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);

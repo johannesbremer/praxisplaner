@@ -55,9 +55,6 @@ interface AppointmentTypesManagementProps {
 
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
-type PractitionersResult =
-  (typeof api.entities.getPractitioners)["_returnType"];
-type PractitionerWithLineage = PractitionersResult[number];
 
 // Form schema using Zod
 const formSchema = z.object({
@@ -139,15 +136,15 @@ export function AppointmentTypesManagement({
     () => practitionersQuery ?? [],
     [practitionersQuery],
   );
-  const appointmentTypesRef = useRef<AppointmentType[]>(appointmentTypes);
+  const appointmentTypesRef = useRef(appointmentTypes);
   useEffect(() => {
     appointmentTypesRef.current = appointmentTypes;
   }, [appointmentTypes]);
-  const practitionersRef = useRef<PractitionerWithLineage[]>(practitioners);
+  const practitionersRef = useRef(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
-  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);

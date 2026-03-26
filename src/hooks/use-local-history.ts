@@ -57,8 +57,8 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
   const historyRef = useRef<LocalHistoryAction[]>([]);
   const redoRef = useRef<LocalHistoryAction[]>([]);
   const queuedOperationCountRef = useRef(0);
-  const operationQueueRef = useRef(Promise.resolve<null>(null));
-  const [state, setState] = useState<LocalHistoryState>(DEFAULT_STATE);
+  const operationQueueRef = useRef(Promise.resolve(null));
+  const [state, setState] = useState(DEFAULT_STATE);
 
   useEffect(() => {
     optionsRef.current = resolvedOptions;

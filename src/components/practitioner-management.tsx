@@ -84,9 +84,7 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<PractitionerWithLineage[]>(
-    practitionersQuery ?? [],
-  );
+  const practitionersRef = useRef(practitionersQuery ?? []);
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
@@ -96,7 +94,7 @@ export default function PractitionerManagement({
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
-  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
@@ -365,9 +363,7 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef<PractitionerWithLineage[]>(
-    practitionersQuery ?? [],
-  );
+  const practitionersRef = useRef(practitionersQuery ?? []);
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
@@ -375,7 +371,7 @@ function PractitionerDialog({
   const createMutation = useMutation(api.entities.createPractitioner);
   const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
-  const expectedDraftRevisionRef = useRef<null | number>(expectedDraftRevision);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
   useEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
