@@ -4,15 +4,11 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type PluginOption } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig(({ command }) => {
   const enableDevtools =
     command === "serve" || process.env["ENABLE_DEVTOOLS"] === "true";
   const basePlugins: PluginOption[] = [
-    tsconfigPaths({
-      projects: ["./tsconfig.json"],
-    }),
     tanstackStart({
       srcDirectory: "src",
     }),
@@ -40,5 +36,8 @@ export default defineConfig(({ command }) => {
       __ENABLE_DEVTOOLS__: JSON.stringify(enableDevtools),
     },
     plugins,
+    resolve: {
+      tsconfigPaths: true,
+    },
   };
 });

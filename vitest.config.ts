@@ -1,17 +1,14 @@
 import react from "@vitejs/plugin-react";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   define: {
     __ENABLE_DEVTOOLS__: "false",
   },
-  plugins: [
-    react(),
-    tsconfigPaths({
-      projects: ["./tsconfig.json"],
-    }),
-  ],
+  plugins: [react()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   test: {
     coverage: {
       exclude: [
