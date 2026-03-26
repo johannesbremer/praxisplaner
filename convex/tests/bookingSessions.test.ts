@@ -335,10 +335,7 @@ function createTestContext() {
   return convexTest(schema, modules);
 }
 
-function makeAuthedClient(
-  t: TestContext,
-  identitySuffix: string,
-) {
+function makeAuthedClient(t: TestContext, identitySuffix: string) {
   return t.withIdentity({
     email: `${identitySuffix}@example.com`,
     subject: `workos_${identitySuffix}`,

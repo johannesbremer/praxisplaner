@@ -70,11 +70,7 @@ function createTestContext() {
   return convexTest(schema, modules);
 }
 
-async function createUser(
-  t: TestContext,
-  authId: string,
-  email: string,
-) {
+async function createUser(t: TestContext, authId: string, email: string) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("users", {
       authId,
