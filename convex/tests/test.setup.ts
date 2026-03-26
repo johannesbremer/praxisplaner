@@ -1,2 +1,6 @@
 /// <reference types="vite/client" />
-export const modules = import.meta.glob("../**/*.{js,ts}");
+export const modules = import.meta.glob([
+  "../**/*.{js,ts}",
+  "!../tests/**",
+  "!../**/*.d.ts",
+]);
