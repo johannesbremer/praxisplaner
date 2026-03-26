@@ -26,29 +26,16 @@ export interface CalendarDevtoolsEventMap {
   "custom-devtools:calendar-render": { lastRenderAt: number; renders: number };
 }
 
-// Helper to map a full namespaced key to its suffix key present in EventClient
-type StripPrefix<K extends keyof CalendarDevtoolsEventMap> =
-  K extends `custom-devtools:${infer S}` ? S : K;
-
 class CalendarEventClient extends EventClient<CalendarDevtoolsEventMap> {
   constructor() {
     super({ pluginId: "custom-devtools" });
   }
 
-  // Provide a typed proxy emit that accepts full namespaced key for convenience
   emitFull<K extends keyof CalendarDevtoolsEventMap>(
     fullType: K,
     payload: CalendarDevtoolsEventMap[K],
   ) {
-    const parts = fullType.split(":");
-    const suffix = (
-      parts.length > 1 ? parts.slice(1).join(":") : parts[0]
-    ) as StripPrefix<K>;
-    // Cast payload to the suffix event payload type
-    super.emit(
-      suffix as keyof Omit<CalendarDevtoolsEventMap, keyof never>,
-      payload as never,
-    );
+    super.emit(fullType, payload);
   }
 }
 

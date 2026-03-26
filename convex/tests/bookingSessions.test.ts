@@ -10,6 +10,7 @@ import { api } from "../_generated/api";
 import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
 
+type AuthedTestContext = ReturnType<typeof makeAuthedClient>;
 type BookingSessionState = BookingSessionStep;
 type DataSharingContactInput =
   NewPatientDataSharingArgs["dataSharingContacts"][number];
@@ -24,9 +25,10 @@ type NewPatientSlotArgs = FunctionArgs<
   typeof api.bookingSessions.selectNewPatientSlot
 >;
 type SelectedSlotInput = NewPatientSlotArgs["selectedSlot"];
+type TestContext = ReturnType<typeof createTestContext>;
 
 async function addHoursAheadBlockingRule(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   args: {
     minimumHours: number;
     practiceId: Id<"practices">;
@@ -78,7 +80,7 @@ function assertStateStep<S extends BookingSessionState["step"]>(
 }
 
 async function bootstrapToExistingCalendarSelection(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   locationId: Id<"locations">,
   practitionerId: Id<"practitioners">,
   sessionId: Id<"bookingSessions">,
@@ -107,7 +109,7 @@ async function bootstrapToExistingCalendarSelection(
 }
 
 async function bootstrapToExistingDataSharing(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   locationId: Id<"locations">,
   practitionerId: Id<"practitioners">,
   sessionId: Id<"bookingSessions">,
@@ -132,7 +134,7 @@ async function bootstrapToExistingDataSharing(
 }
 
 async function bootstrapToNewCalendarSelection(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   locationId: Id<"locations">,
   sessionId: Id<"bookingSessions">,
 ) {
@@ -162,7 +164,7 @@ async function bootstrapToNewCalendarSelection(
 }
 
 async function bootstrapToNewDataSharing(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   locationId: Id<"locations">,
   sessionId: Id<"bookingSessions">,
 ) {
@@ -188,7 +190,7 @@ async function bootstrapToNewDataSharing(
 }
 
 async function bootstrapToNewDataSharingPkv(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   locationId: Id<"locations">,
   sessionId: Id<"bookingSessions">,
 ) {
@@ -215,7 +217,7 @@ async function bootstrapToNewDataSharingPkv(
 }
 
 async function bootstrapToPatientStatus(
-  authed: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  authed: AuthedTestContext,
   sessionId: Id<"bookingSessions">,
   locationId: Id<"locations">,
 ) {
@@ -227,7 +229,7 @@ async function bootstrapToPatientStatus(
 }
 
 async function createAppointmentTypeInOtherRuleSet(
-  t: ReturnType<typeof convexTest>,
+  t: TestContext,
   practiceId: Id<"practices">,
   practitionerId: Id<"practitioners">,
 ) {
@@ -254,7 +256,7 @@ async function createAppointmentTypeInOtherRuleSet(
   });
 }
 
-async function createBookingEntities(t: ReturnType<typeof convexTest>) {
+async function createBookingEntities(t: TestContext) {
   return await t.run(async (ctx) => {
     const practiceId = await ctx.db.insert("practices", {
       name: "Flow Test Practice",
@@ -306,7 +308,7 @@ async function createBookingEntities(t: ReturnType<typeof convexTest>) {
   });
 }
 
-async function createPracticeAndRuleSet(t: ReturnType<typeof convexTest>) {
+async function createPracticeAndRuleSet(t: TestContext) {
   return await t.run(async (ctx) => {
     const practiceId = await ctx.db.insert("practices", {
       name: "Test Practice",
@@ -333,10 +335,7 @@ function createTestContext() {
   return convexTest(schema, modules);
 }
 
-function makeAuthedClient(
-  t: ReturnType<typeof convexTest>,
-  identitySuffix: string,
-) {
+function makeAuthedClient(t: TestContext, identitySuffix: string) {
   return t.withIdentity({
     email: `${identitySuffix}@example.com`,
     subject: `workos_${identitySuffix}`,
