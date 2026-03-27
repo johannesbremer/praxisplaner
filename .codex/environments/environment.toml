@@ -7,8 +7,14 @@ script = '''
 set -eu
 
 SOURCE_ENV="$HOME/Code/praxisplaner/.env.local"
+FNM_BIN="$(command -v fnm || true)"
 
 [ -f "$SOURCE_ENV" ] || { echo "Missing $SOURCE_ENV"; exit 1; }
+[ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
+
+eval "$("$FNM_BIN" env --shell bash)"
+"$FNM_BIN" use --install-if-missing --silent-if-unchanged
+corepack enable
 
 cp -f "$SOURCE_ENV" .env.local
 chmod 600 .env.local
@@ -22,6 +28,15 @@ pnpm gen
 name = "Verify CI checks don't fail."
 icon = "tool"
 command = '''
+set -eu
+
+FNM_BIN="$(command -v fnm || true)"
+[ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
+
+eval "$("$FNM_BIN" env --shell bash)"
+"$FNM_BIN" use --install-if-missing --silent-if-unchanged
+corepack enable
+
 pnpm gen
 pnpm lint
 pnpm tsc
