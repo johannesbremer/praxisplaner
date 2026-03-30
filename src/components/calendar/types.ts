@@ -24,6 +24,7 @@ export interface Appointment {
     locationId?: Doc<"appointments">["locationId"];
     patientId?: Doc<"appointments">["patientId"];
     practitionerId?: Doc<"appointments">["practitionerId"];
+    seriesId?: Doc<"appointments">["seriesId"];
     title?: string;
     userId?: Doc<"appointments">["userId"];
   };
@@ -37,6 +38,7 @@ export interface Appointment {
  */
 export interface NewCalendarProps {
   locationName?: string | undefined;
+  onClearAppointmentTypeSelection?: (() => void) | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
@@ -44,7 +46,6 @@ export interface NewCalendarProps {
   onPatientRequired?:
     | ((params: {
         appointmentTypeId: Id<"appointmentTypes">;
-        end: string;
         isSimulation: boolean;
         locationId: Id<"locations">;
         practiceId: Id<"practices">;
@@ -69,8 +70,8 @@ export interface NewCalendarProps {
     | undefined;
 
   patient?: PatientInfo | undefined;
-  practiceId?: Id<"practices"> | undefined;
-  ruleSetId?: SchedulingRuleSetId | undefined;
+  practiceId: Id<"practices">;
+  ruleSetId: SchedulingRuleSetId;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null> | undefined;
   selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
   selectedLocationId?: Id<"locations"> | undefined;

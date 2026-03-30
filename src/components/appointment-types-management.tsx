@@ -1,6 +1,13 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
-import { Package2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Package2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -30,6 +37,13 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -55,6 +69,162 @@ interface AppointmentTypesManagementProps {
 
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
+type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
+
+const followUpStepSchema = z
+  .object({
+    appointmentTypeLineageKey: z
+      .string()
+      .min(1, "Bitte wählen Sie eine Terminart"),
+    offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
+    offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
+  })
+  .superRefine((step, ctx) => {
+    if (step.offsetUnit === "minutes") {
+      if (step.offsetValue < 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Minuten dürfen nicht negativ sein",
+          path: ["offsetValue"],
+        });
+      }
+
+      if (step.offsetValue % 5 !== 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Minuten müssen in 5er-Schritten angegeben werden",
+          path: ["offsetValue"],
+        });
+      }
+
+      return;
+    }
+
+    if (step.offsetValue < 1) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Tage, Wochen und Monate müssen mindestens 1 sein",
+        path: ["offsetValue"],
+      });
+    }
+  });
+type FollowUpPlanFormStep = z.infer<typeof followUpStepSchema>;
+
+const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
+  appointmentTypeLineageKey: "" as Id<"appointmentTypes">,
+  offsetUnit: "days",
+  offsetValue: 1,
+});
+
+const getFollowUpSearchMode = (
+  step: FollowUpPlanFormStep,
+): FollowUpPlanStep["searchMode"] => {
+  if (step.offsetUnit !== "minutes") {
+    return "first_available_on_or_after";
+  }
+
+  return step.offsetValue === 0 ? "exact_after_previous" : "same_day";
+};
+
+const normalizeFollowUpPlanForSubmit = (
+  steps: FollowUpPlanFormStep[],
+): FollowUpPlanStep[] | undefined => {
+  if (steps.length === 0) {
+    return undefined;
+  }
+
+  return steps.map((step, index) => ({
+    appointmentTypeLineageKey:
+      step.appointmentTypeLineageKey as Id<"appointmentTypes">,
+    locationMode: "inherit",
+    offsetUnit: step.offsetUnit,
+    offsetValue: normalizeFollowUpOffsetValue(
+      step.offsetUnit,
+      step.offsetValue,
+    ),
+    practitionerMode: "inherit",
+    required: true,
+    searchMode: getFollowUpSearchMode(step),
+    stepId: `step-${index + 1}`,
+  }));
+};
+
+const createFollowUpPlanCreateArgs = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+) => (followUpPlan === undefined ? {} : { followUpPlan });
+
+const createFollowUpPlanUpdateArgs = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+) => ({ followUpPlan: followUpPlan ?? [] });
+
+const formatFollowUpOffset = (step: {
+  offsetUnit: FollowUpPlanStep["offsetUnit"];
+  offsetValue: number;
+}) => {
+  const unitLabel =
+    step.offsetUnit === "minutes"
+      ? step.offsetValue === 1
+        ? "Minute"
+        : "Minuten"
+      : step.offsetUnit === "days"
+        ? step.offsetValue === 1
+          ? "Tag"
+          : "Tage"
+        : step.offsetUnit === "weeks"
+          ? step.offsetValue === 1
+            ? "Woche"
+            : "Wochen"
+          : step.offsetValue === 1
+            ? "Monat"
+            : "Monate";
+
+  return `${step.offsetValue} ${unitLabel}`;
+};
+
+const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
+  Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
+
+const normalizeFollowUpOffsetValue = (
+  offsetUnit: FollowUpPlanFormStep["offsetUnit"],
+  rawValue: number,
+) => {
+  const normalizedInteger = Number.isFinite(rawValue)
+    ? Math.trunc(rawValue)
+    : 0;
+
+  if (offsetUnit === "minutes") {
+    return Math.max(0, Math.round(normalizedInteger / 5) * 5);
+  }
+
+  return Math.max(1, normalizedInteger);
+};
+
+const normalizeFollowUpPlanForForm = (
+  followUpPlan: FollowUpPlanStep[] | undefined,
+): FollowUpPlanFormStep[] =>
+  (followUpPlan ?? []).map((step) => ({
+    appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+    offsetUnit: step.offsetUnit,
+    offsetValue: normalizeFollowUpOffsetValue(
+      step.offsetUnit,
+      step.offsetValue,
+    ),
+  }));
+
+const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
+  JSON.stringify(
+    (steps ?? []).map((step) => ({
+      appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+      locationMode: step.locationMode,
+      note: step.note ?? null,
+      offsetUnit: step.offsetUnit,
+      offsetValue: step.offsetValue,
+      practitionerMode: step.practitionerMode,
+      required: step.required,
+      searchMode: step.searchMode,
+      stepId: step.stepId,
+    })),
+  );
 
 // Form schema using Zod
 const formSchema = z.object({
@@ -65,6 +235,7 @@ const formSchema = z.object({
     .refine((val) => val % 5 === 0, {
       message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
     }),
+  followUpPlan: z.array(followUpStepSchema),
   name: z
     .string()
     .min(2, "Name muss mindestens 2 Zeichen lang sein")
@@ -251,12 +422,16 @@ export function AppointmentTypesManagement({
   const form = useForm({
     defaultValues: {
       duration: 30,
+      followUpPlan: [] as FollowUpPlanFormStep[],
       name: "",
       practitionerIds: [] as string[],
     },
     onSubmit: async ({ value }) => {
       try {
         const trimmedName = value.name.trim();
+        const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
+          value.followUpPlan,
+        );
         const formPractitionerIds =
           value.practitionerIds as Id<"practitioners">[];
         const formPractitionerSnapshots =
@@ -276,11 +451,13 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             duration: editingAppointmentType.duration,
+            followUpPlan: editingAppointmentType.followUpPlan,
             name: editingAppointmentType.name,
             practitionerIds: editingAppointmentType.allowedPractitionerIds,
           };
           const afterState = {
             duration: value.duration,
+            followUpPlan: normalizedFollowUpPlan,
             name: trimmedName,
             practitionerIds: resolvedFormPractitionerIds.ids,
           };
@@ -300,6 +477,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: afterState.practitionerIds,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
@@ -325,6 +503,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanUpdateArgs(afterState.followUpPlan),
               });
               handleDraftMutationResult(redoResult);
               return { entityId: redoResult.entityId };
@@ -346,6 +525,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanUpdateArgs(beforeState.followUpPlan),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -356,6 +536,8 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
+                serializeFollowUpPlan(current.followUpPlan) !==
+                  serializeFollowUpPlan(beforeState.followUpPlan) ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
@@ -371,6 +553,8 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== afterState.name ||
                 current.duration !== afterState.duration ||
+                serializeFollowUpPlan(current.followUpPlan) !==
+                  serializeFollowUpPlan(afterState.followUpPlan) ||
                 !samePractitionerLineageIds(
                   practitionerLineageIdsForCurrentIds(
                     current.allowedPractitionerIds,
@@ -400,6 +584,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -422,6 +607,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 selectedRuleSetId: getSelectedRuleSetId(),
+                ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
               handleDraftMutationResult(recreateResult);
               return { entityId: recreateResult.entityId };
@@ -495,6 +681,10 @@ export function AppointmentTypesManagement({
     setEditingAppointmentType(appointmentType);
     form.setFieldValue("name", appointmentType.name);
     form.setFieldValue("duration", appointmentType.duration);
+    form.setFieldValue(
+      "followUpPlan",
+      normalizeFollowUpPlanForForm(appointmentType.followUpPlan),
+    );
     form.setFieldValue("practitionerIds", validPractitionerIds);
 
     if (
@@ -513,6 +703,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         duration: appointmentType.duration,
+        followUpPlan: appointmentType.followUpPlan,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerIds: appointmentType.allowedPractitionerIds,
@@ -572,6 +763,8 @@ export function AppointmentTypesManagement({
             );
             const isSameDefinition =
               existingByLineage.duration === deletedSnapshot.duration &&
+              serializeFollowUpPlan(existingByLineage.followUpPlan) ===
+                serializeFollowUpPlan(deletedSnapshot.followUpPlan) &&
               samePractitionerLineageIds(
                 existingPractitionerLineageIds,
                 deletedPractitionerLineageIds,
@@ -602,6 +795,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
             selectedRuleSetId: getSelectedRuleSetId(),
+            ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
           });
           handleDraftMutationResult(recreateResult);
           currentAppointmentTypeId = recreateResult.entityId;
@@ -637,7 +831,7 @@ export function AppointmentTypesManagement({
                 Terminart hinzufügen
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden">
               <DialogHeader>
                 <DialogTitle>
                   {editingAppointmentType
@@ -651,6 +845,7 @@ export function AppointmentTypesManagement({
                 </DialogDescription>
               </DialogHeader>
               <form
+                className="flex max-h-full flex-col overflow-hidden"
                 noValidate
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -658,156 +853,450 @@ export function AppointmentTypesManagement({
                   void form.handleSubmit();
                 }}
               >
-                <FieldGroup>
-                  <form.Field name="name">
-                    {(field) => {
-                      const isInvalid =
-                        field.state.meta.isTouched && !field.state.meta.isValid;
+                <div className="flex-1 overflow-y-auto pr-2">
+                  <FieldGroup>
+                    <form.Field name="name">
+                      {(field) => {
+                        const isInvalid =
+                          field.state.meta.isTouched &&
+                          !field.state.meta.isValid;
 
-                      return (
-                        <Field data-invalid={isInvalid}>
-                          <FieldLabel htmlFor="appointment-type-name">
-                            Name der Terminart
-                          </FieldLabel>
-                          <Input
-                            aria-invalid={isInvalid}
-                            id="appointment-type-name"
-                            onBlur={field.handleBlur}
-                            onChange={(e) => {
-                              field.handleChange(e.target.value);
-                            }}
-                            placeholder="z.B. Erstgespräch, Kontrolltermin"
-                            value={field.state.value}
-                          />
-                          <FieldError>
-                            {field.state.meta.errors
-                              .map((error) =>
-                                typeof error === "string"
-                                  ? error
-                                  : (error?.message ?? ""),
-                              )
-                              .join(", ")}
-                          </FieldError>
-                        </Field>
-                      );
-                    }}
-                  </form.Field>
+                        return (
+                          <Field data-invalid={isInvalid}>
+                            <FieldLabel htmlFor="appointment-type-name">
+                              Name der Terminart
+                            </FieldLabel>
+                            <Input
+                              aria-invalid={isInvalid}
+                              id="appointment-type-name"
+                              onBlur={field.handleBlur}
+                              onChange={(e) => {
+                                field.handleChange(e.target.value);
+                              }}
+                              placeholder="z.B. Erstgespräch, Kontrolltermin"
+                              value={field.state.value}
+                            />
+                            <FieldError>
+                              {field.state.meta.errors
+                                .map((error) =>
+                                  typeof error === "string"
+                                    ? error
+                                    : (error?.message ?? ""),
+                                )
+                                .join(", ")}
+                            </FieldError>
+                          </Field>
+                        );
+                      }}
+                    </form.Field>
 
-                  <form.Field name="duration">
-                    {(field) => {
-                      const isInvalid =
-                        field.state.meta.isTouched && !field.state.meta.isValid;
+                    <form.Field name="duration">
+                      {(field) => {
+                        const isInvalid =
+                          field.state.meta.isTouched &&
+                          !field.state.meta.isValid;
 
-                      return (
-                        <Field data-invalid={isInvalid}>
-                          <FieldLabel htmlFor="appointment-type-duration">
-                            Dauer (in Minuten)
-                          </FieldLabel>
-                          <Input
-                            aria-invalid={isInvalid}
-                            id="appointment-type-duration"
-                            max={480}
-                            min={5}
-                            onBlur={field.handleBlur}
-                            onChange={(e) => {
-                              field.handleChange(Number(e.target.value));
-                            }}
-                            placeholder="30"
-                            step={5}
-                            type="number"
-                            value={field.state.value}
-                          />
-                          <FieldError>
-                            {field.state.meta.errors
-                              .map((error) =>
-                                typeof error === "string"
-                                  ? error
-                                  : (error?.message ?? ""),
-                              )
-                              .join(", ")}
-                          </FieldError>
-                        </Field>
-                      );
-                    }}
-                  </form.Field>
+                        return (
+                          <Field data-invalid={isInvalid}>
+                            <FieldLabel htmlFor="appointment-type-duration">
+                              Dauer (in Minuten)
+                            </FieldLabel>
+                            <Input
+                              aria-invalid={isInvalid}
+                              id="appointment-type-duration"
+                              max={480}
+                              min={5}
+                              onBlur={field.handleBlur}
+                              onChange={(e) => {
+                                field.handleChange(
+                                  parseNumberInput(
+                                    e.target.valueAsNumber,
+                                    field.state.value,
+                                  ),
+                                );
+                              }}
+                              placeholder="30"
+                              step={5}
+                              type="number"
+                              value={field.state.value}
+                            />
+                            <FieldError>
+                              {field.state.meta.errors
+                                .map((error) =>
+                                  typeof error === "string"
+                                    ? error
+                                    : (error?.message ?? ""),
+                                )
+                                .join(", ")}
+                            </FieldError>
+                          </Field>
+                        );
+                      }}
+                    </form.Field>
 
-                  <form.Field mode="array" name="practitionerIds">
-                    {(field) => {
-                      const isInvalid =
-                        field.state.meta.isTouched && !field.state.meta.isValid;
+                    <form.Field mode="array" name="followUpPlan">
+                      {(field) => {
+                        const availableTargets = appointmentTypes.filter(
+                          (appointmentType) =>
+                            appointmentType.lineageKey !==
+                            editingAppointmentType?.lineageKey,
+                        );
 
-                      return (
-                        <FieldSet>
-                          <FieldLegend variant="label">
-                            Behandler auswählen
-                          </FieldLegend>
-                          <FieldDescription>
-                            Wählen Sie mindestens einen Behandler für diese
-                            Terminart aus.
-                          </FieldDescription>
-                          <FieldGroup
-                            className="gap-3"
-                            data-invalid={isInvalid}
-                          >
-                            {practitionersQuery === undefined ? (
-                              <div className="text-sm text-muted-foreground">
-                                Lade Behandler...
-                              </div>
-                            ) : practitioners.length === 0 ? (
-                              <div className="text-sm text-muted-foreground">
-                                Keine Behandler verfügbar. Bitte erstellen Sie
-                                zuerst Behandler.
-                              </div>
-                            ) : (
-                              practitioners.map((practitioner) => (
-                                <Field
-                                  key={practitioner._id}
-                                  orientation="horizontal"
-                                >
-                                  <Checkbox
-                                    aria-invalid={isInvalid}
-                                    checked={field.state.value.includes(
-                                      practitioner._id,
-                                    )}
-                                    id={`practitioner-${practitioner._id}`}
-                                    onBlur={field.handleBlur}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        field.pushValue(practitioner._id);
-                                      } else {
-                                        const index = field.state.value.indexOf(
-                                          practitioner._id,
-                                        );
-                                        if (index !== -1) {
-                                          field.removeValue(index);
-                                        }
-                                      }
-                                    }}
-                                  />
-                                  <FieldLabel
-                                    className="font-normal"
-                                    htmlFor={`practitioner-${practitioner._id}`}
+                        return (
+                          <FieldSet>
+                            <FieldLegend variant="label">
+                              Kettentermine
+                            </FieldLegend>
+                            <div className="space-y-3">
+                              {field.state.value.length === 0 ? (
+                                <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                  Keine Kettentermine konfiguriert.
+                                </div>
+                              ) : (
+                                field.state.value.map((step, index) => {
+                                  const selectedTargetExists =
+                                    availableTargets.some(
+                                      (appointmentType) =>
+                                        appointmentType.lineageKey ===
+                                        step.appointmentTypeLineageKey,
+                                    );
+
+                                  return (
+                                    <form.Field
+                                      key={`${index}-${step.appointmentTypeLineageKey}`}
+                                      name={`followUpPlan[${index}]` as const}
+                                    >
+                                      {(itemField) => (
+                                        <div className="rounded-lg border p-4 space-y-4">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="text-sm font-medium">
+                                              Schritt {index + 1}
+                                            </div>
+                                            <div className="flex gap-1">
+                                              <Button
+                                                disabled={index === 0}
+                                                onClick={() => {
+                                                  if (index === 0) {
+                                                    return;
+                                                  }
+                                                  const current =
+                                                    itemField.state.value;
+                                                  const previous =
+                                                    field.state.value[
+                                                      index - 1
+                                                    ];
+                                                  if (!previous) {
+                                                    return;
+                                                  }
+                                                  itemField.handleChange(
+                                                    previous,
+                                                  );
+                                                  field.replaceValue(
+                                                    index - 1,
+                                                    current,
+                                                  );
+                                                }}
+                                                size="icon"
+                                                type="button"
+                                                variant="ghost"
+                                              >
+                                                <ArrowUp className="h-4 w-4" />
+                                              </Button>
+                                              <Button
+                                                disabled={
+                                                  index ===
+                                                  field.state.value.length - 1
+                                                }
+                                                onClick={() => {
+                                                  const current =
+                                                    itemField.state.value;
+                                                  const next =
+                                                    field.state.value[
+                                                      index + 1
+                                                    ];
+                                                  if (!next) {
+                                                    return;
+                                                  }
+                                                  itemField.handleChange(next);
+                                                  field.replaceValue(
+                                                    index + 1,
+                                                    current,
+                                                  );
+                                                }}
+                                                size="icon"
+                                                type="button"
+                                                variant="ghost"
+                                              >
+                                                <ArrowDown className="h-4 w-4" />
+                                              </Button>
+                                              <Button
+                                                onClick={() => {
+                                                  field.removeValue(index);
+                                                }}
+                                                size="icon"
+                                                type="button"
+                                                variant="ghost"
+                                              >
+                                                <Trash2 className="h-4 w-4 text-destructive" />
+                                              </Button>
+                                            </div>
+                                          </div>
+
+                                          <div className="grid gap-4 md:grid-cols-3">
+                                            <Field>
+                                              <FieldLabel>Terminart</FieldLabel>
+                                              <Select
+                                                onValueChange={(value) => {
+                                                  itemField.handleChange({
+                                                    ...itemField.state.value,
+                                                    appointmentTypeLineageKey:
+                                                      value as Id<"appointmentTypes">,
+                                                  });
+                                                }}
+                                                {...(selectedTargetExists
+                                                  ? {
+                                                      value:
+                                                        itemField.state.value
+                                                          .appointmentTypeLineageKey,
+                                                    }
+                                                  : {})}
+                                              >
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Terminart wählen" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  {availableTargets.map(
+                                                    (appointmentType) => (
+                                                      <SelectItem
+                                                        key={
+                                                          appointmentType.lineageKey
+                                                        }
+                                                        value={
+                                                          appointmentType.lineageKey
+                                                        }
+                                                      >
+                                                        {appointmentType.name}
+                                                      </SelectItem>
+                                                    ),
+                                                  )}
+                                                </SelectContent>
+                                              </Select>
+                                            </Field>
+
+                                            <Field>
+                                              <FieldLabel>Versatz</FieldLabel>
+                                              <Input
+                                                min={
+                                                  itemField.state.value
+                                                    .offsetUnit === "minutes"
+                                                    ? 0
+                                                    : 1
+                                                }
+                                                onBlur={(e) => {
+                                                  const normalizedOffsetValue =
+                                                    normalizeFollowUpOffsetValue(
+                                                      itemField.state.value
+                                                        .offsetUnit,
+                                                      parseNumberInput(
+                                                        e.target.valueAsNumber,
+                                                        itemField.state.value
+                                                          .offsetValue,
+                                                      ),
+                                                    );
+
+                                                  if (
+                                                    normalizedOffsetValue !==
+                                                    itemField.state.value
+                                                      .offsetValue
+                                                  ) {
+                                                    itemField.handleChange({
+                                                      ...itemField.state.value,
+                                                      offsetValue:
+                                                        normalizedOffsetValue,
+                                                    });
+                                                  }
+                                                }}
+                                                onChange={(e) => {
+                                                  const rawValue =
+                                                    parseNumberInput(
+                                                      e.target.valueAsNumber,
+                                                      itemField.state.value
+                                                        .offsetValue,
+                                                    );
+                                                  itemField.handleChange({
+                                                    ...itemField.state.value,
+                                                    offsetValue: rawValue,
+                                                  });
+                                                }}
+                                                step={
+                                                  itemField.state.value
+                                                    .offsetUnit === "minutes"
+                                                    ? 5
+                                                    : 1
+                                                }
+                                                type="number"
+                                                value={
+                                                  itemField.state.value
+                                                    .offsetValue
+                                                }
+                                              />
+                                            </Field>
+
+                                            <Field>
+                                              <FieldLabel>Einheit</FieldLabel>
+                                              <Select
+                                                onValueChange={(value) => {
+                                                  const nextOffsetUnit =
+                                                    value as FollowUpPlanStep["offsetUnit"];
+                                                  itemField.handleChange({
+                                                    ...itemField.state.value,
+                                                    offsetUnit: nextOffsetUnit,
+                                                    offsetValue:
+                                                      normalizeFollowUpOffsetValue(
+                                                        nextOffsetUnit,
+                                                        itemField.state.value
+                                                          .offsetValue,
+                                                      ),
+                                                  });
+                                                }}
+                                                value={
+                                                  itemField.state.value
+                                                    .offsetUnit
+                                                }
+                                              >
+                                                <SelectTrigger>
+                                                  <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="minutes">
+                                                    Minuten
+                                                  </SelectItem>
+                                                  <SelectItem value="days">
+                                                    Tage
+                                                  </SelectItem>
+                                                  <SelectItem value="weeks">
+                                                    Wochen
+                                                  </SelectItem>
+                                                  <SelectItem value="months">
+                                                    Monate
+                                                  </SelectItem>
+                                                </SelectContent>
+                                              </Select>
+                                            </Field>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </form.Field>
+                                  );
+                                })
+                              )}
+
+                              <Button
+                                onClick={() => {
+                                  field.pushValue(createEmptyFollowUpStep());
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                <Plus className="h-4 w-4 mr-2" />
+                                Kettentermin hinzufügen
+                              </Button>
+                            </div>
+                            <FieldError>
+                              {field.state.meta.errors
+                                .map((error) =>
+                                  typeof error === "string"
+                                    ? error
+                                    : (error?.message ?? ""),
+                                )
+                                .join(", ")}
+                            </FieldError>
+                          </FieldSet>
+                        );
+                      }}
+                    </form.Field>
+
+                    <form.Field mode="array" name="practitionerIds">
+                      {(field) => {
+                        const isInvalid =
+                          field.state.meta.isTouched &&
+                          !field.state.meta.isValid;
+
+                        return (
+                          <FieldSet>
+                            <FieldLegend variant="label">
+                              Behandler auswählen
+                            </FieldLegend>
+                            <FieldDescription>
+                              Wählen Sie mindestens einen Behandler für diese
+                              Terminart aus.
+                            </FieldDescription>
+                            <FieldGroup
+                              className="gap-3"
+                              data-invalid={isInvalid}
+                            >
+                              {practitionersQuery === undefined ? (
+                                <div className="text-sm text-muted-foreground">
+                                  Lade Behandler...
+                                </div>
+                              ) : practitioners.length === 0 ? (
+                                <div className="text-sm text-muted-foreground">
+                                  Keine Behandler verfügbar. Bitte erstellen Sie
+                                  zuerst Behandler.
+                                </div>
+                              ) : (
+                                practitioners.map((practitioner) => (
+                                  <Field
+                                    key={practitioner._id}
+                                    orientation="horizontal"
                                   >
-                                    {practitioner.name}
-                                  </FieldLabel>
-                                </Field>
-                              ))
-                            )}
-                          </FieldGroup>
-                          <FieldError>
-                            {field.state.meta.errors
-                              .map((error) =>
-                                typeof error === "string"
-                                  ? error
-                                  : (error?.message ?? ""),
-                              )
-                              .join(", ")}
-                          </FieldError>
-                        </FieldSet>
-                      );
-                    }}
-                  </form.Field>
-                </FieldGroup>
+                                    <Checkbox
+                                      aria-invalid={isInvalid}
+                                      checked={field.state.value.includes(
+                                        practitioner._id,
+                                      )}
+                                      id={`practitioner-${practitioner._id}`}
+                                      onBlur={field.handleBlur}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          field.pushValue(practitioner._id);
+                                        } else {
+                                          const index =
+                                            field.state.value.indexOf(
+                                              practitioner._id,
+                                            );
+                                          if (index !== -1) {
+                                            field.removeValue(index);
+                                          }
+                                        }
+                                      }}
+                                    />
+                                    <FieldLabel
+                                      className="font-normal"
+                                      htmlFor={`practitioner-${practitioner._id}`}
+                                    >
+                                      {practitioner.name}
+                                    </FieldLabel>
+                                  </Field>
+                                ))
+                              )}
+                            </FieldGroup>
+                            <FieldError>
+                              {field.state.meta.errors
+                                .map((error) =>
+                                  typeof error === "string"
+                                    ? error
+                                    : (error?.message ?? ""),
+                                )
+                                .join(", ")}
+                            </FieldError>
+                          </FieldSet>
+                        );
+                      }}
+                    </form.Field>
+                  </FieldGroup>
+                </div>
 
                 <DialogFooter className="mt-6">
                   <Button onClick={closeDialog} type="button" variant="outline">
@@ -877,6 +1366,33 @@ export function AppointmentTypesManagement({
                       <div className="text-sm text-muted-foreground mb-2">
                         Dauer: {appointmentType.duration} Minuten
                       </div>
+                      {(appointmentType.followUpPlan?.length ?? 0) > 0 && (
+                        <div className="mb-2 space-y-1">
+                          <div className="text-sm font-medium">
+                            {appointmentType.followUpPlan?.length} Kettentermine
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {appointmentType.followUpPlan?.map((step) => {
+                              const target = appointmentTypes.find(
+                                (candidate) =>
+                                  candidate.lineageKey ===
+                                  step.appointmentTypeLineageKey,
+                              );
+
+                              if (!target) {
+                                return null;
+                              }
+
+                              return (
+                                <Badge key={step.stepId} variant="outline">
+                                  {formatFollowUpOffset(step)} {"->"}{" "}
+                                  {target.name}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       {appointmentTypePractitioners.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {appointmentTypePractitioners.map((practitioner) => (

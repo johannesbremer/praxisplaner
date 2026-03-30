@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
+import { err, ok, type Result, ResultAsync } from "neverthrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -14,6 +15,7 @@ import { useLocalHistory } from "../../hooks/use-local-history";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
+  frontendErrorFromUnknown,
   invalidStateError,
   resultFromNullable,
 } from "../../utils/frontend-errors";
@@ -44,11 +46,25 @@ function handleEditBlockedSlot(
   return true;
 }
 
+function parsePlainTimeResult(
+  value: string,
+  source: string,
+): Result<Temporal.PlainTime, ReturnType<typeof invalidStateError>> {
+  try {
+    return ok(Temporal.PlainTime.from(value));
+  } catch (error) {
+    return err(
+      invalidStateError(`Invalid time format: ${value}`, source, error),
+    );
+  }
+}
+
 /**
  * Deep comparison of appointment arrays.
  */
 export function useCalendarLogic({
   locationName,
+  onClearAppointmentTypeSelection,
   onDateChange,
   onLocationResolved,
   onPatientRequired,
@@ -69,7 +85,7 @@ export function useCalendarLogic({
   const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
     Temporal.Now.zonedDateTimeISO(TIMEZONE),
   );
-  const [practiceId, setPracticeId] = useState(propPracticeId ?? null);
+  const practiceId = propPracticeId;
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<Appointment | null>(null);
@@ -155,47 +171,6 @@ export function useCalendarLogic({
     setSelectedLocationId(externalSelectedLocationId);
   }
 
-  // Initialize practice
-  const initializePracticeMutation = useMutation(
-    api.practices.initializeDefaultPractice,
-  );
-
-  // Track if we've initialized to avoid re-running
-  const [hasInitialized, setHasInitialized] = useState(false);
-  const [prevPropPracticeId, setPrevPropPracticeId] = useState(propPracticeId);
-
-  // Sync practice ID from prop during render
-  if (propPracticeId && propPracticeId !== prevPropPracticeId) {
-    setPrevPropPracticeId(propPracticeId);
-    setHasInitialized(true);
-    if (practiceId !== propPracticeId) {
-      setPracticeId(propPracticeId);
-    }
-  }
-
-  // Initialize practice via mutation only once if no prop provided
-  useEffect(() => {
-    if (hasInitialized || propPracticeId) {
-      return;
-    }
-
-    const initPractice = async () => {
-      try {
-        const id = await initializePracticeMutation({});
-        setHasInitialized(true);
-        setPracticeId(id);
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "NewCalendar - Failed to initialize practice",
-          error: error instanceof Error ? error.message : String(error),
-          propPracticeId,
-        });
-      }
-    };
-
-    void initPractice();
-  }, [hasInitialized, initializePracticeMutation, propPracticeId]);
-
   // Get active rule set for entity ID remapping
   const activeRuleSetData = useQuery(
     api.ruleSets.getActiveRuleSet,
@@ -279,6 +254,27 @@ export function useCalendarLogic({
     blockedSlotDocMapRef.current = blockedSlotDocMap;
   }, [blockedSlotDocMap]);
 
+  const isNonRootSeriesAppointment = useCallback((appointmentId?: string) => {
+    if (!appointmentId) {
+      return false;
+    }
+
+    const appointmentDoc = appointmentDocMapRef.current.get(
+      appointmentId as Id<"appointments">,
+    );
+    return (
+      appointmentDoc?.seriesId !== undefined &&
+      appointmentDoc.seriesStepIndex !== undefined &&
+      appointmentDoc.seriesStepIndex !== 0n
+    );
+  }, []);
+
+  const showNonRootSeriesEditToast = useCallback(() => {
+    toast.info(
+      "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
+    );
+  }, []);
+
   // Use ruleSetId if provided (simulation mode), otherwise get from active
   const practitionersData = useQuery(
     ruleSetId
@@ -309,15 +305,34 @@ export function useCalendarLogic({
   const appointmentTypeMap = useMemo(() => {
     const map = new Map<
       Id<"appointmentTypes">,
-      { duration: number; name: string }
+      { duration: number; hasFollowUpPlan: boolean; name: string }
     >();
     if (appointmentTypesData) {
       for (const at of appointmentTypesData) {
-        map.set(at._id, { duration: at.duration, name: at.name });
+        map.set(at._id, {
+          duration: at.duration,
+          hasFollowUpPlan: (at.followUpPlan?.length ?? 0) > 0,
+          name: at.name,
+        });
       }
     }
     return map;
   }, [appointmentTypesData]);
+
+  const getAppointmentCreationEnd = useCallback(
+    (args: {
+      appointmentTypeId: Id<"appointmentTypes">;
+      start: string;
+    }): string => {
+      const durationMinutes =
+        appointmentTypeMap.get(args.appointmentTypeId)?.duration ??
+        SLOT_DURATION;
+      return Temporal.ZonedDateTime.from(args.start)
+        .add({ minutes: durationMinutes })
+        .toString();
+    },
+    [appointmentTypeMap],
+  );
 
   // Query for available/blocked slots when:
   // 1. In simulation mode with appointment type selected, OR
@@ -333,6 +348,7 @@ export function useCalendarLogic({
           date: selectedDate.toString(),
           practiceId,
           ruleSetId,
+          scope: "simulation",
           simulatedContext,
         }
       : // Real mode: check selectedAppointmentTypeId
@@ -344,6 +360,7 @@ export function useCalendarLogic({
             date: selectedDate.toString(),
             practiceId,
             ruleSetId,
+            scope: "real",
             simulatedContext: createSimulatedContext({
               appointmentTypeId: selectedAppointmentTypeId,
               locationId: selectedLocationId,
@@ -389,6 +406,7 @@ export function useCalendarLogic({
         isSimulation: boolean;
         locationId: Id<"locations">;
         practitionerId?: Id<"practitioners">;
+        replacesAppointmentId?: Id<"appointments">;
         start: string;
       },
       excludeId?: Id<"appointments">,
@@ -401,16 +419,19 @@ export function useCalendarLogic({
           continue;
         }
 
+        if (
+          candidate.replacesAppointmentId &&
+          existing._id === candidate.replacesAppointmentId
+        ) {
+          continue;
+        }
+
         if (existing.locationId !== candidate.locationId) {
           continue;
         }
 
         const existingPractitioner = existing.practitionerId;
         if (existingPractitioner !== candidate.practitionerId) {
-          continue;
-        }
-
-        if ((existing.isSimulation ?? false) !== candidate.isSimulation) {
           continue;
         }
 
@@ -557,6 +578,10 @@ export function useCalendarLogic({
             optimisticArgs.appointmentTypeId,
           );
           const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
+          const optimisticEnd = getAppointmentCreationEnd({
+            appointmentTypeId: optimisticArgs.appointmentTypeId,
+            start: optimisticArgs.start,
+          });
 
           const newAppointment: Doc<"appointments"> = {
             _creationTime: now,
@@ -564,7 +589,7 @@ export function useCalendarLogic({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             appointmentTypeTitle,
             createdAt: BigInt(now),
-            end: optimisticArgs.end,
+            end: optimisticEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
             locationId: optimisticArgs.locationId,
@@ -605,7 +630,12 @@ export function useCalendarLogic({
         },
       )(args);
     },
-    [createAppointmentMutation, appointmentsQueryArgs, appointmentTypeMap],
+    [
+      createAppointmentMutation,
+      appointmentsQueryArgs,
+      appointmentTypeMap,
+      getAppointmentCreationEnd,
+    ],
   );
 
   const runUpdateAppointmentInternal = useCallback(
@@ -829,6 +859,13 @@ export function useCalendarLogic({
 
   const runCreateAppointment = useCallback(
     async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+      const appointmentTypeInfo = appointmentTypeMap.get(
+        args.appointmentTypeId,
+      );
+      if (appointmentTypeInfo?.hasFollowUpPlan) {
+        return await createAppointmentMutation(args);
+      }
+
       const createdId = await runCreateAppointmentInternal(args);
       if (!createdId) {
         return createdId;
@@ -836,17 +873,24 @@ export function useCalendarLogic({
 
       let currentAppointmentId: Id<"appointments"> = createdId;
       const createArgs = { ...args, isSimulation: args.isSimulation ?? false };
+      const createEnd = getAppointmentCreationEnd({
+        appointmentTypeId: createArgs.appointmentTypeId,
+        start: createArgs.start,
+      });
 
       pushHistoryAction({
         label: "Termin erstellt",
         redo: async () => {
           if (
             hasAppointmentConflict({
-              end: createArgs.end,
+              end: createEnd,
               isSimulation: createArgs.isSimulation,
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
+              }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
               start: createArgs.start,
             })
@@ -882,16 +926,24 @@ export function useCalendarLogic({
       return createdId;
     },
     [
+      appointmentTypeMap,
+      createAppointmentMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
+      getAppointmentCreationEnd,
     ],
   );
 
   const runUpdateAppointment = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
       const before = appointmentDocMapRef.current.get(args.id);
+      if (before?.seriesId) {
+        await updateAppointmentMutation(args);
+        return;
+      }
+
       await runUpdateAppointmentInternal(args);
 
       if (!before) {
@@ -994,12 +1046,22 @@ export function useCalendarLogic({
         },
       });
     },
-    [hasAppointmentConflict, pushHistoryAction, runUpdateAppointmentInternal],
+    [
+      hasAppointmentConflict,
+      pushHistoryAction,
+      runUpdateAppointmentInternal,
+      updateAppointmentMutation,
+    ],
   );
 
   const runDeleteAppointment = useCallback(
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
       const deleted = appointmentDocMapRef.current.get(args.id);
+      if (deleted?.seriesId) {
+        await deleteAppointmentMutation(args);
+        return;
+      }
+
       await runDeleteAppointmentInternal(args);
 
       if (!deleted) {
@@ -1010,7 +1072,6 @@ export function useCalendarLogic({
 
       const createArgs: Parameters<typeof createAppointmentMutation>[0] = {
         appointmentTypeId: deleted.appointmentTypeId,
-        end: deleted.end,
         isSimulation: deleted.isSimulation ?? false,
         locationId: deleted.locationId,
         ...(deleted.patientId && { patientId: deleted.patientId }),
@@ -1025,6 +1086,10 @@ export function useCalendarLogic({
         title: deleted.title,
         ...(deleted.userId && { userId: deleted.userId }),
       };
+      const createEnd = getAppointmentCreationEnd({
+        appointmentTypeId: createArgs.appointmentTypeId,
+        start: createArgs.start,
+      });
 
       pushHistoryAction({
         label: "Termin gelöscht",
@@ -1039,11 +1104,14 @@ export function useCalendarLogic({
         undo: async () => {
           if (
             hasAppointmentConflict({
-              end: createArgs.end,
+              end: createEnd,
               isSimulation: createArgs.isSimulation ?? false,
               locationId: createArgs.locationId,
               ...(createArgs.practitionerId && {
                 practitionerId: createArgs.practitionerId,
+              }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
               start: createArgs.start,
             })
@@ -1066,10 +1134,12 @@ export function useCalendarLogic({
       });
     },
     [
+      deleteAppointmentMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
+      getAppointmentCreationEnd,
     ],
   );
 
@@ -1649,6 +1719,7 @@ export function useCalendarLogic({
             locationId: appointment.locationId,
             patientId: appointment.patientId,
             practitionerId: appointment.practitionerId,
+            seriesId: appointment.seriesId,
             userId: appointment.userId,
           },
           startTime: formatTime(startZoned.toPlainTime()),
@@ -2200,6 +2271,7 @@ export function useCalendarLogic({
         toast.error("Termin hat keine gültige ID");
         return null;
       }
+      const originalAppointmentId = appointment.convexId;
 
       if (!simulatedContext) {
         toast.error(
@@ -2208,93 +2280,75 @@ export function useCalendarLogic({
         return appointment;
       }
 
-      let startZoned: Temporal.ZonedDateTime;
-      try {
-        if (options.startISO === undefined) {
-          const plainTime = Temporal.PlainTime.from(appointment.startTime);
-          startZoned = selectedDate.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-        } else {
-          const parsedStart = resultFromNullable(
-            safeParseISOToZoned(options.startISO),
-            invalidStateError(
-              `Invalid start ISO string: ${options.startISO}`,
-              "convertRealAppointmentToSimulation.startISO",
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "Failed to parse start time",
-                error: error.message,
-                startISO: options.startISO,
-                startTime: appointment.startTime,
-              });
-              toast.error("Startzeit konnte nicht ermittelt werden");
-              return null;
-            },
-          );
-          if (!parsedStart) {
-            return null;
-          }
-          startZoned = parsedStart;
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse start time",
-          error: error instanceof Error ? error.message : String(error),
-          startISO: options.startISO,
-          startTime: appointment.startTime,
-        });
-        toast.error("Startzeit konnte nicht ermittelt werden");
+      const startZoned =
+        options.startISO === undefined
+          ? parsePlainTimeResult(
+              appointment.startTime,
+              "convertRealAppointmentToSimulation.startTime",
+            ).match(
+              (plainTime) =>
+                selectedDate.toZonedDateTime({
+                  plainTime,
+                  timeZone: TIMEZONE,
+                }),
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse start time",
+                  startISO: options.startISO,
+                  startTime: appointment.startTime,
+                });
+                toast.error("Startzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            )
+          : resultFromNullable(
+              safeParseISOToZoned(options.startISO),
+              invalidStateError(
+                `Invalid start ISO string: ${options.startISO}`,
+                "convertRealAppointmentToSimulation.startISO",
+              ),
+            ).match(
+              (parsedStart) => parsedStart,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse start time",
+                  startISO: options.startISO,
+                  startTime: appointment.startTime,
+                });
+                toast.error("Startzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            );
+      if (!startZoned) {
         return null;
       }
 
       const startISO = options.startISO ?? startZoned.toString();
 
-      let endZoned: Temporal.ZonedDateTime;
-      try {
-        if (options.endISO === undefined) {
-          endZoned = startZoned.add({ minutes: appointment.duration });
-        } else {
-          const parsedEnd = resultFromNullable(
-            safeParseISOToZoned(options.endISO),
-            invalidStateError(
-              `Invalid end ISO string: ${options.endISO}`,
-              "convertRealAppointmentToSimulation.endISO",
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "Failed to parse end time",
-                duration: appointment.duration,
-                endISO: options.endISO,
-                error: error.message,
-              });
-              toast.error("Endzeit konnte nicht ermittelt werden");
-              return null;
-            },
-          );
-          if (!parsedEnd) {
-            return null;
-          }
-          endZoned = parsedEnd;
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to parse end time",
-          duration: appointment.duration,
-          endISO: options.endISO,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        toast.error("Endzeit konnte nicht ermittelt werden");
+      const endZoned =
+        options.endISO === undefined
+          ? startZoned.add({ minutes: appointment.duration })
+          : resultFromNullable(
+              safeParseISOToZoned(options.endISO),
+              invalidStateError(
+                `Invalid end ISO string: ${options.endISO}`,
+                "convertRealAppointmentToSimulation.endISO",
+              ),
+            ).match(
+              (parsedEnd) => parsedEnd,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "Failed to parse end time",
+                  duration: appointment.duration,
+                  endISO: options.endISO,
+                });
+                toast.error("Endzeit konnte nicht ermittelt werden");
+                return null;
+              },
+            );
+      if (!endZoned) {
         return null;
       }
-
-      const endISO = options.endISO ?? endZoned.toString();
 
       // Extract practitioner ID with proper type safety
       const practitionerId: Id<"practitioners"> | undefined =
@@ -2326,84 +2380,120 @@ export function useCalendarLogic({
         return null;
       }
 
-      try {
-        // Appointment type is required
-        if (!appointment.resource?.appointmentTypeId) {
-          toast.error("Terminart fehlt");
+      const resource = resultFromNullable(
+        appointment.resource,
+        invalidStateError(
+          "Terminressource fehlt",
+          "convertRealAppointmentToSimulation.resource",
+        ),
+      ).match(
+        (resourceValue) => resourceValue,
+        (error) => {
+          toast.error(error.message);
           return null;
-        }
-
-        // Build appointment data with proper typing
-        const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
-          appointmentTypeId: appointment.resource.appointmentTypeId,
-          end: endISO,
-          isSimulation: true,
-          locationId,
-          practiceId,
-          replacesAppointmentId: appointment.convexId,
-          start: startISO,
-          title: appointment.resource.title ?? appointment.title,
-        };
-
-        // Add optional fields only if they exist
-        if (appointment.resource.patientId !== undefined) {
-          appointmentData.patientId = appointment.resource.patientId;
-        }
-
-        if (practitionerId !== undefined) {
-          appointmentData.practitionerId = practitionerId;
-        }
-
-        const newId = await runCreateAppointment(appointmentData);
-
-        const durationMinutes =
-          options.durationMinutes ??
-          Math.max(
-            SLOT_DURATION,
-            Math.round(
-              startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
-            ),
-          );
-
-        const updatedAppointment: Appointment = {
-          ...appointment,
-          column: options.columnOverride ?? appointment.column,
-          convexId: newId,
-          duration: durationMinutes,
-          id: newId,
-          isSimulation: true,
-          replacesAppointmentId: appointment.convexId,
-          resource: {
-            ...appointment.resource,
-            isSimulation: true,
-            locationId,
-            practitionerId:
-              practitionerId ?? appointment.resource.practitionerId,
-          },
-          startTime: formatTime(startZoned.toPlainTime()),
-        };
-
-        // Convex optimistic updates will handle the UI update
-        return updatedAppointment;
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unbekannter Fehler";
-
-        captureErrorGlobal(error, {
-          appointmentId: appointment.convexId,
-          context: "NewCalendar - Failed to create simulated replacement",
-          errorMessage,
-          hasSimulatedContext: Boolean(simulatedContext),
-          locationId,
-          options,
-          practitionerId,
-        });
-
-        toast.error(
-          `Simulierter Termin konnte nicht erstellt werden: ${errorMessage}`,
-        );
+        },
+      );
+      if (!resource) {
         return null;
       }
+
+      const appointmentTypeId = resultFromNullable(
+        resource.appointmentTypeId,
+        invalidStateError(
+          "Terminart fehlt",
+          "convertRealAppointmentToSimulation.appointmentTypeId",
+        ),
+      ).match(
+        (appointmentTypeIdValue) => appointmentTypeIdValue,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
+      if (!appointmentTypeId) {
+        return null;
+      }
+
+      const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
+        appointmentTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        replacesAppointmentId: originalAppointmentId,
+        start: startISO,
+        title: resource.title ?? appointment.title,
+      };
+
+      if (resource.patientId !== undefined) {
+        appointmentData.patientId = resource.patientId;
+      }
+
+      if (practitionerId !== undefined) {
+        appointmentData.practitionerId = practitionerId;
+      }
+
+      return await ResultAsync.fromPromise(
+        runCreateAppointment(appointmentData),
+        (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message: "Simulierter Termin konnte nicht erstellt werden.",
+            source: "convertRealAppointmentToSimulation.createAppointment",
+          }),
+      )
+        .andThen((newId) =>
+          resultFromNullable(
+            newId,
+            invalidStateError(
+              "Simulierter Termin konnte nicht erstellt werden.",
+              "convertRealAppointmentToSimulation.createAppointmentResult",
+            ),
+          ),
+        )
+        .match(
+          (newId) => {
+            const durationMinutes =
+              options.durationMinutes ??
+              Math.max(
+                SLOT_DURATION,
+                Math.round(
+                  startZoned.until(endZoned, { largestUnit: "minutes" })
+                    .minutes,
+                ),
+              );
+
+            return {
+              ...appointment,
+              column: options.columnOverride ?? appointment.column,
+              convexId: newId,
+              duration: durationMinutes,
+              id: newId,
+              isSimulation: true,
+              replacesAppointmentId: originalAppointmentId,
+              resource: {
+                ...resource,
+                isSimulation: true,
+                locationId,
+                practitionerId: practitionerId ?? resource.practitionerId,
+              },
+              startTime: formatTime(startZoned.toPlainTime()),
+            };
+          },
+          (error) => {
+            captureFrontendError(error, {
+              appointmentId: appointment.convexId,
+              context: "NewCalendar - Failed to create simulated replacement",
+              hasSimulatedContext: Boolean(simulatedContext),
+              locationId,
+              options,
+              practitionerId,
+            });
+            toast.error(
+              `Simulierter Termin konnte nicht erstellt werden: ${error.message}`,
+            );
+            return null;
+          },
+        );
     },
     [
       simulatedContext,
@@ -2423,9 +2513,20 @@ export function useCalendarLogic({
         return null;
       }
 
-      const original = blockedSlotDocMapRef.current.get(blockedSlotId);
+      const original = resultFromNullable(
+        blockedSlotDocMapRef.current.get(blockedSlotId),
+        invalidStateError(
+          "Gesperrter Zeitraum wurde nicht gefunden.",
+          "convertRealBlockedSlotToSimulation.original",
+        ),
+      ).match(
+        (originalBlockedSlot) => originalBlockedSlot,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
       if (!original) {
-        toast.error("Gesperrter Zeitraum wurde nicht gefunden.");
         return null;
       }
 
@@ -2433,9 +2534,20 @@ export function useCalendarLogic({
         return original._id;
       }
 
-      const locationId = options.locationId ?? original.locationId;
+      const locationId = resultFromNullable(
+        options.locationId ?? original.locationId,
+        invalidStateError(
+          "Standort für den gesperrten Zeitraum fehlt.",
+          "convertRealBlockedSlotToSimulation.locationId",
+        ),
+      ).match(
+        (resolvedLocationId) => resolvedLocationId,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
       if (!locationId) {
-        toast.error("Standort für den gesperrten Zeitraum fehlt.");
         return null;
       }
 
@@ -2444,8 +2556,8 @@ export function useCalendarLogic({
       const endISO = options.endISO ?? original.end;
       const title = options.title || original.title || "Gesperrter Zeitraum";
 
-      try {
-        const newId = await runCreateBlockedSlot({
+      return await ResultAsync.fromPromise(
+        runCreateBlockedSlot({
           end: endISO,
           isSimulation: true,
           locationId,
@@ -2454,19 +2566,25 @@ export function useCalendarLogic({
           start: startISO,
           title,
           ...(practitionerId ? { practitionerId } : {}),
-        });
-
-        return newId;
-      } catch (error) {
-        captureErrorGlobal(error, {
-          blockedSlotId,
-          context: "NewCalendar - Failed to convert blocked slot",
-        });
-        toast.error(
-          "Simulierter gesperrter Zeitraum konnte nicht erstellt werden.",
-        );
-        return null;
-      }
+        }),
+        (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message:
+              "Simulierter gesperrter Zeitraum konnte nicht erstellt werden.",
+            source: "convertRealBlockedSlotToSimulation.createBlockedSlot",
+          }),
+      ).match(
+        (newId) => newId,
+        (error) => {
+          captureFrontendError(error, {
+            blockedSlotId,
+            context: "NewCalendar - Failed to convert blocked slot",
+          });
+          toast.error(error.message);
+          return null;
+        },
+      );
     },
     [runCreateBlockedSlot, simulatedContext],
   );
@@ -2705,6 +2823,13 @@ export function useCalendarLogic({
       return;
     }
 
+    if (isNonRootSeriesAppointment(draggedAppointment.convexId)) {
+      showNonRootSeriesEditToast();
+      setDraggedAppointment(null);
+      setDragPreview({ column: "", slot: 0, visible: false });
+      return;
+    }
+
     const finalSlot = dragPreview.slot;
     const newTime = slotToTime(finalSlot);
 
@@ -2778,6 +2903,11 @@ export function useCalendarLogic({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isNonRootSeriesAppointment(appointmentId)) {
+      showNonRootSeriesEditToast();
+      return;
+    }
+
     const targetAppointment = appointments.find(
       (apt) => apt.id === appointmentId,
     );
@@ -2918,10 +3048,7 @@ export function useCalendarLogic({
           plainTime,
           timeZone: TIMEZONE,
         });
-        const endZoned = startZoned.add({ minutes: duration });
-
         const startISO = startZoned.toString();
-        const endISO = endZoned.toString();
 
         // Get appointment type name for fallback title
         const appointmentTypeInfo = appointmentTypeMap.get(
@@ -2933,7 +3060,6 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
-          end: endISO,
           isSimulation: true,
           locationId: simulatedContext.locationId,
           ...(patient?.convexPatientId && {
@@ -2944,6 +3070,10 @@ export function useCalendarLogic({
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
           title,
+        }).then((createdAppointmentId) => {
+          if (createdAppointmentId) {
+            onClearAppointmentTypeSelection?.();
+          }
         });
       } else {
         // Create real appointment - require appointment type to be selected
@@ -2979,10 +3109,7 @@ export function useCalendarLogic({
           plainTime,
           timeZone: TIMEZONE,
         });
-        const endZoned = startZoned.add({ minutes: duration });
-
         const startISO = startZoned.toString();
-        const endISO = endZoned.toString();
 
         // Get appointment type name for fallback title
         const appointmentTypeInfo = appointmentTypeMap.get(
@@ -2997,7 +3124,6 @@ export function useCalendarLogic({
           if (onPatientRequired) {
             onPatientRequired({
               appointmentTypeId: selectedAppointmentTypeId,
-              end: endISO,
               isSimulation: false,
               locationId: selectedLocationId,
               practiceId,
@@ -3017,7 +3143,6 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: selectedAppointmentTypeId,
-          end: endISO,
           isSimulation: false,
           locationId: selectedLocationId,
           ...(patient.convexPatientId && {
@@ -3028,6 +3153,10 @@ export function useCalendarLogic({
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
           title,
+        }).then((createdAppointmentId) => {
+          if (createdAppointmentId) {
+            onClearAppointmentTypeSelection?.();
+          }
         });
       }
     }
@@ -3039,12 +3168,23 @@ export function useCalendarLogic({
       return;
     }
 
+    if (isNonRootSeriesAppointment(appointment.convexId)) {
+      showNonRootSeriesEditToast();
+      return;
+    }
+
     // Editing appointments is now done via the new appointment flow dialog
     toast.info("Bearbeiten von Terminen ist über den neuen Dialog möglich.");
   };
 
   const handleDeleteAppointment = (appointment: Appointment) => {
-    if (appointment.convexId && confirm("Termin löschen?")) {
+    const confirmMessage =
+      appointment.convexId &&
+      appointmentDocMapRef.current.get(appointment.convexId)?.seriesId
+        ? "Dieser Termin gehört zu einer Kette. Beim Löschen wird die gesamte Terminserie entfernt. Fortfahren?"
+        : "Termin löschen?";
+
+    if (appointment.convexId && confirm(confirmMessage)) {
       void runDeleteAppointment({
         id: appointment.convexId,
       });

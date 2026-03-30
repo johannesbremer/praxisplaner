@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
 
 interface AppointmentTypeSelectorProps {
+  disableAutoDeselect?: boolean | undefined;
   isBlockingModeActive?: boolean | undefined;
   onBlockingModeChange?: ((active: boolean) => void) | undefined;
   onTypeDeselect?: (() => void) | undefined;
@@ -17,6 +18,7 @@ interface AppointmentTypeSelectorProps {
 }
 
 export function AppointmentTypeSelector({
+  disableAutoDeselect = false,
   isBlockingModeActive = false,
   onBlockingModeChange,
   onTypeDeselect,
@@ -51,7 +53,7 @@ export function AppointmentTypeSelector({
 
   // Handle ESC key to deselect
   useEffect(() => {
-    if (!hasSelection) {
+    if (disableAutoDeselect || !hasSelection) {
       return;
     }
 
@@ -65,11 +67,11 @@ export function AppointmentTypeSelector({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [hasSelection, handleDeselect]);
+  }, [disableAutoDeselect, hasSelection, handleDeselect]);
 
   // Handle click outside to deselect
   useEffect(() => {
-    if (!hasSelection) {
+    if (disableAutoDeselect || !hasSelection) {
       return;
     }
 
@@ -104,7 +106,7 @@ export function AppointmentTypeSelector({
       clearTimeout(timeoutId);
       document.removeEventListener("click", handleClickOutside);
     };
-  }, [hasSelection, handleDeselect]);
+  }, [disableAutoDeselect, hasSelection, handleDeselect]);
 
   return (
     <Card ref={cardRef}>

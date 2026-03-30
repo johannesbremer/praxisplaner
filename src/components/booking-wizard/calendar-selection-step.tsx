@@ -1,6 +1,7 @@
 // Calendar selection step component (Path A6 for new patients, Path B4 for existing patients)
 
 import { useMutation, useQuery } from "convex/react";
+import { ResultAsync } from "neverthrow";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -30,6 +31,11 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
+import {
+  captureFrontendError,
+  frontendErrorFromUnknown,
+} from "../../utils/frontend-errors";
+
 const TIMEZONE = "Europe/Berlin";
 
 // Helper to format ISO date string from Date
@@ -53,7 +59,6 @@ type CalendarSelectionState = Extract<
 >;
 
 interface SlotInfo {
-  duration: number;
   practitionerId: Id<"practitioners">;
   practitionerName: string;
   startTime: string;
@@ -173,37 +178,45 @@ export function CalendarSelectionStep({
     }
 
     const slotData = {
-      duration: appointmentType.duration,
       practitionerId: selectedSlot.practitionerId,
       practitionerName: selectedSlot.practitionerName,
       startTime: selectedSlot.startTime,
     };
 
-    try {
-      if (isNewPatient) {
-        await selectNewPatientSlot({
-          appointmentTypeId: selectedAppointmentTypeId,
-          reasonDescription: trimmedReason,
-          selectedSlot: slotData,
+    await ResultAsync.fromPromise(
+      isNewPatient
+        ? selectNewPatientSlot({
+            appointmentTypeId: selectedAppointmentTypeId,
+            reasonDescription: trimmedReason,
+            selectedSlot: slotData,
+            sessionId,
+          })
+        : selectExistingPatientSlot({
+            appointmentTypeId: selectedAppointmentTypeId,
+            reasonDescription: trimmedReason,
+            selectedSlot: slotData,
+            sessionId,
+          }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Termin konnte nicht ausgewählt werden.",
+          source: "CalendarSelectionStep.handleConfirmSlot",
+        }),
+    ).match(
+      () => void 0,
+      (error) => {
+        captureFrontendError(error, {
+          appointmentTypeId: appointmentType._id,
+          isNewPatient,
           sessionId,
+          slotStart: selectedSlot.startTime,
         });
-      } else {
-        await selectExistingPatientSlot({
-          appointmentTypeId: selectedAppointmentTypeId,
-          reasonDescription: trimmedReason,
-          selectedSlot: slotData,
-          sessionId,
+        toast.error("Termin konnte nicht ausgewählt werden", {
+          description: error.message || "Bitte versuchen Sie es erneut.",
         });
-      }
-    } catch (error) {
-      console.error("Failed to select slot:", error);
-      toast.error("Termin konnte nicht ausgewählt werden", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
-    }
+      },
+    );
   };
 
   // Filter to only available slots
@@ -401,7 +414,6 @@ export function CalendarSelectionStep({
                           key={`${slot.practitionerId}-${slot.startTime}`}
                           onClick={() => {
                             handleSelectSlot({
-                              duration: slot.duration,
                               practitionerId: slot.practitionerId,
                               practitionerName: slot.practitionerName,
                               startTime: slot.startTime,

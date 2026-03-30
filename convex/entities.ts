@@ -32,6 +32,11 @@ import {
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
 import {
+  type FollowUpPlan,
+  followUpStepValidator,
+  validateFollowUpPlan,
+} from "./followUpPlans";
+import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
@@ -573,6 +578,7 @@ export const createAppointmentType = mutation({
   args: {
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
+    followUpPlan: v.optional(v.array(followUpStepValidator)),
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
@@ -595,6 +601,12 @@ export const createAppointmentType = mutation({
       args.practiceId,
       ruleSetId,
       true, // Required: at least one practitioner
+    );
+    const followUpPlan = await validateFollowUpPlan(
+      ctx.db,
+      ruleSetId,
+      args.followUpPlan,
+      args.lineageKey,
     );
 
     // Check for name uniqueness within the rule set
@@ -631,6 +643,7 @@ export const createAppointmentType = mutation({
       allowedPractitionerIds,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
+      ...(followUpPlan && { followUpPlan }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name: args.name,
@@ -665,6 +678,7 @@ export const updateAppointmentType = mutation({
     appointmentTypeId: v.id("appointmentTypes"),
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
+    followUpPlan: v.optional(v.array(followUpStepValidator)),
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
@@ -708,6 +722,7 @@ export const updateAppointmentType = mutation({
     const updates: Partial<{
       allowedPractitionerIds: Id<"practitioners">[];
       duration: number;
+      followUpPlan: FollowUpPlan;
       lastModified: bigint;
       name: string;
     }> = {
@@ -730,6 +745,15 @@ export const updateAppointmentType = mutation({
         true, // Required: at least one practitioner
       );
       updates.allowedPractitionerIds = resolved;
+    }
+    if (args.followUpPlan !== undefined) {
+      const validatedFollowUpPlan = await validateFollowUpPlan(
+        ctx.db,
+        ruleSetId,
+        args.followUpPlan as FollowUpPlan,
+        requireAppointmentTypeLineageKey(appointmentType),
+      );
+      updates.followUpPlan = validatedFollowUpPlan ?? [];
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching

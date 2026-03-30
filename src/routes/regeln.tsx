@@ -300,10 +300,20 @@ function LogicView() {
 
   // Get the first appointment type ID for default
   const defaultAppointmentTypeId = appointmentTypesQuery?.[0]?._id;
+  const hasAutoInitializedDefaultAppointmentTypeRef = useRef(false);
+
+  React.useEffect(() => {
+    hasAutoInitializedDefaultAppointmentTypeRef.current = false;
+  }, [firstRuleSetId]);
 
   // Initialize appointmentTypeId once appointment types are loaded
   React.useEffect(() => {
-    if (defaultAppointmentTypeId && !simulatedContext.appointmentTypeId) {
+    if (
+      defaultAppointmentTypeId &&
+      !simulatedContext.appointmentTypeId &&
+      !hasAutoInitializedDefaultAppointmentTypeRef.current
+    ) {
+      hasAutoInitializedDefaultAppointmentTypeRef.current = true;
       setSimulatedContext((prev) => ({
         ...prev,
         appointmentTypeId: defaultAppointmentTypeId,

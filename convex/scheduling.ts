@@ -2,27 +2,34 @@ import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import type { AppointmentContext } from "./ruleEngine";
 
 import { internal } from "./_generated/api";
-import { query } from "./_generated/server";
+import { internalQuery, query } from "./_generated/server";
+import {
+  type AppointmentBookingScope,
+  getEffectiveAppointmentsForScope,
+} from "./appointmentConflicts";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
   buildPreloadedDayData,
   evaluateLoadedRulesHelper,
   preEvaluateDayInvariantRulesHelper,
 } from "./ruleEngine";
+import {
+  generateCandidateSlotsForDay,
+  isSlotStartInFuture,
+  SCHEDULING_TIMEZONE,
+  slotOverlapsAppointment,
+  slotOverlapsBlockedSlot,
+} from "./schedulingCore";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 import {
   availableSlotsResultValidator,
   dateRangeValidator,
   simulatedContextValidator,
 } from "./validators";
-
-// Constants
-const DEFAULT_SLOT_DURATION_MINUTES = 5;
-const TIMEZONE = "Europe/Berlin";
 
 /**
  * Get the current time as a ZonedDateTime string in the configured timezone.
@@ -39,144 +46,20 @@ export interface SchedulingResultSlot {
   status: "AVAILABLE" | "BLOCKED";
 }
 
+const schedulingResultSlotValidator = v.object({
+  blockedByBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockedByRuleId: v.optional(v.id("ruleConditions")),
+  duration: v.number(),
+  locationId: v.optional(v.id("locations")),
+  practitionerId: v.id("practitioners"),
+  practitionerName: v.string(),
+  reason: v.optional(v.string()),
+  startTime: v.string(),
+  status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
+});
+
 function getNowAsZonedString(): string {
-  return Temporal.Now.zonedDateTimeISO(TIMEZONE).toString();
-}
-
-/**
- * Internal candidate slot type used during slot generation.
- */
-interface CandidateSlot {
-  blockedByBlockedSlotId?: string; // ID of manual blocked slot that caused this
-  blockedByRuleId?: string;
-  duration: number;
-  locationId?: string;
-  practitionerId: string;
-  practitionerName?: string; // Optional during generation, required in final result
-  startTime: string;
-  status: "AVAILABLE" | "BLOCKED";
-}
-
-function isSlotStartInFuture(
-  startTime: string,
-  nowInstant: Temporal.Instant,
-): boolean {
-  try {
-    const slotInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
-    return Temporal.Instant.compare(slotInstant, nowInstant) > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Shared helper to generate candidate slots for a given day.
- * Reduces code duplication between getSlotsForDay and getBlockedSlotsWithoutAppointmentType.
- * @returns Array of candidate slots with their initial status (before rule evaluation)
- */
-async function generateCandidateSlotsForDay(
-  db: DatabaseReader,
-  args: {
-    date: Temporal.PlainDate;
-    locationId?: Id<"locations">;
-    practiceId: Id<"practices">;
-  },
-): Promise<CandidateSlot[]> {
-  const { date: targetPlainDate, locationId, practiceId } = args;
-
-  // Fetch practitioners for this practice
-  const practitioners = await db
-    .query("practitioners")
-    .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
-    .collect();
-
-  // Fetch locations if needed
-  const locations = await db
-    .query("locations")
-    .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
-    .collect();
-
-  let defaultLocationId: string | undefined = locationId;
-  if (!defaultLocationId && locations.length > 0) {
-    defaultLocationId = locations[0]?._id;
-  }
-
-  const candidateSlots: CandidateSlot[] = [];
-
-  // Get day of week from Temporal (Monday = 1, Sunday = 7) and convert to JS (Sunday = 0, Monday = 1)
-  const dayOfWeek =
-    targetPlainDate.dayOfWeek === 7 ? 0 : targetPlainDate.dayOfWeek;
-
-  for (const practitioner of practitioners) {
-    const schedules = await db
-      .query("baseSchedules")
-      .withIndex("by_practitionerId", (q) =>
-        q.eq("practitionerId", practitioner._id),
-      )
-      .filter((q) => {
-        if (locationId) {
-          return q.eq(q.field("locationId"), locationId);
-        }
-        return true;
-      })
-      .collect();
-
-    const schedule = schedules.find((s) => s.dayOfWeek === dayOfWeek);
-
-    if (schedule) {
-      const scheduleStartTime = Temporal.PlainTime.from(
-        `${schedule.startTime}:00`,
-      );
-      const scheduleEndTime = Temporal.PlainTime.from(`${schedule.endTime}:00`);
-
-      const scheduleStart = targetPlainDate
-        .toZonedDateTime({
-          plainTime: scheduleStartTime,
-          timeZone: TIMEZONE,
-        })
-        .toInstant();
-
-      const scheduleEnd = targetPlainDate
-        .toZonedDateTime({
-          plainTime: scheduleEndTime,
-          timeZone: TIMEZONE,
-        })
-        .toInstant();
-
-      const slotDuration = DEFAULT_SLOT_DURATION_MINUTES;
-      const slotDurationMillis = slotDuration * 60 * 1000;
-
-      let currentInstant = scheduleStart;
-      while (Temporal.Instant.compare(currentInstant, scheduleEnd) < 0) {
-        const slotZoned = currentInstant.toZonedDateTimeISO(TIMEZONE);
-        const timeString = `${slotZoned.hour.toString().padStart(2, "0")}:${slotZoned.minute.toString().padStart(2, "0")}`;
-
-        const isBreakTime =
-          schedule.breakTimes?.some(
-            (breakTime) =>
-              timeString >= breakTime.start && timeString < breakTime.end,
-          ) ?? false;
-
-        if (!isBreakTime) {
-          candidateSlots.push({
-            duration: slotDuration,
-            ...(defaultLocationId && { locationId: defaultLocationId }),
-            practitionerId: practitioner._id,
-            practitionerName: practitioner.name,
-            // Use ZonedDateTime format for consistency with appointments/blocked slots
-            startTime: slotZoned.toString(),
-            status: "AVAILABLE",
-          });
-        }
-
-        currentInstant = currentInstant.add({
-          milliseconds: slotDurationMillis,
-        });
-      }
-    }
-  }
-
-  return candidateSlots;
+  return Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString();
 }
 
 /**
@@ -257,414 +140,575 @@ export const getAvailableDates = query({
  * The old getAvailableSlots query was removed because it would hit the 32k document read
  * limit when evaluating rules for large date ranges (e.g., 182 days).
  */
-export const getSlotsForDay = query({
+const getSlotsForDayArgs = {
+  date: v.string(), // ISO date string for the specific day (e.g., "2025-10-21")
+  enforceFutureOnly: v.optional(v.boolean()),
+  excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
+  practiceId: v.id("practices"),
+  ruleSetId: v.optional(v.id("ruleSets")),
+  scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+  simulatedContext: simulatedContextValidator,
+};
+
+async function getSlotsForDayImpl(
+  ctx: QueryCtx,
   args: {
-    date: v.string(), // ISO date string for the specific day (e.g., "2025-10-21")
-    enforceFutureOnly: v.optional(v.boolean()),
-    practiceId: v.id("practices"),
-    ruleSetId: v.optional(v.id("ruleSets")),
-    simulatedContext: simulatedContextValidator,
+    date: string;
+    enforceFutureOnly?: boolean;
+    excludedAppointmentIds?: Id<"appointments">[];
+    practiceId: Id<"practices">;
+    ruleSetId?: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulatedContext: {
+      appointmentTypeId?: Id<"appointmentTypes">;
+      locationId?: Id<"locations">;
+      patient: {
+        dateOfBirth?: string;
+        isNew: boolean;
+      };
+      requestedAt?: string;
+    };
   },
-  handler: async (ctx, args) => {
+): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> {
+  // Ensure appointmentTypeId is present for rule evaluation
+  if (!args.simulatedContext.appointmentTypeId) {
+    throw new Error(
+      "appointmentTypeId is required in simulatedContext for scheduling queries",
+    );
+  }
+
+  // Parse the date directly as a Temporal.PlainDate to avoid timezone issues
+  const targetPlainDate = Temporal.PlainDate.from(args.date);
+
+  const log: string[] = [`Getting slots for single day: ${args.date}`];
+  const appointmentScope = args.scope ?? "real";
+  const excludedAppointmentIds = new Set(args.excludedAppointmentIds);
+
+  // Fetch blocked slots for this practice and date using efficient date range query
+  const dayStart = targetPlainDate
+    .toZonedDateTime({
+      plainTime: Temporal.PlainTime.from("00:00"),
+      timeZone: SCHEDULING_TIMEZONE,
+    })
+    .toString();
+
+  const dayEnd = targetPlainDate
+    .add({ days: 1 })
+    .toZonedDateTime({
+      plainTime: Temporal.PlainTime.from("00:00"),
+      timeZone: SCHEDULING_TIMEZONE,
+    })
+    .toString();
+
+  const allBlockedSlots = await ctx.db
+    .query("blockedSlots")
+    .withIndex("by_practiceId_start", (q) =>
+      q.eq("practiceId", args.practiceId).gte("start", dayStart),
+    )
+    .filter((q) => q.lt(q.field("start"), dayEnd))
+    .collect();
+
+  const blockedSlotsForDay =
+    appointmentScope === "simulation"
+      ? combineBlockedSlotsForSimulation(allBlockedSlots)
+      : allBlockedSlots.filter(
+          (blockedSlot) => blockedSlot.isSimulation !== true,
+        );
+
+  log.push(`Found ${blockedSlotsForDay.length} blocked slots for this day`);
+
+  // Determine which rule set to use
+  let ruleSetId = args.ruleSetId;
+  if (!ruleSetId) {
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (practice?.currentActiveRuleSetId) {
+      ruleSetId = practice.currentActiveRuleSetId;
+    } else {
+      log.push("No active rule set found, no rules will be applied");
+      ruleSetId = undefined;
+    }
+  }
+
+  if (!ruleSetId) {
+    log.push("No rule set available for candidate slot generation");
+    return { log, slots: [] };
+  }
+  log.push(`Using rule set: ${ruleSetId}`);
+
+  // Fetch relevant practitioners
+  const practitioners = await ctx.db
+    .query("practitioners")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .collect();
+
+  log.push(`Found ${practitioners.length} practitioners`);
+
+  // Fetch available locations
+  const locations = await ctx.db
+    .query("locations")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .collect();
+
+  log.push(`Found ${locations.length} locations`);
+
+  // Determine default location
+  let defaultLocationId: Id<"locations"> | undefined;
+  if (args.simulatedContext.locationId) {
+    defaultLocationId = args.simulatedContext.locationId;
+    log.push(`Using specified location: ${defaultLocationId}`);
+  } else if (locations.length > 0) {
+    const firstLocation = locations[0];
+    if (firstLocation) {
+      defaultLocationId = firstLocation._id;
+      log.push(`Using default location: ${defaultLocationId}`);
+    }
+  } else {
+    log.push("No locations available - slots will have no location assigned");
+  }
+
+  // Generate candidate slots using shared helper
+  let candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
+    date: targetPlainDate,
+    ...(defaultLocationId && { locationId: defaultLocationId }),
+    practiceId: args.practiceId,
+    ruleSetId,
+  });
+
+  if (args.enforceFutureOnly === true) {
+    const nowInstant = Temporal.Now.instant();
+    const previousCount = candidateSlots.length;
+    candidateSlots = candidateSlots.filter((slot) =>
+      isSlotStartInFuture(slot.startTime, nowInstant),
+    );
+    log.push(
+      `Filtered past slots: ${previousCount - candidateSlots.length} removed`,
+    );
+  }
+
+  log.push(`Generated ${candidateSlots.length} candidate slots`);
+
+  // Mark manually blocked slots
+  for (const slot of candidateSlots) {
+    // Check if this slot overlaps with any blocked slot
+    const blockingSlot = blockedSlotsForDay.find((blockedSlot) =>
+      slotOverlapsBlockedSlot(slot, blockedSlot),
+    );
+
+    if (blockingSlot) {
+      slot.status = "BLOCKED";
+      slot.blockedByBlockedSlotId = blockingSlot._id;
+    }
+  }
+
+  log.push(`Marked slots blocked by manual blocks`);
+
+  // Apply rules
+  if (ruleSetId) {
+    let totalBlockedCount = 0;
+
+    // At this point we know appointmentTypeId exists due to the guard above
+    const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+
+    // PERFORMANCE FIX: Load rules once and evaluate them for all slots
+    // instead of loading rules separately for each slot
+    const rulesResultRaw = await ctx.runQuery(
+      internal.ruleEngine.loadRulesForRuleSet,
+      { ruleSetId },
+    );
+
+    // Reconstruct the Map ONCE here to avoid repeated serialization
+    const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
+      Object.entries(
+        rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
+      ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
+    );
+
+    const rulesData = {
+      conditions: rulesResultRaw.conditions,
+      conditionsMap,
+      dayInvariantCount: rulesResultRaw.dayInvariantCount,
+      rules: rulesResultRaw.rules,
+      timeVariantCount: rulesResultRaw.timeVariantCount,
+      totalConditions: rulesResultRaw.totalConditions,
+    };
+
+    log.push(
+      `Loaded ${rulesData.rules.length} rules with ${rulesData.totalConditions} total conditions`,
+      `Rule classification: ${rulesData.dayInvariantCount} day-invariant, ${rulesData.timeVariantCount} time-variant`,
+    );
+
+    // Build preloaded appointment data ONCE per query execution for all rule evaluations
+    // This single query replaces ~26,000 per-slot database reads
+    const dayStr = targetPlainDate.toString(); // YYYY-MM-DD format
+    const preloadedData = await buildPreloadedDayData(
+      ctx.db,
+      args.practiceId,
+      dayStr,
+      practitioners,
+    );
+
+    // Build practitioners Map for rule evaluation
+    const practitionersMap = new Map(practitioners.map((p) => [p._id, p]));
+
+    log.push(
+      `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
+    );
+
+    const effectiveAppointments = getEffectiveAppointmentsForScope(
+      preloadedData.appointments,
+      appointmentScope,
+    );
+
+    for (const slot of candidateSlots) {
+      if (slot.status === "BLOCKED") {
+        continue;
+      }
+
+      const overlappingAppointment = effectiveAppointments.find(
+        (appointment) =>
+          !excludedAppointmentIds.has(appointment._id) &&
+          slotOverlapsAppointment(slot, appointment),
+      );
+
+      if (overlappingAppointment) {
+        slot.status = "BLOCKED";
+      }
+    }
+
+    log.push("Marked slots blocked by existing appointments");
+
+    // Pre-evaluate day-invariant rules once for the entire day
+    // Use the simulatedContext since appointmentTypeId and locationId are fixed for the entire query
+    let preEvaluatedDayRules;
+    if (rulesData.dayInvariantCount > 0 && candidateSlots.length > 0) {
+      const firstSlot = candidateSlots[0];
+      if (firstSlot) {
+        const dayContext = {
+          appointmentTypeId,
+          dateTime: firstSlot.startTime, // Any slot time works for day-invariant rules
+          ...(args.simulatedContext.patient.dateOfBirth && {
+            patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
+          }),
+          practiceId: args.practiceId,
+          // Note: We use the first slot's practitionerId here, but PRACTITIONER conditions
+          // should NOT be in the day-invariant set since practitionerId varies per slot
+          practitionerId: firstSlot.practitionerId as Id<"practitioners">,
+          requestedAt:
+            args.simulatedContext.requestedAt ?? getNowAsZonedString(),
+          // locationId comes from simulatedContext (fixed for entire query) or slot's default
+          ...(args.simulatedContext.locationId && {
+            locationId: args.simulatedContext.locationId,
+          }),
+          ...(!args.simulatedContext.locationId &&
+            firstSlot.locationId && {
+              locationId: firstSlot.locationId as Id<"locations">,
+            }),
+        };
+
+        // PERFORMANCE: Call helper directly to avoid serialization overhead
+        preEvaluatedDayRules = preEvaluateDayInvariantRulesHelper(
+          dayContext,
+          rulesData,
+          practitionersMap,
+        );
+
+        log.push(
+          `Pre-evaluated ${preEvaluatedDayRules.evaluatedCount} day-invariant rules: ${preEvaluatedDayRules.blockedByRuleIds.length} blocking`,
+        );
+      }
+    }
+
+    for (const slot of candidateSlots) {
+      if (slot.status === "BLOCKED") {
+        continue;
+      }
+
+      const appointmentContext = {
+        appointmentTypeId,
+        dateTime: slot.startTime,
+        ...(args.simulatedContext.patient.dateOfBirth && {
+          patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
+        }),
+        practiceId: args.practiceId,
+        practitionerId: slot.practitionerId as Id<"practitioners">,
+        requestedAt: args.simulatedContext.requestedAt ?? getNowAsZonedString(),
+        ...(slot.locationId && {
+          locationId: slot.locationId as Id<"locations">,
+        }),
+      };
+
+      // PERFORMANCE: Call helper directly to avoid serialization overhead
+      // evaluateLoadedRulesHelper is now synchronous with preloaded data
+      const ruleCheckResult = evaluateLoadedRulesHelper(
+        appointmentContext,
+        rulesData,
+        preloadedData,
+        preEvaluatedDayRules,
+      );
+
+      if (
+        ruleCheckResult.isBlocked &&
+        ruleCheckResult.blockedByRuleIds.length > 0
+      ) {
+        slot.status = "BLOCKED";
+        const firstBlockingRuleId = ruleCheckResult.blockedByRuleIds[0];
+        if (firstBlockingRuleId) {
+          slot.blockedByRuleId = firstBlockingRuleId;
+        }
+        totalBlockedCount++;
+      }
+    }
+
+    log.push(`Rules blocked ${totalBlockedCount} slots`);
+  } else {
+    log.push("No rule set active - all slots remain available");
+  }
+
+  // Return final results
+  const finalSlots: SchedulingResultSlot[] = candidateSlots.map((slot) => {
+    const slotResult: SchedulingResultSlot = {
+      duration: slot.duration,
+      practitionerId: slot.practitionerId as Id<"practitioners">,
+      practitionerName: slot.practitionerName ?? "Unknown Practitioner",
+      startTime: slot.startTime,
+      status: slot.status,
+    };
+
+    if (slot.blockedByBlockedSlotId) {
+      slotResult.blockedByBlockedSlotId =
+        slot.blockedByBlockedSlotId as Id<"blockedSlots">;
+    }
+
+    if (slot.blockedByRuleId) {
+      slotResult.blockedByRuleId = slot.blockedByRuleId as Id<"ruleConditions">;
+    }
+
+    if (slot.locationId) {
+      slotResult.locationId = slot.locationId as Id<"locations">;
+    }
+
+    return slotResult;
+  });
+
+  // Generate natural language reasons for blocked slots
+  // PERFORMANCE FIX: Collect unique rule IDs and fetch descriptions once per rule
+  // instead of once per slot (which was causing ~25k+ document reads)
+
+  // First, collect unique rule IDs from blocked slots
+  const uniqueRuleIds = new Set<Id<"ruleConditions">>();
+  for (const slot of finalSlots) {
+    if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
+      uniqueRuleIds.add(slot.blockedByRuleId);
+    }
+  }
+
+  // Fetch descriptions for unique rules only (once per rule, not per slot)
+  const ruleDescriptionCache = new Map<Id<"ruleConditions">, string>();
+  for (const ruleId of uniqueRuleIds) {
+    try {
+      const ruleDescription = await ctx.runQuery(
+        internal.ruleEngine.getRuleDescription,
+        { ruleId },
+      );
+      ruleDescriptionCache.set(
+        ruleId,
+        ruleDescription.treeStructure.trim() ||
+          "Dieser Zeitfenster ist durch eine Regel blockiert.",
+      );
+    } catch (error) {
+      ruleDescriptionCache.set(
+        ruleId,
+        "Dieser Zeitfenster ist durch eine Regel blockiert.",
+      );
+      log.push(
+        `Failed to generate reason for rule ${ruleId}: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+
+  log.push(
+    `Generated descriptions for ${ruleDescriptionCache.size} unique blocking rules`,
+  );
+
+  // Apply reasons to blocked slots using cached descriptions
+  for (const slot of finalSlots) {
+    if (slot.status === "BLOCKED") {
+      if (slot.blockedByBlockedSlotId) {
+        // Handle manual blocked slots
+        const blockedSlot = blockedSlotsForDay.find(
+          (bs) => bs._id === slot.blockedByBlockedSlotId,
+        );
+        slot.reason = blockedSlot?.title || "Manuell blockierter Zeitraum";
+      } else if (slot.blockedByRuleId) {
+        // Use cached description
+        slot.reason =
+          ruleDescriptionCache.get(slot.blockedByRuleId) ||
+          "Dieser Zeitfenster ist durch eine Regel blockiert.";
+      } else {
+        slot.reason =
+          "Dieser Zeitfenster ist bereits durch einen Termin belegt.";
+      }
+    }
+  }
+
+  log.push(
+    `Final result: ${finalSlots.filter((s) => s.status === "AVAILABLE").length} available slots, ${finalSlots.filter((s) => s.status === "BLOCKED").length} blocked slots`,
+  );
+
+  return { log, slots: finalSlots };
+}
+
+export const getSlotsForDay = query({
+  args: getSlotsForDayArgs,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    // Ensure appointmentTypeId is present for rule evaluation
-    if (!args.simulatedContext.appointmentTypeId) {
+    return await getSlotsForDayImpl(ctx, args);
+  },
+  returns: availableSlotsResultValidator,
+});
+
+export const getNextAvailableSlot = query({
+  args: {
+    date: v.string(),
+    practiceId: v.id("practices"),
+    ruleSetId: v.optional(v.id("ruleSets")),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    simulatedContext: simulatedContextValidator,
+  },
+  handler: async (ctx, args): Promise<null | SchedulingResultSlot> => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+    if (!appointmentTypeId) {
       throw new Error(
         "appointmentTypeId is required in simulatedContext for scheduling queries",
       );
     }
 
-    // Parse the date directly as a Temporal.PlainDate to avoid timezone issues
-    const targetPlainDate = Temporal.PlainDate.from(args.date);
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      appointmentTypeId,
+    );
+    if (!appointmentType) {
+      throw new Error(
+        `Appointment type with ID ${appointmentTypeId} not found`,
+      );
+    }
 
-    const log: string[] = [`Getting slots for single day: ${args.date}`];
+    const allowedPractitionerIds = new Set(
+      appointmentType.allowedPractitionerIds,
+    );
+    const startDate = Temporal.PlainDate.from(args.date);
+    const maxSearchDays = 90;
+    let effectiveRuleSetId = args.ruleSetId;
 
-    // Fetch blocked slots for this practice and date using efficient date range query
-    const dayStart = targetPlainDate
-      .toZonedDateTime({
-        plainTime: Temporal.PlainTime.from("00:00"),
-        timeZone: TIMEZONE,
-      })
-      .toString();
-
-    const dayEnd = targetPlainDate
-      .add({ days: 1 })
-      .toZonedDateTime({
-        plainTime: Temporal.PlainTime.from("00:00"),
-        timeZone: TIMEZONE,
-      })
-      .toString();
-
-    const allBlockedSlots = await ctx.db
-      .query("blockedSlots")
-      .withIndex("by_practiceId_start", (q) =>
-        q.eq("practiceId", args.practiceId).gte("start", dayStart),
-      )
-      .filter((q) => q.lt(q.field("start"), dayEnd))
-      .collect();
-
-    // Determine if we're in simulation mode based on context presence
-    const isSimulationMode = !!args.simulatedContext.appointmentTypeId;
-
-    // Filter blocked slots by simulation scope
-    const blockedSlotsForDay = allBlockedSlots.filter((blockedSlot) => {
-      // In simulation mode, include both real and simulated blocked slots
-      // In real mode, only include real blocked slots
-      return isSimulationMode ? true : !blockedSlot.isSimulation;
-    });
-
-    log.push(`Found ${blockedSlotsForDay.length} blocked slots for this day`);
-
-    // Determine which rule set to use
-    let ruleSetId = args.ruleSetId;
-    if (!ruleSetId) {
+    if (!effectiveRuleSetId) {
       const practice = await ctx.db.get("practices", args.practiceId);
-      if (practice?.currentActiveRuleSetId) {
-        ruleSetId = practice.currentActiveRuleSetId;
-      } else {
-        log.push("No active rule set found, no rules will be applied");
-        ruleSetId = undefined;
-      }
+      effectiveRuleSetId = practice?.currentActiveRuleSetId;
     }
 
-    if (ruleSetId) {
-      log.push(`Using rule set: ${ruleSetId}`);
+    if (!effectiveRuleSetId) {
+      return null;
     }
 
-    // Fetch relevant practitioners
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    const baseSchedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", effectiveRuleSetId))
       .collect();
 
-    log.push(`Found ${practitioners.length} practitioners`);
-
-    // Fetch available locations
-    const locations = await ctx.db
-      .query("locations")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    log.push(`Found ${locations.length} locations`);
-
-    // Determine default location
-    let defaultLocationId: Id<"locations"> | undefined;
-    if (args.simulatedContext.locationId) {
-      defaultLocationId = args.simulatedContext.locationId;
-      log.push(`Using specified location: ${defaultLocationId}`);
-    } else if (locations.length > 0) {
-      const firstLocation = locations[0];
-      if (firstLocation) {
-        defaultLocationId = firstLocation._id;
-        log.push(`Using default location: ${defaultLocationId}`);
-      }
-    } else {
-      log.push("No locations available - slots will have no location assigned");
-    }
-
-    // Generate candidate slots using shared helper
-    let candidateSlots = await generateCandidateSlotsForDay(ctx.db, {
-      date: targetPlainDate,
-      ...(defaultLocationId && { locationId: defaultLocationId }),
-      practiceId: args.practiceId,
-    });
-
-    if (args.enforceFutureOnly === true) {
-      const nowInstant = Temporal.Now.instant();
-      const previousCount = candidateSlots.length;
-      candidateSlots = candidateSlots.filter((slot) =>
-        isSlotStartInFuture(slot.startTime, nowInstant),
-      );
-      log.push(
-        `Filtered past slots: ${previousCount - candidateSlots.length} removed`,
-      );
-    }
-
-    log.push(`Generated ${candidateSlots.length} candidate slots`);
-
-    // Mark manually blocked slots
-    for (const slot of candidateSlots) {
-      // Parse ZonedDateTime string from candidate slots
-      const slotZoned = Temporal.ZonedDateTime.from(slot.startTime);
-      const slotEndZoned = slotZoned.add({
-        minutes: slot.duration,
-      });
-
-      // Check if this slot overlaps with any blocked slot
-      const blockingSlot = blockedSlotsForDay.find((blockedSlot) => {
-        // Parse ZonedDateTime strings and convert to Instant for comparison
-        const blockedStartZoned = Temporal.ZonedDateTime.from(
-          blockedSlot.start,
-        );
-        const blockedEndZoned = Temporal.ZonedDateTime.from(blockedSlot.end);
-        const blockedStart = blockedStartZoned.toInstant();
-        const blockedEnd = blockedEndZoned.toInstant();
-
-        // Check practitioner match (if blocked slot has practitioner specified)
-        if (
-          blockedSlot.practitionerId &&
-          blockedSlot.practitionerId !== slot.practitionerId
-        ) {
-          return false;
-        }
-
-        // Check if times overlap (compare instants for timezone-safe comparison)
-        const slotInstant = slotZoned.toInstant();
-        const slotEndInstant = slotEndZoned.toInstant();
-        const overlapStart = Temporal.Instant.compare(slotInstant, blockedEnd);
-        const overlapEnd = Temporal.Instant.compare(
-          slotEndInstant,
-          blockedStart,
-        );
-
-        return overlapStart < 0 && overlapEnd > 0;
-      });
-
-      if (blockingSlot) {
-        slot.status = "BLOCKED";
-        slot.blockedByBlockedSlotId = blockingSlot._id;
-      }
-    }
-
-    log.push(`Marked slots blocked by manual blocks`);
-
-    // Apply rules
-    if (ruleSetId) {
-      let totalBlockedCount = 0;
-
-      // At this point we know appointmentTypeId exists due to the guard above
-      const appointmentTypeId = args.simulatedContext.appointmentTypeId;
-
-      // PERFORMANCE FIX: Load rules once and evaluate them for all slots
-      // instead of loading rules separately for each slot
-      const rulesResultRaw = await ctx.runQuery(
-        internal.ruleEngine.loadRulesForRuleSet,
-        { ruleSetId },
-      );
-
-      // Reconstruct the Map ONCE here to avoid repeated serialization
-      const conditionsMap = new Map<
-        Id<"ruleConditions">,
-        Doc<"ruleConditions">
-      >(
-        Object.entries(
-          rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
-        ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
-      );
-
-      const rulesData = {
-        conditions: rulesResultRaw.conditions,
-        conditionsMap,
-        dayInvariantCount: rulesResultRaw.dayInvariantCount,
-        rules: rulesResultRaw.rules,
-        timeVariantCount: rulesResultRaw.timeVariantCount,
-        totalConditions: rulesResultRaw.totalConditions,
-      };
-
-      log.push(
-        `Loaded ${rulesData.rules.length} rules with ${rulesData.totalConditions} total conditions`,
-        `Rule classification: ${rulesData.dayInvariantCount} day-invariant, ${rulesData.timeVariantCount} time-variant`,
-      );
-
-      // Build preloaded appointment data ONCE per query execution for all rule evaluations
-      // This single query replaces ~26,000 per-slot database reads
-      const dayStr = targetPlainDate.toString(); // YYYY-MM-DD format
-      const preloadedData = await buildPreloadedDayData(
-        ctx.db,
-        args.practiceId,
-        dayStr,
-        practitioners,
-      );
-
-      // Build practitioners Map for rule evaluation
-      const practitionersMap = new Map(practitioners.map((p) => [p._id, p]));
-
-      log.push(
-        `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
-      );
-
-      // Pre-evaluate day-invariant rules once for the entire day
-      // Use the simulatedContext since appointmentTypeId and locationId are fixed for the entire query
-      let preEvaluatedDayRules;
-      if (rulesData.dayInvariantCount > 0 && candidateSlots.length > 0) {
-        const firstSlot = candidateSlots[0];
-        if (firstSlot) {
-          const dayContext = {
-            appointmentTypeId,
-            dateTime: firstSlot.startTime, // Any slot time works for day-invariant rules
-            ...(args.simulatedContext.patient.dateOfBirth && {
-              patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
-            }),
-            practiceId: args.practiceId,
-            // Note: We use the first slot's practitionerId here, but PRACTITIONER conditions
-            // should NOT be in the day-invariant set since practitionerId varies per slot
-            practitionerId: firstSlot.practitionerId as Id<"practitioners">,
-            requestedAt:
-              args.simulatedContext.requestedAt ?? getNowAsZonedString(),
-            // locationId comes from simulatedContext (fixed for entire query) or slot's default
-            ...(args.simulatedContext.locationId && {
-              locationId: args.simulatedContext.locationId,
-            }),
-            ...(!args.simulatedContext.locationId &&
-              firstSlot.locationId && {
-                locationId: firstSlot.locationId as Id<"locations">,
-              }),
-          };
-
-          // PERFORMANCE: Call helper directly to avoid serialization overhead
-          preEvaluatedDayRules = preEvaluateDayInvariantRulesHelper(
-            dayContext,
-            rulesData,
-            practitionersMap,
-          );
-
-          log.push(
-            `Pre-evaluated ${preEvaluatedDayRules.evaluatedCount} day-invariant rules: ${preEvaluatedDayRules.blockedByRuleIds.length} blocking`,
-          );
-        }
-      }
-
-      for (const slot of candidateSlots) {
-        if (slot.status === "BLOCKED") {
-          continue;
-        }
-
-        const appointmentContext = {
-          appointmentTypeId,
-          dateTime: slot.startTime,
-          ...(args.simulatedContext.patient.dateOfBirth && {
-            patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
-          }),
-          practiceId: args.practiceId,
-          practitionerId: slot.practitionerId as Id<"practitioners">,
-          requestedAt:
-            args.simulatedContext.requestedAt ?? getNowAsZonedString(),
-          ...(slot.locationId && {
-            locationId: slot.locationId as Id<"locations">,
-          }),
-        };
-
-        // PERFORMANCE: Call helper directly to avoid serialization overhead
-        // evaluateLoadedRulesHelper is now synchronous with preloaded data
-        const ruleCheckResult = evaluateLoadedRulesHelper(
-          appointmentContext,
-          rulesData,
-          preloadedData,
-          preEvaluatedDayRules,
-        );
-
-        if (
-          ruleCheckResult.isBlocked &&
-          ruleCheckResult.blockedByRuleIds.length > 0
-        ) {
-          slot.status = "BLOCKED";
-          const firstBlockingRuleId = ruleCheckResult.blockedByRuleIds[0];
-          if (firstBlockingRuleId) {
-            slot.blockedByRuleId = firstBlockingRuleId;
+    const searchableDayOfWeekSet = new Set(
+      baseSchedules
+        .filter((schedule) => {
+          if (schedule.practiceId !== args.practiceId) {
+            return false;
           }
-          totalBlockedCount++;
-        }
-      }
 
-      log.push(`Rules blocked ${totalBlockedCount} slots`);
-    } else {
-      log.push("No rule set active - all slots remain available");
-    }
+          if (!allowedPractitionerIds.has(schedule.practitionerId)) {
+            return false;
+          }
 
-    // Return final results
-    const finalSlots: SchedulingResultSlot[] = candidateSlots.map((slot) => {
-      const slotResult: SchedulingResultSlot = {
-        duration: slot.duration,
-        practitionerId: slot.practitionerId as Id<"practitioners">,
-        practitionerName: slot.practitionerName ?? "Unknown Practitioner",
-        startTime: slot.startTime,
-        status: slot.status,
-      };
+          if (
+            args.simulatedContext.locationId &&
+            schedule.locationId !== args.simulatedContext.locationId
+          ) {
+            return false;
+          }
 
-      if (slot.blockedByBlockedSlotId) {
-        slotResult.blockedByBlockedSlotId =
-          slot.blockedByBlockedSlotId as Id<"blockedSlots">;
-      }
-
-      if (slot.blockedByRuleId) {
-        slotResult.blockedByRuleId =
-          slot.blockedByRuleId as Id<"ruleConditions">;
-      }
-
-      if (slot.locationId) {
-        slotResult.locationId = slot.locationId as Id<"locations">;
-      }
-
-      return slotResult;
-    });
-
-    // Generate natural language reasons for blocked slots
-    // PERFORMANCE FIX: Collect unique rule IDs and fetch descriptions once per rule
-    // instead of once per slot (which was causing ~25k+ document reads)
-
-    // First, collect unique rule IDs from blocked slots
-    const uniqueRuleIds = new Set<Id<"ruleConditions">>();
-    for (const slot of finalSlots) {
-      if (slot.status === "BLOCKED" && slot.blockedByRuleId) {
-        uniqueRuleIds.add(slot.blockedByRuleId);
-      }
-    }
-
-    // Fetch descriptions for unique rules only (once per rule, not per slot)
-    const ruleDescriptionCache = new Map<Id<"ruleConditions">, string>();
-    for (const ruleId of uniqueRuleIds) {
-      try {
-        const ruleDescription = await ctx.runQuery(
-          internal.ruleEngine.getRuleDescription,
-          { ruleId },
-        );
-        ruleDescriptionCache.set(
-          ruleId,
-          ruleDescription.treeStructure.trim() ||
-            "Dieser Zeitfenster ist durch eine Regel blockiert.",
-        );
-      } catch (error) {
-        ruleDescriptionCache.set(
-          ruleId,
-          "Dieser Zeitfenster ist durch eine Regel blockiert.",
-        );
-        log.push(
-          `Failed to generate reason for rule ${ruleId}: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
-      }
-    }
-
-    log.push(
-      `Generated descriptions for ${ruleDescriptionCache.size} unique blocking rules`,
+          return true;
+        })
+        .map((schedule) => schedule.dayOfWeek),
     );
 
-    // Apply reasons to blocked slots using cached descriptions
-    for (const slot of finalSlots) {
-      if (slot.status === "BLOCKED") {
-        if (slot.blockedByBlockedSlotId) {
-          // Handle manual blocked slots
-          const blockedSlot = blockedSlotsForDay.find(
-            (bs) => bs._id === slot.blockedByBlockedSlotId,
-          );
-          slot.reason = blockedSlot?.title || "Manuell blockierter Zeitraum";
-        } else if (slot.blockedByRuleId) {
-          // Use cached description
-          slot.reason =
-            ruleDescriptionCache.get(slot.blockedByRuleId) ||
-            "Dieser Zeitfenster ist durch eine Regel blockiert.";
-        }
+    if (searchableDayOfWeekSet.size === 0) {
+      return null;
+    }
+
+    for (let offset = 0; offset <= maxSearchDays; offset += 1) {
+      const day = startDate.add({ days: offset });
+      const legacyDayOfWeek = day.dayOfWeek === 7 ? 0 : day.dayOfWeek;
+
+      if (!searchableDayOfWeekSet.has(legacyDayOfWeek)) {
+        continue;
+      }
+
+      const dayResult: Awaited<ReturnType<typeof getSlotsForDayImpl>> =
+        await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+          ...args,
+          date: day.toString(),
+          ruleSetId: effectiveRuleSetId,
+        });
+
+      const nextSlot: null | SchedulingResultSlot =
+        dayResult.slots.find(
+          (slot: SchedulingResultSlot) =>
+            slot.status === "AVAILABLE" &&
+            allowedPractitionerIds.has(slot.practitionerId),
+        ) ?? null;
+
+      if (nextSlot) {
+        return nextSlot;
       }
     }
 
-    log.push(
-      `Final result: ${finalSlots.filter((s) => s.status === "AVAILABLE").length} available slots, ${finalSlots.filter((s) => s.status === "BLOCKED").length} blocked slots`,
-    );
+    return null;
+  },
+  returns: v.union(v.null(), schedulingResultSlotValidator),
+});
 
-    return { log, slots: finalSlots };
+export const getSlotsForDayInternal = internalQuery({
+  args: getSlotsForDayArgs,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
+    return await getSlotsForDayImpl(ctx, args);
   },
   returns: availableSlotsResultValidator,
 });
+
+function combineBlockedSlotsForSimulation(
+  blockedSlots: Doc<"blockedSlots">[],
+): Doc<"blockedSlots">[] {
+  const simulationSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation === true,
+  );
+  const replacedIds = new Set(
+    simulationSlots.map((slot) => slot.replacesBlockedSlotId).filter(Boolean),
+  );
+
+  const realSlots = blockedSlots.filter(
+    (slot) => slot.isSimulation !== true && !replacedIds.has(slot._id),
+  );
+
+  return [...realSlots, ...simulationSlots].toSorted((a, b) =>
+    a.start.localeCompare(b.start),
+  );
+}
 
 /**
  * Get blocked slots for a day without requiring appointment type.
@@ -702,6 +746,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       date: targetPlainDate,
       ...(args.locationId && { locationId: args.locationId }),
       practiceId: args.practiceId,
+      ruleSetId,
     });
 
     // NOTE: We intentionally do NOT mark manually blocked slots here.
