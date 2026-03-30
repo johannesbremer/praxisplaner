@@ -6,8 +6,7 @@ import { nitro } from "nitro/vite";
 import { defineConfig, type PluginOption } from "vite";
 
 export default defineConfig(({ command }) => {
-  const enableDevtools =
-    command === "serve" || process.env["ENABLE_DEVTOOLS"] === "true";
+  const enableDevtools = command === "serve";
   const basePlugins: PluginOption[] = [
     tanstackStart({
       srcDirectory: "src",
