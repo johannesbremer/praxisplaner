@@ -70,9 +70,6 @@ interface AppointmentTypesManagementProps {
 type AppointmentTypesResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
 type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
-type PractitionersResult =
-  (typeof api.entities.getPractitioners)["_returnType"];
-type PractitionerWithLineage = PractitionersResult[number];
 
 const followUpStepSchema = z
   .object({
