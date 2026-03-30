@@ -24,10 +24,30 @@ class QueryDevtoolsClient extends EventClient<EventMap> {
   }
 }
 
-export const queryPlugin = new QueryDevtoolsClient();
+let queryPluginClient: null | QueryDevtoolsClient = null;
 
-// this should be queued and emitted when bus is available
-queryPlugin.emit("query-devtools:test", {
-  description: "A plugin for query debugging",
-  title: "Query Devtools",
-});
+function getQueryPluginClient() {
+  if (!isClientEnvironment()) {
+    return null;
+  }
+
+  queryPluginClient ??= new QueryDevtoolsClient();
+  return queryPluginClient;
+}
+
+function isClientEnvironment() {
+  return !import.meta.env.SSR;
+}
+
+export const queryPlugin = {
+  emit<K extends keyof EventMap>(type: K, payload: EventMap[K]) {
+    getQueryPluginClient()?.emit(type, payload);
+  },
+};
+
+if (isClientEnvironment()) {
+  queryPlugin.emit("query-devtools:test", {
+    description: "A plugin for query debugging",
+    title: "Query Devtools",
+  });
+}
