@@ -605,13 +605,62 @@ export const getNextAvailableSlot = query({
     );
     const startDate = Temporal.PlainDate.from(args.date);
     const maxSearchDays = 90;
+    let effectiveRuleSetId = args.ruleSetId;
+
+    if (!effectiveRuleSetId) {
+      const practice = await ctx.db.get("practices", args.practiceId);
+      effectiveRuleSetId = practice?.currentActiveRuleSetId;
+    }
+
+    if (!effectiveRuleSetId) {
+      return null;
+    }
+
+    const baseSchedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", effectiveRuleSetId))
+      .collect();
+
+    const searchableDayOfWeekSet = new Set(
+      baseSchedules
+        .filter((schedule) => {
+          if (schedule.practiceId !== args.practiceId) {
+            return false;
+          }
+
+          if (!allowedPractitionerIds.has(schedule.practitionerId)) {
+            return false;
+          }
+
+          if (
+            args.simulatedContext.locationId &&
+            schedule.locationId !== args.simulatedContext.locationId
+          ) {
+            return false;
+          }
+
+          return true;
+        })
+        .map((schedule) => schedule.dayOfWeek),
+    );
+
+    if (searchableDayOfWeekSet.size === 0) {
+      return null;
+    }
 
     for (let offset = 0; offset <= maxSearchDays; offset += 1) {
       const day = startDate.add({ days: offset });
+      const legacyDayOfWeek = day.dayOfWeek === 7 ? 0 : day.dayOfWeek;
+
+      if (!searchableDayOfWeekSet.has(legacyDayOfWeek)) {
+        continue;
+      }
+
       const dayResult: Awaited<ReturnType<typeof getSlotsForDayImpl>> =
         await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
           ...args,
           date: day.toString(),
+          ruleSetId: effectiveRuleSetId,
         });
 
       const nextSlot: null | SchedulingResultSlot =

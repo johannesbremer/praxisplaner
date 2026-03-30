@@ -351,29 +351,32 @@ export function StaffAppointmentCreationModal({
     }
   };
 
-  const isSeriesPreviewLoading = hasFollowUpPlan && seriesPreview === undefined;
+  const canRunSeriesPreview =
+    open &&
+    mode === "next" &&
+    hasFollowUpPlan &&
+    nextAvailableSlot !== undefined &&
+    nextAvailableSlot !== null;
+  const isSeriesPreviewLoading =
+    canRunSeriesPreview && seriesPreview === undefined;
   const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
-  const isNextAvailableSlotLoading = nextAvailableSlot === undefined;
+  const isNextAvailableSlotLoading = open && nextAvailableSlot === undefined;
   const hasNoNextAvailableSlot = nextAvailableSlot === null;
   const isSubmitDisabled =
     !form.state.canSubmit ||
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
-  const submitButtonLabel = hasFollowUpPlan
-    ? isSeriesPreviewLoading
-      ? "Kettentermine werden geprüft..."
-      : isSeriesPreviewBlocked
-        ? "Kettentermine nicht planbar"
-        : isNextAvailableSlotLoading
-          ? "Termin wird gesucht..."
-          : hasNoNextAvailableSlot
-            ? "Kein Termin verfügbar"
+  const submitButtonLabel = isNextAvailableSlotLoading
+    ? "Termin wird gesucht..."
+    : hasNoNextAvailableSlot
+      ? "Kein Termin verfügbar"
+      : hasFollowUpPlan
+        ? isSeriesPreviewLoading
+          ? "Kettentermine werden geprüft..."
+          : isSeriesPreviewBlocked
+            ? "Kettentermine nicht planbar"
             : "Termin erstellen"
-    : isNextAvailableSlotLoading
-      ? "Termin wird gesucht..."
-      : hasNoNextAvailableSlot
-        ? "Kein Termin verfügbar"
         : "Termin erstellen";
 
   return (
@@ -394,7 +397,7 @@ export function StaffAppointmentCreationModal({
                     <>Suche nach dem nächsten verfügbaren Termin...</>
                   ) : hasNoNextAvailableSlot ? (
                     <>Es konnte kein freier Termin gefunden werden.</>
-                  ) : (
+                  ) : nextAvailableSlot ? (
                     <>
                       {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                         .toPlainDate()
@@ -413,6 +416,8 @@ export function StaffAppointmentCreationModal({
                         })}{" "}
                       Uhr
                     </>
+                  ) : (
+                    <>Es konnte kein freier Termin gefunden werden.</>
                   )}
                 </DialogDescription>
               </DialogHeader>
