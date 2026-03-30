@@ -10,15 +10,75 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
+import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
 import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { useEffect } from "react";
 import { Toaster } from "sonner";
 
+import { ModeToggle } from "@/components/mode-toggle";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"; // Ensure this path is correct
+
+import {
+  UndoRedoControlsProvider,
+  useGlobalUndoRedoControls,
+} from "../hooks/use-global-undo-redo-controls";
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
+
+function ClientDevtools() {
+  const [DevtoolsComponent, setDevtoolsComponent] = React.useState<
+    null | React.ComponentType
+  >(null);
+
+  useEffect(() => {
+    if (!__ENABLE_DEVTOOLS__) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all([
+      import("../devtools/app-devtools"),
+      import("react-scan"),
+    ]).then(
+      ([appDevtoolsModule, reactScanModule]) => {
+        if (cancelled) {
+          return;
+        }
+
+        reactScanModule.scan({
+          dangerouslyForceRunInProduction: !import.meta.env.DEV,
+          enabled: true,
+          showToolbar: true,
+        });
+        setDevtoolsComponent(() => appDevtoolsModule.default);
+      },
+      (error: unknown) => {
+        captureErrorGlobal(error, {
+          context: "Client devtools initialization",
+          errorType: "devtools_initialization",
+        });
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return DevtoolsComponent ? <DevtoolsComponent /> : null;
+}
 
 // Client-only PostHog wrapper component
 function PostHogWrapper({ children }: { children: React.ReactNode }) {
@@ -49,40 +109,6 @@ function PostHogWrapper({ children }: { children: React.ReactNode }) {
     </ClientOnly>
   );
 }
-
-// Icons and UI components for the HomePage content
-import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
-
-import { ModeToggle } from "@/components/mode-toggle";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"; // Ensure this path is correct
-
-import {
-  UndoRedoControlsProvider,
-  useGlobalUndoRedoControls,
-} from "../hooks/use-global-undo-redo-controls";
-
-const LazyAppDevtools = __ENABLE_DEVTOOLS__
-  ? React.lazy(() => import("../devtools/app-devtools"))
-  : null;
-
-const initializeReactScan = __ENABLE_DEVTOOLS__
-  ? async () => {
-      const { scan } = await import("react-scan");
-      scan({
-        dangerouslyForceRunInProduction: !import.meta.env.DEV,
-        enabled: true,
-        showToolbar: true,
-      });
-    }
-  : null;
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -261,19 +287,6 @@ function RootComponent() {
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    if (!initializeReactScan) {
-      return;
-    }
-
-    void initializeReactScan().catch((error: unknown) => {
-      captureErrorGlobal(error, {
-        context: "React Scan initialization",
-        errorType: "devtools_initialization",
-      });
-    });
-  }, []);
-
   return (
     <html>
       <head>
@@ -281,11 +294,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        {LazyAppDevtools ? (
+        {__ENABLE_DEVTOOLS__ ? (
           <ClientOnly fallback={null}>
-            <React.Suspense fallback={null}>
-              <LazyAppDevtools />
-            </React.Suspense>
+            <ClientDevtools />
           </ClientOnly>
         ) : null}
         <Toaster offset={72} position="top-right" richColors />
