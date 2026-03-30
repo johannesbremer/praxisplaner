@@ -2039,12 +2039,6 @@ export const replaceBaseScheduleSet = mutation({
       args.selectedRuleSetId,
     );
 
-    if (args.expectedPresentLineageKeys.length === 0) {
-      throw new Error(
-        "Keine Arbeitszeiten ausgewählt. Die Änderung kann nicht angewendet werden.",
-      );
-    }
-
     const expectedPresentIds: Id<"baseSchedules">[] = [];
     for (const lineageKey of args.expectedPresentLineageKeys) {
       const matches = await ctx.db

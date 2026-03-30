@@ -1130,37 +1130,46 @@ function BaseScheduleDialog({
             return;
           }
 
-          for (const dayOfWeek of value.daysOfWeek) {
-            const createData: {
-              breakTimes?: { end: string; start: string }[];
-              dayOfWeek: number;
-              endTime: string;
-              expectedDraftRevision: null | number;
-              locationId: Id<"locations">;
-              practiceId: Id<"practices">;
-              practitionerId: Id<"practitioners">;
-              selectedRuleSetId: Id<"ruleSets">;
-              startTime: string;
-            } = {
-              dayOfWeek,
-              endTime: value.endTime,
-              expectedDraftRevision: getExpectedDraftRevision(),
-              locationId: value.locationId as Id<"locations">,
-              practiceId,
-              practitionerId: value.practitionerId as Id<"practitioners">,
-              selectedRuleSetId: getSelectedRuleSetId(),
-              startTime: value.startTime,
-            };
+          const replacementSchedules = value.daysOfWeek.map((dayOfWeek) => ({
+            ...(value.breakTimes.length > 0 && { breakTimes: value.breakTimes }),
+            dayOfWeek,
+            endTime: value.endTime,
+            lineageKey: crypto.randomUUID() as Id<"baseSchedules">,
+            locationId: value.locationId as Id<"locations">,
+            practitionerId: value.practitionerId as Id<"practitioners">,
+            startTime: value.startTime,
+          }));
 
-            if (value.breakTimes.length > 0) {
-              createData.breakTimes = value.breakTimes;
+          const result = await replaceScheduleSetMutation({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            expectedPresentLineageKeys: [],
+            practiceId,
+            replacementSchedules,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          });
+          handleDraftMutationResult(result);
+
+          for (const [index, createData] of replacementSchedules.entries()) {
+            const entityId = result.createdScheduleIds[index];
+            if (!entityId) {
+              const error = new Error(
+                "Die erstellten Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
+              );
+              captureFrontendError(error, {
+                context: "base_schedule_created_payload_mismatch",
+                practiceId,
+              });
+              toast.error(error.message);
+              return;
             }
-
-            const result = await createScheduleMutation(createData);
-            handleDraftMutationResult(result);
             const createdPayload = toCreatedSchedulePayload(
-              createData,
-              result.entityId,
+              {
+                ...createData,
+                expectedDraftRevision: getExpectedDraftRevision(),
+                practiceId,
+                selectedRuleSetId: getSelectedRuleSetId(),
+              },
+              entityId,
               practitionerLineageByIdAtSubmitStart,
               locationLineageByIdAtSubmitStart,
             ).match(
@@ -1178,7 +1187,7 @@ function BaseScheduleDialog({
               return;
             }
             createdSchedulePayloads.push(createdPayload);
-            createdScheduleIds.push(result.entityId);
+            createdScheduleIds.push(entityId);
           }
 
           toast.success(
