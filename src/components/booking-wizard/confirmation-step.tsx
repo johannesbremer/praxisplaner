@@ -115,10 +115,7 @@ export function BookedAppointmentSummary({
   );
 }
 
-export function ConfirmationStep({
-  sessionId,
-  state,
-}: StepComponentProps) {
+export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
   const returnToCalendarSelection = useMutation(
     api.bookingSessions.returnToCalendarSelectionAfterCancellation,
   );
