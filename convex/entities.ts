@@ -81,6 +81,12 @@ const baseScheduleResultValidator = v.object({
   ruleSetId: v.id("ruleSets"),
 });
 
+const baseScheduleBatchResultValidator = v.object({
+  createdScheduleIds: v.array(v.id("baseSchedules")),
+  draftRevision: v.number(),
+  ruleSetId: v.id("ruleSets"),
+});
+
 const ruleResultValidator = v.object({
   draftRevision: v.number(),
   entityId: v.id("ruleConditions"),
@@ -99,6 +105,23 @@ const baseSchedulePayloadValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   lineageKey: v.id("baseSchedules"),
+  locationId: v.id("locations"),
+  practitionerId: v.id("practitioners"),
+  startTime: v.string(),
+});
+
+const baseScheduleCreatePayloadValidator = v.object({
+  breakTimes: v.optional(
+    v.array(
+      v.object({
+        end: v.string(),
+        start: v.string(),
+      }),
+    ),
+  ),
+  dayOfWeek: v.number(),
+  endTime: v.string(),
+  lineageKey: v.optional(v.id("baseSchedules")),
   locationId: v.id("locations"),
   practitionerId: v.id("practitioners"),
   startTime: v.string(),
@@ -1868,6 +1891,93 @@ export const createBaseSchedule = mutation({
     return { draftRevision, entityId, ruleSetId };
   },
   returns: baseScheduleResultValidator,
+});
+
+/**
+ * Create multiple base schedules in an unsaved rule set in a single mutation.
+ * This reduces query invalidations and visible day-by-day UI updates when
+ * creating schedules for multiple weekdays at once.
+ */
+export const createBaseScheduleBatch = mutation({
+  args: {
+    expectedDraftRevision: expectedDraftRevisionValidator,
+    practiceId: v.id("practices"),
+    schedules: v.array(baseScheduleCreatePayloadValidator),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const ruleSetId = await resolveDraftRuleSetForMutation(
+      ctx.db,
+      args.practiceId,
+      args.expectedDraftRevision,
+      args.selectedRuleSetId,
+    );
+
+    const seenLineageKeys = new Set<Id<"baseSchedules">>();
+    const createdScheduleIds: Id<"baseSchedules">[] = [];
+
+    for (const schedule of args.schedules) {
+      const practitionerId = await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerId,
+        args.practiceId,
+        ruleSetId,
+      );
+      const locationId = await resolveLocationIdInRuleSet(
+        ctx.db,
+        schedule.locationId,
+        args.practiceId,
+        ruleSetId,
+      );
+
+      if (schedule.lineageKey) {
+        if (seenLineageKeys.has(schedule.lineageKey)) {
+          throw new Error(
+            `[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH] Arbeitszeit mit lineageKey ${schedule.lineageKey} wurde mehrfach in derselben Batch-Anfrage übergeben.`,
+          );
+        }
+        seenLineageKeys.add(schedule.lineageKey);
+
+        const existingByLineage = await ctx.db
+          .query("baseSchedules")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("lineageKey", schedule.lineageKey),
+          )
+          .first();
+        if (existingByLineage) {
+          throw new Error(
+            `[LINEAGE:BASE_SCHEDULE_DUPLICATE] Arbeitszeit mit lineageKey ${schedule.lineageKey} existiert bereits in Regelset ${ruleSetId}.`,
+          );
+        }
+      }
+
+      const createdId = await ctx.db.insert("baseSchedules", {
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        ...(schedule.lineageKey && { lineageKey: schedule.lineageKey }),
+        locationId,
+        practiceId: args.practiceId,
+        practitionerId,
+        ruleSetId,
+        startTime: schedule.startTime,
+        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+      });
+
+      if (!schedule.lineageKey) {
+        await ctx.db.patch("baseSchedules", createdId, {
+          lineageKey: createdId,
+        });
+      }
+
+      createdScheduleIds.push(createdId);
+    }
+
+    const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
+    return { createdScheduleIds, draftRevision, ruleSetId };
+  },
+  returns: baseScheduleBatchResultValidator,
 });
 
 /**
