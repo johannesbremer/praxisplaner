@@ -363,6 +363,7 @@ export function useCalendarLogic({
             scope: "real",
             simulatedContext: createSimulatedContext({
               appointmentTypeId: selectedAppointmentTypeId,
+              isNewPatient: patient?.isNewPatient ?? false,
               locationId: selectedLocationId,
               ...(patient?.dateOfBirth && {
                 patientDateOfBirth: patient.dateOfBirth,
@@ -2416,8 +2417,12 @@ export function useCalendarLogic({
 
       const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
         appointmentTypeId,
+        isNewPatient: patient?.isNewPatient ?? simulatedContext.patient.isNew,
         isSimulation: true,
         locationId,
+        ...(patient?.dateOfBirth && {
+          patientDateOfBirth: patient.dateOfBirth,
+        }),
         practiceId,
         replacesAppointmentId: originalAppointmentId,
         start: startISO,
@@ -2496,11 +2501,13 @@ export function useCalendarLogic({
         );
     },
     [
+      patient?.dateOfBirth,
+      patient?.isNewPatient,
+      practiceId,
       simulatedContext,
       runCreateAppointment,
       selectedDate,
       selectedLocationId,
-      practiceId,
     ],
   );
 
@@ -3060,8 +3067,12 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
+          isNewPatient: simulatedContext.patient.isNew,
           isSimulation: true,
           locationId: simulatedContext.locationId,
+          ...(patient?.dateOfBirth && {
+            patientDateOfBirth: patient.dateOfBirth,
+          }),
           ...(patient?.convexPatientId && {
             patientId: patient.convexPatientId,
           }),
@@ -3143,8 +3154,12 @@ export function useCalendarLogic({
 
         void runCreateAppointment({
           appointmentTypeId: selectedAppointmentTypeId,
+          isNewPatient: patient.isNewPatient ?? false,
           isSimulation: false,
           locationId: selectedLocationId,
+          ...(patient.dateOfBirth && {
+            patientDateOfBirth: patient.dateOfBirth,
+          }),
           ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
           }),

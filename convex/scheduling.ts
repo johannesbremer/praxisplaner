@@ -303,7 +303,7 @@ async function getSlotsForDayImpl(
   log.push(`Marked slots blocked by manual blocks`);
 
   // Apply rules
-  if (ruleSetId) {
+  {
     let totalBlockedCount = 0;
 
     // At this point we know appointmentTypeId exists due to the guard above
@@ -460,8 +460,6 @@ async function getSlotsForDayImpl(
     }
 
     log.push(`Rules blocked ${totalBlockedCount} slots`);
-  } else {
-    log.push("No rule set active - all slots remain available");
   }
 
   // Return final results
@@ -664,11 +662,15 @@ export const getNextAvailableSlot = query({
         });
 
       const nextSlot: null | SchedulingResultSlot =
-        dayResult.slots.find(
-          (slot: SchedulingResultSlot) =>
-            slot.status === "AVAILABLE" &&
-            allowedPractitionerIds.has(slot.practitionerId),
-        ) ?? null;
+        dayResult.slots
+          .filter(
+            (slot: SchedulingResultSlot) =>
+              slot.status === "AVAILABLE" &&
+              allowedPractitionerIds.has(slot.practitionerId),
+          )
+          .toSorted((left, right) =>
+            left.startTime.localeCompare(right.startTime),
+          )[0] ?? null;
 
       if (nextSlot) {
         return nextSlot;

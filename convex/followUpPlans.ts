@@ -75,6 +75,7 @@ export function normalizeFollowUpPlan(
     ...step,
     ...(step.note?.trim() ? { note: step.note.trim() } : {}),
     required: step.required,
+    searchMode: getCanonicalSearchMode(step),
   }));
 }
 
@@ -127,6 +128,7 @@ export async function validateFollowUpPlan(
     seenStepIds.add(trimmedStepId);
 
     validateFollowUpOffsetValue(step, trimmedStepId);
+    validateSupportedFollowUpModes(step, trimmedStepId);
 
     if (
       currentAppointmentTypeLineageKey &&
@@ -147,6 +149,9 @@ export async function validateFollowUpPlan(
 
   return normalizedPlan.map((step) => ({
     ...step,
+    locationMode: "inherit",
+    practitionerMode: "inherit",
+    searchMode: getCanonicalSearchMode(step),
     stepId: step.stepId.trim(),
   }));
 }
@@ -163,6 +168,16 @@ function buildMissingAppointmentTypeError(
 
 function followUpPlanError(code: string, message: string) {
   return new ConvexError({ code, message });
+}
+
+function getCanonicalSearchMode(
+  step: Pick<FollowUpStep, "offsetUnit" | "offsetValue">,
+): FollowUpStep["searchMode"] {
+  if (step.offsetUnit !== "minutes") {
+    return "first_available_on_or_after";
+  }
+
+  return step.offsetValue === 0 ? "exact_after_previous" : "same_day";
 }
 
 function validateFollowUpOffsetValue(
@@ -198,6 +213,25 @@ function validateFollowUpOffsetValue(
     throw followUpPlanError(
       "FOLLOW_UP_PLAN:INVALID_OFFSET",
       `Der Offset für Schritt "${trimmedStepId}" muss für Tage, Wochen und Monate mindestens 1 sein.`,
+    );
+  }
+}
+
+function validateSupportedFollowUpModes(
+  step: FollowUpStep,
+  trimmedStepId: string,
+) {
+  if (step.practitionerMode !== "inherit") {
+    throw followUpPlanError(
+      "FOLLOW_UP_PLAN:UNSUPPORTED_PRACTITIONER_MODE",
+      `Schritt "${trimmedStepId}" unterstützt derzeit nur die Behandler-Übernahme vom vorherigen Termin.`,
+    );
+  }
+
+  if (step.locationMode !== "inherit") {
+    throw followUpPlanError(
+      "FOLLOW_UP_PLAN:UNSUPPORTED_LOCATION_MODE",
+      `Schritt "${trimmedStepId}" unterstützt derzeit nur die Standort-Übernahme vom vorherigen Termin.`,
     );
   }
 }

@@ -36,6 +36,7 @@ import {
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
   onAppointmentCreated?: (
@@ -52,8 +53,10 @@ interface StaffAppointmentCreationModalProps {
   ruleSetId: Id<"ruleSets">;
   runCreateAppointment?: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    patientDateOfBirth?: string;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -67,6 +70,7 @@ interface StaffAppointmentCreationModalProps {
 
 export function StaffAppointmentCreationModal({
   appointmentTypeId,
+  isNewPatient = false,
   isSimulation = false,
   locationId,
   onAppointmentCreated,
@@ -148,6 +152,7 @@ export function StaffAppointmentCreationModal({
           ...(patient?.convexPatientId && {
             patientId: patient.convexPatientId,
           }),
+          isNewPatient,
           practiceId,
           practitionerId: nextAvailableSlot.practitionerId,
           rootAppointmentTypeId: appointmentTypeId,
@@ -267,8 +272,12 @@ export function StaffAppointmentCreationModal({
     await ResultAsync.fromPromise(
       runCreateAppointment({
         appointmentTypeId: selectedAppointmentType._id,
+        isNewPatient,
         ...(isSimulation && { isSimulation: true }),
         locationId,
+        ...(patient?.dateOfBirth && {
+          patientDateOfBirth: patient.dateOfBirth,
+        }),
         ...(createTarget.patientId && { patientId: createTarget.patientId }),
         practiceId,
         practitionerId: slot.practitionerId,

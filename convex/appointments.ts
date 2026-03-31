@@ -480,8 +480,10 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    patientDateOfBirth?: string;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -492,8 +494,17 @@ export async function createAppointmentFromTrustedSource(
   },
 ) {
   const now = BigInt(Date.now());
-  const { isSimulation, patientId, replacesAppointmentId, userId, ...rest } =
-    args;
+  const {
+    isNewPatient,
+    isSimulation,
+    patientDateOfBirth,
+    patientId,
+    replacesAppointmentId,
+    userId,
+    ...rest
+  } = args;
+  void isNewPatient;
+  void patientDateOfBirth;
 
   if (replacesAppointmentId && isSimulation !== true) {
     throw new Error(
@@ -541,6 +552,12 @@ export async function createAppointmentFromTrustedSource(
 
     const result = await createAppointmentSeriesHelper(ctx, {
       locationId: args.locationId,
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
+      }),
+      ...(args.patientDateOfBirth && {
+        patientDateOfBirth: args.patientDateOfBirth,
+      }),
       ...(patientId && { patientId }),
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
@@ -598,8 +615,10 @@ export async function createAppointmentFromTrustedSource(
 export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),

@@ -1964,7 +1964,9 @@ export const selectNewPatientSlot = mutation({
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
+      isNewPatient: true,
       locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: args.selectedSlot.practitionerId,
       start: args.selectedSlot.startTime,
@@ -2210,7 +2212,9 @@ export const selectExistingPatientSlot = mutation({
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
+      isNewPatient: false,
       locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,
       start: args.selectedSlot.startTime,

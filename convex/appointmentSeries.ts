@@ -65,6 +65,7 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
+  isNewPatient: v.optional(v.boolean()),
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
   patientId: v.optional(v.id("patients")),
@@ -100,6 +101,7 @@ type FollowUpSearchPolicy =
 
 interface RootSeriesCandidate {
   excludedAppointmentIds?: Id<"appointments">[];
+  isNewPatient?: boolean;
   locationId: Id<"locations">;
   patientDateOfBirth?: string;
   patientId?: Id<"patients">;
@@ -138,6 +140,7 @@ interface SeriesSpecification {
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
@@ -161,6 +164,9 @@ export async function createAppointmentSeries(
   const preview = await previewAppointmentSeries(
     ctx,
     {
+      ...(args.rootReplacesAppointmentId && {
+        excludedAppointmentIds: [args.rootReplacesAppointmentId],
+      }),
       ...args,
       rootAppointmentTypeId: rootAppointmentType._id,
     },
@@ -350,6 +356,9 @@ export async function planSeriesFromRootCandidate(
 
     const matchingSlot = await findSlotForFollowUpStep(ctx, {
       ...(locationId && { locationId }),
+      ...(args.rootCandidate.isNewPatient !== undefined && {
+        isNewPatient: args.rootCandidate.isNewPatient,
+      }),
       ...(args.rootCandidate.patientDateOfBirth && {
         patientDateOfBirth: args.rootCandidate.patientDateOfBirth,
       }),
@@ -411,6 +420,8 @@ export async function planSeriesFromRootCandidate(
 export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
@@ -439,6 +450,12 @@ export async function previewAppointmentSeries(
     planningState,
     requestedAt,
     rootCandidate: {
+      ...(args.excludedAppointmentIds && {
+        excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
+      }),
       locationId: args.locationId,
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
@@ -463,6 +480,7 @@ export async function replanAppointmentSeries(
   ctx: MutationCtx,
   args: {
     excludedAppointmentIds: Id<"appointments">[];
+    isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
@@ -495,6 +513,9 @@ export async function replanAppointmentSeries(
     requestedAt,
     rootCandidate: {
       excludedAppointmentIds: args.excludedAppointmentIds,
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
+      }),
       locationId: args.locationId,
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
@@ -528,6 +549,14 @@ export async function replanAppointmentSeries(
 export function resolveFollowUpSearchPolicy(
   step: FollowUpStep,
 ): FollowUpSearchPolicy {
+  if (step.searchMode === "exact_after_previous") {
+    return "exact_after_previous";
+  }
+
+  if (step.searchMode === "same_day") {
+    return "same_day_after_offset";
+  }
+
   if (step.offsetUnit === "minutes") {
     return step.offsetValue === 0
       ? "exact_after_previous"
@@ -591,6 +620,7 @@ async function findSlotForFollowUpStep(
   ctx: SeriesPlannerCtx,
   args: {
     excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: string;
     planningState: SeriesPlanningState;
@@ -616,6 +646,9 @@ async function findSlotForFollowUpStep(
       date: earliestStart.toPlainDate().toString(),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
       }),
       ...(args.locationId && { locationId: args.locationId }),
       planningState: args.planningState,
@@ -644,6 +677,9 @@ async function findSlotForFollowUpStep(
       date: earliestStart.toPlainDate().toString(),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
       }),
       ...(args.locationId && { locationId: args.locationId }),
       planningState: args.planningState,
@@ -683,6 +719,9 @@ async function findSlotForFollowUpStep(
       date: searchDate.toString(),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
       }),
       ...(args.locationId && { locationId: args.locationId }),
       planningState: args.planningState,
@@ -874,6 +913,14 @@ function normalizeFollowUpPlanSnapshot(
 ): FollowUpStep[] {
   return followUpPlan.map((step) => ({
     ...step,
+    locationMode: "inherit",
+    practitionerMode: "inherit",
+    searchMode:
+      step.offsetUnit === "minutes"
+        ? step.offsetValue === 0
+          ? "exact_after_previous"
+          : "same_day"
+        : "first_available_on_or_after",
     stepId: step.stepId.trim(),
     ...(step.note?.trim() ? { note: step.note.trim() } : {}),
   }));
@@ -885,6 +932,7 @@ async function queryAvailableSlotsForDay(
     appointmentType: Doc<"appointmentTypes">;
     date: string;
     excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: string;
     planningState: SeriesPlanningState;
@@ -899,6 +947,7 @@ async function queryAvailableSlotsForDay(
     args.appointmentType._id,
     args.date,
     args.excludedAppointmentIds?.join(",") ?? "",
+    args.isNewPatient === true ? "new" : "existing",
     args.locationId ?? "",
     args.patientDateOfBirth ?? "",
     args.practiceId,
@@ -928,7 +977,7 @@ async function queryAvailableSlotsForDay(
           ...(args.patientDateOfBirth && {
             dateOfBirth: args.patientDateOfBirth,
           }),
-          isNew: false,
+          isNew: args.isNewPatient ?? false,
         },
         requestedAt: args.requestedAt,
       },
@@ -985,6 +1034,7 @@ async function validateRootCandidate(
   args: {
     appointmentType: Doc<"appointmentTypes">;
     excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     planningState: SeriesPlanningState;
@@ -1025,6 +1075,7 @@ async function validateRootCandidate(
     ...(args.excludedAppointmentIds && {
       excludedAppointmentIds: args.excludedAppointmentIds,
     }),
+    ...(args.isNewPatient !== undefined && { isNewPatient: args.isNewPatient }),
     locationId: args.locationId,
     planningState: args.planningState,
     ...(args.patientDateOfBirth && {

@@ -37,9 +37,8 @@ import { captureFrontendError } from "../utils/frontend-errors";
 import { seo } from "../utils/seo"; // Make sure this is uncommented
 
 function ClientDevtools() {
-  const [DevtoolsComponent, setDevtoolsComponent] = React.useState<
-    null | React.ComponentType
-  >(null);
+  const [DevtoolsComponent, setDevtoolsComponent] =
+    React.useState<null | React.ComponentType>(null);
 
   useEffect(() => {
     if (!__ENABLE_DEVTOOLS__) {

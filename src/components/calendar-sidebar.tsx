@@ -308,6 +308,9 @@ export function CalendarSidebar() {
         creationModalLocationId && (
           <StaffAppointmentCreationModal
             appointmentTypeId={creationModalAppointmentTypeId}
+            isNewPatient={
+              simulatedContext?.patient.isNew ?? patient?.isNewPatient ?? false
+            }
             isSimulation={simulatedContext !== undefined}
             locationId={creationModalLocationId}
             onOpenChange={handleModalClose}
