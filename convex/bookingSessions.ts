@@ -1029,6 +1029,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "existing-confirmation": [
     "appointmentId",
     "appointmentTypeId",
+    "bookedDurationMinutes",
     "isNewPatient",
     "locationId",
     "practitionerId",
@@ -1063,6 +1064,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "new-confirmation": [
     "appointmentId",
     "appointmentTypeId",
+    "bookedDurationMinutes",
     "insuranceType",
     "isNewPatient",
     "locationId",
@@ -1973,6 +1975,7 @@ export const selectNewPatientSlot = mutation({
       title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
     });
+    const bookedDurationMinutes = selectedAppointmentType.duration;
 
     // Build confirmation state based on insurance type
     if (state.insuranceType === "gkv") {
@@ -1980,6 +1983,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
@@ -2001,6 +2005,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         insuranceType: "pkv",
         isNewPatient: true,
@@ -2221,6 +2226,7 @@ export const selectExistingPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: session.userId,
     });
+    const bookedDurationMinutes = appointmentType.duration;
 
     await setSessionStep(ctx, args.sessionId, "existing-confirmation");
 
@@ -2241,6 +2247,7 @@ export const selectExistingPatientSlot = mutation({
       ...base,
       appointmentId,
       appointmentTypeId: args.appointmentTypeId,
+      bookedDurationMinutes,
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,

@@ -337,6 +337,7 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     hzvStatus: hzvStatusValidator,
@@ -357,6 +358,7 @@ export const bookingSessionStepValidator = v.union(
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     insuranceType: v.literal("pkv"),
@@ -415,6 +417,7 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
     locationId: v.id("locations"),
@@ -613,6 +616,7 @@ export default defineSchema({
   bookingExistingConfirmationSteps: defineTable({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
@@ -716,6 +720,7 @@ export default defineSchema({
   bookingNewConfirmationSteps: defineTable({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),

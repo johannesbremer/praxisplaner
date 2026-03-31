@@ -235,19 +235,25 @@ async function getSlotsForDayImpl(
   }
   log.push(`Using rule set: ${ruleSetId}`);
 
-  // Fetch relevant practitioners
-  const practitioners = await ctx.db
+  // Fetch relevant practitioners scoped to the active rule set.
+  const ruleSetPractitioners = await ctx.db
     .query("practitioners")
-    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
     .collect();
+  const practitioners = ruleSetPractitioners.filter(
+    (practitioner) => practitioner.practiceId === args.practiceId,
+  );
 
   log.push(`Found ${practitioners.length} practitioners`);
 
-  // Fetch available locations
-  const locations = await ctx.db
+  // Fetch available locations scoped to the active rule set.
+  const ruleSetLocations = await ctx.db
     .query("locations")
-    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
     .collect();
+  const locations = ruleSetLocations.filter(
+    (location) => location.practiceId === args.practiceId,
+  );
 
   log.push(`Found ${locations.length} locations`);
 

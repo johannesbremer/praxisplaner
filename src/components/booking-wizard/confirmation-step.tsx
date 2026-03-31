@@ -1,6 +1,6 @@
 // Confirmation step component (Final step for both paths)
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
 import { ResultAsync } from "neverthrow";
@@ -116,16 +116,12 @@ export function BookedAppointmentSummary({
 }
 
 export function ConfirmationStep({
-  ruleSetId,
   sessionId,
   state,
 }: StepComponentProps) {
   const returnToCalendarSelection = useMutation(
     api.bookingSessions.returnToCalendarSelectionAfterCancellation,
   );
-  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
-    ruleSetId,
-  });
   const { cancelAppointment, isCancelled, isCancelling } =
     useAppointmentCancellation(async () => {
       await returnToCalendarSelection({ sessionId });
@@ -150,41 +146,12 @@ export function ConfirmationStep({
   const selectedSlot = state.selectedSlot;
   const personalData = state.personalData;
   const appointmentId = state.appointmentId;
-  if (appointmentTypes === undefined) {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Termin wird geladen</CardTitle>
-          <CardDescription>
-            Die Terminbestätigung wird vorbereitet.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  const appointmentType = appointmentTypes.find(
-    (candidate) => candidate._id === state.appointmentTypeId,
-  );
-
-  if (!appointmentType) {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Fehler</CardTitle>
-          <CardDescription>
-            Die Terminart konnte für die Bestätigung nicht geladen werden.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
 
   return (
     <AppointmentConfirmationCard
       appointmentId={appointmentId}
       description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
-      duration={appointmentType.duration}
+      duration={state.bookedDurationMinutes}
       isCancelled={isCancelled}
       isCancelling={isCancelling}
       onCancel={() => {

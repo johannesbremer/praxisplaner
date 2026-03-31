@@ -111,11 +111,11 @@ export function CalendarSidebar() {
   // Stable callback to prevent re-renders
   const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
     if (onAppointmentTypeSelect) {
-      onAppointmentTypeSelect(typeId);
       if (!selectedLocationId) {
         toast.error("Bitte wählen Sie zuerst einen Standort aus.");
         return;
       }
+      onAppointmentTypeSelect(typeId);
       setCreationModalAppointmentTypeId(typeId);
       setCreationModalLocationId(selectedLocationId);
       setShowCreationModal(true);
