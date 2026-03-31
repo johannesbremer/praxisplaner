@@ -1,6 +1,5 @@
 import { EventClient } from "@tanstack/devtools-event-client";
 
-// Event payload definitions for calendar diagnostics
 export interface CalendarDevtoolsEventMap {
   "custom-devtools:calendar-appointments": {
     count: number;
@@ -26,6 +25,8 @@ export interface CalendarDevtoolsEventMap {
   "custom-devtools:calendar-render": { lastRenderAt: number; renders: number };
 }
 
+let calendarEventClient: CalendarEventClient | null = null;
+
 class CalendarEventClient extends EventClient<CalendarDevtoolsEventMap> {
   constructor() {
     super({ pluginId: "custom-devtools" });
@@ -39,9 +40,39 @@ class CalendarEventClient extends EventClient<CalendarDevtoolsEventMap> {
   }
 }
 
-export const CalendarDevtoolsEventClient = new CalendarEventClient();
+function getCalendarEventClient() {
+  if (!__ENABLE_DEVTOOLS__ || !isClientEnvironment()) {
+    return null;
+  }
 
-// Emit helper for calendar diagnostics when devtools are enabled.
+  calendarEventClient ??= new CalendarEventClient();
+  return calendarEventClient;
+}
+
+function isClientEnvironment() {
+  return !import.meta.env.SSR;
+}
+
+export const CalendarDevtoolsEventClient = {
+  emitFull<K extends keyof CalendarDevtoolsEventMap>(
+    fullType: K,
+    payload: CalendarDevtoolsEventMap[K],
+  ) {
+    getCalendarEventClient()?.emitFull(fullType, payload);
+  },
+  on<K extends keyof CalendarDevtoolsEventMap>(
+    fullType: K,
+    listener: (event: { payload: CalendarDevtoolsEventMap[K] }) => void,
+  ) {
+    const client = getCalendarEventClient();
+    if (!client) {
+      return () => 0;
+    }
+
+    return client.on(fullType, listener as never);
+  },
+};
+
 export function emitCalendarEvent<K extends keyof CalendarDevtoolsEventMap>(
   fullType: K,
   payload: CalendarDevtoolsEventMap[K],
@@ -49,5 +80,6 @@ export function emitCalendarEvent<K extends keyof CalendarDevtoolsEventMap>(
   if (!__ENABLE_DEVTOOLS__) {
     return;
   }
+
   CalendarDevtoolsEventClient.emitFull(fullType, payload);
 }

@@ -28,7 +28,7 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import {
-  BookedAppointmentSummary,
+  BookedAppointmentsSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
@@ -46,7 +46,12 @@ import {
   PvsConsentStep,
   type StepComponentProps,
 } from "../components/booking-wizard/index";
-import { invalidStateError } from "../utils/frontend-errors";
+import {
+  captureFrontendError,
+  frontendErrorFromUnknown,
+  invalidStateError,
+  wrapAsyncResult,
+} from "../utils/frontend-errors";
 
 export const Route = createFileRoute("/buchung")({
   component: BookingPage,
@@ -221,8 +226,8 @@ function AuthenticatedBookingFlow() {
     api.bookingSessions.get,
     resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
   );
-  const bookedAppointment = useQuery(
-    api.appointments.getBookedAppointmentForCurrentUser,
+  const bookedAppointments = useQuery(
+    api.appointments.getBookedAppointmentsForCurrentUser,
     { refreshNonce: bookedAppointmentRefreshNonce },
   );
   const practitioners = useQuery(
@@ -268,26 +273,39 @@ function AuthenticatedBookingFlow() {
       !activeRuleSetSession
     ) {
       isCreatingSessionRef.current = true;
-      createSession({
-        practiceId: currentPractice._id,
-        ruleSetId: practiceActiveRuleSetId,
-      })
-        .then((createdSessionId) => {
-          setPendingSessionForActiveRuleSet({
+      void wrapAsyncResult(
+        () =>
+          createSession({
+            practiceId: currentPractice._id,
             ruleSetId: practiceActiveRuleSetId,
-            sessionId: createdSessionId,
-          });
-        })
-        .catch((error: unknown) => {
-          console.error("Failed to create booking session:", error);
-          const errorMessage =
-            error instanceof Error ? error.message : "Unbekannter Fehler";
-          setSessionError(errorMessage);
-          toast.error("Buchung konnte nicht gestartet werden", {
-            description:
-              "Bitte versuchen Sie es erneut oder kontaktieren Sie die Praxis.",
-          });
-        })
+          }),
+        (error) =>
+          frontendErrorFromUnknown(error, {
+            kind: "unknown",
+            message: "Buchung konnte nicht gestartet werden.",
+            source: "BookingPage.createSession",
+          }),
+      )
+        .match(
+          (createdSessionId) => {
+            setPendingSessionForActiveRuleSet({
+              ruleSetId: practiceActiveRuleSetId,
+              sessionId: createdSessionId,
+            });
+          },
+          (error) => {
+            captureFrontendError(error, {
+              context: "BookingPage.createSession",
+              practiceId: currentPractice._id,
+              ruleSetId: practiceActiveRuleSetId,
+            });
+            setSessionError(error.message);
+            toast.error("Buchung konnte nicht gestartet werden", {
+              description:
+                "Bitte versuchen Sie es erneut oder kontaktieren Sie die Praxis.",
+            });
+          },
+        )
         .finally(() => {
           isCreatingSessionRef.current = false;
         });
@@ -321,31 +339,50 @@ function AuthenticatedBookingFlow() {
       return;
     }
 
-    try {
-      await goBackMutation({ sessionId: resolvedSessionId });
-    } catch (error) {
-      console.error("Failed to go back:", error);
-      toast.error("Navigation fehlgeschlagen", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
-    }
+    await wrapAsyncResult(
+      () => goBackMutation({ sessionId: resolvedSessionId }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Navigation fehlgeschlagen.",
+          source: "BookingPage.handleBack",
+        }),
+    ).match(
+      () => void 0,
+      (error) => {
+        captureFrontendError(error, {
+          context: "BookingPage.handleBack",
+          sessionId: resolvedSessionId,
+        });
+        toast.error("Navigation fehlgeschlagen", {
+          description: error.message || "Bitte versuchen Sie es erneut.",
+        });
+      },
+    );
   }, [resolvedSessionId, goBackMutation]);
 
   const handleSignOut = useCallback(() => {
-    try {
-      signOut();
-    } catch (error) {
-      console.error("Failed to sign out:", error);
-      toast.error("Abmeldung fehlgeschlagen", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bitte versuchen Sie es erneut.",
-      });
-    }
+    void wrapAsyncResult(
+      () => {
+        signOut();
+      },
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Abmeldung fehlgeschlagen.",
+          source: "BookingPage.handleSignOut",
+        }),
+    ).match(
+      () => void 0,
+      (error) => {
+        captureFrontendError(error, {
+          context: "BookingPage.handleSignOut",
+        });
+        toast.error("Abmeldung fehlgeschlagen", {
+          description: error.message || "Bitte versuchen Sie es erneut.",
+        });
+      },
+    );
   }, [signOut]);
   const currentStep = session?.state.step;
 
@@ -433,8 +470,9 @@ function AuthenticatedBookingFlow() {
     },
   );
 
-  const bookedAppointmentId = bookedAppointment?._id;
-  const bookedAppointmentStart = bookedAppointment?.start;
+  const nextBookedAppointment = bookedAppointments?.[0];
+  const bookedAppointmentId = nextBookedAppointment?._id;
+  const bookedAppointmentStart = nextBookedAppointment?.start;
   useEffect(() => {
     if (!bookedAppointmentStart) {
       return;
@@ -464,12 +502,12 @@ function AuthenticatedBookingFlow() {
   }, [bookedAppointmentId, bookedAppointmentStart]);
 
   const isShowingBookedAppointment =
-    bookedAppointment !== null && bookedAppointment !== undefined;
+    bookedAppointments !== undefined && bookedAppointments.length > 0;
   const isSessionAtConfirmationStep =
     session?.state.step === "existing-confirmation" ||
     session?.state.step === "new-confirmation";
   const shouldReturnToCalendarAfterAppointmentElapsed =
-    bookedAppointment === null && isSessionAtConfirmationStep;
+    bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
 
   useEffect(() => {
     if (
@@ -481,17 +519,30 @@ function AuthenticatedBookingFlow() {
     }
 
     isReturningToCalendarRef.current = true;
-    void returnToCalendarSelectionAfterCancellation({
-      sessionId: resolvedSessionId,
-    })
-      .catch((error: unknown) => {
-        toast.error("Schrittwechsel fehlgeschlagen", {
-          description:
-            error instanceof Error
-              ? error.message
-              : "Bitte versuchen Sie es erneut.",
-        });
-      })
+    void wrapAsyncResult(
+      () =>
+        returnToCalendarSelectionAfterCancellation({
+          sessionId: resolvedSessionId,
+        }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Schrittwechsel fehlgeschlagen.",
+          source: "BookingPage.returnToCalendarSelectionAfterCancellation",
+        }),
+    )
+      .match(
+        () => void 0,
+        (error) => {
+          captureFrontendError(error, {
+            context: "BookingPage.returnToCalendarSelectionAfterCancellation",
+            sessionId: resolvedSessionId,
+          });
+          toast.error("Schrittwechsel fehlgeschlagen", {
+            description: error.message || "Bitte versuchen Sie es erneut.",
+          });
+        },
+      )
       .finally(() => {
         isReturningToCalendarRef.current = false;
       });
@@ -648,22 +699,20 @@ function AuthenticatedBookingFlow() {
       });
     };
 
-    const bookedPractitionerName = bookedAppointment.practitionerId
-      ? practitioners?.find(
-          (practitioner) =>
-            practitioner._id === bookedAppointment.practitionerId,
-        )?.name
-      : undefined;
+    const practitionerNamesById = Object.fromEntries(
+      (practitioners ?? []).map((practitioner) => [
+        practitioner._id,
+        practitioner.name,
+      ]),
+    ) as Partial<Record<Id<"practitioners">, string>>;
 
     currentGroup = "confirmation";
     showBackButton = false;
     stepContent = (
-      <BookedAppointmentSummary
-        appointment={bookedAppointment}
+      <BookedAppointmentsSummary
+        appointments={bookedAppointments}
         onCancelled={handleBookedAppointmentCancelled}
-        {...(bookedPractitionerName
-          ? { practitionerName: bookedPractitionerName }
-          : {})}
+        practitionerNamesById={practitionerNamesById}
       />
     );
   } else {

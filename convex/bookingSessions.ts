@@ -7,6 +7,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { createAppointmentFromTrustedSource } from "./appointments";
 import {
   beihilfeStatusValidator,
   type BookingSessionStep,
@@ -928,11 +929,6 @@ function assertSlotStartIsInFuture(startTime: string): void {
   }
 }
 
-function calculateEndTime(startTime: string, durationMinutes: number): string {
-  const start = Temporal.ZonedDateTime.from(startTime);
-  return start.add({ minutes: durationMinutes }).toString();
-}
-
 async function loadStepSnapshot(
   ctx: StepReadCtx,
   sessionId: Id<"bookingSessions">,
@@ -1033,6 +1029,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "existing-confirmation": [
     "appointmentId",
     "appointmentTypeId",
+    "bookedDurationMinutes",
     "isNewPatient",
     "locationId",
     "practitionerId",
@@ -1067,6 +1064,7 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "new-confirmation": [
     "appointmentId",
     "appointmentTypeId",
+    "bookedDurationMinutes",
     "insuranceType",
     "isNewPatient",
     "locationId",
@@ -1905,7 +1903,6 @@ export const selectNewPatientSlot = mutation({
     }
 
     const state = session.state;
-    const now = BigInt(Date.now());
     const reasonDescription = args.reasonDescription.trim();
 
     if (reasonDescription.length === 0) {
@@ -1967,23 +1964,18 @@ export const selectNewPatientSlot = mutation({
       calendarStep,
     );
 
-    // Create the appointment
-    const appointmentId = await ctx.db.insert("appointments", {
+    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      appointmentTypeTitle: selectedAppointmentType.name,
-      createdAt: now,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
-      lastModified: now,
+      isNewPatient: true,
       locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: args.selectedSlot.practitionerId,
       start: args.selectedSlot.startTime,
       title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
     });
+    const bookedDurationMinutes = selectedAppointmentType.duration;
 
     // Build confirmation state based on insurance type
     if (state.insuranceType === "gkv") {
@@ -1991,6 +1983,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
@@ -2012,6 +2005,7 @@ export const selectNewPatientSlot = mutation({
         ...base,
         appointmentId,
         appointmentTypeId: args.appointmentTypeId,
+        bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         insuranceType: "pkv",
         isNewPatient: true,
@@ -2204,8 +2198,6 @@ export const selectExistingPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
-    const now = BigInt(Date.now());
-
     const appointmentType = await ctx.db.get(
       "appointmentTypes",
       args.appointmentTypeId,
@@ -2223,23 +2215,18 @@ export const selectExistingPatientSlot = mutation({
       startTime: args.selectedSlot.startTime,
     });
 
-    // Create the appointment
-    const appointmentId = await ctx.db.insert("appointments", {
+    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
-      appointmentTypeTitle: appointmentType.name,
-      createdAt: now,
-      end: calculateEndTime(
-        args.selectedSlot.startTime,
-        args.selectedSlot.duration,
-      ),
-      lastModified: now,
+      isNewPatient: false,
       locationId: state.locationId,
+      patientDateOfBirth: state.personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,
       start: args.selectedSlot.startTime,
       title: `Online-Termin: ${appointmentType.name}`,
       userId: session.userId,
     });
+    const bookedDurationMinutes = appointmentType.duration;
 
     await setSessionStep(ctx, args.sessionId, "existing-confirmation");
 
@@ -2260,6 +2247,7 @@ export const selectExistingPatientSlot = mutation({
       ...base,
       appointmentId,
       appointmentTypeId: args.appointmentTypeId,
+      bookedDurationMinutes,
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,

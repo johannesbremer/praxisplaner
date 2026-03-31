@@ -3,6 +3,8 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
+
 // ================================
 // BOOKING SESSION VALIDATORS
 // ================================
@@ -103,7 +105,6 @@ export const emergencyContactValidator = v.object({
 });
 
 export const selectedSlotValidator = v.object({
-  duration: v.number(),
   practitionerId: v.id("practitioners"),
   practitionerName: v.string(),
   startTime: v.string(),
@@ -336,6 +337,7 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     hzvStatus: hzvStatusValidator,
@@ -356,6 +358,7 @@ export const bookingSessionStepValidator = v.union(
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
     beihilfeStatus: v.optional(beihilfeStatusValidator),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),
     insuranceType: v.literal("pkv"),
@@ -414,6 +417,7 @@ export const bookingSessionStepValidator = v.union(
   v.object({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
     locationId: v.id("locations"),
@@ -472,6 +476,9 @@ export default defineSchema({
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    seriesId: v.optional(v.string()),
+    seriesStepId: v.optional(v.string()),
+    seriesStepIndex: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
 
     // Metadata
@@ -486,8 +493,29 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
+    .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
     .index("by_userId_start", ["userId", "start"]),
+
+  appointmentSeries: defineTable({
+    createdAt: v.int64(),
+    followUpPlanSnapshot: v.array(followUpStepValidator),
+    lastModified: v.int64(),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    rootAppointmentId: v.id("appointments"),
+    rootAppointmentTypeId: v.id("appointmentTypes"),
+    rootAppointmentTypeLineageKey: v.id("appointmentTypes"),
+    rootDurationMinutes: v.number(),
+    ruleSetIdAtBooking: v.id("ruleSets"),
+    scope: v.union(v.literal("real"), v.literal("simulation")),
+    seriesId: v.string(),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_rootAppointmentId", ["rootAppointmentId"])
+    .index("by_seriesId", ["seriesId"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)
@@ -498,6 +526,7 @@ export default defineSchema({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
     createdAt: v.int64(),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
+    followUpPlan: followUpPlanValidator,
     lastModified: v.int64(),
     lineageKey: v.optional(v.id("appointmentTypes")), // Stable identity across copied rule sets
     name: v.string(),
@@ -587,6 +616,7 @@ export default defineSchema({
   bookingExistingConfirmationSteps: defineTable({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
@@ -690,6 +720,7 @@ export default defineSchema({
   bookingNewConfirmationSteps: defineTable({
     appointmentId: v.id("appointments"),
     appointmentTypeId: v.id("appointmentTypes"),
+    bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
     dataSharingContacts: v.array(dataSharingPersonValidator),
     emergencyContacts: v.optional(v.array(emergencyContactValidator)),

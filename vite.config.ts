@@ -6,8 +6,9 @@ import { nitro } from "nitro/vite";
 import { defineConfig, type PluginOption } from "vite";
 
 export default defineConfig(({ command }) => {
-  const enableDevtools =
+  const enableDevtoolsRuntime =
     command === "serve" || process.env["ENABLE_DEVTOOLS"] === "true";
+  const enableDevtoolsVitePlugin = command === "serve";
   const basePlugins: PluginOption[] = [
     tanstackStart({
       srcDirectory: "src",
@@ -16,7 +17,7 @@ export default defineConfig(({ command }) => {
     react(),
     babel({ presets: [reactCompilerPreset()] }),
   ];
-  const plugins: PluginOption[] = enableDevtools
+  const plugins: PluginOption[] = enableDevtoolsVitePlugin
     ? [
         devtools({
           enhancedLogs: {
@@ -33,7 +34,7 @@ export default defineConfig(({ command }) => {
 
   return {
     define: {
-      __ENABLE_DEVTOOLS__: JSON.stringify(enableDevtools),
+      __ENABLE_DEVTOOLS__: JSON.stringify(enableDevtoolsRuntime),
     },
     plugins,
     resolve: {

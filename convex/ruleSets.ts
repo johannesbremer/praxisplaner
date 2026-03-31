@@ -224,6 +224,20 @@ async function buildRuleSetCanonicalSnapshot(
           ),
         ),
         duration: appointmentType.duration,
+        followUpPlan:
+          appointmentType.followUpPlan?.map((step) => ({
+            appointmentTypeName:
+              appointmentTypeNameById.get(step.appointmentTypeLineageKey) ??
+              step.appointmentTypeLineageKey,
+            locationMode: step.locationMode,
+            note: step.note ?? null,
+            offsetUnit: step.offsetUnit,
+            offsetValue: step.offsetValue,
+            practitionerMode: step.practitionerMode,
+            required: step.required,
+            searchMode: step.searchMode,
+            stepId: step.stepId,
+          })) ?? [],
         name: appointmentType.name,
       }),
     )

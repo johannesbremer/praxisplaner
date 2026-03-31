@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -101,11 +102,22 @@ export function CalendarSidebar() {
   const { isMobile, setOpenMobile } = sidebarContext;
 
   const [showCreationModal, setShowCreationModal] = useState(false);
+  const [creationModalAppointmentTypeId, setCreationModalAppointmentTypeId] =
+    useState<Id<"appointmentTypes"> | undefined>();
+  const [creationModalLocationId, setCreationModalLocationId] = useState<
+    Id<"locations"> | undefined
+  >();
 
   // Stable callback to prevent re-renders
   const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
     if (onAppointmentTypeSelect) {
+      if (!selectedLocationId) {
+        toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+        return;
+      }
       onAppointmentTypeSelect(typeId);
+      setCreationModalAppointmentTypeId(typeId);
+      setCreationModalLocationId(selectedLocationId);
       setShowCreationModal(true);
       if (isMobile) {
         setOpenMobile(false);
@@ -118,6 +130,8 @@ export function CalendarSidebar() {
     if (onAppointmentTypeSelect) {
       onAppointmentTypeSelect();
     }
+    setCreationModalAppointmentTypeId(undefined);
+    setCreationModalLocationId(undefined);
   };
 
   // Handle blocking mode change and close mobile sidebar
@@ -136,8 +150,12 @@ export function CalendarSidebar() {
     shouldResetAppointmentType?: boolean,
   ) => {
     setShowCreationModal(open);
-    if (!open && shouldResetAppointmentType && onAppointmentTypeSelect) {
-      onAppointmentTypeSelect();
+    if (!open) {
+      if (shouldResetAppointmentType && onAppointmentTypeSelect) {
+        onAppointmentTypeSelect();
+      }
+      setCreationModalAppointmentTypeId(undefined);
+      setCreationModalLocationId(undefined);
     }
   };
 
@@ -261,6 +279,7 @@ export function CalendarSidebar() {
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <AppointmentTypeSelector
+                      disableAutoDeselect={showCreationModal}
                       isBlockingModeActive={isBlockingModeActive}
                       onBlockingModeChange={handleBlockingModeChange}
                       onTypeDeselect={handleTypeDeselect}
@@ -290,17 +309,22 @@ export function CalendarSidebar() {
       {/* Only render modal when we have all required IDs */}
       {practiceId &&
         ruleSetId &&
-        selectedAppointmentTypeId &&
-        selectedLocationId && (
+        creationModalAppointmentTypeId &&
+        creationModalLocationId && (
           <StaffAppointmentCreationModal
-            appointmentTypeId={selectedAppointmentTypeId}
-            locationId={selectedLocationId}
+            appointmentTypeId={creationModalAppointmentTypeId}
+            isNewPatient={
+              simulatedContext?.patient.isNew ?? patient?.isNewPatient ?? false
+            }
+            isSimulation={simulatedContext !== undefined}
+            locationId={creationModalLocationId}
             onOpenChange={handleModalClose}
             onPendingTitleChange={onPendingTitleChange}
             open={showCreationModal}
             patient={patient}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
+            selectedDate={selectedDate.toString()}
             {...(onAppointmentCreated && { onAppointmentCreated })}
             {...(runCreateAppointment && { runCreateAppointment })}
           />
