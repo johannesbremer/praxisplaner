@@ -104,9 +104,32 @@ const baseSchedulePayloadValidator = v.object({
   startTime: v.string(),
 });
 
+const baseScheduleCreatePayloadValidator = v.object({
+  breakTimes: v.optional(
+    v.array(
+      v.object({
+        end: v.string(),
+        start: v.string(),
+      }),
+    ),
+  ),
+  dayOfWeek: v.number(),
+  endTime: v.string(),
+  lineageKey: v.optional(v.id("baseSchedules")),
+  locationId: v.id("locations"),
+  practitionerId: v.id("practitioners"),
+  startTime: v.string(),
+});
+
 const replaceBaseScheduleSetResultValidator = v.object({
   createdScheduleIds: v.array(v.id("baseSchedules")),
   deletedScheduleIds: v.array(v.id("baseSchedules")),
+  draftRevision: v.number(),
+  ruleSetId: v.id("ruleSets"),
+});
+
+const createBaseScheduleSetResultValidator = v.object({
+  createdScheduleIds: v.array(v.id("baseSchedules")),
   draftRevision: v.number(),
   ruleSetId: v.id("ruleSets"),
 });
@@ -1868,6 +1891,86 @@ export const createBaseSchedule = mutation({
     return { draftRevision, entityId, ruleSetId };
   },
   returns: baseScheduleResultValidator,
+});
+
+/**
+ * Create multiple base schedules in an unsaved rule set in a single mutation.
+ * This avoids advancing the draft revision and re-rendering once per weekday.
+ */
+export const createBaseScheduleSet = mutation({
+  args: {
+    expectedDraftRevision: expectedDraftRevisionValidator,
+    practiceId: v.id("practices"),
+    schedules: v.array(baseScheduleCreatePayloadValidator),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const ruleSetId = await resolveDraftRuleSetForMutation(
+      ctx.db,
+      args.practiceId,
+      args.expectedDraftRevision,
+      args.selectedRuleSetId,
+    );
+
+    if (args.schedules.length === 0) {
+      throw new Error(
+        "Keine Arbeitszeiten ausgewählt. Die Änderung kann nicht angewendet werden.",
+      );
+    }
+
+    const createdScheduleIds: Id<"baseSchedules">[] = [];
+
+    for (const schedule of args.schedules) {
+      const practitionerId = await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerId,
+        args.practiceId,
+        ruleSetId,
+      );
+      const locationId = await resolveLocationIdInRuleSet(
+        ctx.db,
+        schedule.locationId,
+        args.practiceId,
+        ruleSetId,
+      );
+
+      if (schedule.lineageKey) {
+        const existingByLineage = await ctx.db
+          .query("baseSchedules")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("lineageKey", schedule.lineageKey),
+          )
+          .first();
+        if (existingByLineage) {
+          throw new Error(
+            `[LINEAGE:BASE_SCHEDULE_DUPLICATE] Arbeitszeit mit lineageKey ${schedule.lineageKey} existiert bereits in Regelset ${ruleSetId}.`,
+          );
+        }
+      }
+
+      const createdId = await ctx.db.insert("baseSchedules", {
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        ...(schedule.lineageKey && { lineageKey: schedule.lineageKey }),
+        locationId,
+        practiceId: args.practiceId,
+        practitionerId,
+        ruleSetId,
+        startTime: schedule.startTime,
+        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+      });
+      if (!schedule.lineageKey) {
+        await ctx.db.patch("baseSchedules", createdId, { lineageKey: createdId });
+      }
+      createdScheduleIds.push(createdId);
+    }
+
+    const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
+    return { createdScheduleIds, draftRevision, ruleSetId };
+  },
+  returns: createBaseScheduleSetResultValidator,
 });
 
 /**
