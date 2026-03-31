@@ -658,6 +658,7 @@ export const getNextAvailableSlot = query({
         await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
           ...args,
           date: day.toString(),
+          enforceFutureOnly: true,
           ruleSetId: effectiveRuleSetId,
         });
 

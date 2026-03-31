@@ -25,7 +25,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"; // Ensure this path is correct
+} from "@/components/ui/card";
 
 import {
   UndoRedoControlsProvider,
@@ -34,7 +34,7 @@ import {
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
-import { seo } from "../utils/seo"; // Make sure this is uncommented
+import { seo } from "../utils/seo";
 
 function ClientDevtools() {
   const [DevtoolsComponent, setDevtoolsComponent] =

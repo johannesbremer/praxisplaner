@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -111,6 +112,10 @@ export function CalendarSidebar() {
   const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
     if (onAppointmentTypeSelect) {
       onAppointmentTypeSelect(typeId);
+      if (!selectedLocationId) {
+        toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+        return;
+      }
       setCreationModalAppointmentTypeId(typeId);
       setCreationModalLocationId(selectedLocationId);
       setShowCreationModal(true);

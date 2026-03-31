@@ -431,6 +431,10 @@ export function useCalendarLogic({
           continue;
         }
 
+        if ((existing.isSimulation ?? false) !== candidate.isSimulation) {
+          continue;
+        }
+
         const existingPractitioner = existing.practitionerId;
         if (existingPractitioner !== candidate.practitionerId) {
           continue;

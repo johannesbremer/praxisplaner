@@ -503,8 +503,6 @@ export async function createAppointmentFromTrustedSource(
     userId,
     ...rest
   } = args;
-  void isNewPatient;
-  void patientDateOfBirth;
 
   if (replacesAppointmentId && isSimulation !== true) {
     throw new Error(
@@ -552,12 +550,8 @@ export async function createAppointmentFromTrustedSource(
 
     const result = await createAppointmentSeriesHelper(ctx, {
       locationId: args.locationId,
-      ...(args.isNewPatient !== undefined && {
-        isNewPatient: args.isNewPatient,
-      }),
-      ...(args.patientDateOfBirth && {
-        patientDateOfBirth: args.patientDateOfBirth,
-      }),
+      ...(isNewPatient !== undefined && { isNewPatient }),
+      ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(patientId && { patientId }),
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,

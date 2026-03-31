@@ -27,7 +27,7 @@ class QueryDevtoolsClient extends EventClient<EventMap> {
 let queryPluginClient: null | QueryDevtoolsClient = null;
 
 function getQueryPluginClient() {
-  if (!isClientEnvironment()) {
+  if (!__ENABLE_DEVTOOLS__ || !isClientEnvironment()) {
     return null;
   }
 
@@ -45,7 +45,7 @@ export const queryPlugin = {
   },
 };
 
-if (isClientEnvironment()) {
+if (__ENABLE_DEVTOOLS__ && isClientEnvironment()) {
   queryPlugin.emit("query-devtools:test", {
     description: "A plugin for query debugging",
     title: "Query Devtools",
