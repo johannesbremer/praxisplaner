@@ -124,19 +124,6 @@ interface SchedulePayload {
   startTime: string;
 }
 
-interface BaseScheduleCreateData {
-  breakTimes?: { end: string; start: string }[];
-  dayOfWeek: number;
-  endTime: string;
-  expectedDraftRevision: null | number;
-  lineageKey?: Id<"baseSchedules">;
-  locationId: Id<"locations">;
-  practiceId: Id<"practices">;
-  practitionerId: Id<"practitioners">;
-  selectedRuleSetId: Id<"ruleSets">;
-  startTime: string;
-}
-
 const requireLineageKey = <TId extends string>(
   lineageKey: TId | undefined,
   params: {
@@ -398,16 +385,14 @@ const toMutationSchedulePayload = (
   );
 
 const toCreatedSchedulePayload = (
-  createData: Pick<
-    BaseScheduleCreateData,
-    | "breakTimes"
-    | "dayOfWeek"
-    | "endTime"
-    | "lineageKey"
-    | "locationId"
-    | "practitionerId"
-    | "startTime"
-  >,
+  createData: {
+    breakTimes?: { end: string; start: string }[];
+    dayOfWeek: number;
+    endTime: string;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+    startTime: string;
+  },
   lineageKey: Id<"baseSchedules">,
   practitionerLineageById: ReadonlyMap<
     Id<"practitioners">,
@@ -430,28 +415,8 @@ const toCreatedSchedulePayload = (
       locationLineageId,
       practitionerLineageId,
       startTime: createData.startTime,
-      })),
+    })),
   );
-
-export const resolveCreatedScheduleLineageKey = (
-  createData: Pick<BaseScheduleCreateData, "lineageKey">,
-  createdEntityId: Id<"baseSchedules">,
-): Id<"baseSchedules"> => createData.lineageKey ?? createdEntityId;
-
-export const buildScheduleLineageKeyByDayMap = (
-  schedules: Pick<Doc<"baseSchedules">, "dayOfWeek" | "lineageKey" | "_id">[],
-): Result<
-  ReadonlyMap<number, Id<"baseSchedules">>,
-  ReturnType<typeof invalidStateError>
-> =>
-  Result.combine(
-    schedules.map((schedule) =>
-      requireLineageKey(schedule.lineageKey, {
-        entityId: schedule._id,
-        entityType: "Arbeitszeit",
-      }).map((lineageKey) => [schedule.dayOfWeek, lineageKey] as const),
-    ),
-  ).map((entries) => new Map(entries));
 
 const isBaseScheduleMissingError = (error: unknown) =>
   error instanceof Error &&
@@ -1056,23 +1021,6 @@ function BaseScheduleDialog({
             return;
           }
 
-          const deletedScheduleLineageByDay = buildScheduleLineageKeyByDayMap(
-            deletedScheduleSnapshots,
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "base_schedule_deleted_lineage_snapshot",
-                practiceId,
-              });
-              toast.error(error.message);
-              return null;
-            },
-          );
-          if (!deletedScheduleLineageByDay) {
-            return;
-          }
-
           // Delete all existing schedules in the group
           for (const scheduleId of scheduleIdsToDelete) {
             const deleteResult = await deleteScheduleMutation({
@@ -1086,7 +1034,17 @@ function BaseScheduleDialog({
 
           // Create new schedules for each selected day
           for (const dayOfWeek of selectedDays) {
-            const createData: BaseScheduleCreateData = {
+            const createData: {
+              breakTimes?: { end: string; start: string }[];
+              dayOfWeek: number;
+              endTime: string;
+              expectedDraftRevision: null | number;
+              locationId: Id<"locations">;
+              practiceId: Id<"practices">;
+              practitionerId: Id<"practitioners">;
+              selectedRuleSetId: Id<"ruleSets">;
+              startTime: string;
+            } = {
               dayOfWeek,
               endTime: value.endTime,
               expectedDraftRevision: getExpectedDraftRevision(),
@@ -1100,17 +1058,12 @@ function BaseScheduleDialog({
             if (value.breakTimes.length > 0) {
               createData.breakTimes = value.breakTimes;
             }
-            const preservedLineageKey =
-              deletedScheduleLineageByDay.get(dayOfWeek);
-            if (preservedLineageKey) {
-              createData.lineageKey = preservedLineageKey;
-            }
 
             const result = await createScheduleMutation(createData);
             handleDraftMutationResult(result);
             const createdPayload = toCreatedSchedulePayload(
               createData,
-              resolveCreatedScheduleLineageKey(createData, result.entityId),
+              result.entityId,
               practitionerLineageByIdAtSubmitStart,
               locationLineageByIdAtSubmitStart,
             ).match(
@@ -1178,7 +1131,17 @@ function BaseScheduleDialog({
           }
 
           for (const dayOfWeek of value.daysOfWeek) {
-            const createData: BaseScheduleCreateData = {
+            const createData: {
+              breakTimes?: { end: string; start: string }[];
+              dayOfWeek: number;
+              endTime: string;
+              expectedDraftRevision: null | number;
+              locationId: Id<"locations">;
+              practiceId: Id<"practices">;
+              practitionerId: Id<"practitioners">;
+              selectedRuleSetId: Id<"ruleSets">;
+              startTime: string;
+            } = {
               dayOfWeek,
               endTime: value.endTime,
               expectedDraftRevision: getExpectedDraftRevision(),
@@ -1197,7 +1160,7 @@ function BaseScheduleDialog({
             handleDraftMutationResult(result);
             const createdPayload = toCreatedSchedulePayload(
               createData,
-              resolveCreatedScheduleLineageKey(createData, result.entityId),
+              result.entityId,
               practitionerLineageByIdAtSubmitStart,
               locationLineageByIdAtSubmitStart,
             ).match(
