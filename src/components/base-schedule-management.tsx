@@ -47,6 +47,8 @@ import {
   invalidStateError,
 } from "../utils/frontend-errors";
 
+const useIsomorphicLayoutEffect = React.useEffect;
+
 const DAYS_OF_WEEK = [
   { label: "Montag", value: 1 },
   { label: "Dienstag", value: 2 },
@@ -482,23 +484,23 @@ export default function BaseScheduleManagement({
     api.entities.replaceBaseScheduleSet,
   );
   const practitionersRef = React.useRef(practitionersQuery ?? []);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
   const locationsRef = React.useRef(locationsQuery ?? []);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
   const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
   const selectedRuleSetIdRef = React.useRef(ruleSetId);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     selectedRuleSetIdRef.current = ruleSetId;
   }, [ruleSetId]);
 
@@ -944,15 +946,15 @@ function BaseScheduleDialog({
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
   const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
   const selectedRuleSetIdRef = React.useRef(ruleSetId);
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     selectedRuleSetIdRef.current = ruleSetId;
   }, [ruleSetId]);
 
@@ -987,10 +989,10 @@ function BaseScheduleDialog({
     ) => {
       try {
         return await createScheduleBatchMutation({
-          expectedDraftRevision: getExpectedDraftRevision(),
+          expectedDraftRevision: expectedDraftRevisionRef.current,
           practiceId,
           schedules,
-          selectedRuleSetId: getSelectedRuleSetId(),
+          selectedRuleSetId: selectedRuleSetIdRef.current,
         });
       } catch (error: unknown) {
         if (!isDraftRevisionResetError(error) || !options?.fallbackRuleSetId) {
@@ -1217,6 +1219,20 @@ function BaseScheduleDialog({
             selectedRuleSetId: getSelectedRuleSetId(),
           });
           handleDraftMutationResult(batchResult);
+
+          if (batchResult.createdScheduleIds.length !== batchSchedules.length) {
+            const error = new Error(
+              "Erstellte Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
+            );
+            captureError(error, {
+              context: "base_schedule_batch_create_mapping_count_mismatch",
+              createdScheduleCount: batchResult.createdScheduleIds.length,
+              practiceId,
+              requestedScheduleCount: batchSchedules.length,
+            });
+            toast.error(error.message);
+            return;
+          }
 
           for (const [index, createData] of batchSchedules.entries()) {
             const createdEntityId = batchResult.createdScheduleIds[index];
