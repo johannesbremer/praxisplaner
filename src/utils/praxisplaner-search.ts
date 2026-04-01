@@ -1,6 +1,7 @@
 import { isValidDateDE } from "./date-utils";
 
 export const NERDS_TAB_SEARCH_VALUE = "nerds" as const;
+export const VACATION_TAB_SEARCH_VALUE = "urlaub" as const;
 
 export interface PraxisplanerSearchParams {
   datum?: string;
@@ -8,7 +9,9 @@ export interface PraxisplanerSearchParams {
   tab?: PraxisplanerTabParam;
 }
 
-export type PraxisplanerTabParam = typeof NERDS_TAB_SEARCH_VALUE;
+export type PraxisplanerTabParam =
+  | typeof NERDS_TAB_SEARCH_VALUE
+  | typeof VACATION_TAB_SEARCH_VALUE;
 
 export const normalizePraxisplanerSearch = (
   search: Record<string, unknown>,
@@ -23,8 +26,11 @@ export const normalizePraxisplanerSearch = (
     params.standort = search["standort"];
   }
 
-  if (search["tab"] === NERDS_TAB_SEARCH_VALUE) {
-    params.tab = NERDS_TAB_SEARCH_VALUE;
+  if (
+    search["tab"] === NERDS_TAB_SEARCH_VALUE ||
+    search["tab"] === VACATION_TAB_SEARCH_VALUE
+  ) {
+    params.tab = search["tab"];
   }
 
   return params;

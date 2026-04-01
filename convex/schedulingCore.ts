@@ -12,6 +12,7 @@ export interface CandidateSlot {
   locationId?: string;
   practitionerId: string;
   practitionerName?: string;
+  reason?: string;
   startTime: string;
   status: "AVAILABLE" | "BLOCKED";
 }

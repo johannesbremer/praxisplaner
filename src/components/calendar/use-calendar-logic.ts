@@ -9,6 +9,7 @@ import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
+import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
@@ -222,6 +223,16 @@ export function useCalendarLogic({
   const blockedSlotsData = useQuery(
     api.appointments.getBlockedSlots,
     blockedSlotsQueryArgs,
+  );
+  const vacationsData = useQuery(
+    api.vacations.getVacationsInRange,
+    practiceId
+      ? {
+          endDateExclusive: selectedDate.add({ days: 1 }).toString(),
+          practiceId,
+          startDate: selectedDate.toString(),
+        }
+      : "skip",
   );
 
   const appointmentDocMap = useMemo(() => {
@@ -2069,9 +2080,70 @@ export function useCalendarLogic({
     return manual;
   }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
 
+  const vacationBlockedSlots = useMemo(() => {
+    if (
+      !baseSchedulesData ||
+      !vacationsData ||
+      workingPractitioners.length === 0
+    ) {
+      return [];
+    }
+
+    const blocked: {
+      column: string;
+      reason?: string;
+      slot: number;
+    }[] = [];
+
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId;
+
+    for (const practitioner of workingPractitioners) {
+      const ranges = getPractitionerVacationRangesForDate(
+        selectedDate,
+        practitioner.id,
+        baseSchedulesData,
+        vacationsData,
+        effectiveLocationId,
+      );
+
+      for (const range of ranges) {
+        const startSlot = Math.floor(
+          (range.startMinutes - businessStartHour * 60) / SLOT_DURATION,
+        );
+        const endSlot = Math.ceil(
+          (range.endMinutes - businessStartHour * 60) / SLOT_DURATION,
+        );
+
+        for (let slot = Math.max(0, startSlot); slot < endSlot; slot++) {
+          blocked.push({
+            column: practitioner.id,
+            reason: "Urlaub",
+            slot,
+          });
+        }
+      }
+    }
+
+    return blocked;
+  }, [
+    baseSchedulesData,
+    businessStartHour,
+    selectedDate,
+    selectedLocationId,
+    simulatedContext,
+    vacationsData,
+    workingPractitioners,
+  ]);
+
   // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
   const allBlockedSlots = useMemo(() => {
-    const combined = [...blockedSlots, ...breakSlots, ...manualBlockedSlots];
+    const combined = [
+      ...blockedSlots,
+      ...breakSlots,
+      ...manualBlockedSlots,
+      ...vacationBlockedSlots,
+    ];
 
     // Deduplicate by column and slot, prioritizing manual blocked slots
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
@@ -2089,7 +2161,7 @@ export function useCalendarLogic({
     }
 
     return [...uniqueSlots.values()];
-  }, [blockedSlots, breakSlots, manualBlockedSlots]);
+  }, [blockedSlots, breakSlots, manualBlockedSlots, vacationBlockedSlots]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {

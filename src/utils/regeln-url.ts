@@ -17,9 +17,9 @@ export interface RegelnSearchParams {
   tab?: RegelnTabParam;
 }
 
-export type RegelnTab = "rule-management" | "staff-view";
+export type RegelnTab = "rule-management" | "staff-view" | "vacation-scheduler";
 
-export type RegelnTabParam = "debug" | "mitarbeiter" | undefined;
+export type RegelnTabParam = "debug" | "mitarbeiter" | "urlaub" | undefined;
 
 interface LocationSummary {
   _id: Id<"locations">;
@@ -70,12 +70,18 @@ export function internalTabToParam(tab: RegelnTab): RegelnTabParam {
   if (tab === "staff-view") {
     return "mitarbeiter";
   }
+  if (tab === "vacation-scheduler") {
+    return "urlaub";
+  }
   return undefined;
 }
 
 export function tabParamToInternal(tabParam?: string): RegelnTab {
   if (tabParam === "mitarbeiter") {
     return "staff-view";
+  }
+  if (tabParam === "urlaub") {
+    return "vacation-scheduler";
   }
   return "rule-management";
 }
