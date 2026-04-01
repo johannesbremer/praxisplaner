@@ -25,7 +25,6 @@ import { mutation, query } from "./_generated/server";
 import {
   bumpDraftRevision,
   type EntityType,
-  resolveDraftForNoopWrite,
   resolveDraftForWrite,
   validateAppointmentTypeIdsInRuleSet,
   validateLocationIdsInRuleSet,
@@ -1910,13 +1909,9 @@ export const createBaseScheduleBatch = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
     if (args.schedules.length === 0) {
-      const { draftRevision, ruleSetId } = await resolveDraftForNoopWrite(
-        ctx.db,
-        args.practiceId,
-        args.expectedDraftRevision,
-        args.selectedRuleSetId,
+      throw new Error(
+        "[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY] Mindestens eine Arbeitszeit muss uebergeben werden.",
       );
-      return { createdScheduleIds: [], draftRevision, ruleSetId };
     }
 
     const ruleSetId = await resolveDraftRuleSetForMutation(
