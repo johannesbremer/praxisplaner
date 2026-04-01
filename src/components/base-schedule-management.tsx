@@ -453,6 +453,28 @@ const isDraftRevisionResetError = (error: unknown) =>
   error.message.includes("actual=null") &&
   error.message.includes("ruleSet=null");
 
+const parseRevisionMismatch = (
+  error: unknown,
+): null | { actual: null | number; ruleSetId: Id<"ruleSets"> | null } => {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const match = /\[HISTORY:REVISION_MISMATCH\] expected=(?:null|\d+) actual=(null|\d+) ruleSet=(\S+)/.exec(
+    error.message,
+  );
+  if (!match) {
+    return null;
+  }
+
+  const [, actualRaw, ruleSetRaw] = match;
+  return {
+    actual: actualRaw === "null" ? null : Number(actualRaw),
+    ruleSetId:
+      ruleSetRaw === "null" ? null : (ruleSetRaw as unknown as Id<"ruleSets">),
+  };
+};
+
 // Helper functions
 export default function BaseScheduleManagement({
   expectedDraftRevision,
@@ -995,16 +1017,33 @@ function BaseScheduleDialog({
           selectedRuleSetId: selectedRuleSetIdRef.current,
         });
       } catch (error: unknown) {
-        if (!isDraftRevisionResetError(error) || !options?.fallbackRuleSetId) {
+        const revisionMismatch = parseRevisionMismatch(error);
+        if (!revisionMismatch) {
           throw error;
         }
 
-        return await createScheduleBatchMutation({
-          expectedDraftRevision: null,
-          practiceId,
-          schedules,
-          selectedRuleSetId: options.fallbackRuleSetId,
-        });
+        if (
+          revisionMismatch.actual !== null &&
+          revisionMismatch.ruleSetId !== null
+        ) {
+          return await createScheduleBatchMutation({
+            expectedDraftRevision: revisionMismatch.actual,
+            practiceId,
+            schedules,
+            selectedRuleSetId: revisionMismatch.ruleSetId,
+          });
+        }
+
+        if (isDraftRevisionResetError(error) && options?.fallbackRuleSetId) {
+          return await createScheduleBatchMutation({
+            expectedDraftRevision: null,
+            practiceId,
+            schedules,
+            selectedRuleSetId: options.fallbackRuleSetId,
+          });
+        }
+
+        throw error;
       }
     },
     [createScheduleBatchMutation, practiceId],
