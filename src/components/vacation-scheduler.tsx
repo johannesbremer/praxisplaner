@@ -440,7 +440,7 @@ export function VacationScheduler({
       });
       onDraftMutation?.(result);
       setNewMfaName("");
-      toast.success("MFA hinzugefugt");
+      toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
         description:
@@ -602,7 +602,7 @@ export function VacationScheduler({
   };
 
   const isLoading =
-    !activeRuleSet ||
+    activeRuleSet === undefined ||
     !practitioners ||
     !mfas ||
     !vacations ||
@@ -952,9 +952,18 @@ export function VacationScheduler({
                       void removeVacation(
                         conflictDialog.staff,
                         conflictDialog.date,
-                      ).then(() => {
-                        setConflictDialog(null);
-                      });
+                      )
+                        .then(() => {
+                          setConflictDialog(null);
+                        })
+                        .catch((error: unknown) => {
+                          toast.error("Urlaub konnte nicht entfernt werden", {
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : "Unbekannter Fehler",
+                          });
+                        });
                     }}
                     variant="destructive"
                   >
@@ -968,9 +977,18 @@ export function VacationScheduler({
                         conflictDialog.staff,
                         conflictDialog.date,
                         conflictDialog.portion,
-                      ).then(() => {
-                        setConflictDialog(null);
-                      });
+                      )
+                        .then(() => {
+                          setConflictDialog(null);
+                        })
+                        .catch((error: unknown) => {
+                          toast.error("Urlaub konnte nicht eingetragen werden", {
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : "Unbekannter Fehler",
+                          });
+                        });
                     }}
                   >
                     Trotzdem eintragen
@@ -983,9 +1001,18 @@ export function VacationScheduler({
                         conflictDialog.staff,
                         conflictDialog.date,
                         conflictDialog.portion,
-                      ).then(() => {
-                        setConflictDialog(null);
-                      });
+                      )
+                        .then(() => {
+                          setConflictDialog(null);
+                        })
+                        .catch((error: unknown) => {
+                          toast.error("Urlaub konnte nicht geändert werden", {
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : "Unbekannter Fehler",
+                          });
+                        });
                     }}
                   >
                     Urlaub ändern
@@ -1014,15 +1041,16 @@ function endExclusiveMonth(date: Temporal.PlainDate): Temporal.PlainDate {
 }
 
 function formatGermanDate(dateString: string) {
-  const date = new Date(dateString);
-  if (!Number.isNaN(date.getTime())) {
-    return date.toLocaleDateString("de-DE", {
+  try {
+    const date = Temporal.PlainDate.from(dateString);
+    return date.toLocaleString("de-DE", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
     });
+  } catch {
+    return dateString;
   }
-  return dateString;
 }
 
 function isWeekend(date: Temporal.PlainDate) {
