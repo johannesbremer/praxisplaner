@@ -232,6 +232,20 @@ export function VacationScheduler({
     return keys;
   }, [vacations]);
 
+  const combinedRows = useMemo(
+    () => [
+      ...doctorRows.map((staff) => ({ isFirstMfaRow: false, staff })),
+      ...mfaRows.map((staff, index) => ({
+        isFirstMfaRow: index === 0,
+        staff,
+      })),
+    ],
+    [doctorRows, mfaRows],
+  );
+
+  const firstBodyRowStaffId = combinedRows[0]?.staff.id;
+  const totalBodyRowCount = combinedRows.length;
+
   const navigateMonth = (offset: number) => {
     onDateChange?.(monthDate.add({ months: offset }));
   };
@@ -596,10 +610,14 @@ export function VacationScheduler({
                     </th>
                     {days.map((date) => {
                       const weekend = isWeekend(date);
+                      const holidayName = holidayDataLoaded
+                        ? getPublicHolidayName(date)
+                        : undefined;
                       return (
                         <th
                           className={cn(
-                            "min-w-28 border-b border-l p-2 text-center align-top",
+                            "border-b border-l p-2 text-center align-top",
+                            holidayName ? "min-w-28" : "min-w-16",
                             weekend && "bg-muted/60",
                           )}
                           key={date.toString()}
@@ -614,63 +632,31 @@ export function VacationScheduler({
                       );
                     })}
                   </tr>
-                  <tr>
-                    <th className="sticky left-0 z-20 border-b bg-background p-2 text-left text-xs text-muted-foreground">
-                      Feiertag
-                    </th>
-                    {days.map((date) => {
-                      const holidayName = holidayDataLoaded
-                        ? getPublicHolidayName(date)
-                        : undefined;
-                      return (
-                        <th
-                          className={cn(
-                            "min-w-28 border-b border-l p-2 text-center text-[10px] leading-tight text-muted-foreground",
-                            (isWeekend(date) || holidayName) && "bg-muted/60",
-                          )}
-                          key={`${date.toString()}-holiday`}
-                        >
-                          {holidayName ?? ""}
-                        </th>
-                      );
-                    })}
-                  </tr>
                 </thead>
                 <tbody>
-                  {doctorRows.map((staff) => (
-                    <tr key={`doctor-${staff.id}`}>
-                      <td className="sticky left-0 z-10 border-b bg-background p-3 align-top">
+                  {combinedRows.map(({ isFirstMfaRow, staff }) => (
+                    <tr key={`${staff.kind}-${staff.id}`}>
+                      <td
+                        className={cn(
+                          "sticky left-0 z-10 border-b bg-background p-3 align-top",
+                          isFirstMfaRow && "border-t-2",
+                        )}
+                      >
                         <div className="flex items-start gap-2">
-                          <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                          <div className="font-medium">{staff.name}</div>
-                        </div>
-                      </td>
-                      {days.map((date) => (
-                        <td
-                          className={cn(
-                            "border-b border-l p-2 align-top",
-                            (isWeekend(date) ||
-                              (holidayDataLoaded &&
-                                getPublicHolidayName(date))) &&
-                              "bg-muted/30",
-                          )}
-                          key={`${staff.id}-${date.toString()}`}
-                        >
-                          {renderCell(staff, date)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-
-                  {mfaRows.map((staff) => (
-                    <tr key={`mfa-${staff.id}`}>
-                      <td className="sticky left-0 z-10 border-b border-t-2 bg-background p-3 align-top">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-2">
+                          {staff.kind === "practitioner" ? (
+                            <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                          ) : (
                             <BriefcaseMedical className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                          )}
+                          <div
+                            className={cn(
+                              "font-medium",
+                              staff.kind === "mfa" && editable && "flex-1",
+                            )}
+                          >
                             <div className="font-medium">{staff.name}</div>
                           </div>
-                          {editable && (
+                          {staff.kind === "mfa" && editable && (
                             <Button
                               onClick={() => {
                                 void handleRemoveMfa(staff.id as Id<"mfas">);
@@ -683,21 +669,44 @@ export function VacationScheduler({
                           )}
                         </div>
                       </td>
-                      {days.map((date) => (
-                        <td
-                          className={cn(
-                            "border-b border-l p-2 align-top",
-                            "first:border-t-2",
-                            (isWeekend(date) ||
-                              (holidayDataLoaded &&
-                                getPublicHolidayName(date))) &&
-                              "bg-muted/30",
-                          )}
-                          key={`${staff.id}-${date.toString()}`}
-                        >
-                          {renderCell(staff, date)}
-                        </td>
-                      ))}
+                      {days.map((date) =>
+                        (() => {
+                          const holidayName = holidayDataLoaded
+                            ? getPublicHolidayName(date)
+                            : undefined;
+
+                          if (holidayName) {
+                            if (staff.id !== firstBodyRowStaffId) {
+                              return null;
+                            }
+
+                            return (
+                              <td
+                                className="border-b border-l bg-muted/30 p-0 align-middle"
+                                key={`${staff.id}-${date.toString()}`}
+                                rowSpan={totalBodyRowCount}
+                              >
+                                <div className="sticky top-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
+                                  {holidayName}
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          return (
+                            <td
+                              className={cn(
+                                "min-w-16 border-b border-l p-2 align-top",
+                                isFirstMfaRow && "border-t-2",
+                                isWeekend(date) && "bg-muted/30",
+                              )}
+                              key={`${staff.id}-${date.toString()}`}
+                            >
+                              {renderCell(staff, date)}
+                            </td>
+                          );
+                        })(),
+                      )}
                     </tr>
                   ))}
                 </tbody>
