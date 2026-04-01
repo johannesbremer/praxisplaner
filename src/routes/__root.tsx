@@ -443,7 +443,7 @@ function RootLayout() {
               variant="outline"
             >
               <Undo2 className="h-4 w-4" />
-              <span className="ml-2 mr-1">Undo</span>
+              <span className="ml-2 mr-1">Rückgängig</span>
               <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
                 {formatForDisplay("Mod+Z")}
               </kbd>
@@ -457,7 +457,7 @@ function RootLayout() {
               variant="outline"
             >
               <Redo2 className="h-4 w-4" />
-              <span className="ml-2 mr-1">Redo</span>
+              <span className="ml-2 mr-1">Wiederholen</span>
               <kbd className="rounded border px-1 py-0.5 text-[10px] leading-none">
                 {formatForDisplay("Mod+Y")}
               </kbd>
