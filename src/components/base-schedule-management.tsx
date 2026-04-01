@@ -452,23 +452,23 @@ export default function BaseScheduleManagement({
   const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
   const practitionersRef = React.useRef(practitionersQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
   const locationsRef = React.useRef(locationsQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
   const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
   const selectedRuleSetIdRef = React.useRef(ruleSetId);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     selectedRuleSetIdRef.current = ruleSetId;
   }, [ruleSetId]);
 
@@ -897,23 +897,23 @@ function BaseScheduleDialog({
     ruleSetId,
   });
   const practitionersRef = React.useRef(practitionersQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
   const locationsRef = React.useRef(locationsQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     locationsRef.current = locationsQuery ?? [];
   }, [locationsQuery]);
   const schedulesRef = React.useRef(schedulesQuery ?? []);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     schedulesRef.current = schedulesQuery ?? [];
   }, [schedulesQuery]);
   const expectedDraftRevisionRef = React.useRef(expectedDraftRevision);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     expectedDraftRevisionRef.current = expectedDraftRevision;
   }, [expectedDraftRevision]);
   const selectedRuleSetIdRef = React.useRef(ruleSetId);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     selectedRuleSetIdRef.current = ruleSetId;
   }, [ruleSetId]);
 
