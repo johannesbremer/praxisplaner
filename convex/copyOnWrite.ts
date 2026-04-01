@@ -271,6 +271,51 @@ export async function resolveDraftForWrite(
   };
 }
 
+/**
+ * Resolve the rule set context for a mutation that ended up doing no writes.
+ * Unlike resolveDraftForWrite, this must not create a new unsaved draft.
+ */
+export async function resolveDraftForNoopWrite(
+  db: DatabaseWriter,
+  practiceId: Id<"practices">,
+  expectedDraftRevision: null | number,
+  selectedRuleSetId: Id<"ruleSets">,
+): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
+  const existingUnsavedRuleSet = await findUnsavedRuleSet(db, practiceId);
+  if (existingUnsavedRuleSet) {
+    const actualRevision = existingUnsavedRuleSet.draftRevision;
+    if (expectedDraftRevision !== actualRevision) {
+      throw revisionMismatchError({
+        actual: actualRevision,
+        expected: expectedDraftRevision,
+        ruleSetId: existingUnsavedRuleSet._id,
+      });
+    }
+    return {
+      draftRevision: actualRevision,
+      ruleSetId: existingUnsavedRuleSet._id,
+    };
+  }
+
+  if (expectedDraftRevision !== null) {
+    throw revisionMismatchError({
+      actual: null,
+      expected: expectedDraftRevision,
+      ruleSetId: null,
+    });
+  }
+
+  const selectedRuleSet = await validateRuleSet(
+    db,
+    selectedRuleSetId,
+    practiceId,
+  );
+  return {
+    draftRevision: selectedRuleSet.draftRevision,
+    ruleSetId: selectedRuleSet._id,
+  };
+}
+
 async function createUnsavedRuleSetFromSource(
   db: DatabaseWriter,
   practiceId: Id<"practices">,
