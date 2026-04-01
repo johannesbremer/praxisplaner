@@ -445,6 +445,12 @@ const isBaseScheduleMissingError = (error: unknown) =>
     error.message,
   );
 
+const isDraftRevisionResetError = (error: unknown) =>
+  error instanceof Error &&
+  error.message.includes("[HISTORY:REVISION_MISMATCH]") &&
+  error.message.includes("actual=null") &&
+  error.message.includes("ruleSet=null");
+
 // Helper functions
 export default function BaseScheduleManagement({
   expectedDraftRevision,
@@ -974,6 +980,34 @@ function BaseScheduleDialog({
     api.entities.replaceBaseScheduleSet,
   );
 
+  const runCreateScheduleBatch = React.useCallback(
+    async (
+      schedules: BatchCreateScheduleInput[],
+      options?: { fallbackRuleSetId?: Id<"ruleSets"> | null },
+    ) => {
+      try {
+        return await createScheduleBatchMutation({
+          expectedDraftRevision: getExpectedDraftRevision(),
+          practiceId,
+          schedules,
+          selectedRuleSetId: getSelectedRuleSetId(),
+        });
+      } catch (error: unknown) {
+        if (!isDraftRevisionResetError(error) || !options?.fallbackRuleSetId) {
+          throw error;
+        }
+
+        return await createScheduleBatchMutation({
+          expectedDraftRevision: null,
+          practiceId,
+          schedules,
+          selectedRuleSetId: options.fallbackRuleSetId,
+        });
+      }
+    },
+    [createScheduleBatchMutation, practiceId],
+  );
+
   const form = useForm({
     defaultValues: {
       breakTimes: schedule?.breakTimes ?? [],
@@ -1229,6 +1263,8 @@ function BaseScheduleDialog({
         }
 
         if (!schedule && createdSchedulePayloads.length > 0) {
+          const fallbackRuleSetId =
+            expectedDraftRevision === null ? ruleSetId : null;
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten erstellt",
             redo: async () => {
@@ -1268,11 +1304,8 @@ function BaseScheduleDialog({
                   status: "conflict" as const,
                 };
               }
-              const redoResult = await createScheduleBatchMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
-                practiceId,
-                schedules: batchSchedules,
-                selectedRuleSetId: getSelectedRuleSetId(),
+              const redoResult = await runCreateScheduleBatch(batchSchedules, {
+                fallbackRuleSetId,
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
