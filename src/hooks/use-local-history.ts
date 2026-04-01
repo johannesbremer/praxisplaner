@@ -208,7 +208,7 @@ function withActionContext(
     return result;
   }
 
-  const operationLabel = operation === "undo" ? "Undo" : "Redo";
+  const operationLabel = operation === "undo" ? "Rückgängig" : "Wiederholen";
   const conflictCode =
     result.conflictCode ?? extractConflictCode(result.message ?? "");
   return {
