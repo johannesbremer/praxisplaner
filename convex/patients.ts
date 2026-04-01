@@ -181,6 +181,59 @@ export const getPatientsByIds = query({
   ),
 });
 
+export const getPatientSidebarDetailsByIds = query({
+  args: { patientIds: v.array(v.id("patients")) },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
+    const patients = await Promise.all(
+      args.patientIds.map((id) => ctx.db.get("patients", id)),
+    );
+
+    const patientMap: Record<
+      string,
+      {
+        city?: string;
+        dateOfBirth?: string;
+        firstName?: string;
+        lastName?: string;
+        patientId?: number;
+        street?: string;
+      }
+    > = {};
+
+    for (const patient of patients) {
+      if (!patient || !accessiblePracticeIds.has(patient.practiceId)) {
+        continue;
+      }
+
+      patientMap[patient._id] = {
+        ...(patient.city ? { city: patient.city } : {}),
+        ...(patient.dateOfBirth ? { dateOfBirth: patient.dateOfBirth } : {}),
+        ...(patient.firstName ? { firstName: patient.firstName } : {}),
+        ...(patient.lastName ? { lastName: patient.lastName } : {}),
+        ...(patient.patientId ? { patientId: patient.patientId } : {}),
+        ...(patient.street ? { street: patient.street } : {}),
+      };
+    }
+
+    return patientMap;
+  },
+  returns: v.record(
+    v.id("patients"),
+    v.object({
+      city: v.optional(v.string()),
+      dateOfBirth: v.optional(v.string()),
+      firstName: v.optional(v.string()),
+      lastName: v.optional(v.string()),
+      patientId: v.optional(v.number()),
+      street: v.optional(v.string()),
+    }),
+  ),
+});
+
 /** Search patients by name */
 export const searchPatients = query({
   args: {

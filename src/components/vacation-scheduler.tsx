@@ -18,29 +18,31 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
+import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import { formatDateFull } from "../utils/time-calculations";
 
 interface AppointmentConflict {
   end: string;
   id: string;
   locationId?: Id<"locations">;
+  patientId?: Id<"patients">;
   start: string;
   title: string;
+  userId?: Id<"users">;
 }
 
 interface ConflictDialogState {
@@ -127,6 +129,34 @@ export function VacationScheduler({
   const locations = useQuery(api.entities.getLocationsFromActive, {
     practiceId,
   });
+  const appointmentPatientIds = useMemo(() => {
+    const ids = new Set<Id<"patients">>();
+    for (const appointment of appointments ?? []) {
+      if (appointment.patientId) {
+        ids.add(appointment.patientId);
+      }
+    }
+    return [...ids];
+  }, [appointments]);
+  const appointmentUserIds = useMemo(() => {
+    const ids = new Set<Id<"users">>();
+    for (const appointment of appointments ?? []) {
+      if (appointment.userId) {
+        ids.add(appointment.userId);
+      }
+    }
+    return [...ids];
+  }, [appointments]);
+  const patientDetails = useQuery(
+    api.patients.getPatientSidebarDetailsByIds,
+    appointmentPatientIds.length > 0
+      ? { patientIds: appointmentPatientIds }
+      : "skip",
+  );
+  const userDetails = useQuery(
+    api.users.getUsersByIds,
+    appointmentUserIds.length > 0 ? { userIds: appointmentUserIds } : "skip",
+  );
 
   const createMfa = useMutation(api.mfas.create);
   const removeMfa = useMutation(api.mfas.remove);
@@ -302,8 +332,10 @@ export function VacationScheduler({
         end: appointment.end,
         id: appointment._id,
         locationId: appointment.locationId,
+        ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
         start: appointment.start,
         title: appointment.title,
+        ...(appointment.userId ? { userId: appointment.userId } : {}),
       }))
       .toSorted((left, right) => left.start.localeCompare(right.start));
   };
@@ -572,12 +604,7 @@ export function VacationScheduler({
                           )}
                           key={date.toString()}
                         >
-                          <div className="font-medium">
-                            {date.toLocaleString("de-DE", {
-                              day: "2-digit",
-                              month: "2-digit",
-                            })}
-                          </div>
+                          <div className="font-medium">{date.day}</div>
                           <div className="text-xs text-muted-foreground">
                             {date.toLocaleString("de-DE", {
                               weekday: "short",
@@ -635,18 +662,9 @@ export function VacationScheduler({
                     </tr>
                   ))}
 
-                  <tr>
-                    <td
-                      className="sticky left-0 z-10 bg-background px-3 py-2"
-                      colSpan={days.length + 1}
-                    >
-                      <Separator />
-                    </td>
-                  </tr>
-
                   {mfaRows.map((staff) => (
                     <tr key={`mfa-${staff.id}`}>
-                      <td className="sticky left-0 z-10 border-b bg-background p-3 align-top">
+                      <td className="sticky left-0 z-10 border-b border-t-2 bg-background p-3 align-top">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2">
                             <BriefcaseMedical className="mt-0.5 h-4 w-4 text-muted-foreground" />
@@ -669,6 +687,7 @@ export function VacationScheduler({
                         <td
                           className={cn(
                             "border-b border-l p-2 align-top",
+                            "first:border-t-2",
                             (isWeekend(date) ||
                               (holidayDataLoaded &&
                                 getPublicHolidayName(date))) &&
@@ -730,30 +749,11 @@ export function VacationScheduler({
           {conflictDialog && (
             <>
               <DialogHeader>
-                <DialogTitle>
-                  Bereits gebuchte Termine im Urlaubszeitraum
-                </DialogTitle>
-                <DialogDescription>
-                  {conflictDialog.staff.name} hat am{" "}
-                  {conflictDialog.date.toLocaleString("de-DE", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    year: "numeric",
-                  })}{" "}
-                  bereits {dialogConflicts.length} Termin
-                  {dialogConflicts.length === 1 ? "" : "e"} im Bereich{" "}
-                  {PORTION_META[conflictDialog.portion].short}.
-                </DialogDescription>
+                <DialogTitle>{formatDateFull(conflictDialog.date)}</DialogTitle>
               </DialogHeader>
 
-              <div className="rounded-lg border p-3 text-sm">
-                <div className="font-medium">
-                  {dialogConflicts.length} Konflikt
-                  {dialogConflicts.length === 1 ? "" : "e"}
-                </div>
-                <div className="text-muted-foreground">
-                  Bestehende Buchungen, die von diesem Urlaub betroffen sind.
-                </div>
+              <div className="rounded-lg border p-3 text-sm font-medium">
+                {dialogConflicts.length} Konflikte
               </div>
 
               {editable && (
@@ -778,7 +778,11 @@ export function VacationScheduler({
                           : "outline"
                       }
                     >
-                      {PORTION_META[portion].short}
+                      {portion === "full"
+                        ? "Ganztägig"
+                        : portion === "morning"
+                          ? "Vormittag"
+                          : "Nachmittag"}
                     </Button>
                   ))}
                 </div>
@@ -794,9 +798,29 @@ export function VacationScheduler({
                   {dialogConflicts.map((conflict) => {
                     const start = Temporal.ZonedDateTime.from(conflict.start);
                     const end = Temporal.ZonedDateTime.from(conflict.end);
+                    const patient = conflict.patientId
+                      ? patientDetails?.[conflict.patientId]
+                      : undefined;
+                    const user = conflict.userId
+                      ? userDetails?.[conflict.userId]
+                      : undefined;
+                    const patientDisplayName = patient
+                      ? [patient.firstName, patient.lastName]
+                          .filter(Boolean)
+                          .join(" ")
+                      : user
+                        ? [user.firstName, user.lastName]
+                            .filter(Boolean)
+                            .join(" ") || user.email
+                        : undefined;
                     return (
                       <div className="p-3" key={conflict.id}>
                         <div className="font-medium">{conflict.title}</div>
+                        {patientDisplayName && (
+                          <div className="mt-1 text-sm font-medium">
+                            {patientDisplayName}
+                          </div>
+                        )}
                         <div className="mt-1 text-sm text-muted-foreground">
                           {start.toLocaleString("de-DE", {
                             hour: "2-digit",
@@ -815,6 +839,41 @@ export function VacationScheduler({
                             {locationNameById.get(conflict.locationId) ??
                               conflict.locationId}
                           </div>
+                        )}
+                        {patient?.dateOfBirth && (
+                          <div className="text-sm text-muted-foreground">
+                            Geburtsdatum:{" "}
+                            {formatGermanDate(patient.dateOfBirth)}
+                          </div>
+                        )}
+                        {user?.email && (
+                          <div className="text-sm text-muted-foreground">
+                            E-Mail: {user.email}
+                          </div>
+                        )}
+                        {patient?.street && (
+                          <div className="text-sm text-muted-foreground">
+                            {patient.street}
+                          </div>
+                        )}
+                        {patient?.city && (
+                          <div className="text-sm text-muted-foreground">
+                            {patient.city}
+                          </div>
+                        )}
+                        {patient?.patientId !== undefined && (
+                          <Button
+                            className="mt-2 w-full gap-1.5"
+                            onClick={() => {
+                              dispatchCustomEvent("praxisplaner:openInPvs", {
+                                patientId: patient.patientId,
+                              });
+                            }}
+                            size="sm"
+                            variant="outline"
+                          >
+                            Im PVS öffnen
+                          </Button>
                         )}
                       </div>
                     );
@@ -896,6 +955,18 @@ function buildVacationKey(
 
 function endExclusiveMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return startOfMonth(date).add({ months: 1 });
+}
+
+function formatGermanDate(dateString: string) {
+  const date = new Date(dateString);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+  return dateString;
 }
 
 function isWeekend(date: Temporal.PlainDate) {
