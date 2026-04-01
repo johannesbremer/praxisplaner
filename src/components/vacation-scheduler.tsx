@@ -14,13 +14,7 @@ import { Temporal } from "temporal-polyfill";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
@@ -50,7 +44,6 @@ interface AppointmentConflict {
 }
 
 interface ConflictDialogState {
-  conflicts: AppointmentConflict[];
   date: Temporal.PlainDate;
   mode: "create" | "inspect";
   portion: VacationPortion;
@@ -92,6 +85,8 @@ const PORTION_META: Record<
     short: "VM",
   },
 };
+
+const ORDERED_PORTIONS: VacationPortion[] = ["full", "morning", "afternoon"];
 
 export function VacationScheduler({
   editable,
@@ -221,6 +216,31 @@ export function VacationScheduler({
       buildVacationKey(staffType, staffId, date.toString(), portion),
     );
 
+  const getActivePortionsForCell = (
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+  ): VacationPortion[] =>
+    ORDERED_PORTIONS.filter((portion) =>
+      isVacationActive(staff.kind, staff.id, date, portion),
+    );
+
+  const getDisplayedPortionForCell = (
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+  ): null | VacationPortion => {
+    const activePortions = getActivePortionsForCell(staff, date);
+    if (activePortions.includes("full")) {
+      return "full";
+    }
+    if (
+      activePortions.includes("morning") &&
+      activePortions.includes("afternoon")
+    ) {
+      return "full";
+    }
+    return activePortions[0] ?? null;
+  };
+
   const locationNameById = useMemo(
     () =>
       new Map(
@@ -288,36 +308,31 @@ export function VacationScheduler({
       .toSorted((left, right) => left.start.localeCompare(right.start));
   };
 
-  const upsertVacation = async (
+  const clearVacationsForDay = async (
     staff: StaffRow,
     date: Temporal.PlainDate,
-    portion: VacationPortion,
   ) => {
-    if (portion === "full") {
-      for (const half of ["morning", "afternoon"] as const) {
-        if (isVacationActive(staff.kind, staff.id, date, half)) {
-          await deleteVacation({
-            date: date.toString(),
-            ...(staff.kind === "mfa"
-              ? { mfaId: staff.id as Id<"mfas"> }
-              : { practitionerId: staff.id as Id<"practitioners"> }),
-            portion: half,
-            practiceId,
-            staffType: staff.kind,
-          });
-        }
-      }
-    } else if (isVacationActive(staff.kind, staff.id, date, "full")) {
+    const activePortions = getActivePortionsForCell(staff, date);
+
+    for (const activePortion of activePortions) {
       await deleteVacation({
         date: date.toString(),
         ...(staff.kind === "mfa"
           ? { mfaId: staff.id as Id<"mfas"> }
           : { practitionerId: staff.id as Id<"practitioners"> }),
-        portion: "full",
+        portion: activePortion,
         practiceId,
         staffType: staff.kind,
       });
     }
+  };
+
+  const upsertVacation = async (
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+    portion: VacationPortion,
+  ) => {
+    await clearVacationsForDay(staff, date);
 
     await createVacation({
       date: date.toString(),
@@ -330,20 +345,8 @@ export function VacationScheduler({
     });
   };
 
-  const removeVacation = async (
-    staff: StaffRow,
-    date: Temporal.PlainDate,
-    portion: VacationPortion,
-  ) => {
-    await deleteVacation({
-      date: date.toString(),
-      ...(staff.kind === "mfa"
-        ? { mfaId: staff.id as Id<"mfas"> }
-        : { practitionerId: staff.id as Id<"practitioners"> }),
-      portion,
-      practiceId,
-      staffType: staff.kind,
-    });
+  const removeVacation = async (staff: StaffRow, date: Temporal.PlainDate) => {
+    await clearVacationsForDay(staff, date);
   };
 
   const handleCreateMfa = async () => {
@@ -382,33 +385,23 @@ export function VacationScheduler({
     date: Temporal.PlainDate,
     portion: VacationPortion,
   ) => {
-    const currentlyActive = isVacationActive(
-      staff.kind,
-      staff.id,
-      date,
-      portion,
-    );
+    const displayedPortion = getDisplayedPortionForCell(staff, date);
+    const currentlyActive = displayedPortion !== null;
     const conflicts = getAppointmentConflicts(staff, date, portion);
 
     try {
       if (currentlyActive) {
-        if (conflicts.length > 0) {
-          setConflictDialog({
-            conflicts,
-            date,
-            mode: "inspect",
-            portion,
-            staff,
-          });
-          return;
-        }
-        await removeVacation(staff, date, portion);
+        setConflictDialog({
+          date,
+          mode: "inspect",
+          portion: displayedPortion,
+          staff,
+        });
         return;
       }
 
       if (conflicts.length > 0) {
         setConflictDialog({
-          conflicts,
           date,
           mode: "create",
           portion,
@@ -432,12 +425,14 @@ export function VacationScheduler({
     portion: VacationPortion,
   ) => {
     const conflicts = getAppointmentConflicts(staff, date, portion);
-    if (conflicts.length === 0) {
+    if (
+      conflicts.length === 0 &&
+      getDisplayedPortionForCell(staff, date) === null
+    ) {
       return false;
     }
 
     setConflictDialog({
-      conflicts,
       date,
       mode: "inspect",
       portion,
@@ -446,91 +441,75 @@ export function VacationScheduler({
     return true;
   };
 
+  const dialogConflicts = conflictDialog
+    ? getAppointmentConflicts(
+        conflictDialog.staff,
+        conflictDialog.date,
+        conflictDialog.portion,
+      )
+    : [];
+
   const renderCell = (staff: StaffRow, date: Temporal.PlainDate) => {
+    const displayedPortion = getDisplayedPortionForCell(staff, date);
     const holidayName = holidayDataLoaded
       ? getPublicHolidayName(date)
       : undefined;
+    const disabledDay = isWeekend(date) || !!holidayName;
 
     if (!editable) {
-      const activePortions = (
-        ["full", "morning", "afternoon"] as VacationPortion[]
-      ).filter((portion) =>
-        isVacationActive(staff.kind, staff.id, date, portion),
-      );
-
       return (
-        <div className="flex min-h-16 flex-col gap-1">
-          {holidayName && (
-            <div className="text-[10px] leading-tight text-muted-foreground">
-              {holidayName}
-            </div>
+        <div className="flex min-h-12 items-center justify-center">
+          {displayedPortion ? (
+            <Button
+              className="h-7 px-2 text-[10px]"
+              onClick={() => {
+                void openConflictDialogIfNeeded(staff, date, displayedPortion);
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              {PORTION_META[displayedPortion].short}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
           )}
-          <div className="flex flex-wrap gap-1">
-            {activePortions.length > 0 ? (
-              activePortions.map((portion) => (
-                <Button
-                  className="h-6 px-2 text-[10px]"
-                  key={portion}
-                  onClick={() => {
-                    void openConflictDialogIfNeeded(staff, date, portion);
-                  }}
-                  size="sm"
-                  variant="secondary"
-                >
-                  {PORTION_META[portion].short}
-                </Button>
-              ))
-            ) : (
-              <span className="text-xs text-muted-foreground">-</span>
-            )}
-          </div>
+        </div>
+      );
+    }
+
+    if (disabledDay) {
+      return (
+        <div className="flex min-h-12 items-center justify-center text-xs text-muted-foreground">
+          -
         </div>
       );
     }
 
     return (
-      <div className="flex min-h-16 flex-col gap-1">
-        {holidayName && (
-          <div className="text-[10px] leading-tight text-muted-foreground">
-            {holidayName}
-          </div>
+      <div className="flex min-h-12 items-center justify-center">
+        {displayedPortion ? (
+          <Button
+            className="h-7 px-3 text-[10px]"
+            onClick={() => {
+              void openConflictDialogIfNeeded(staff, date, displayedPortion);
+            }}
+            size="sm"
+            variant="default"
+          >
+            {PORTION_META[displayedPortion].short}
+          </Button>
+        ) : (
+          <Button
+            className="h-7 px-3 text-[10px]"
+            onClick={() => {
+              void toggleVacation(staff, date, "full");
+            }}
+            size="sm"
+            variant="outline"
+          >
+            G
+          </Button>
         )}
-        <div className="grid grid-cols-3 gap-1">
-          {(["full", "morning", "afternoon"] as VacationPortion[]).map(
-            (portion) => {
-              const active = isVacationActive(
-                staff.kind,
-                staff.id,
-                date,
-                portion,
-              );
-              return (
-                <Button
-                  className="h-7 px-2 text-[10px]"
-                  key={portion}
-                  onClick={() => {
-                    if (
-                      active &&
-                      openConflictDialogIfNeeded(staff, date, portion)
-                    ) {
-                      return;
-                    }
-                    void toggleVacation(staff, date, portion);
-                  }}
-                  size="sm"
-                  title={
-                    active
-                      ? PORTION_META[portion].activeLabel
-                      : PORTION_META[portion].idleLabel
-                  }
-                  variant={active ? "default" : "outline"}
-                >
-                  {PORTION_META[portion].short}
-                </Button>
-              );
-            },
-          )}
-        </div>
       </div>
     );
   };
@@ -541,71 +520,32 @@ export function VacationScheduler({
   return (
     <Card>
       <CardHeader className="gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CardTitle>Urlaubsplaner</CardTitle>
-            <CardDescription>
-              Monatsansicht mit Arzten oben und MFA unten. Wochenenden und
-              bestehende Feiertagsmarkierungen werden hervorgehoben.
-            </CardDescription>
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            onClick={() => {
+              navigateMonth(-1);
+            }}
+            size="icon"
+            variant="outline"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-40 text-center text-sm font-medium">
+            {monthDate.toLocaleString("de-DE", {
+              month: "long",
+              year: "numeric",
+            })}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => {
-                navigateMonth(-1);
-              }}
-              size="icon"
-              variant="outline"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-40 text-center text-sm font-medium">
-              {monthDate.toLocaleString("de-DE", {
-                month: "long",
-                year: "numeric",
-              })}
-            </div>
-            <Button
-              onClick={() => {
-                navigateMonth(1);
-              }}
-              size="icon"
-              variant="outline"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button
+            onClick={() => {
+              navigateMonth(1);
+            }}
+            size="icon"
+            variant="outline"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
-
-        {editable && (
-          <div className="flex flex-col gap-3 rounded-lg border p-3 lg:flex-row lg:items-center">
-            <div className="text-sm text-muted-foreground lg:min-w-40">
-              MFA direkt im Urlaubsplaner verwalten
-            </div>
-            <Input
-              onChange={(event) => {
-                setNewMfaName(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void handleCreateMfa();
-                }
-              }}
-              placeholder="Neue MFA"
-              value={newMfaName}
-            />
-            <Button
-              onClick={() => {
-                void handleCreateMfa();
-              }}
-              type="button"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              MFA hinzufügen
-            </Button>
-          </div>
-        )}
       </CardHeader>
 
       <CardContent>
@@ -614,7 +554,7 @@ export function VacationScheduler({
             Urlaubsdaten werden geladen.
           </div>
         ) : (
-          <ScrollArea className="w-full whitespace-nowrap rounded-md border">
+          <ScrollArea className="w-full rounded-md border">
             <div className="min-w-max">
               <table className="w-full border-collapse text-sm">
                 <thead>
@@ -624,14 +564,11 @@ export function VacationScheduler({
                     </th>
                     {days.map((date) => {
                       const weekend = isWeekend(date);
-                      const holidayName = holidayDataLoaded
-                        ? getPublicHolidayName(date)
-                        : undefined;
                       return (
                         <th
                           className={cn(
                             "min-w-28 border-b border-l p-2 text-center align-top",
-                            (weekend || holidayName) && "bg-muted/60",
+                            weekend && "bg-muted/60",
                           )}
                           key={date.toString()}
                         >
@@ -646,11 +583,27 @@ export function VacationScheduler({
                               weekday: "short",
                             })}
                           </div>
-                          {holidayName && (
-                            <div className="mt-1 text-[10px] leading-tight text-muted-foreground">
-                              {holidayName}
-                            </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <th className="sticky left-0 z-20 border-b bg-background p-2 text-left text-xs text-muted-foreground">
+                      Feiertag
+                    </th>
+                    {days.map((date) => {
+                      const holidayName = holidayDataLoaded
+                        ? getPublicHolidayName(date)
+                        : undefined;
+                      return (
+                        <th
+                          className={cn(
+                            "min-w-28 border-b border-l p-2 text-center text-[10px] leading-tight text-muted-foreground",
+                            (isWeekend(date) || holidayName) && "bg-muted/60",
                           )}
+                          key={`${date.toString()}-holiday`}
+                        >
+                          {holidayName ?? ""}
                         </th>
                       );
                     })}
@@ -662,19 +615,17 @@ export function VacationScheduler({
                       <td className="sticky left-0 z-10 border-b bg-background p-3 align-top">
                         <div className="flex items-start gap-2">
                           <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium">{staff.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Arzt
-                            </div>
-                          </div>
+                          <div className="font-medium">{staff.name}</div>
                         </div>
                       </td>
                       {days.map((date) => (
                         <td
                           className={cn(
                             "border-b border-l p-2 align-top",
-                            isWeekend(date) && "bg-muted/30",
+                            (isWeekend(date) ||
+                              (holidayDataLoaded &&
+                                getPublicHolidayName(date))) &&
+                              "bg-muted/30",
                           )}
                           key={`${staff.id}-${date.toString()}`}
                         >
@@ -699,12 +650,7 @@ export function VacationScheduler({
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2">
                             <BriefcaseMedical className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <div className="font-medium">{staff.name}</div>
-                              <div className="text-xs text-muted-foreground">
-                                MFA
-                              </div>
-                            </div>
+                            <div className="font-medium">{staff.name}</div>
                           </div>
                           {editable && (
                             <Button
@@ -723,7 +669,10 @@ export function VacationScheduler({
                         <td
                           className={cn(
                             "border-b border-l p-2 align-top",
-                            isWeekend(date) && "bg-muted/30",
+                            (isWeekend(date) ||
+                              (holidayDataLoaded &&
+                                getPublicHolidayName(date))) &&
+                              "bg-muted/30",
                           )}
                           key={`${staff.id}-${date.toString()}`}
                         >
@@ -735,9 +684,39 @@ export function VacationScheduler({
                 </tbody>
               </table>
             </div>
+            <ScrollBar orientation="horizontal" />
           </ScrollArea>
         )}
       </CardContent>
+
+      {editable && (
+        <CardContent className="pt-0">
+          <div className="flex flex-col gap-3 rounded-lg border p-3 lg:flex-row lg:items-center">
+            <Input
+              onChange={(event) => {
+                setNewMfaName(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleCreateMfa();
+                }
+              }}
+              placeholder="Neue MFA"
+              value={newMfaName}
+            />
+            <Button
+              onClick={() => {
+                void handleCreateMfa();
+              }}
+              type="button"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              MFA hinzufügen
+            </Button>
+          </div>
+        </CardContent>
+      )}
 
       <Dialog
         onOpenChange={(open) => {
@@ -761,25 +740,58 @@ export function VacationScheduler({
                     month: "2-digit",
                     year: "numeric",
                   })}{" "}
-                  bereits {conflictDialog.conflicts.length} Termin
-                  {conflictDialog.conflicts.length === 1 ? "" : "e"} im Bereich{" "}
+                  bereits {dialogConflicts.length} Termin
+                  {dialogConflicts.length === 1 ? "" : "e"} im Bereich{" "}
                   {PORTION_META[conflictDialog.portion].short}.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="rounded-lg border p-3 text-sm">
                 <div className="font-medium">
-                  {conflictDialog.conflicts.length} Konflikt
-                  {conflictDialog.conflicts.length === 1 ? "" : "e"}
+                  {dialogConflicts.length} Konflikt
+                  {dialogConflicts.length === 1 ? "" : "e"}
                 </div>
                 <div className="text-muted-foreground">
                   Bestehende Buchungen, die von diesem Urlaub betroffen sind.
                 </div>
               </div>
 
+              {editable && (
+                <div className="flex items-center gap-2">
+                  {ORDERED_PORTIONS.map((portion) => (
+                    <Button
+                      key={portion}
+                      onClick={() => {
+                        setConflictDialog((current) =>
+                          current
+                            ? {
+                                ...current,
+                                portion,
+                              }
+                            : current,
+                        );
+                      }}
+                      size="sm"
+                      variant={
+                        conflictDialog.portion === portion
+                          ? "default"
+                          : "outline"
+                      }
+                    >
+                      {PORTION_META[portion].short}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
               <ScrollArea className="max-h-80 rounded-md border">
                 <div className="divide-y">
-                  {conflictDialog.conflicts.map((conflict) => {
+                  {dialogConflicts.length === 0 && (
+                    <div className="p-3 text-sm text-muted-foreground">
+                      Keine bestehenden Termine in diesem Zeitraum.
+                    </div>
+                  )}
+                  {dialogConflicts.map((conflict) => {
                     const start = Temporal.ZonedDateTime.from(conflict.start);
                     const end = Temporal.ZonedDateTime.from(conflict.end);
                     return (
@@ -825,7 +837,6 @@ export function VacationScheduler({
                       void removeVacation(
                         conflictDialog.staff,
                         conflictDialog.date,
-                        conflictDialog.portion,
                       ).then(() => {
                         setConflictDialog(null);
                       });
@@ -848,6 +859,21 @@ export function VacationScheduler({
                     }}
                   >
                     Trotzdem eintragen
+                  </Button>
+                )}
+                {editable && conflictDialog.mode === "inspect" && (
+                  <Button
+                    onClick={() => {
+                      void upsertVacation(
+                        conflictDialog.staff,
+                        conflictDialog.date,
+                        conflictDialog.portion,
+                      ).then(() => {
+                        setConflictDialog(null);
+                      });
+                    }}
+                  >
+                    Urlaub ändern
                   </Button>
                 )}
               </DialogFooter>
