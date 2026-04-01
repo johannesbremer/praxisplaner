@@ -28,6 +28,7 @@ export type EntityType =
   | "appointment type"
   | "base schedule"
   | "location"
+  | "mfa"
   | "practitioner"
   | "rule"
   | "rule condition";
@@ -402,6 +403,39 @@ export async function copyPractitioners(
 }
 
 /**
+ * Copy all MFAs from source to target rule set.
+ */
+export async function copyMfas(
+  db: DatabaseWriter,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+  practiceId: Id<"practices">,
+): Promise<Map<Id<"mfas">, Id<"mfas">>> {
+  const sourceMfas = await db
+    .query("mfas")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  const idMap = new Map<Id<"mfas">, Id<"mfas">>();
+
+  for (const source of sourceMfas) {
+    const lineageKey = source.lineageKey ?? source._id;
+    const newId = await db.insert("mfas", {
+      createdAt: source.createdAt,
+      lineageKey,
+      name: source.name,
+      parentId: source._id,
+      practiceId,
+      ruleSetId: targetRuleSetId,
+    });
+
+    idMap.set(source._id, newId);
+  }
+
+  return idMap;
+}
+
+/**
  * Copy all locations from source to target rule set.
  */
 export async function copyLocations(
@@ -489,6 +523,65 @@ export async function copyBaseSchedules(
       ruleSetId: targetRuleSetId,
       startTime: source.startTime,
       ...(source.breakTimes && { breakTimes: source.breakTimes }),
+    });
+  }
+}
+
+/**
+ * Copy all vacations from source to target rule set.
+ */
+export async function copyVacations(
+  db: DatabaseWriter,
+  sourceRuleSetId: Id<"ruleSets">,
+  targetRuleSetId: Id<"ruleSets">,
+  practiceId: Id<"practices">,
+  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
+  mfaIdMap: Map<Id<"mfas">, Id<"mfas">>,
+): Promise<void> {
+  const sourceVacations = await db
+    .query("vacations")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+
+  for (const source of sourceVacations) {
+    let practitionerId: Id<"practitioners"> | undefined;
+    let mfaId: Id<"mfas"> | undefined;
+
+    if (source.staffType === "practitioner") {
+      if (!source.practitionerId) {
+        throw new Error(
+          `Failed to copy vacation ${source._id}: missing practitionerId.`,
+        );
+      }
+      practitionerId = practitionerIdMap.get(source.practitionerId);
+      if (!practitionerId) {
+        throw new Error(
+          `Failed to copy vacation ${source._id}: practitioner ${source.practitionerId} not found in mapping.`,
+        );
+      }
+    } else {
+      if (!source.mfaId) {
+        throw new Error(
+          `Failed to copy vacation ${source._id}: missing mfaId.`,
+        );
+      }
+      mfaId = mfaIdMap.get(source.mfaId);
+      if (!mfaId) {
+        throw new Error(
+          `Failed to copy vacation ${source._id}: MFA ${source.mfaId} not found in mapping.`,
+        );
+      }
+    }
+
+    await db.insert("vacations", {
+      createdAt: source.createdAt,
+      date: source.date,
+      ...(mfaId ? { mfaId } : {}),
+      portion: source.portion,
+      practiceId,
+      ...(practitionerId ? { practitionerId } : {}),
+      ruleSetId: targetRuleSetId,
+      staffType: source.staffType,
     });
   }
 }
@@ -730,6 +823,12 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
+  const mfaIdMap = await copyMfas(
+    db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    practiceId,
+  );
 
   // Copy base schedules with mapped IDs
   await copyBaseSchedules(
@@ -739,6 +838,14 @@ export async function copyAllEntities(
     practiceId,
     practitionerIdMap,
     locationIdMap,
+  );
+  await copyVacations(
+    db,
+    sourceRuleSetId,
+    targetRuleSetId,
+    practiceId,
+    practitionerIdMap,
+    mfaIdMap,
   );
 
   // Copy rule conditions with mapped IDs

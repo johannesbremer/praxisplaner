@@ -138,6 +138,48 @@ async function deleteBaseSchedulesByRuleSet(
   }
 }
 
+async function deleteMfasByRuleSet(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+  batchSize = 100,
+): Promise<void> {
+  let batch = await db
+    .query("mfas")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+    .take(batchSize);
+
+  while (batch.length > 0) {
+    for (const item of batch) {
+      await db.delete("mfas", item._id);
+    }
+    batch = await db
+      .query("mfas")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .take(batchSize);
+  }
+}
+
+async function deleteVacationsByRuleSet(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+  batchSize = 100,
+): Promise<void> {
+  let batch = await db
+    .query("vacations")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+    .take(batchSize);
+
+  while (batch.length > 0) {
+    for (const item of batch) {
+      await db.delete("vacations", item._id);
+    }
+    batch = await db
+      .query("vacations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .take(batchSize);
+  }
+}
+
 /**
  * Delete rule conditions by ruleSetId in batches.
  */
@@ -157,37 +199,54 @@ interface RuleSetCanonicalSnapshot {
   appointmentTypes: string[];
   baseSchedules: string[];
   locations: string[];
+  mfas: string[];
   practitioners: string[];
   rules: string[];
+  vacations: string[];
 }
 
 async function buildRuleSetCanonicalSnapshot(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
 ): Promise<RuleSetCanonicalSnapshot> {
-  const [appointmentTypes, baseSchedules, locations, practitioners, rules] =
-    await Promise.all([
-      db
-        .query("appointmentTypes")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-      db
-        .query("baseSchedules")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-      db
-        .query("locations")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-      db
-        .query("practitioners")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-      db
-        .query("ruleConditions")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-    ]);
+  const [
+    appointmentTypes,
+    baseSchedules,
+    locations,
+    mfas,
+    practitioners,
+    rules,
+    vacations,
+  ] = await Promise.all([
+    db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("mfas")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("practitioners")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("ruleConditions")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("vacations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+  ]);
 
   const practitionerNameById = new Map(
     practitioners.map((practitioner) => [practitioner._id, practitioner.name]),
@@ -201,6 +260,7 @@ async function buildRuleSetCanonicalSnapshot(
       appointmentType.name,
     ]),
   );
+  const mfaNameById = new Map(mfas.map((mfa) => [mfa._id, mfa.name]));
 
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
@@ -213,6 +273,10 @@ async function buildRuleSetCanonicalSnapshot(
 
   const canonicalLocations = locations
     .map((location) => JSON.stringify({ name: location.name }))
+    .toSorted();
+
+  const canonicalMfas = mfas
+    .map((mfa) => JSON.stringify({ name: mfa.name }))
     .toSorted();
 
   const canonicalAppointmentTypes = appointmentTypes
@@ -291,12 +355,32 @@ async function buildRuleSetCanonicalSnapshot(
     )
     .toSorted();
 
+  const canonicalVacations = vacations
+    .map((vacation) =>
+      JSON.stringify({
+        date: vacation.date,
+        portion: vacation.portion,
+        staffName:
+          vacation.staffType === "practitioner"
+            ? vacation.practitionerId
+              ? practitionerNameById.get(vacation.practitionerId)
+              : undefined
+            : vacation.mfaId
+              ? mfaNameById.get(vacation.mfaId)
+              : undefined,
+        staffType: vacation.staffType,
+      }),
+    )
+    .toSorted();
+
   return {
     appointmentTypes: canonicalAppointmentTypes,
     baseSchedules: canonicalBaseSchedules,
     locations: canonicalLocations,
+    mfas: canonicalMfas,
     practitioners: canonicalPractitioners,
     rules: canonicalRules,
+    vacations: canonicalVacations,
   };
 }
 
@@ -508,6 +592,8 @@ export const discardUnsavedRuleSet = mutation({
     await deletePractitionersByRuleSet(ctx.db, ruleSetId);
     await deleteLocationsByRuleSet(ctx.db, ruleSetId);
     await deleteBaseSchedulesByRuleSet(ctx.db, ruleSetId);
+    await deleteVacationsByRuleSet(ctx.db, ruleSetId);
+    await deleteMfasByRuleSet(ctx.db, ruleSetId);
     await deleteRuleConditionsByRuleSet(ctx.db, ruleSetId);
 
     // Finally, delete the rule set itself
@@ -718,6 +804,8 @@ export const deleteUnsavedRuleSet = mutation({
     await deleteLocationsByRuleSet(ctx.db, args.ruleSetId);
     await deleteAppointmentTypesByRuleSet(ctx.db, args.ruleSetId);
     await deleteBaseSchedulesByRuleSet(ctx.db, args.ruleSetId);
+    await deleteVacationsByRuleSet(ctx.db, args.ruleSetId);
+    await deleteMfasByRuleSet(ctx.db, args.ruleSetId);
 
     // Finally, delete the rule set itself
     await ctx.db.delete("ruleSets", args.ruleSetId);
@@ -788,6 +876,8 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
     await deleteLocationsByRuleSet(ctx.db, ruleSet._id);
     await deleteAppointmentTypesByRuleSet(ctx.db, ruleSet._id);
     await deleteBaseSchedulesByRuleSet(ctx.db, ruleSet._id);
+    await deleteVacationsByRuleSet(ctx.db, ruleSet._id);
+    await deleteMfasByRuleSet(ctx.db, ruleSet._id);
     await ctx.db.delete("ruleSets", ruleSet._id);
 
     return {

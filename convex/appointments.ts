@@ -386,10 +386,12 @@ export const getAppointments = query({
 // Query to get appointments in a date range
 export const getAppointmentsInRange = query({
   args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
     end: v.string(),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
     start: v.string(),
   },
   handler: async (ctx, args) => {
@@ -398,32 +400,53 @@ export const getAppointmentsInRange = query({
       await getAccessiblePracticeIdsForQuery(ctx),
     );
     // Use index range query instead of filter for better performance
-    const appointments = await ctx.db
+    const appointmentDocs = await ctx.db
       .query("appointments")
       .withIndex("by_start", (q) => q.gte("start", args.start))
       .collect();
 
     // Filter in code for end date (more efficient than .filter())
-    const filteredAppointments = appointments.filter(
+    const filteredAppointments = appointmentDocs.filter(
       (appointment) =>
         appointment.start <= args.end &&
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
 
+    let appointments = filteredAppointments;
     const scope: AppointmentScope = args.scope ?? "real";
 
+    if (
+      args.selectedRuleSetId &&
+      args.activeRuleSetId &&
+      args.selectedRuleSetId !== args.activeRuleSetId
+    ) {
+      const realAppointments = appointments.filter(
+        (appointment) => appointment.isSimulation !== true,
+      );
+      const simulationAppointments = appointments.filter(
+        (appointment) => appointment.isSimulation === true,
+      );
+
+      const remappedRealAppointments = await remapAppointmentIds(
+        ctx,
+        realAppointments,
+        args.activeRuleSetId,
+        args.selectedRuleSetId,
+      );
+
+      appointments = [...remappedRealAppointments, ...simulationAppointments];
+    }
+
     if (scope === "simulation") {
-      return combineForSimulationScope(filteredAppointments);
+      return combineForSimulationScope(appointments);
     }
 
     if (scope === "all") {
-      return filteredAppointments.toSorted((a, b) =>
-        a.start.localeCompare(b.start),
-      );
+      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
     }
 
-    return filteredAppointments
+    return appointments
       .filter((appointment) => appointment.isSimulation !== true)
       .toSorted((a, b) => a.start.localeCompare(b.start));
   },

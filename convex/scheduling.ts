@@ -100,7 +100,7 @@ export const getAvailableDates = query({
         .collect(),
       ctx.db
         .query("vacations")
-        .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
         .collect(),
     ]);
 
@@ -248,18 +248,6 @@ async function getSlotsForDayImpl(
           (blockedSlot) => blockedSlot.isSimulation !== true,
         );
 
-  const vacationsForDay = await ctx.db
-    .query("vacations")
-    .withIndex("by_practiceId_date", (q) =>
-      q
-        .eq("practiceId", args.practiceId)
-        .eq("date", targetPlainDate.toString()),
-    )
-    .collect();
-  const practitionerVacationsForDay = vacationsForDay.filter(
-    (vacation) => vacation.staffType === "practitioner",
-  );
-
   log.push(`Found ${blockedSlotsForDay.length} blocked slots for this day`);
 
   // Determine which rule set to use
@@ -279,6 +267,16 @@ async function getSlotsForDayImpl(
     return { log, slots: [] };
   }
   log.push(`Using rule set: ${ruleSetId}`);
+
+  const vacationsForDay = await ctx.db
+    .query("vacations")
+    .withIndex("by_ruleSetId_date", (q) =>
+      q.eq("ruleSetId", ruleSetId).eq("date", targetPlainDate.toString()),
+    )
+    .collect();
+  const practitionerVacationsForDay = vacationsForDay.filter(
+    (vacation) => vacation.staffType === "practitioner",
+  );
 
   // Fetch relevant practitioners scoped to the active rule set.
   const ruleSetPractitioners = await ctx.db

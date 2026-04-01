@@ -226,10 +226,10 @@ export function useCalendarLogic({
   );
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
-    practiceId
+    practiceId && ruleSetId
       ? {
           endDateExclusive: selectedDate.add({ days: 1 }).toString(),
-          practiceId,
+          ruleSetId,
           startDate: selectedDate.toString(),
         }
       : "skip",
@@ -2099,6 +2099,29 @@ export function useCalendarLogic({
       simulatedContext?.locationId ?? selectedLocationId;
 
     for (const practitioner of workingPractitioners) {
+      const hasOnlyConflictFreeFullDayVacation =
+        !(
+          appointmentsData?.some(
+            (appointment) =>
+              appointment.practitionerId === practitioner.id &&
+              Temporal.PlainDate.compare(
+                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+                selectedDate,
+              ) === 0,
+          ) ?? false
+        ) &&
+        vacationsData.some(
+          (vacation) =>
+            vacation.staffType === "practitioner" &&
+            vacation.practitionerId === practitioner.id &&
+            vacation.date === selectedDate.toString() &&
+            vacation.portion === "full",
+        );
+
+      if (hasOnlyConflictFreeFullDayVacation) {
+        continue;
+      }
+
       const ranges = getPractitionerVacationRangesForDate(
         selectedDate,
         practitioner.id,
@@ -2129,6 +2152,7 @@ export function useCalendarLogic({
   }, [
     baseSchedulesData,
     businessStartHour,
+    appointmentsData,
     selectedDate,
     selectedLocationId,
     simulatedContext,

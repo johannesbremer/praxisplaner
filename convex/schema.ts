@@ -893,11 +893,18 @@ export default defineSchema({
 
   mfas: defineTable({
     createdAt: v.int64(),
+    lineageKey: v.optional(v.id("mfas")),
     name: v.string(),
+    parentId: v.optional(v.id("mfas")),
     practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_practiceId_name", ["practiceId", "name"]),
+    .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_name", ["ruleSetId", "name"])
+    .index("by_parentId", ["parentId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   patients: defineTable({
     // Patient identification fields (from GDT file)
@@ -934,12 +941,14 @@ export default defineSchema({
     ),
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
+    ruleSetId: v.id("ruleSets"),
     staffType: v.union(v.literal("mfa"), v.literal("practitioner")),
   })
     .index("by_practiceId", ["practiceId"])
-    .index("by_practiceId_date", ["practiceId", "date"])
-    .index("by_practiceId_practitionerId", ["practiceId", "practitionerId"])
-    .index("by_practiceId_mfaId", ["practiceId", "mfaId"]),
+    .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_date", ["ruleSetId", "date"])
+    .index("by_ruleSetId_practitionerId", ["ruleSetId", "practitionerId"])
+    .index("by_ruleSetId_mfaId", ["ruleSetId", "mfaId"]),
 
   /**
    * Practice membership and role assignments.

@@ -62,8 +62,14 @@ type VacationPortion = "afternoon" | "full" | "morning";
 
 interface VacationSchedulerProps {
   editable: boolean;
+  expectedDraftRevision?: null | number;
   onDateChange?: (date: Temporal.PlainDate) => void;
+  onDraftMutation?: (result: {
+    draftRevision: number;
+    ruleSetId: Id<"ruleSets">;
+  }) => void;
   practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
   selectedDate: Temporal.PlainDate;
 }
 
@@ -92,25 +98,32 @@ const ORDERED_PORTIONS: VacationPortion[] = ["full", "morning", "afternoon"];
 
 export function VacationScheduler({
   editable,
+  expectedDraftRevision,
   onDateChange,
+  onDraftMutation,
   practiceId,
+  ruleSetId,
   selectedDate,
 }: VacationSchedulerProps) {
   const monthDate = startOfMonth(selectedDate);
   const monthEndExclusive = endExclusiveMonth(monthDate);
-  const practitioners = useQuery(api.entities.getPractitionersFromActive, {
+  const activeRuleSet = useQuery(api.ruleSets.getActiveRuleSet, {
     practiceId,
   });
-  const mfas = useQuery(api.mfas.list, { practiceId });
+  const practitioners = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
+  });
+  const mfas = useQuery(api.mfas.list, { ruleSetId });
   const vacations = useQuery(api.vacations.getVacationsInRange, {
     endDateExclusive: monthEndExclusive.toString(),
-    practiceId,
+    ruleSetId,
     startDate: monthDate.toString(),
   });
-  const baseSchedules = useQuery(api.entities.getBaseSchedulesFromActive, {
-    practiceId,
+  const baseSchedules = useQuery(api.entities.getBaseSchedules, {
+    ruleSetId,
   });
   const appointments = useQuery(api.appointments.getAppointmentsInRange, {
+    ...(activeRuleSet?._id ? { activeRuleSetId: activeRuleSet._id } : {}),
     end: monthEndExclusive
       .subtract({ days: 1 })
       .toZonedDateTime({
@@ -118,6 +131,7 @@ export function VacationScheduler({
         timeZone: "Europe/Berlin",
       })
       .toString(),
+    ...(activeRuleSet?._id ? { selectedRuleSetId: ruleSetId } : {}),
     scope: "real",
     start: monthDate
       .toZonedDateTime({
@@ -126,8 +140,8 @@ export function VacationScheduler({
       })
       .toString(),
   });
-  const locations = useQuery(api.entities.getLocationsFromActive, {
-    practiceId,
+  const locations = useQuery(api.entities.getLocations, {
+    ruleSetId,
   });
   const appointmentPatientIds = useMemo(() => {
     const ids = new Set<Id<"patients">>();
@@ -358,18 +372,30 @@ export function VacationScheduler({
     staff: StaffRow,
     date: Temporal.PlainDate,
   ) => {
+    let latestResult:
+      | undefined
+      | {
+          draftRevision: number;
+          ruleSetId: Id<"ruleSets">;
+        };
     const activePortions = getActivePortionsForCell(staff, date);
 
     for (const activePortion of activePortions) {
-      await deleteVacation({
+      latestResult = await deleteVacation({
         date: date.toString(),
+        expectedDraftRevision: expectedDraftRevision ?? null,
         ...(staff.kind === "mfa"
           ? { mfaId: staff.id as Id<"mfas"> }
           : { practitionerId: staff.id as Id<"practitioners"> }),
         portion: activePortion,
         practiceId,
+        selectedRuleSetId: ruleSetId,
         staffType: staff.kind,
       });
+    }
+
+    if (latestResult) {
+      onDraftMutation?.(latestResult);
     }
   };
 
@@ -380,15 +406,18 @@ export function VacationScheduler({
   ) => {
     await clearVacationsForDay(staff, date);
 
-    await createVacation({
+    const result = await createVacation({
       date: date.toString(),
+      expectedDraftRevision: expectedDraftRevision ?? null,
       ...(staff.kind === "mfa"
         ? { mfaId: staff.id as Id<"mfas"> }
         : { practitionerId: staff.id as Id<"practitioners"> }),
       portion,
       practiceId,
+      selectedRuleSetId: ruleSetId,
       staffType: staff.kind,
     });
+    onDraftMutation?.(result);
   };
 
   const removeVacation = async (staff: StaffRow, date: Temporal.PlainDate) => {
@@ -403,7 +432,13 @@ export function VacationScheduler({
     }
 
     try {
-      await createMfa({ name: trimmed, practiceId });
+      const result = await createMfa({
+        expectedDraftRevision: expectedDraftRevision ?? null,
+        name: trimmed,
+        practiceId,
+        selectedRuleSetId: ruleSetId,
+      });
+      onDraftMutation?.(result);
       setNewMfaName("");
       toast.success("MFA hinzugefugt");
     } catch (error) {
@@ -416,7 +451,13 @@ export function VacationScheduler({
 
   const handleRemoveMfa = async (mfaId: Id<"mfas">) => {
     try {
-      await removeMfa({ mfaId, practiceId });
+      const result = await removeMfa({
+        expectedDraftRevision: expectedDraftRevision ?? null,
+        mfaId,
+        practiceId,
+        selectedRuleSetId: ruleSetId,
+      });
+      onDraftMutation?.(result);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {
@@ -561,7 +602,13 @@ export function VacationScheduler({
   };
 
   const isLoading =
-    !practitioners || !mfas || !vacations || !appointments || !baseSchedules;
+    !activeRuleSet ||
+    !practitioners ||
+    !mfas ||
+    !vacations ||
+    !appointments ||
+    !baseSchedules ||
+    !locations;
 
   return (
     <Card>

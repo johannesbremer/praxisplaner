@@ -1199,11 +1199,12 @@ function PraxisPlanerComponent() {
             className="h-full overflow-auto p-6"
             value={VACATION_TAB}
           >
-            {currentPractice ? (
+            {currentPractice && activeRuleSet ? (
               <VacationScheduler
                 editable={false}
                 onDateChange={handleDateChange}
                 practiceId={currentPractice._id}
+                ruleSetId={activeRuleSet._id}
                 selectedDate={selectedDate}
               />
             ) : (

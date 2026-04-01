@@ -963,6 +963,13 @@ function LogicView() {
         </h1>
       </div>
 
+      {currentWorkingRuleSet &&
+        unsavedRuleSet?._id === currentWorkingRuleSet._id && (
+          <div className="sticky top-0 z-40 mb-6 rounded-md border border-red-300 bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-sm">
+            Ungespeicherte Änderungen
+          </div>
+        )}
+
       {/* Page-level Tabs */}
       <ClientOnly fallback={<div />}>
         <Tabs
@@ -1297,20 +1304,25 @@ function LogicView() {
           </TabsContent>
 
           <TabsContent value="vacation-scheduler">
-            <VacationScheduler
-              editable
-              onDateChange={(date) => {
-                pushUrl({
-                  date: new Date(date.year, date.month - 1, date.day),
-                });
-              }}
-              practiceId={currentPractice._id}
-              selectedDate={Temporal.PlainDate.from({
-                day: selectedDate.getDate(),
-                month: selectedDate.getMonth() + 1,
-                year: selectedDate.getFullYear(),
-              })}
-            />
+            {currentWorkingRuleSet && (
+              <VacationScheduler
+                editable
+                expectedDraftRevision={expectedDraftRevision}
+                onDateChange={(date) => {
+                  pushUrl({
+                    date: new Date(date.year, date.month - 1, date.day),
+                  });
+                }}
+                onDraftMutation={handleDraftMutation}
+                practiceId={currentPractice._id}
+                ruleSetId={currentWorkingRuleSet._id}
+                selectedDate={Temporal.PlainDate.from({
+                  day: selectedDate.getDate(),
+                  month: selectedDate.getMonth() + 1,
+                  year: selectedDate.getFullYear(),
+                })}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </ClientOnly>
