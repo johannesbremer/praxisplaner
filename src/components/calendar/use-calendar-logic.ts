@@ -1523,7 +1523,7 @@ export function useCalendarLogic({
     }
 
     // Validate and filter schedules with invalid times
-    const validSchedules = daySchedules.filter((schedule) => {
+    let validSchedules = daySchedules.filter((schedule) => {
       const startMinutes = timeToMinutes(schedule.startTime);
       const endMinutes = timeToMinutes(schedule.endTime);
 
@@ -1537,6 +1537,56 @@ export function useCalendarLogic({
       }
       return true;
     });
+
+    const mutedPractitionerIds = new Set<Id<"practitioners">>();
+
+    if (vacationsData) {
+      const practitionersWithAppointments = new Set(
+        (appointmentsData ?? [])
+          .filter(
+            (appointment) =>
+              Temporal.PlainDate.compare(
+                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+                selectedDate,
+              ) === 0,
+          )
+          .map((appointment) => appointment.practitionerId)
+          .filter(Boolean),
+      );
+
+      const hiddenPractitionerIds = new Set(
+        vacationsData
+          .filter(
+            (vacation) =>
+              vacation.staffType === "practitioner" &&
+              vacation.date === selectedDate.toString() &&
+              vacation.portion === "full" &&
+              vacation.practitionerId &&
+              !practitionersWithAppointments.has(vacation.practitionerId),
+          )
+          .flatMap((vacation) =>
+            vacation.practitionerId ? [vacation.practitionerId] : [],
+          ),
+      );
+
+      for (const vacation of vacationsData) {
+        if (
+          vacation.staffType === "practitioner" &&
+          vacation.date === selectedDate.toString() &&
+          vacation.portion === "full" &&
+          vacation.practitionerId &&
+          practitionersWithAppointments.has(vacation.practitionerId)
+        ) {
+          mutedPractitionerIds.add(vacation.practitionerId);
+        }
+      }
+
+      if (hiddenPractitionerIds.size > 0) {
+        validSchedules = validSchedules.filter(
+          (schedule) => !hiddenPractitionerIds.has(schedule.practitionerId),
+        );
+      }
+    }
 
     if (validSchedules.length < daySchedules.length) {
       const invalidCount = daySchedules.length - validSchedules.length;
@@ -1578,6 +1628,7 @@ export function useCalendarLogic({
 
     const practitionerColumns = working.map((practitioner) => ({
       id: practitioner.id,
+      isMuted: mutedPractitionerIds.has(practitioner.id),
       title: practitioner.name,
     }));
 
@@ -1602,9 +1653,12 @@ export function useCalendarLogic({
     practitionersData,
     baseSchedulesData,
     currentDayOfWeek,
+    appointmentsData,
     simulatedContext,
     selectedLocationId,
+    selectedDate,
     timeToMinutes,
+    vacationsData,
   ]);
 
   // Filter appointments by date
