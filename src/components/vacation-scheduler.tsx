@@ -7,7 +7,7 @@ import {
   Stethoscope,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -26,6 +26,8 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
+
+import type { LocalHistoryAction } from "../hooks/use-local-history";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
@@ -52,6 +54,15 @@ interface ConflictDialogState {
   staff: StaffRow;
 }
 
+interface CreateMfaResult extends DraftMutationResult {
+  entityId: Id<"mfas">;
+}
+
+interface DraftMutationResult {
+  draftRevision: number;
+  ruleSetId: Id<"ruleSets">;
+}
+
 interface StaffRow {
   id: string;
   kind: "mfa" | "practitioner";
@@ -64,10 +75,8 @@ interface VacationSchedulerProps {
   editable: boolean;
   expectedDraftRevision?: null | number;
   onDateChange?: (date: Temporal.PlainDate) => void;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
+  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
   selectedDate: Temporal.PlainDate;
@@ -101,6 +110,7 @@ export function VacationScheduler({
   expectedDraftRevision,
   onDateChange,
   onDraftMutation,
+  onRegisterHistoryAction,
   practiceId,
   ruleSetId,
   selectedDate,
@@ -181,6 +191,26 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
+  const expectedDraftRevisionRef = useRef(expectedDraftRevision ?? null);
+  const selectedRuleSetIdRef = useRef(ruleSetId);
+  const vacationsRef = useRef(vacations ?? []);
+  const mfasRef = useRef(mfas ?? []);
+
+  useEffect(() => {
+    expectedDraftRevisionRef.current = expectedDraftRevision ?? null;
+  }, [expectedDraftRevision]);
+
+  useEffect(() => {
+    selectedRuleSetIdRef.current = ruleSetId;
+  }, [ruleSetId]);
+
+  useEffect(() => {
+    vacationsRef.current = vacations ?? [];
+  }, [vacations]);
+
+  useEffect(() => {
+    mfasRef.current = mfas ?? [];
+  }, [mfas]);
 
   useEffect(() => {
     void getPublicHolidaysData().then(() => {
@@ -260,6 +290,15 @@ export function VacationScheduler({
   const firstBodyRowStaffId = combinedRows[0]?.staff.id;
   const totalBodyRowCount = combinedRows.length;
 
+  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
+  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    expectedDraftRevisionRef.current = result.draftRevision;
+    selectedRuleSetIdRef.current = result.ruleSetId;
+    onDraftMutation?.(result);
+  };
+
   const navigateMonth = (offset: number) => {
     onDateChange?.(monthDate.add({ months: offset }));
   };
@@ -298,6 +337,26 @@ export function VacationScheduler({
     }
     return activePortions[0] ?? null;
   };
+
+  const getActivePortionsForCellFromRows = (
+    vacationRows: NonNullable<typeof vacations>,
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+  ): VacationPortion[] =>
+    ORDERED_PORTIONS.filter((portion) =>
+      vacationRows.some((vacation) => {
+        const staffId =
+          vacation.staffType === "practitioner"
+            ? vacation.practitionerId
+            : vacation.mfaId;
+        return (
+          vacation.staffType === staff.kind &&
+          staffId === staff.id &&
+          vacation.date === date.toString() &&
+          vacation.portion === portion
+        );
+      }),
+    );
 
   const locationNameById = useMemo(
     () =>
@@ -372,56 +431,75 @@ export function VacationScheduler({
     staff: StaffRow,
     date: Temporal.PlainDate,
   ) => {
-    let latestResult:
-      | undefined
-      | {
-          draftRevision: number;
-          ruleSetId: Id<"ruleSets">;
-        };
+    let latestResult: DraftMutationResult | undefined;
     const activePortions = getActivePortionsForCell(staff, date);
 
     for (const activePortion of activePortions) {
-      latestResult = await deleteVacation({
+      latestResult = (await deleteVacation({
         date: date.toString(),
-        expectedDraftRevision: expectedDraftRevision ?? null,
+        expectedDraftRevision: getExpectedDraftRevision(),
         ...(staff.kind === "mfa"
           ? { mfaId: staff.id as Id<"mfas"> }
           : { practitionerId: staff.id as Id<"practitioners"> }),
         portion: activePortion,
         practiceId,
-        selectedRuleSetId: ruleSetId,
+        selectedRuleSetId: getSelectedRuleSetId(),
         staffType: staff.kind,
-      });
+      })) as DraftMutationResult;
     }
 
     if (latestResult) {
-      onDraftMutation?.(latestResult);
+      handleDraftMutationResult(latestResult);
     }
   };
 
-  const upsertVacation = async (
+  const setVacationsForDay = async (
     staff: StaffRow,
     date: Temporal.PlainDate,
-    portion: VacationPortion,
+    portions: VacationPortion[],
   ) => {
     await clearVacationsForDay(staff, date);
 
-    const result = await createVacation({
-      date: date.toString(),
-      expectedDraftRevision: expectedDraftRevision ?? null,
-      ...(staff.kind === "mfa"
-        ? { mfaId: staff.id as Id<"mfas"> }
-        : { practitionerId: staff.id as Id<"practitioners"> }),
-      portion,
-      practiceId,
-      selectedRuleSetId: ruleSetId,
-      staffType: staff.kind,
-    });
-    onDraftMutation?.(result);
+    let latestResult: DraftMutationResult | undefined;
+    for (const portion of portions) {
+      latestResult = (await createVacation({
+        date: date.toString(),
+        expectedDraftRevision: getExpectedDraftRevision(),
+        ...(staff.kind === "mfa"
+          ? { mfaId: staff.id as Id<"mfas"> }
+          : { practitionerId: staff.id as Id<"practitioners"> }),
+        portion,
+        practiceId,
+        selectedRuleSetId: getSelectedRuleSetId(),
+        staffType: staff.kind,
+      })) as DraftMutationResult;
+      handleDraftMutationResult(latestResult);
+    }
   };
 
-  const removeVacation = async (staff: StaffRow, date: Temporal.PlainDate) => {
-    await clearVacationsForDay(staff, date);
+  const commitVacationChange = async (
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+    nextPortions: VacationPortion[],
+    label: string,
+  ) => {
+    const previousPortions = getActivePortionsForCellFromRows(
+      vacationsRef.current,
+      staff,
+      date,
+    );
+    await setVacationsForDay(staff, date, nextPortions);
+    onRegisterHistoryAction?.({
+      label,
+      redo: async () => {
+        await setVacationsForDay(staff, date, nextPortions);
+        return { status: "applied" as const };
+      },
+      undo: async () => {
+        await setVacationsForDay(staff, date, previousPortions);
+        return { status: "applied" as const };
+      },
+    });
   };
 
   const handleCreateMfa = async () => {
@@ -432,14 +510,51 @@ export function VacationScheduler({
     }
 
     try {
-      const result = await createMfa({
-        expectedDraftRevision: expectedDraftRevision ?? null,
+      const result = (await createMfa({
+        expectedDraftRevision: getExpectedDraftRevision(),
         name: trimmed,
         practiceId,
-        selectedRuleSetId: ruleSetId,
-      });
-      onDraftMutation?.(result);
+        selectedRuleSetId: getSelectedRuleSetId(),
+      })) as CreateMfaResult;
+      handleDraftMutationResult(result);
       setNewMfaName("");
+      const lineageKey = result.entityId;
+      onRegisterHistoryAction?.({
+        label: "MFA erstellt",
+        redo: async () => {
+          const existing = mfasRef.current.find(
+            (entry) => entry.lineageKey === lineageKey,
+          );
+          if (existing) {
+            return { status: "applied" as const };
+          }
+          const redoResult = (await createMfa({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            lineageKey,
+            name: trimmed,
+            practiceId,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          })) as CreateMfaResult;
+          handleDraftMutationResult(redoResult);
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          const existing = mfasRef.current.find(
+            (entry) => entry.lineageKey === lineageKey,
+          );
+          if (!existing) {
+            return { status: "applied" as const };
+          }
+          const undoResult = (await removeMfa({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            mfaId: existing._id,
+            practiceId,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          })) as DraftMutationResult;
+          handleDraftMutationResult(undoResult);
+          return { status: "applied" as const };
+        },
+      });
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -451,13 +566,56 @@ export function VacationScheduler({
 
   const handleRemoveMfa = async (mfaId: Id<"mfas">) => {
     try {
-      const result = await removeMfa({
-        expectedDraftRevision: expectedDraftRevision ?? null,
+      const currentMfa = mfasRef.current.find((entry) => entry._id === mfaId);
+      if (!currentMfa) {
+        toast.error("MFA konnte nicht gefunden werden");
+        return;
+      }
+      const result = (await removeMfa({
+        expectedDraftRevision: getExpectedDraftRevision(),
         mfaId,
         practiceId,
-        selectedRuleSetId: ruleSetId,
+        selectedRuleSetId: getSelectedRuleSetId(),
+      })) as DraftMutationResult;
+      handleDraftMutationResult(result);
+      onRegisterHistoryAction?.({
+        label: "MFA entfernt",
+        redo: async () => {
+          const existing = mfasRef.current.find(
+            (entry) =>
+              entry.lineageKey === (currentMfa.lineageKey ?? currentMfa._id),
+          );
+          if (!existing) {
+            return { status: "applied" as const };
+          }
+          const redoResult = (await removeMfa({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            mfaId: existing._id,
+            practiceId,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          })) as DraftMutationResult;
+          handleDraftMutationResult(redoResult);
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          const existing = mfasRef.current.find(
+            (entry) =>
+              entry.lineageKey === (currentMfa.lineageKey ?? currentMfa._id),
+          );
+          if (existing) {
+            return { status: "applied" as const };
+          }
+          const undoResult = (await createMfa({
+            expectedDraftRevision: getExpectedDraftRevision(),
+            lineageKey: currentMfa.lineageKey ?? currentMfa._id,
+            name: currentMfa.name,
+            practiceId,
+            selectedRuleSetId: getSelectedRuleSetId(),
+          })) as CreateMfaResult;
+          handleDraftMutationResult(undoResult);
+          return { status: "applied" as const };
+        },
       });
-      onDraftMutation?.(result);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {
@@ -497,7 +655,7 @@ export function VacationScheduler({
         return;
       }
 
-      await upsertVacation(staff, date, portion);
+      await commitVacationChange(staff, date, [portion], "Urlaub eingetragen");
     } catch (error) {
       toast.error("Urlaub konnte nicht aktualisiert werden", {
         description:
@@ -652,7 +810,7 @@ export function VacationScheduler({
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 z-20 min-w-56 border-b bg-background p-3 text-left">
+                    <th className="sticky left-0 z-20 min-w-24 border-b bg-background px-2 py-3 text-left sm:min-w-32">
                       Mitarbeiter
                     </th>
                     {days.map((date) => {
@@ -685,7 +843,7 @@ export function VacationScheduler({
                     <tr key={`${staff.kind}-${staff.id}`}>
                       <td
                         className={cn(
-                          "sticky left-0 z-10 border-b bg-background p-3 align-top",
+                          "sticky left-0 z-10 border-b bg-background px-2 py-3 align-top",
                           isFirstMfaRow && "border-t-2",
                         )}
                       >
@@ -949,9 +1107,11 @@ export function VacationScheduler({
                 {editable && conflictDialog.mode === "inspect" && (
                   <Button
                     onClick={() => {
-                      void removeVacation(
+                      void commitVacationChange(
                         conflictDialog.staff,
                         conflictDialog.date,
+                        [],
+                        "Urlaub entfernt",
                       )
                         .then(() => {
                           setConflictDialog(null);
@@ -973,21 +1133,25 @@ export function VacationScheduler({
                 {editable && conflictDialog.mode === "create" && (
                   <Button
                     onClick={() => {
-                      void upsertVacation(
+                      void commitVacationChange(
                         conflictDialog.staff,
                         conflictDialog.date,
-                        conflictDialog.portion,
+                        [conflictDialog.portion],
+                        "Urlaub eingetragen",
                       )
                         .then(() => {
                           setConflictDialog(null);
                         })
                         .catch((error: unknown) => {
-                          toast.error("Urlaub konnte nicht eingetragen werden", {
-                            description:
-                              error instanceof Error
-                                ? error.message
-                                : "Unbekannter Fehler",
-                          });
+                          toast.error(
+                            "Urlaub konnte nicht eingetragen werden",
+                            {
+                              description:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Unbekannter Fehler",
+                            },
+                          );
                         });
                     }}
                   >
@@ -997,10 +1161,11 @@ export function VacationScheduler({
                 {editable && conflictDialog.mode === "inspect" && (
                   <Button
                     onClick={() => {
-                      void upsertVacation(
+                      void commitVacationChange(
                         conflictDialog.staff,
                         conflictDialog.date,
-                        conflictDialog.portion,
+                        [conflictDialog.portion],
+                        "Urlaub geändert",
                       )
                         .then(() => {
                           setConflictDialog(null);

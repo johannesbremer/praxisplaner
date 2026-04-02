@@ -13,6 +13,12 @@ import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const expectedDraftRevisionValidator = v.union(v.number(), v.null());
 
+const createMfaResultValidator = v.object({
+  draftRevision: v.number(),
+  entityId: v.id("mfas"),
+  ruleSetId: v.id("ruleSets"),
+});
+
 const draftMutationResultValidator = v.object({
   draftRevision: v.number(),
   ruleSetId: v.id("ruleSets"),
@@ -66,6 +72,7 @@ export const list = query({
 export const create = mutation({
   args: {
     expectedDraftRevision: expectedDraftRevisionValidator,
+    lineageKey: v.optional(v.id("mfas")),
     name: v.string(),
     practiceId: v.id("practices"),
     selectedRuleSetId: v.id("ruleSets"),
@@ -96,18 +103,33 @@ export const create = mutation({
       throw new Error("Eine MFA mit diesem Namen existiert bereits.");
     }
 
+    if (args.lineageKey) {
+      const existingByLineage = await ctx.db
+        .query("mfas")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+        )
+        .first();
+      if (existingByLineage) {
+        throw new Error("Diese MFA existiert im aktuellen Regelset bereits.");
+      }
+    }
+
     const entityId = await ctx.db.insert("mfas", {
       createdAt: BigInt(Date.now()),
+      ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
       name,
       practiceId: args.practiceId,
       ruleSetId,
     });
-    await ctx.db.patch("mfas", entityId, { lineageKey: entityId });
+    if (!args.lineageKey) {
+      await ctx.db.patch("mfas", entityId, { lineageKey: entityId });
+    }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
-    return { draftRevision, ruleSetId };
+    return { draftRevision, entityId, ruleSetId };
   },
-  returns: draftMutationResultValidator,
+  returns: createMfaResultValidator,
 });
 
 export const remove = mutation({

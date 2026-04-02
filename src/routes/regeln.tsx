@@ -1314,6 +1314,7 @@ function LogicView() {
                   });
                 }}
                 onDraftMutation={handleDraftMutation}
+                onRegisterHistoryAction={registerRegelnHistoryAction}
                 practiceId={currentPractice._id}
                 ruleSetId={currentWorkingRuleSet._id}
                 selectedDate={Temporal.PlainDate.from({
