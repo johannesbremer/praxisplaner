@@ -1250,6 +1250,13 @@ function formatGermanDate(dateString: string) {
     const date = Temporal.PlainDate.from(dateString);
     return `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`;
   } catch {
+    if (/^\d{8}$/.test(dateString)) {
+      const day = dateString.slice(0, 2);
+      const month = dateString.slice(2, 4);
+      const year = dateString.slice(4, 8);
+      return `${day}.${month}.${year}`;
+    }
+
     return dateString;
   }
 }
