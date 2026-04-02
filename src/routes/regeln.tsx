@@ -965,8 +965,25 @@ function LogicView() {
 
       {currentWorkingRuleSet &&
         unsavedRuleSet?._id === currentWorkingRuleSet._id && (
-          <div className="sticky top-0 z-40 mb-6 rounded-md border border-red-300 bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-sm">
-            Ungespeicherte Änderungen
+          <div className="sticky top-3 z-40 mb-6">
+            <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Ungespeicherte Änderungen
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Dieses Regelset enthält Änderungen, die noch nicht gespeichert
+                  wurden.
+                </div>
+              </div>
+              <Button
+                className="shrink-0"
+                onClick={handleOpenSaveDialog}
+                size="sm"
+              >
+                Speichern
+              </Button>
+            </div>
           </div>
         )}
 

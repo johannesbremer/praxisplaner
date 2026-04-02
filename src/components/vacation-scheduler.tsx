@@ -447,7 +447,7 @@ export function VacationScheduler({
         0,
       );
 
-      if (totalWorkMinutes > 7 * 60) {
+      if (totalWorkMinutes >= 7 * 60) {
         portions.push("morning", "afternoon");
       }
     }
