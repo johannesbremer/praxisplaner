@@ -153,24 +153,31 @@ export function VacationScheduler({
   const locations = useQuery(api.entities.getLocations, {
     ruleSetId,
   });
+  const scopedAppointments = useMemo(
+    () =>
+      (appointments ?? []).filter(
+        (appointment) => appointment.practiceId === practiceId,
+      ),
+    [appointments, practiceId],
+  );
   const appointmentPatientIds = useMemo(() => {
     const ids = new Set<Id<"patients">>();
-    for (const appointment of appointments ?? []) {
-      if (appointment.patientId) {
+    for (const appointment of scopedAppointments) {
+      if (appointment.patientId !== undefined) {
         ids.add(appointment.patientId);
       }
     }
     return [...ids];
-  }, [appointments]);
+  }, [scopedAppointments]);
   const appointmentUserIds = useMemo(() => {
     const ids = new Set<Id<"users">>();
-    for (const appointment of appointments ?? []) {
+    for (const appointment of scopedAppointments) {
       if (appointment.userId) {
         ids.add(appointment.userId);
       }
     }
     return [...ids];
-  }, [appointments]);
+  }, [scopedAppointments]);
   const patientDetails = useQuery(
     api.patients.getPatientSidebarDetailsByIds,
     appointmentPatientIds.length > 0
@@ -393,7 +400,7 @@ export function VacationScheduler({
       return [];
     }
 
-    return appointments
+    return scopedAppointments
       .filter(
         (appointment) =>
           appointment.practitionerId === staff.id &&
@@ -419,7 +426,9 @@ export function VacationScheduler({
         end: appointment.end,
         id: appointment._id,
         locationId: appointment.locationId,
-        ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
+        ...(appointment.patientId === undefined
+          ? {}
+          : { patientId: appointment.patientId }),
         start: appointment.start,
         title: appointment.title,
         ...(appointment.userId ? { userId: appointment.userId } : {}),
@@ -769,6 +778,23 @@ export function VacationScheduler({
     }
 
     if (disabledDay) {
+      if (displayedPortion) {
+        return (
+          <div className="flex min-h-12 items-center justify-center">
+            <Button
+              className="h-7 px-2 text-[10px]"
+              onClick={() => {
+                void openConflictDialogIfNeeded(staff, date, displayedPortion);
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              {PORTION_META[displayedPortion].short}
+            </Button>
+          </div>
+        );
+      }
+
       return (
         <div className="flex min-h-12 items-center justify-center text-xs text-muted-foreground">
           -

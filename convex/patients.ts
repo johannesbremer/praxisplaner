@@ -214,7 +214,7 @@ export const getPatientSidebarDetailsByIds = query({
         ...(patient.dateOfBirth ? { dateOfBirth: patient.dateOfBirth } : {}),
         ...(patient.firstName ? { firstName: patient.firstName } : {}),
         ...(patient.lastName ? { lastName: patient.lastName } : {}),
-        ...(patient.patientId ? { patientId: patient.patientId } : {}),
+        patientId: patient.patientId,
         ...(patient.street ? { street: patient.street } : {}),
       };
     }
