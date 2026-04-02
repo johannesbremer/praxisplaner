@@ -2232,7 +2232,7 @@ export function useCalendarLogic({
       ...breakSlots,
       ...manualBlockedSlots,
       ...vacationBlockedSlots,
-    ];
+    ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
 
     // Deduplicate by column and slot, prioritizing manual blocked slots
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
@@ -2250,7 +2250,13 @@ export function useCalendarLogic({
     }
 
     return [...uniqueSlots.values()];
-  }, [blockedSlots, breakSlots, manualBlockedSlots, vacationBlockedSlots]);
+  }, [
+    blockedSlots,
+    breakSlots,
+    manualBlockedSlots,
+    totalSlots,
+    vacationBlockedSlots,
+  ]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {
