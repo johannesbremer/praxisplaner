@@ -69,6 +69,40 @@ export function getPractitionerVacationRangesForDate(
     return workingRanges;
   }
 
+  const matchingSchedules = getMatchingSchedules(
+    date,
+    practitionerId,
+    schedules,
+    locationId,
+  );
+  const splitBreak = getPreferredSplitBreak(matchingSchedules);
+
+  if (splitBreak) {
+    const ranges: MinuteRange[] = [];
+
+    if (
+      practitionerVacations.some((vacation) => vacation.portion === "morning")
+    ) {
+      ranges.push(
+        ...sliceRangesByMinutes(workingRanges, 0, splitBreak.startMinutes),
+      );
+    }
+
+    if (
+      practitionerVacations.some((vacation) => vacation.portion === "afternoon")
+    ) {
+      ranges.push(
+        ...sliceRangesByMinutes(
+          workingRanges,
+          splitBreak.endMinutes,
+          Number.POSITIVE_INFINITY,
+        ),
+      );
+    }
+
+    return mergeRanges(ranges);
+  }
+
   const totalMinutes = workingRanges.reduce(
     (sum, range) => sum + (range.endMinutes - range.startMinutes),
     0,
@@ -104,18 +138,12 @@ export function getPractitionerWorkingRangesForDate(
   schedules: ScheduleLike[],
   locationId?: string,
 ): MinuteRange[] {
-  const matchingSchedules = schedules.filter((schedule) => {
-    if (schedule.practitionerId !== practitionerId) {
-      return false;
-    }
-    if (schedule.dayOfWeek !== getDayOfWeek(date)) {
-      return false;
-    }
-    if (locationId && schedule.locationId !== locationId) {
-      return false;
-    }
-    return true;
-  });
+  const matchingSchedules = getMatchingSchedules(
+    date,
+    practitionerId,
+    schedules,
+    locationId,
+  );
 
   const ranges = matchingSchedules.flatMap((schedule) => {
     const scheduleRange = {
@@ -147,6 +175,75 @@ export function minuteRangeContains(
 
 function getDayOfWeek(date: Temporal.PlainDate): number {
   return date.dayOfWeek === 7 ? 0 : date.dayOfWeek;
+}
+
+function getMatchingSchedules(
+  date: Temporal.PlainDate,
+  practitionerId: string,
+  schedules: ScheduleLike[],
+  locationId?: string,
+): ScheduleLike[] {
+  return schedules.filter((schedule) => {
+    if (schedule.practitionerId !== practitionerId) {
+      return false;
+    }
+    if (schedule.dayOfWeek !== getDayOfWeek(date)) {
+      return false;
+    }
+    if (locationId && schedule.locationId !== locationId) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function getPreferredSplitBreak(schedules: ScheduleLike[]): MinuteRange | null {
+  const scheduleRanges = schedules
+    .map((schedule) => ({
+      breaks: normalizeBreaks(schedule.breakTimes, {
+        endMinutes: plainTimeToMinutes(schedule.endTime),
+        startMinutes: plainTimeToMinutes(schedule.startTime),
+      }),
+      endMinutes: plainTimeToMinutes(schedule.endTime),
+      startMinutes: plainTimeToMinutes(schedule.startTime),
+    }))
+    .filter((schedule) => schedule.endMinutes > schedule.startMinutes);
+
+  const candidateBreaks = scheduleRanges.flatMap((schedule) => schedule.breaks);
+
+  if (candidateBreaks.length === 0) {
+    return null;
+  }
+
+  const dayStart = Math.min(
+    ...scheduleRanges.map((schedule) => schedule.startMinutes),
+  );
+  const dayEnd = Math.max(
+    ...scheduleRanges.map((schedule) => schedule.endMinutes),
+  );
+  const dayCenter = (dayStart + dayEnd) / 2;
+
+  const preferredBreak = candidateBreaks.toSorted((left, right) => {
+    const durationDiff =
+      right.endMinutes -
+      right.startMinutes -
+      (left.endMinutes - left.startMinutes);
+    if (durationDiff !== 0) {
+      return durationDiff;
+    }
+
+    const leftCenter = (left.startMinutes + left.endMinutes) / 2;
+    const rightCenter = (right.startMinutes + right.endMinutes) / 2;
+    const distanceDiff =
+      Math.abs(leftCenter - dayCenter) - Math.abs(rightCenter - dayCenter);
+    if (distanceDiff !== 0) {
+      return distanceDiff;
+    }
+
+    return left.startMinutes - right.startMinutes;
+  })[0];
+
+  return preferredBreak ?? null;
 }
 
 function mergeRanges(ranges: MinuteRange[]): MinuteRange[] {
@@ -230,6 +327,28 @@ function sliceRangesByDuration(
   }
 
   return result;
+}
+
+function sliceRangesByMinutes(
+  ranges: MinuteRange[],
+  startMinute: number,
+  endMinute: number,
+): MinuteRange[] {
+  return ranges.flatMap((range) => {
+    const overlapStart = Math.max(range.startMinutes, startMinute);
+    const overlapEnd = Math.min(range.endMinutes, endMinute);
+
+    if (overlapEnd <= overlapStart) {
+      return [];
+    }
+
+    return [
+      {
+        endMinutes: overlapEnd,
+        startMinutes: overlapStart,
+      },
+    ];
+  });
 }
 
 function subtractBreaks(

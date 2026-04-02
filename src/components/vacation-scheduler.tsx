@@ -29,7 +29,10 @@ import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
-import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
+import {
+  getPractitionerVacationRangesForDate,
+  getPractitionerWorkingRangesForDate,
+} from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   getPublicHolidayName,
@@ -427,6 +430,39 @@ export function VacationScheduler({
       .toSorted((left, right) => left.start.localeCompare(right.start));
   };
 
+  const getAvailablePortionsForDay = (
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+    currentPortion?: VacationPortion,
+  ): VacationPortion[] => {
+    const portions: VacationPortion[] = ["full"];
+
+    if (staff.kind === "practitioner" && baseSchedules) {
+      const totalWorkMinutes = getPractitionerWorkingRangesForDate(
+        date,
+        staff.id,
+        baseSchedules,
+      ).reduce(
+        (total, range) => total + (range.endMinutes - range.startMinutes),
+        0,
+      );
+
+      if (totalWorkMinutes > 7 * 60) {
+        portions.push("morning", "afternoon");
+      }
+    }
+
+    if (
+      currentPortion &&
+      currentPortion !== "full" &&
+      !portions.includes(currentPortion)
+    ) {
+      portions.push(currentPortion);
+    }
+
+    return portions;
+  };
+
   const clearVacationsForDay = async (
     staff: StaffRow,
     date: Temporal.PlainDate,
@@ -693,6 +729,13 @@ export function VacationScheduler({
         conflictDialog.portion,
       )
     : [];
+  const dialogPortionOptions: VacationPortion[] = conflictDialog
+    ? getAvailablePortionsForDay(
+        conflictDialog.staff,
+        conflictDialog.date,
+        conflictDialog.portion,
+      )
+    : ["full"];
 
   const renderCell = (staff: StaffRow, date: Temporal.PlainDate) => {
     const displayedPortion = getDisplayedPortionForCell(staff, date);
@@ -972,7 +1015,7 @@ export function VacationScheduler({
 
               {editable && (
                 <div className="flex items-center gap-2">
-                  {ORDERED_PORTIONS.map((portion) => (
+                  {dialogPortionOptions.map((portion) => (
                     <Button
                       key={portion}
                       onClick={() => {
