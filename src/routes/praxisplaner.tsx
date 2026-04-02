@@ -238,10 +238,6 @@ function PraxisPlanerComponent() {
 
   const handleDateChange = useCallback(
     (nextDate: Temporal.PlainDate) => {
-      if (activeTab !== CALENDAR_TAB) {
-        return;
-      }
-
       pushParams(nextDate, activeTab, standortParam);
     },
     [activeTab, standortParam, pushParams],
