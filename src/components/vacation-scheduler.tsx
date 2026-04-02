@@ -29,10 +29,7 @@ import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 
-import {
-  getPractitionerVacationRangesForDate,
-  getPractitionerWorkingRangesForDate,
-} from "../../lib/vacation-utils";
+import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   getPublicHolidayName,
@@ -438,16 +435,26 @@ export function VacationScheduler({
     const portions: VacationPortion[] = ["full"];
 
     if (staff.kind === "practitioner" && baseSchedules) {
-      const totalWorkMinutes = getPractitionerWorkingRangesForDate(
-        date,
-        staff.id,
-        baseSchedules,
-      ).reduce(
-        (total, range) => total + (range.endMinutes - range.startMinutes),
-        0,
-      );
+      let totalScheduledMinutes = 0;
+      for (const schedule of baseSchedules) {
+        if (
+          schedule.practitionerId !== staff.id ||
+          schedule.dayOfWeek !== (date.dayOfWeek === 7 ? 0 : date.dayOfWeek)
+        ) {
+          continue;
+        }
+        const [startHour = 0, startMinute = 0] = schedule.startTime
+          .split(":")
+          .map(Number);
+        const [endHour = 0, endMinute = 0] = schedule.endTime
+          .split(":")
+          .map(Number);
+        const startMinutes = startHour * 60 + startMinute;
+        const endMinutes = endHour * 60 + endMinute;
+        totalScheduledMinutes += Math.max(0, endMinutes - startMinutes);
+      }
 
-      if (totalWorkMinutes >= 7 * 60) {
+      if (totalScheduledMinutes >= 7 * 60) {
         portions.push("morning", "afternoon");
       }
     }
