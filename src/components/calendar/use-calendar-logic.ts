@@ -9,7 +9,10 @@ import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
-import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
+import {
+  getPractitionerAvailabilityRangesForDate,
+  getPractitionerVacationRangesForDate,
+} from "../../../lib/vacation-utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
@@ -1602,12 +1605,20 @@ export function useCalendarLogic({
       startTime: schedule.startTime,
     }));
 
-    const startTimes = validSchedules
-      .map((s) => timeToMinutes(s.startTime))
-      .filter((t): t is number => t !== null);
-    const endTimes = validSchedules
-      .map((s) => timeToMinutes(s.endTime))
-      .filter((t): t is number => t !== null);
+    const effectiveWorkingRanges = working.flatMap((practitioner) =>
+      getPractitionerAvailabilityRangesForDate(
+        selectedDate,
+        practitioner.id,
+        baseSchedulesData,
+        vacationsData ?? [],
+        simulatedContext?.locationId ?? selectedLocationId ?? undefined,
+      ),
+    );
+
+    const startTimes = effectiveWorkingRanges.map(
+      (range) => range.startMinutes,
+    );
+    const endTimes = effectiveWorkingRanges.map((range) => range.endMinutes);
 
     if (startTimes.length === 0 || endTimes.length === 0) {
       return {

@@ -28,6 +28,39 @@ export interface VacationLike {
 
 export type VacationPortion = "afternoon" | "full" | "morning";
 
+export function getPractitionerAvailabilityRangesForDate(
+  date: Temporal.PlainDate,
+  practitionerId: string,
+  schedules: ScheduleLike[],
+  vacations: VacationLike[],
+  locationId?: string,
+): MinuteRange[] {
+  const workingRanges = getPractitionerWorkingRangesForDate(
+    date,
+    practitionerId,
+    schedules,
+    locationId,
+  );
+
+  if (workingRanges.length === 0) {
+    return [];
+  }
+
+  const vacationRanges = getPractitionerVacationRangesForDate(
+    date,
+    practitionerId,
+    schedules,
+    vacations,
+    locationId,
+  );
+
+  if (vacationRanges.length === 0) {
+    return workingRanges;
+  }
+
+  return subtractRanges(workingRanges, vacationRanges);
+}
+
 export function getPractitionerVacationRangesForDate(
   date: Temporal.PlainDate,
   practitionerId: string,
@@ -376,4 +409,48 @@ function subtractBreaks(
   }
 
   return result;
+}
+
+function subtractRanges(
+  ranges: MinuteRange[],
+  blockedRanges: MinuteRange[],
+): MinuteRange[] {
+  if (ranges.length === 0 || blockedRanges.length === 0) {
+    return ranges;
+  }
+
+  let remaining = mergeRanges(ranges);
+  const mergedBlockedRanges = mergeRanges(blockedRanges);
+
+  for (const blockedRange of mergedBlockedRanges) {
+    const next: MinuteRange[] = [];
+
+    for (const range of remaining) {
+      if (
+        blockedRange.endMinutes <= range.startMinutes ||
+        blockedRange.startMinutes >= range.endMinutes
+      ) {
+        next.push(range);
+        continue;
+      }
+
+      if (blockedRange.startMinutes > range.startMinutes) {
+        next.push({
+          endMinutes: blockedRange.startMinutes,
+          startMinutes: range.startMinutes,
+        });
+      }
+
+      if (blockedRange.endMinutes < range.endMinutes) {
+        next.push({
+          endMinutes: range.endMinutes,
+          startMinutes: blockedRange.endMinutes,
+        });
+      }
+    }
+
+    remaining = next;
+  }
+
+  return remaining;
 }

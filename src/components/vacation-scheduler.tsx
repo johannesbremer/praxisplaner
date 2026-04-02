@@ -1115,16 +1115,6 @@ export function VacationScheduler({
                             E-Mail: {user.email}
                           </div>
                         )}
-                        {patient?.street && (
-                          <div className="text-sm text-muted-foreground">
-                            {patient.street}
-                          </div>
-                        )}
-                        {patient?.city && (
-                          <div className="text-sm text-muted-foreground">
-                            {patient.city}
-                          </div>
-                        )}
                         {patient?.patientId !== undefined && (
                           <Button
                             className="mt-2 w-full gap-1.5"
@@ -1258,11 +1248,7 @@ function endExclusiveMonth(date: Temporal.PlainDate): Temporal.PlainDate {
 function formatGermanDate(dateString: string) {
   try {
     const date = Temporal.PlainDate.from(dateString);
-    return date.toLocaleString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    return `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`;
   } catch {
     return dateString;
   }
