@@ -474,11 +474,10 @@ export function VacationScheduler({
     staff: StaffRow,
     date: Temporal.PlainDate,
   ) => {
-    let latestResult: DraftMutationResult | undefined;
     const activePortions = getActivePortionsForCell(staff, date);
 
     for (const activePortion of activePortions) {
-      latestResult = (await deleteVacation({
+      const result = (await deleteVacation({
         date: date.toString(),
         expectedDraftRevision: getExpectedDraftRevision(),
         ...(staff.kind === "mfa"
@@ -489,10 +488,7 @@ export function VacationScheduler({
         selectedRuleSetId: getSelectedRuleSetId(),
         staffType: staff.kind,
       })) as DraftMutationResult;
-    }
-
-    if (latestResult) {
-      handleDraftMutationResult(latestResult);
+      handleDraftMutationResult(result);
     }
   };
 

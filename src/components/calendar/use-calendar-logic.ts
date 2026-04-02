@@ -1604,6 +1604,8 @@ export function useCalendarLogic({
       name: practitionerMap.get(schedule.practitionerId) ?? "Unbekannt",
       startTime: schedule.startTime,
     }));
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
 
     const effectiveWorkingRanges = working.flatMap((practitioner) =>
       getPractitionerAvailabilityRangesForDate(
@@ -1611,14 +1613,52 @@ export function useCalendarLogic({
         practitioner.id,
         baseSchedulesData,
         vacationsData ?? [],
-        simulatedContext?.locationId ?? selectedLocationId ?? undefined,
+        effectiveLocationId,
       ),
     );
-
-    const startTimes = effectiveWorkingRanges.map(
-      (range) => range.startMinutes,
+    const practitionerIds = new Set(
+      working.map((practitioner) => practitioner.id),
     );
-    const endTimes = effectiveWorkingRanges.map((range) => range.endMinutes);
+    const appointmentRanges = (appointmentsData ?? []).flatMap(
+      (appointment) => {
+        if (
+          appointment.practitionerId === undefined ||
+          !practitionerIds.has(appointment.practitionerId)
+        ) {
+          return [];
+        }
+
+        if (
+          Temporal.PlainDate.compare(
+            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+            selectedDate,
+          ) !== 0
+        ) {
+          return [];
+        }
+
+        if (
+          effectiveLocationId !== undefined &&
+          appointment.locationId !== effectiveLocationId
+        ) {
+          return [];
+        }
+
+        const start = Temporal.ZonedDateTime.from(appointment.start);
+        const end = Temporal.ZonedDateTime.from(appointment.end);
+
+        return [
+          {
+            endMinutes: end.hour * 60 + end.minute,
+            startMinutes: start.hour * 60 + start.minute,
+          },
+        ];
+      },
+    );
+    const visibleRanges = [...effectiveWorkingRanges, ...appointmentRanges];
+
+    const startTimes = visibleRanges.map((range) => range.startMinutes);
+    const endTimes = visibleRanges.map((range) => range.endMinutes);
 
     if (startTimes.length === 0 || endTimes.length === 0) {
       return {

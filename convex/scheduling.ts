@@ -8,6 +8,7 @@ import type { AppointmentContext } from "./ruleEngine";
 import {
   getPractitionerVacationRangesForDate,
   getPractitionerWorkingRangesForDate,
+  type MinuteRange,
   minuteRangeContains,
 } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
@@ -63,6 +64,38 @@ const schedulingResultSlotValidator = v.object({
   status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
 });
 
+function formatDateForIndex(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCachedVacationRangesForPractitionerLocation(
+  cache: Map<string, MinuteRange[]>,
+  date: Temporal.PlainDate,
+  practitionerId: Id<"practitioners">,
+  schedules: Doc<"baseSchedules">[],
+  vacations: Doc<"vacations">[],
+  locationId?: Id<"locations">,
+): MinuteRange[] {
+  const key = `${practitionerId}:${locationId ?? "all"}`;
+  const cached = cache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const ranges = getPractitionerVacationRangesForDate(
+    date,
+    practitionerId,
+    schedules,
+    vacations,
+    locationId,
+  );
+  cache.set(key, ranges);
+  return ranges;
+}
+
 function getNowAsZonedString(): string {
   return Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString();
 }
@@ -100,7 +133,12 @@ export const getAvailableDates = query({
         .collect(),
       ctx.db
         .query("vacations")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .withIndex("by_ruleSetId_date", (q) =>
+          q
+            .eq("ruleSetId", ruleSetId)
+            .gte("date", formatDateForIndex(new Date(args.dateRange.start)))
+            .lte("date", formatDateForIndex(new Date(args.dateRange.end))),
+        )
         .collect(),
     ]);
 
@@ -277,6 +315,7 @@ async function getSlotsForDayImpl(
   const practitionerVacationsForDay = vacationsForDay.filter(
     (vacation) => vacation.staffType === "practitioner",
   );
+  const vacationRangesByPractitionerLocation = new Map<string, MinuteRange[]>();
 
   // Fetch relevant practitioners scoped to the active rule set.
   const ruleSetPractitioners = await ctx.db
@@ -345,9 +384,10 @@ async function getSlotsForDayImpl(
   for (const slot of candidateSlots) {
     const slotStart = Temporal.ZonedDateTime.from(slot.startTime);
     const slotMinute = slotStart.hour * 60 + slotStart.minute;
-    const vacationRanges = getPractitionerVacationRangesForDate(
+    const vacationRanges = getCachedVacationRangesForPractitionerLocation(
+      vacationRangesByPractitionerLocation,
       targetPlainDate,
-      slot.practitionerId,
+      slot.practitionerId as Id<"practitioners">,
       ruleSetBaseSchedules,
       practitionerVacationsForDay,
       slot.locationId as Id<"locations"> | undefined,
