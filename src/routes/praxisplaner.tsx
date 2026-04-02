@@ -4,7 +4,7 @@ import { useConvexMutation } from "@convex-dev/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import { Calendar as CalendarIcon, Settings } from "lucide-react";
+import { Calendar as CalendarIcon, Palmtree, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
@@ -35,6 +35,7 @@ import type {
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { PraxisCalendar } from "../components/praxis-calendar";
+import { VacationScheduler } from "../components/vacation-scheduler";
 import {
   isDOMException,
   isFileSystemObserverSupported,
@@ -52,13 +53,19 @@ import {
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
   type PraxisplanerSearchParams,
+  VACATION_TAB_SEARCH_VALUE,
 } from "../utils/praxisplaner-search";
 
 const CALENDAR_TAB = "calendar" as const;
 const SETTINGS_TAB = "settings" as const;
+const VACATION_TAB = "vacation" as const;
 
 const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
-  tab === NERDS_TAB_SEARCH_VALUE ? SETTINGS_TAB : CALENDAR_TAB;
+  tab === NERDS_TAB_SEARCH_VALUE
+    ? SETTINGS_TAB
+    : tab === VACATION_TAB_SEARCH_VALUE
+      ? VACATION_TAB
+      : CALENDAR_TAB;
 
 const buildSearchFromState = (
   date: Temporal.PlainDate,
@@ -67,6 +74,17 @@ const buildSearchFromState = (
 ): PraxisplanerSearchParams => {
   if (tab === SETTINGS_TAB) {
     return { tab: NERDS_TAB_SEARCH_VALUE };
+  }
+
+  if (tab === VACATION_TAB) {
+    const dateOut = isToday(date) ? undefined : formatDateDE(date);
+    const result: PraxisplanerSearchParams = {
+      tab: VACATION_TAB_SEARCH_VALUE,
+    };
+    if (dateOut) {
+      result.datum = dateOut;
+    }
+    return result;
   }
 
   const dateOut = isToday(date) ? undefined : formatDateDE(date);
@@ -220,10 +238,6 @@ function PraxisPlanerComponent() {
 
   const handleDateChange = useCallback(
     (nextDate: Temporal.PlainDate) => {
-      if (activeTab !== CALENDAR_TAB) {
-        return;
-      }
-
       pushParams(nextDate, activeTab, standortParam);
     },
     [activeTab, standortParam, pushParams],
@@ -1141,6 +1155,13 @@ function PraxisPlanerComponent() {
               <Settings className="h-4 w-4" />
               Für Nerds
             </TabsTrigger>
+            <TabsTrigger
+              className="flex items-center gap-2"
+              value={VACATION_TAB}
+            >
+              <Palmtree className="h-4 w-4" />
+              Urlaub
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -1168,6 +1189,25 @@ function PraxisPlanerComponent() {
 
           <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>
             {settingsContent}
+          </TabsContent>
+
+          <TabsContent
+            className="h-full overflow-auto p-6"
+            value={VACATION_TAB}
+          >
+            {currentPractice && activeRuleSet ? (
+              <VacationScheduler
+                editable={false}
+                onDateChange={handleDateChange}
+                practiceId={currentPractice._id}
+                ruleSetId={activeRuleSet._id}
+                selectedDate={selectedDate}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                Urlaubsdaten werden geladen.
+              </div>
+            )}
           </TabsContent>
         </div>
       </Tabs>

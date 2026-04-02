@@ -9,6 +9,10 @@ import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
+import {
+  getPractitionerAvailabilityRangesForDate,
+  getPractitionerVacationRangesForDate,
+} from "../../../lib/vacation-utils";
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
@@ -222,6 +226,16 @@ export function useCalendarLogic({
   const blockedSlotsData = useQuery(
     api.appointments.getBlockedSlots,
     blockedSlotsQueryArgs,
+  );
+  const vacationsData = useQuery(
+    api.vacations.getVacationsInRange,
+    practiceId && ruleSetId
+      ? {
+          endDateExclusive: selectedDate.add({ days: 1 }).toString(),
+          ruleSetId,
+          startDate: selectedDate.toString(),
+        }
+      : "skip",
   );
 
   const appointmentDocMap = useMemo(() => {
@@ -1512,7 +1526,7 @@ export function useCalendarLogic({
     }
 
     // Validate and filter schedules with invalid times
-    const validSchedules = daySchedules.filter((schedule) => {
+    let validSchedules = daySchedules.filter((schedule) => {
       const startMinutes = timeToMinutes(schedule.startTime);
       const endMinutes = timeToMinutes(schedule.endTime);
 
@@ -1527,6 +1541,56 @@ export function useCalendarLogic({
       return true;
     });
 
+    const mutedPractitionerIds = new Set<Id<"practitioners">>();
+
+    if (vacationsData) {
+      const practitionersWithAppointments = new Set(
+        (appointmentsData ?? [])
+          .filter(
+            (appointment) =>
+              Temporal.PlainDate.compare(
+                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+                selectedDate,
+              ) === 0,
+          )
+          .map((appointment) => appointment.practitionerId)
+          .filter(Boolean),
+      );
+
+      const hiddenPractitionerIds = new Set(
+        vacationsData
+          .filter(
+            (vacation) =>
+              vacation.staffType === "practitioner" &&
+              vacation.date === selectedDate.toString() &&
+              vacation.portion === "full" &&
+              vacation.practitionerId &&
+              !practitionersWithAppointments.has(vacation.practitionerId),
+          )
+          .flatMap((vacation) =>
+            vacation.practitionerId ? [vacation.practitionerId] : [],
+          ),
+      );
+
+      for (const vacation of vacationsData) {
+        if (
+          vacation.staffType === "practitioner" &&
+          vacation.date === selectedDate.toString() &&
+          vacation.portion === "full" &&
+          vacation.practitionerId &&
+          practitionersWithAppointments.has(vacation.practitionerId)
+        ) {
+          mutedPractitionerIds.add(vacation.practitionerId);
+        }
+      }
+
+      if (hiddenPractitionerIds.size > 0) {
+        validSchedules = validSchedules.filter(
+          (schedule) => !hiddenPractitionerIds.has(schedule.practitionerId),
+        );
+      }
+    }
+
     if (validSchedules.length < daySchedules.length) {
       const invalidCount = daySchedules.length - validSchedules.length;
       toast.warning(
@@ -1540,13 +1604,61 @@ export function useCalendarLogic({
       name: practitionerMap.get(schedule.practitionerId) ?? "Unbekannt",
       startTime: schedule.startTime,
     }));
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
 
-    const startTimes = validSchedules
-      .map((s) => timeToMinutes(s.startTime))
-      .filter((t): t is number => t !== null);
-    const endTimes = validSchedules
-      .map((s) => timeToMinutes(s.endTime))
-      .filter((t): t is number => t !== null);
+    const effectiveWorkingRanges = working.flatMap((practitioner) =>
+      getPractitionerAvailabilityRangesForDate(
+        selectedDate,
+        practitioner.id,
+        baseSchedulesData,
+        vacationsData ?? [],
+        effectiveLocationId,
+      ),
+    );
+    const practitionerIds = new Set(
+      working.map((practitioner) => practitioner.id),
+    );
+    const appointmentRanges = (appointmentsData ?? []).flatMap(
+      (appointment) => {
+        if (
+          appointment.practitionerId === undefined ||
+          !practitionerIds.has(appointment.practitionerId)
+        ) {
+          return [];
+        }
+
+        if (
+          Temporal.PlainDate.compare(
+            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+            selectedDate,
+          ) !== 0
+        ) {
+          return [];
+        }
+
+        if (
+          effectiveLocationId !== undefined &&
+          appointment.locationId !== effectiveLocationId
+        ) {
+          return [];
+        }
+
+        const start = Temporal.ZonedDateTime.from(appointment.start);
+        const end = Temporal.ZonedDateTime.from(appointment.end);
+
+        return [
+          {
+            endMinutes: end.hour * 60 + end.minute,
+            startMinutes: start.hour * 60 + start.minute,
+          },
+        ];
+      },
+    );
+    const visibleRanges = [...effectiveWorkingRanges, ...appointmentRanges];
+
+    const startTimes = visibleRanges.map((range) => range.startMinutes);
+    const endTimes = visibleRanges.map((range) => range.endMinutes);
 
     if (startTimes.length === 0 || endTimes.length === 0) {
       return {
@@ -1567,6 +1679,7 @@ export function useCalendarLogic({
 
     const practitionerColumns = working.map((practitioner) => ({
       id: practitioner.id,
+      isMuted: mutedPractitionerIds.has(practitioner.id),
       title: practitioner.name,
     }));
 
@@ -1591,9 +1704,12 @@ export function useCalendarLogic({
     practitionersData,
     baseSchedulesData,
     currentDayOfWeek,
+    appointmentsData,
     simulatedContext,
     selectedLocationId,
+    selectedDate,
     timeToMinutes,
+    vacationsData,
   ]);
 
   // Filter appointments by date
@@ -2069,9 +2185,94 @@ export function useCalendarLogic({
     return manual;
   }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
 
+  const vacationBlockedSlots = useMemo(() => {
+    if (
+      !baseSchedulesData ||
+      !vacationsData ||
+      workingPractitioners.length === 0
+    ) {
+      return [];
+    }
+
+    const blocked: {
+      column: string;
+      reason?: string;
+      slot: number;
+    }[] = [];
+
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId;
+
+    for (const practitioner of workingPractitioners) {
+      const hasOnlyConflictFreeFullDayVacation =
+        !(
+          appointmentsData?.some(
+            (appointment) =>
+              appointment.practitionerId === practitioner.id &&
+              Temporal.PlainDate.compare(
+                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+                selectedDate,
+              ) === 0,
+          ) ?? false
+        ) &&
+        vacationsData.some(
+          (vacation) =>
+            vacation.staffType === "practitioner" &&
+            vacation.practitionerId === practitioner.id &&
+            vacation.date === selectedDate.toString() &&
+            vacation.portion === "full",
+        );
+
+      if (hasOnlyConflictFreeFullDayVacation) {
+        continue;
+      }
+
+      const ranges = getPractitionerVacationRangesForDate(
+        selectedDate,
+        practitioner.id,
+        baseSchedulesData,
+        vacationsData,
+        effectiveLocationId,
+      );
+
+      for (const range of ranges) {
+        const startSlot = Math.floor(
+          (range.startMinutes - businessStartHour * 60) / SLOT_DURATION,
+        );
+        const endSlot = Math.ceil(
+          (range.endMinutes - businessStartHour * 60) / SLOT_DURATION,
+        );
+
+        for (let slot = Math.max(0, startSlot); slot < endSlot; slot++) {
+          blocked.push({
+            column: practitioner.id,
+            reason: "Urlaub",
+            slot,
+          });
+        }
+      }
+    }
+
+    return blocked;
+  }, [
+    baseSchedulesData,
+    businessStartHour,
+    appointmentsData,
+    selectedDate,
+    selectedLocationId,
+    simulatedContext,
+    vacationsData,
+    workingPractitioners,
+  ]);
+
   // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
   const allBlockedSlots = useMemo(() => {
-    const combined = [...blockedSlots, ...breakSlots, ...manualBlockedSlots];
+    const combined = [
+      ...blockedSlots,
+      ...breakSlots,
+      ...manualBlockedSlots,
+      ...vacationBlockedSlots,
+    ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
 
     // Deduplicate by column and slot, prioritizing manual blocked slots
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
@@ -2089,7 +2290,13 @@ export function useCalendarLogic({
     }
 
     return [...uniqueSlots.values()];
-  }, [blockedSlots, breakSlots, manualBlockedSlots]);
+  }, [
+    blockedSlots,
+    breakSlots,
+    manualBlockedSlots,
+    totalSlots,
+    vacationBlockedSlots,
+  ]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {

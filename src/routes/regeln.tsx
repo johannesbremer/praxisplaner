@@ -56,6 +56,7 @@ import { MedicalStaffDisplay } from "../components/medical-staff-display";
 import { PatientBookingFlow } from "../components/patient-booking-flow";
 import PractitionerManagement from "../components/practitioner-management";
 import { RuleBuilder } from "../components/rule-builder";
+import { VacationScheduler } from "../components/vacation-scheduler";
 import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../hooks/use-local-history";
@@ -80,7 +81,11 @@ export const Route = createFileRoute("/regeln")({
 
     const result: RegelnSearchParams = {};
 
-    if (params["tab"] === "mitarbeiter" || params["tab"] === "debug") {
+    if (
+      params["tab"] === "mitarbeiter" ||
+      params["tab"] === "debug" ||
+      params["tab"] === "urlaub"
+    ) {
       result.tab = params["tab"] as RegelnTabParam;
     }
 
@@ -958,6 +963,30 @@ function LogicView() {
         </h1>
       </div>
 
+      {currentWorkingRuleSet &&
+        unsavedRuleSet?._id === currentWorkingRuleSet._id && (
+          <div className="sticky top-3 z-40 mb-6">
+            <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Ungespeicherte Änderungen
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Dieses Regelset enthält Änderungen, die noch nicht gespeichert
+                  wurden.
+                </div>
+              </div>
+              <Button
+                className="shrink-0"
+                onClick={handleOpenSaveDialog}
+                size="sm"
+              >
+                Speichern
+              </Button>
+            </div>
+          </div>
+        )}
+
       {/* Page-level Tabs */}
       <ClientOnly fallback={<div />}>
         <Tabs
@@ -967,11 +996,12 @@ function LogicView() {
           }}
           value={activeTab}
         >
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="rule-management">
               Regelverwaltung + Patientensicht
             </TabsTrigger>
             <TabsTrigger value="staff-view">Praxismitarbeiter</TabsTrigger>
+            <TabsTrigger value="vacation-scheduler">Urlaub</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Rule Management + Patient View */}
@@ -1288,6 +1318,29 @@ function LogicView() {
                 />
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="vacation-scheduler">
+            {currentWorkingRuleSet && (
+              <VacationScheduler
+                editable
+                expectedDraftRevision={expectedDraftRevision}
+                onDateChange={(date) => {
+                  pushUrl({
+                    date: new Date(date.year, date.month - 1, date.day),
+                  });
+                }}
+                onDraftMutation={handleDraftMutation}
+                onRegisterHistoryAction={registerRegelnHistoryAction}
+                practiceId={currentPractice._id}
+                ruleSetId={currentWorkingRuleSet._id}
+                selectedDate={Temporal.PlainDate.from({
+                  day: selectedDate.getDate(),
+                  month: selectedDate.getMonth() + 1,
+                  year: selectedDate.getFullYear(),
+                })}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </ClientOnly>

@@ -5,6 +5,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import type { AppointmentContext } from "./ruleEngine";
 
+import {
+  getPractitionerVacationRangesForDate,
+  getPractitionerWorkingRangesForDate,
+  type MinuteRange,
+  minuteRangeContains,
+} from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { internalQuery, query } from "./_generated/server";
 import {
@@ -58,6 +64,38 @@ const schedulingResultSlotValidator = v.object({
   status: v.union(v.literal("AVAILABLE"), v.literal("BLOCKED")),
 });
 
+function formatDateForIndex(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCachedVacationRangesForPractitionerLocation(
+  cache: Map<string, MinuteRange[]>,
+  date: Temporal.PlainDate,
+  practitionerId: Id<"practitioners">,
+  schedules: Doc<"baseSchedules">[],
+  vacations: Doc<"vacations">[],
+  locationId?: Id<"locations">,
+): MinuteRange[] {
+  const key = `${practitionerId}:${locationId ?? "all"}`;
+  const cached = cache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const ranges = getPractitionerVacationRangesForDate(
+    date,
+    practitionerId,
+    schedules,
+    vacations,
+    locationId,
+  );
+  cache.set(key, ranges);
+  return ranges;
+}
+
 function getNowAsZonedString(): string {
   return Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString();
 }
@@ -77,44 +115,77 @@ export const getAvailableDates = query({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const availableDates = new Set<string>();
+    const practice = await ctx.db.get("practices", args.practiceId);
+    const ruleSetId = practice?.currentActiveRuleSetId;
 
-    // Fetch practitioners for this practice
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
+    if (!ruleSetId) {
+      return { dates: [] };
+    }
+
+    const [practitioners, baseSchedules, vacations] = await Promise.all([
+      ctx.db
+        .query("practitioners")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      ctx.db
+        .query("vacations")
+        .withIndex("by_ruleSetId_date", (q) =>
+          q
+            .eq("ruleSetId", ruleSetId)
+            .gte("date", formatDateForIndex(new Date(args.dateRange.start)))
+            .lte("date", formatDateForIndex(new Date(args.dateRange.end))),
+        )
+        .collect(),
+    ]);
 
     const startDate = new Date(args.dateRange.start);
     const endDate = new Date(args.dateRange.end);
 
     for (const practitioner of practitioners) {
-      // Get base schedules for this practitioner
-      const schedules = await ctx.db
-        .query("baseSchedules")
-        .withIndex("by_practitionerId", (q) =>
-          q.eq("practitionerId", practitioner._id),
-        )
-        .collect();
-
-      // Filter in code for location (more efficient than .filter())
-      const filteredSchedules = args.simulatedContext.locationId
-        ? schedules.filter(
-            (s) => s.locationId === args.simulatedContext.locationId,
-          )
-        : schedules;
-
       // Check each day in the range
       for (
         let currentDate = new Date(startDate);
         currentDate <= endDate;
         currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000)
       ) {
-        const dayOfWeek = currentDate.getDay();
-        const hasSchedule = filteredSchedules.some(
-          (s) => s.dayOfWeek === dayOfWeek,
+        const plainDate = Temporal.PlainDate.from({
+          day: currentDate.getUTCDate(),
+          month: currentDate.getUTCMonth() + 1,
+          year: currentDate.getUTCFullYear(),
+        });
+        const workingRanges = getPractitionerWorkingRangesForDate(
+          plainDate,
+          practitioner._id,
+          baseSchedules,
+          args.simulatedContext.locationId,
+        );
+        if (workingRanges.length === 0) {
+          continue;
+        }
+
+        const vacationRanges = getPractitionerVacationRangesForDate(
+          plainDate,
+          practitioner._id,
+          baseSchedules,
+          vacations,
+          args.simulatedContext.locationId,
         );
 
-        if (hasSchedule) {
+        const hasAvailableMinutes = workingRanges.some(
+          (range) =>
+            range.startMinutes < range.endMinutes &&
+            !vacationRanges.some(
+              (vacationRange) =>
+                vacationRange.startMinutes <= range.startMinutes &&
+                vacationRange.endMinutes >= range.endMinutes,
+            ),
+        );
+
+        if (hasAvailableMinutes) {
           // Format as YYYY-MM-DD
           const year = currentDate.getUTCFullYear();
           const month = String(currentDate.getUTCMonth() + 1).padStart(2, "0");
@@ -235,6 +306,17 @@ async function getSlotsForDayImpl(
   }
   log.push(`Using rule set: ${ruleSetId}`);
 
+  const vacationsForDay = await ctx.db
+    .query("vacations")
+    .withIndex("by_ruleSetId_date", (q) =>
+      q.eq("ruleSetId", ruleSetId).eq("date", targetPlainDate.toString()),
+    )
+    .collect();
+  const practitionerVacationsForDay = vacationsForDay.filter(
+    (vacation) => vacation.staffType === "practitioner",
+  );
+  const vacationRangesByPractitionerLocation = new Map<string, MinuteRange[]>();
+
   // Fetch relevant practitioners scoped to the active rule set.
   const ruleSetPractitioners = await ctx.db
     .query("practitioners")
@@ -247,10 +329,16 @@ async function getSlotsForDayImpl(
   log.push(`Found ${practitioners.length} practitioners`);
 
   // Fetch available locations scoped to the active rule set.
-  const ruleSetLocations = await ctx.db
-    .query("locations")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .collect();
+  const [ruleSetLocations, ruleSetBaseSchedules] = await Promise.all([
+    ctx.db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+  ]);
   const locations = ruleSetLocations.filter(
     (location) => location.practiceId === args.practiceId,
   );
@@ -293,8 +381,31 @@ async function getSlotsForDayImpl(
 
   log.push(`Generated ${candidateSlots.length} candidate slots`);
 
+  for (const slot of candidateSlots) {
+    const slotStart = Temporal.ZonedDateTime.from(slot.startTime);
+    const slotMinute = slotStart.hour * 60 + slotStart.minute;
+    const vacationRanges = getCachedVacationRangesForPractitionerLocation(
+      vacationRangesByPractitionerLocation,
+      targetPlainDate,
+      slot.practitionerId as Id<"practitioners">,
+      ruleSetBaseSchedules,
+      practitionerVacationsForDay,
+      slot.locationId as Id<"locations"> | undefined,
+    );
+
+    if (minuteRangeContains(vacationRanges, slotMinute)) {
+      slot.reason = "Urlaub";
+      slot.status = "BLOCKED";
+    }
+  }
+
+  log.push("Marked slots blocked by vacations");
+
   // Mark manually blocked slots
   for (const slot of candidateSlots) {
+    if (slot.status === "BLOCKED") {
+      continue;
+    }
     // Check if this slot overlaps with any blocked slot
     const blockingSlot = blockedSlotsForDay.find((blockedSlot) =>
       slotOverlapsBlockedSlot(slot, blockedSlot),
@@ -474,6 +585,7 @@ async function getSlotsForDayImpl(
       duration: slot.duration,
       practitionerId: slot.practitionerId as Id<"practitioners">,
       practitionerName: slot.practitionerName ?? "Unknown Practitioner",
+      ...(slot.reason && { reason: slot.reason }),
       startTime: slot.startTime,
       status: slot.status,
     };
@@ -537,6 +649,9 @@ async function getSlotsForDayImpl(
   // Apply reasons to blocked slots using cached descriptions
   for (const slot of finalSlots) {
     if (slot.status === "BLOCKED") {
+      if (slot.reason) {
+        continue;
+      }
       if (slot.blockedByBlockedSlotId) {
         // Handle manual blocked slots
         const blockedSlot = blockedSlotsForDay.find(

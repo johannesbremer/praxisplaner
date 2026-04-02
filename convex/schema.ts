@@ -891,6 +891,21 @@ export default defineSchema({
     .index("by_lineageKey", ["lineageKey"])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
+  mfas: defineTable({
+    createdAt: v.int64(),
+    lineageKey: v.optional(v.id("mfas")),
+    name: v.string(),
+    parentId: v.optional(v.id("mfas")),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_name", ["ruleSetId", "name"])
+    .index("by_parentId", ["parentId"])
+    .index("by_lineageKey", ["lineageKey"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
+
   patients: defineTable({
     // Patient identification fields (from GDT file)
     city: v.optional(v.string()), // FK 3106 - City
@@ -910,10 +925,30 @@ export default defineSchema({
     .index("by_lastModified", ["lastModified"])
     .index("by_createdAt", ["createdAt"])
     .index("by_practiceId", ["practiceId"]),
+
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
+  vacations: defineTable({
+    createdAt: v.int64(),
+    date: v.string(), // YYYY-MM-DD
+    mfaId: v.optional(v.id("mfas")),
+    portion: v.union(
+      v.literal("full"),
+      v.literal("morning"),
+      v.literal("afternoon"),
+    ),
+    practiceId: v.id("practices"),
+    practitionerId: v.optional(v.id("practitioners")),
+    ruleSetId: v.id("ruleSets"),
+    staffType: v.union(v.literal("mfa"), v.literal("practitioner")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_date", ["ruleSetId", "date"])
+    .index("by_ruleSetId_practitionerId", ["ruleSetId", "practitionerId"])
+    .index("by_ruleSetId_mfaId", ["ruleSetId", "mfaId"]),
 
   /**
    * Practice membership and role assignments.

@@ -20,6 +20,7 @@ import type * as gdt_processing from "../gdt/processing.js";
 import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
 import type * as http from "../http.js";
+import type * as mfas from "../mfas.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practices from "../practices.js";
@@ -32,6 +33,7 @@ import type * as schedulingCore from "../schedulingCore.js";
 import type * as tests_test_utils from "../tests/test_utils.js";
 import type * as userIdentity from "../userIdentity.js";
 import type * as users from "../users.js";
+import type * as vacations from "../vacations.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -53,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   "gdt/types": typeof gdt_types;
   "gdt/validation": typeof gdt_validation;
   http: typeof http;
+  mfas: typeof mfas;
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
   practices: typeof practices;
@@ -65,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   "tests/test_utils": typeof tests_test_utils;
   userIdentity: typeof userIdentity;
   users: typeof users;
+  vacations: typeof vacations;
   validators: typeof validators;
 }>;
 

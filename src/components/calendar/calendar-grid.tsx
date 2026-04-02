@@ -24,7 +24,7 @@ interface BlockedSlot {
 interface CalendarGridProps {
   appointments: Appointment[];
   blockedSlots?: BlockedSlot[];
-  columns: { id: string; title: string }[];
+  columns: { id: string; isMuted?: boolean; title: string }[];
   currentTimeSlot: number;
   draggedAppointment: Appointment | null;
   draggedBlockedSlotId?: null | string;
@@ -321,12 +321,17 @@ export function CalendarGrid({
 
       {/* Calendar columns */}
       {columns.map((column) => (
-        <div className="border-r border-border last:border-r-0" key={column.id}>
-          <div className="h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-30">
+        <div
+          className={`border-r border-border last:border-r-0 ${column.isMuted ? "bg-muted/40" : ""}`}
+          key={column.id}
+        >
+          <div
+            className={`h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-30 ${column.isMuted ? "bg-muted/90 text-muted-foreground" : ""}`}
+          >
             <span className="font-medium">{column.title}</span>
           </div>
           <div
-            className="relative min-h-full"
+            className={`relative min-h-full ${column.isMuted ? "opacity-60 grayscale-[0.35]" : ""}`}
             onDragLeave={() => {
               if (dragPreview.column === column.id) {
                 // User left this column while dragging

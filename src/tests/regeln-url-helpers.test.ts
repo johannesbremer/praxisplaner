@@ -43,4 +43,14 @@ describe("Regeln search helpers", () => {
       patientType: NEW_PATIENT_SEGMENT,
     });
   });
+
+  it("includes the vacation tab param when present", () => {
+    const search = buildRegelnSearchFromState({
+      tabParam: "urlaub",
+    });
+
+    expect(search).toEqual({
+      tab: "urlaub",
+    });
+  });
 });
