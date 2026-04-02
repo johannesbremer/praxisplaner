@@ -823,10 +823,12 @@ export function VacationScheduler({
       <CardHeader className="gap-4">
         <div className="flex items-center justify-between gap-2">
           <Button
+            aria-label="Vorheriger Monat"
             onClick={() => {
               navigateMonth(-1);
             }}
             size="icon"
+            title="Vorheriger Monat"
             variant="outline"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -838,10 +840,12 @@ export function VacationScheduler({
             })}
           </div>
           <Button
+            aria-label="Nächster Monat"
             onClick={() => {
               navigateMonth(1);
             }}
             size="icon"
+            title="Nächster Monat"
             variant="outline"
           >
             <ChevronRight className="h-4 w-4" />
@@ -913,10 +917,12 @@ export function VacationScheduler({
                           </div>
                           {staff.kind === "mfa" && editable && (
                             <Button
+                              aria-label="MFA entfernen"
                               onClick={() => {
                                 void handleRemoveMfa(staff.id as Id<"mfas">);
                               }}
                               size="icon"
+                              title="MFA entfernen"
                               variant="ghost"
                             >
                               <Trash2 className="h-4 w-4" />
