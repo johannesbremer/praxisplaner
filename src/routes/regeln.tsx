@@ -416,6 +416,43 @@ function LogicView() {
       );
     }
   });
+  const discardEquivalentUnsavedRuleSetMutation = useMutation(
+    api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+  ).withOptimisticUpdate((localStore, args) => {
+    const queryArgs = { practiceId: args.practiceId };
+
+    const allRuleSets = localStore.getQuery(
+      api.ruleSets.getAllRuleSets,
+      queryArgs,
+    );
+    if (allRuleSets !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getAllRuleSets,
+        queryArgs,
+        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
+      );
+    }
+
+    const unsavedRuleSet = localStore.getQuery(
+      api.ruleSets.getUnsavedRuleSet,
+      queryArgs,
+    );
+    if (unsavedRuleSet?._id === args.ruleSetId) {
+      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
+    }
+
+    const versionHistory = localStore.getQuery(
+      api.ruleSets.getVersionHistory,
+      queryArgs,
+    );
+    if (versionHistory !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getVersionHistory,
+        queryArgs,
+        versionHistory.filter((version) => version.id !== args.ruleSetId),
+      );
+    }
+  });
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -624,6 +661,11 @@ function LogicView() {
     activeTab === "rule-management" || activeTab === "vacation-scheduler";
 
   const runRegelnUndo = useCallback(async () => {
+    if (!currentPractice) {
+      toast.info("Keine rückgängig machbare Änderung vorhanden.");
+      return;
+    }
+
     const optimisticallySelectedParentRuleSetId =
       isRegelnHistoryTab &&
       undoRegelnHistoryDepth === 1 &&
@@ -655,8 +697,46 @@ function LogicView() {
         isRegelnHistoryTab &&
         unsavedRuleSet?.parentVersion
       ) {
-        setIsDraftEquivalentToParent(true);
-        pushUrl({ ruleSetId: unsavedRuleSet.parentVersion });
+        const draftToDiscard = unsavedRuleSet;
+        const parentRuleSetId = unsavedRuleSet.parentVersion;
+        discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
+        setUnsavedRuleSetId(null);
+        setIsDraftEquivalentToParent(false);
+        setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
+        pushUrl({ ruleSetId: parentRuleSetId });
+
+        try {
+          const discardResult = await discardEquivalentUnsavedRuleSetMutation({
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDiscard._id,
+          });
+
+          if (!discardResult.deleted) {
+            discardingUnsavedRuleSetIdRef.current = null;
+            setUnsavedRuleSetId(draftToDiscard._id);
+            setDraftRevisionOverride(draftToDiscard.draftRevision);
+            setDraftParentRuleSetIdOverride(parentRuleSetId);
+            setIsDraftEquivalentToParent(false);
+            pushUrl({ ruleSetId: draftToDiscard._id });
+          }
+        } catch (error: unknown) {
+          discardingUnsavedRuleSetIdRef.current = null;
+          setUnsavedRuleSetId(draftToDiscard._id);
+          setDraftRevisionOverride(draftToDiscard.draftRevision);
+          setDraftParentRuleSetIdOverride(parentRuleSetId);
+          setIsDraftEquivalentToParent(false);
+          pushUrl({ ruleSetId: draftToDiscard._id });
+          captureError(error, {
+            context: "discard_equivalent_draft_after_final_undo",
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDiscard._id,
+          });
+        } finally {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDiscard._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
+        }
       }
       return;
     }
@@ -665,6 +745,9 @@ function LogicView() {
     isRegelnHistoryTab,
     pushUrl,
     ruleSetIdFromUrl,
+    captureError,
+    currentPractice,
+    discardEquivalentUnsavedRuleSetMutation,
     undoRegelnHistoryAction,
     undoRegelnHistoryDepth,
     unsavedRuleSet,
