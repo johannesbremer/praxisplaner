@@ -47,7 +47,16 @@ import {
 import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 
+import {
+  ruleSetIdFromReplayTarget,
+  toCowMutationArgs,
+  updateRuleSetReplayTarget,
+} from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
@@ -56,15 +65,11 @@ import {
 type AppointmentType = AppointmentTypesResult[number];
 
 interface AppointmentTypesManagementProps {
-  expectedDraftRevision: null | number;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 type AppointmentTypesResult =
@@ -272,13 +277,13 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 export function AppointmentTypesManagement({
-  expectedDraftRevision,
   onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
-  ruleSetId,
+  ruleSetReplayTarget,
 }: AppointmentTypesManagementProps) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAppointmentType, setEditingAppointmentType] =
     useState<AppointmentType | null>(null);
@@ -315,24 +320,19 @@ export function AppointmentTypesManagement({
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision;
-  }, [expectedDraftRevision]);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
-  const handleDraftMutationResult = (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -385,7 +385,7 @@ export function AppointmentTypesManagement({
           message:
             `[HISTORY:PRACTITIONER_LINEAGE_AMBIGUOUS] Der Behandler "${snapshot.name}" kann nicht eindeutig zugeordnet werden.\n` +
             `Lineage-ID: ${snapshot.lineageId}\n` +
-            `Regelset: ${getSelectedRuleSetId()}\n` +
+            `Regelset: ${ruleSetIdFromReplayTarget(ruleSetReplayTargetRef.current)}\n` +
             `Treffer: ${lineageMatches.length}`,
           status: "conflict",
         };
@@ -397,7 +397,7 @@ export function AppointmentTypesManagement({
           message:
             `[HISTORY:PRACTITIONER_LINEAGE_MISSING] Der Behandler "${snapshot.name}" konnte im aktuellen Regelset nicht aufgelöst werden.\n` +
             `Lineage-ID: ${snapshot.lineageId}\n` +
-            `Regelset: ${getSelectedRuleSetId()}\n` +
+            `Regelset: ${ruleSetIdFromReplayTarget(ruleSetReplayTargetRef.current)}\n` +
             `Hinweis: Die Undo/Redo-Aktion verweist auf eine Behandler-Linie, die im aktuellen Entwurf fehlt.`,
           status: "conflict",
         };
@@ -472,11 +472,10 @@ export function AppointmentTypesManagement({
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
             duration: value.duration,
-            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
             practitionerIds: afterState.practitionerIds,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
             ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(updateResult);
@@ -498,11 +497,10 @@ export function AppointmentTypesManagement({
               const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 duration: afterState.duration,
-                expectedDraftRevision: getExpectedDraftRevision(),
                 name: afterState.name,
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
                 ...createFollowUpPlanUpdateArgs(afterState.followUpPlan),
               });
               handleDraftMutationResult(redoResult);
@@ -520,11 +518,10 @@ export function AppointmentTypesManagement({
               const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 duration: beforeState.duration,
-                expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeState.name,
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
                 ...createFollowUpPlanUpdateArgs(beforeState.followUpPlan),
               });
               handleDraftMutationResult(undoResult);
@@ -579,11 +576,10 @@ export function AppointmentTypesManagement({
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
             duration: value.duration,
-            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
             ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
@@ -601,12 +597,11 @@ export function AppointmentTypesManagement({
             runCreate: async () => {
               const recreateResult = await createAppointmentTypeMutation({
                 duration: value.duration,
-                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: appointmentTypeLineageKey,
                 name: trimmedName,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
                 ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
               handleDraftMutationResult(recreateResult);
@@ -616,9 +611,8 @@ export function AppointmentTypesManagement({
               const undoResult = await deleteAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 appointmentTypeLineageKey,
-                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -715,9 +709,8 @@ export function AppointmentTypesManagement({
       const deleteResult = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
         appointmentTypeLineageKey: deletedSnapshot.lineageKey,
-        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
+        ...getCowMutationArgs(),
       });
       handleDraftMutationResult(deleteResult);
 
@@ -730,9 +723,8 @@ export function AppointmentTypesManagement({
             const redoResult = await deleteAppointmentTypeMutation({
               appointmentTypeId: currentAppointmentTypeId,
               appointmentTypeLineageKey: deletedSnapshot.lineageKey,
-              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
-              selectedRuleSetId: getSelectedRuleSetId(),
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
             return { status: "applied" as const };
@@ -789,12 +781,11 @@ export function AppointmentTypesManagement({
 
           const recreateResult = await createAppointmentTypeMutation({
             duration: deletedSnapshot.duration,
-            expectedDraftRevision: getExpectedDraftRevision(),
             lineageKey: deletedSnapshot.lineageKey,
             name: deletedSnapshot.name,
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
             ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
           });
           handleDraftMutationResult(recreateResult);

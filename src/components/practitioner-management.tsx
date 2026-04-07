@@ -21,7 +21,16 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 
+import {
+  ruleSetIdFromReplayTarget,
+  toCowMutationArgs,
+  updateRuleSetReplayTarget,
+} from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
@@ -36,30 +45,22 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 interface PractitionerDialogProps {
-  expectedDraftRevision: null | number;
   isOpen: boolean;
   onClose: () => void;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   practitioner?: PractitionerWithLineage | undefined;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 interface PractitionerManagementProps {
-  expectedDraftRevision: null | number;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 type PractitionersResult =
@@ -67,13 +68,13 @@ type PractitionersResult =
 type PractitionerWithLineage = PractitionersResult[number];
 
 export default function PractitionerManagement({
-  expectedDraftRevision,
   onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
-  ruleSetId,
+  ruleSetReplayTarget,
 }: PractitionerManagementProps) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPractitioner, setEditingPractitioner] = useState<
     PractitionerWithLineage | undefined
@@ -94,24 +95,19 @@ export default function PractitionerManagement({
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision;
-  }, [expectedDraftRevision]);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
-  const handleDraftMutationResult = (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -129,10 +125,9 @@ export default function PractitionerManagement({
         (entry) => entry._id === practitionerId,
       )?.lineageKey;
       const deleteResult = await deleteWithDependenciesMutation({
-        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         practitionerId,
-        selectedRuleSetId: getSelectedRuleSetId(),
+        ...getCowMutationArgs(),
         ...(practitionerLineageKey && { practitionerLineageKey }),
       });
       handleDraftMutationResult(deleteResult);
@@ -152,11 +147,10 @@ export default function PractitionerManagement({
 
           try {
             const redoResult = await deleteWithDependenciesMutation({
-              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
               practitionerId: currentPractitionerId,
               practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
-              selectedRuleSetId: getSelectedRuleSetId(),
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
             currentSnapshot = redoResult.snapshot;
@@ -173,12 +167,11 @@ export default function PractitionerManagement({
               }
               try {
                 const redoResult = await deleteWithDependenciesMutation({
-                  expectedDraftRevision: getExpectedDraftRevision(),
                   practiceId,
                   practitionerId: currentByLineage._id,
                   practitionerLineageKey:
                     currentSnapshot.practitioner.lineageKey,
-                  selectedRuleSetId: getSelectedRuleSetId(),
+                  ...getCowMutationArgs(),
                 });
                 handleDraftMutationResult(redoResult);
                 currentSnapshot = redoResult.snapshot;
@@ -209,10 +202,9 @@ export default function PractitionerManagement({
         undo: async () => {
           try {
             const restoreResult = await restoreWithDependenciesMutation({
-              expectedDraftRevision: getExpectedDraftRevision(),
               practiceId,
-              selectedRuleSetId: getSelectedRuleSetId(),
               snapshot: currentSnapshot,
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(restoreResult);
             currentPractitionerId = restoreResult.restoredPractitionerId;
@@ -333,12 +325,11 @@ export default function PractitionerManagement({
       </CardContent>
 
       <PractitionerDialog
-        expectedDraftRevision={expectedDraftRevision}
         isOpen={isDialogOpen}
         onClose={handleDialogClose}
         practiceId={practiceId}
         practitioner={editingPractitioner}
-        ruleSetId={ruleSetId}
+        ruleSetReplayTarget={ruleSetReplayTarget}
         {...(onDraftMutation && { onDraftMutation })}
         {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
@@ -348,7 +339,6 @@ export default function PractitionerManagement({
 }
 
 function PractitionerDialog({
-  expectedDraftRevision,
   isOpen,
   onClose,
   onDraftMutation,
@@ -356,9 +346,10 @@ function PractitionerDialog({
   onRuleSetCreated,
   practiceId,
   practitioner,
-  ruleSetId,
+  ruleSetReplayTarget,
 }: PractitionerDialogProps) {
   const { captureError } = useErrorTracking();
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
 
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
@@ -371,24 +362,19 @@ function PractitionerDialog({
   const createMutation = useMutation(api.entities.createPractitioner);
   const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision;
-  }, [expectedDraftRevision]);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
-  const handleDraftMutationResult = (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -408,11 +394,10 @@ function PractitionerDialog({
           const practitionerLineageKey = practitioner.lineageKey;
           // Update existing practitioner - extract ruleSetId
           const updateResult = await updateMutation({
-            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
             practitionerId: practitioner._id,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
@@ -425,22 +410,20 @@ function PractitionerDialog({
               "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentPractitionerId) => {
               const redoResult = await updateMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 name: trimmedName,
                 practiceId,
                 practitionerId: currentPractitionerId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
               return { entityId: redoResult.entityId };
             },
             runUndo: async (currentPractitionerId) => {
               const undoResult = await updateMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 name: beforeName,
                 practiceId,
                 practitionerId: currentPractitionerId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -465,10 +448,9 @@ function PractitionerDialog({
         } else {
           // Create new practitioner - extract both entityId and ruleSetId
           const createResult = await createMutation({
-            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -483,21 +465,19 @@ function PractitionerDialog({
             onRegisterHistoryAction,
             runCreate: async () => {
               const recreateResult = await createMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: practitionerLineageKey,
                 name: trimmedName,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(recreateResult);
               return { entityId: recreateResult.entityId };
             },
             runDelete: async (currentPractitionerId) => {
               const undoResult = await deleteMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 practitionerId: currentPractitionerId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
