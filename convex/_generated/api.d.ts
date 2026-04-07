@@ -100,21 +100,15 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   workOSAuthKit: {
-    lib: {
-      enqueueWebhookEvent: FunctionReference<
+    backfill: {
+      startBackfill: FunctionReference<
         "mutation",
         "internal",
-        {
-          apiKey: string;
-          event: string;
-          eventId: string;
-          eventTypes?: Array<string>;
-          logLevel?: "DEBUG";
-          onEventHandle?: string;
-          updatedAt?: string;
-        },
-        any
+        { apiKey: string; logLevel?: "DEBUG"; onEventHandle?: string },
+        null
       >;
+    };
+    lib: {
       getAuthUser: FunctionReference<
         "query",
         "internal",
@@ -133,6 +127,24 @@ export declare const components: {
           profilePictureUrl?: null | string;
           updatedAt: string;
         } | null
+      >;
+      onWebhookEvent: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          apiKey: string;
+          event: {
+            context?: Record<string, any>;
+            createdAt: string;
+            data: Record<string, any>;
+            event: string;
+            id: string;
+          };
+          eventTypes?: Array<string>;
+          logLevel?: "DEBUG";
+          onEventHandle?: string;
+        },
+        null
       >;
     };
   };
