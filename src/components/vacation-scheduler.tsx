@@ -28,9 +28,18 @@ import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
+import {
+  ruleSetIdFromReplayTarget,
+  toCowMutationArgs,
+  updateRuleSetReplayTarget,
+} from "../utils/cow-history";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -58,11 +67,6 @@ interface CreateMfaResult extends DraftMutationResult {
   entityId: Id<"mfas">;
 }
 
-interface DraftMutationResult {
-  draftRevision: number;
-  ruleSetId: Id<"ruleSets">;
-}
-
 interface StaffRow {
   id: string;
   kind: "mfa" | "practitioner";
@@ -73,12 +77,11 @@ type VacationPortion = "afternoon" | "full" | "morning";
 
 interface VacationSchedulerProps {
   editable: boolean;
-  expectedDraftRevision?: null | number;
   onDateChange?: (date: Temporal.PlainDate) => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
   selectedDate: Temporal.PlainDate;
 }
 
@@ -107,14 +110,14 @@ const ORDERED_PORTIONS: VacationPortion[] = ["full", "morning", "afternoon"];
 
 export function VacationScheduler({
   editable,
-  expectedDraftRevision,
   onDateChange,
   onDraftMutation,
   onRegisterHistoryAction,
   practiceId,
-  ruleSetId,
+  ruleSetReplayTarget,
   selectedDate,
 }: VacationSchedulerProps) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const monthDate = startOfMonth(selectedDate);
   const monthEndExclusive = endExclusiveMonth(monthDate);
   const activeRuleSet = useQuery(api.ruleSets.getActiveRuleSet, {
@@ -198,18 +201,13 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision ?? null);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mfas ?? []);
 
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision ?? null;
-  }, [expectedDraftRevision]);
-
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
   useEffect(() => {
     vacationsRef.current = vacations ?? [];
@@ -297,12 +295,14 @@ export function VacationScheduler({
   const firstBodyRowStaffId = combinedRows[0]?.staff.id;
   const totalBodyRowCount = combinedRows.length;
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
   const handleDraftMutationResult = (result: DraftMutationResult) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
   };
 
@@ -488,14 +488,13 @@ export function VacationScheduler({
     for (const activePortion of activePortions) {
       const result = (await deleteVacation({
         date: date.toString(),
-        expectedDraftRevision: getExpectedDraftRevision(),
         ...(staff.kind === "mfa"
           ? { mfaId: staff.id as Id<"mfas"> }
           : { practitionerId: staff.id as Id<"practitioners"> }),
         portion: activePortion,
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
         staffType: staff.kind,
+        ...getCowMutationArgs(),
       })) as DraftMutationResult;
       handleDraftMutationResult(result);
     }
@@ -512,14 +511,13 @@ export function VacationScheduler({
     for (const portion of portions) {
       latestResult = (await createVacation({
         date: date.toString(),
-        expectedDraftRevision: getExpectedDraftRevision(),
         ...(staff.kind === "mfa"
           ? { mfaId: staff.id as Id<"mfas"> }
           : { practitionerId: staff.id as Id<"practitioners"> }),
         portion,
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
         staffType: staff.kind,
+        ...getCowMutationArgs(),
       })) as DraftMutationResult;
       handleDraftMutationResult(latestResult);
     }
@@ -559,10 +557,9 @@ export function VacationScheduler({
 
     try {
       const result = (await createMfa({
-        expectedDraftRevision: getExpectedDraftRevision(),
         name: trimmed,
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
+        ...getCowMutationArgs(),
       })) as CreateMfaResult;
       handleDraftMutationResult(result);
       setNewMfaName("");
@@ -577,11 +574,10 @@ export function VacationScheduler({
             return { status: "applied" as const };
           }
           const redoResult = (await createMfa({
-            expectedDraftRevision: getExpectedDraftRevision(),
             lineageKey,
             name: trimmed,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           })) as CreateMfaResult;
           handleDraftMutationResult(redoResult);
           return { status: "applied" as const };
@@ -594,10 +590,9 @@ export function VacationScheduler({
             return { status: "applied" as const };
           }
           const undoResult = (await removeMfa({
-            expectedDraftRevision: getExpectedDraftRevision(),
             mfaId: existing._id,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           })) as DraftMutationResult;
           handleDraftMutationResult(undoResult);
           return { status: "applied" as const };
@@ -620,10 +615,9 @@ export function VacationScheduler({
         return;
       }
       const result = (await removeMfa({
-        expectedDraftRevision: getExpectedDraftRevision(),
         mfaId,
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
+        ...getCowMutationArgs(),
       })) as DraftMutationResult;
       handleDraftMutationResult(result);
       onRegisterHistoryAction?.({
@@ -637,10 +631,9 @@ export function VacationScheduler({
             return { status: "applied" as const };
           }
           const redoResult = (await removeMfa({
-            expectedDraftRevision: getExpectedDraftRevision(),
             mfaId: existing._id,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           })) as DraftMutationResult;
           handleDraftMutationResult(redoResult);
           return { status: "applied" as const };
@@ -654,11 +647,10 @@ export function VacationScheduler({
             return { status: "applied" as const };
           }
           const undoResult = (await createMfa({
-            expectedDraftRevision: getExpectedDraftRevision(),
             lineageKey: currentMfa.lineageKey ?? currentMfa._id,
             name: currentMfa.name,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           })) as CreateMfaResult;
           handleDraftMutationResult(undoResult);
           return { status: "applied" as const };

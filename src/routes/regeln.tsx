@@ -45,6 +45,7 @@ import type { VersionNode } from "../components/version-graph/types";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
+import type { RuleSetReplayTarget } from "../utils/cow-history";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
@@ -147,6 +148,8 @@ function LogicView() {
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
   >(null);
+  const [draftParentRuleSetIdOverride, setDraftParentRuleSetIdOverride] =
+    useState<Id<"ruleSets"> | null>(null);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
@@ -436,20 +439,58 @@ function LogicView() {
     () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
-  const expectedDraftRevision = useMemo(() => {
-    if (!unsavedRuleSet || currentWorkingRuleSet?._id !== unsavedRuleSet._id) {
+  const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
+    if (
+      unsavedRuleSetId &&
+      draftRevisionOverride !== null &&
+      draftParentRuleSetIdOverride
+    ) {
+      return {
+        draftRevision: draftRevisionOverride,
+        draftRuleSetId: unsavedRuleSetId,
+        kind: "draft",
+        parentRuleSetId: draftParentRuleSetIdOverride,
+      };
+    }
+    if (!currentWorkingRuleSet) {
       return null;
     }
-    return draftRevisionOverride ?? unsavedRuleSet.draftRevision;
-  }, [currentWorkingRuleSet?._id, draftRevisionOverride, unsavedRuleSet]);
+    if (unsavedRuleSet?.parentVersion) {
+      return {
+        draftRevision: draftRevisionOverride ?? unsavedRuleSet.draftRevision,
+        draftRuleSetId: unsavedRuleSet._id,
+        kind: "draft",
+        parentRuleSetId: unsavedRuleSet.parentVersion,
+      };
+    }
+    return {
+      kind: "saved-parent",
+      parentRuleSetId: currentWorkingRuleSet._id,
+    };
+  }, [
+    currentWorkingRuleSet,
+    draftParentRuleSetIdOverride,
+    draftRevisionOverride,
+    unsavedRuleSet,
+    unsavedRuleSetId,
+  ]);
 
   React.useEffect(() => {
     if (!unsavedRuleSet) {
       setDraftRevisionOverride(null);
+      setDraftParentRuleSetIdOverride(null);
       return;
     }
     setDraftRevisionOverride(unsavedRuleSet.draftRevision);
-  }, [unsavedRuleSet, unsavedRuleSet?._id, unsavedRuleSet?.draftRevision]);
+    if (unsavedRuleSet.parentVersion) {
+      setDraftParentRuleSetIdOverride(unsavedRuleSet.parentVersion);
+    }
+  }, [
+    unsavedRuleSet,
+    unsavedRuleSet?._id,
+    unsavedRuleSet?.draftRevision,
+    unsavedRuleSet?.parentVersion,
+  ]);
 
   const historyScopeKey = useMemo(() => {
     const isWorkingOnUnsavedRuleSet =
@@ -502,6 +543,7 @@ function LogicView() {
 
         setUnsavedRuleSetId(null);
         setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
         pushUrl({ ruleSetId: discardResult.parentRuleSetId });
       } catch (error: unknown) {
         captureError(error, {
@@ -600,11 +642,14 @@ function LogicView() {
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
       setDraftRevisionOverride(result.draftRevision);
+      if (ruleSetReplayTarget?.parentRuleSetId) {
+        setDraftParentRuleSetIdOverride(ruleSetReplayTarget.parentRuleSetId);
+      }
       if (currentWorkingRuleSet?._id !== result.ruleSetId) {
         pushUrl({ ruleSetId: result.ruleSetId });
       }
     },
-    [currentWorkingRuleSet?._id, pushUrl],
+    [currentWorkingRuleSet?._id, pushUrl, ruleSetReplayTarget?.parentRuleSetId],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -763,6 +808,7 @@ function LogicView() {
 
       // Navigate to the chosen version
       setUnsavedRuleSetId(null);
+      setDraftParentRuleSetIdOverride(null);
       pushUrl({ ruleSetId: versionId });
     },
     [currentPractice, unsavedRuleSet, pushUrl],
@@ -831,6 +877,7 @@ function LogicView() {
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
       setDraftRevisionOverride(null);
+      setDraftParentRuleSetIdOverride(null);
 
       // If we came from the save dialog, switch to the pending rule set (or active when undefined)
       if (pendingRuleSetId === undefined) {
@@ -885,6 +932,7 @@ function LogicView() {
 
         setUnsavedRuleSetId(null);
         setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
         setPendingRuleSetId(undefined);
         setIsSaveDialogOpen(false);
         setActivationName("");
@@ -931,6 +979,7 @@ function LogicView() {
 
           setUnsavedRuleSetId(null);
           setDraftRevisionOverride(null);
+          setDraftParentRuleSetIdOverride(null);
 
           // Navigate to target (pending or active)
           pushUrl({ ruleSetId: pendingRuleSetId });
@@ -1081,46 +1130,42 @@ function LogicView() {
                   </Card>
 
                   {/* Appointment Types Management */}
-                  {currentWorkingRuleSet && (
+                  {ruleSetReplayTarget && (
                     <AppointmentTypesManagement
-                      expectedDraftRevision={expectedDraftRevision}
                       onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
                       practiceId={currentPractice._id}
-                      ruleSetId={currentWorkingRuleSet._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
                     />
                   )}
 
                   {/* Practitioner Management */}
-                  {currentWorkingRuleSet && (
+                  {ruleSetReplayTarget && (
                     <PractitionerManagement
-                      expectedDraftRevision={expectedDraftRevision}
                       onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
                       practiceId={currentPractice._id}
-                      ruleSetId={currentWorkingRuleSet._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
                     />
                   )}
 
                   {/* Base Schedule Management */}
-                  {currentWorkingRuleSet && (
+                  {ruleSetReplayTarget && (
                     <BaseScheduleManagement
-                      expectedDraftRevision={expectedDraftRevision}
                       onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
                       practiceId={currentPractice._id}
-                      ruleSetId={currentWorkingRuleSet._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
                     />
                   )}
 
                   {/* Locations Management */}
-                  {currentWorkingRuleSet && (
+                  {ruleSetReplayTarget && (
                     <LocationsManagement
-                      expectedDraftRevision={expectedDraftRevision}
                       onDraftMutation={handleDraftMutation}
                       onRegisterHistoryAction={registerRegelnHistoryAction}
                       practiceId={currentPractice._id}
-                      ruleSetId={currentWorkingRuleSet._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
                     />
                   )}
                 </div>
@@ -1237,13 +1282,12 @@ function LogicView() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {currentWorkingRuleSet && (
+                    {ruleSetReplayTarget && (
                       <RuleBuilder
-                        expectedDraftRevision={expectedDraftRevision}
                         onDraftMutation={handleDraftMutation}
                         onRegisterHistoryAction={registerRegelnHistoryAction}
                         practiceId={currentPractice._id}
-                        ruleSetId={currentWorkingRuleSet._id}
+                        ruleSetReplayTarget={ruleSetReplayTarget}
                       />
                     )}
                   </CardContent>
@@ -1321,10 +1365,9 @@ function LogicView() {
           </TabsContent>
 
           <TabsContent value="vacation-scheduler">
-            {currentWorkingRuleSet && (
+            {ruleSetReplayTarget && (
               <VacationScheduler
                 editable
-                expectedDraftRevision={expectedDraftRevision}
                 onDateChange={(date) => {
                   pushUrl({
                     date: new Date(date.year, date.month - 1, date.day),
@@ -1333,7 +1376,7 @@ function LogicView() {
                 onDraftMutation={handleDraftMutation}
                 onRegisterHistoryAction={registerRegelnHistoryAction}
                 practiceId={currentPractice._id}
-                ruleSetId={currentWorkingRuleSet._id}
+                ruleSetReplayTarget={ruleSetReplayTarget}
                 selectedDate={Temporal.PlainDate.from({
                   day: selectedDate.getDate(),
                   month: selectedDate.getMonth() + 1,

@@ -1200,7 +1200,10 @@ function PraxisPlanerComponent() {
                 editable={false}
                 onDateChange={handleDateChange}
                 practiceId={currentPractice._id}
-                ruleSetId={activeRuleSet._id}
+                ruleSetReplayTarget={{
+                  kind: "saved-parent",
+                  parentRuleSetId: activeRuleSet._id,
+                }}
                 selectedDate={selectedDate}
               />
             ) : (

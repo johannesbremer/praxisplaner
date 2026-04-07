@@ -23,7 +23,16 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 
+import {
+  ruleSetIdFromReplayTarget,
+  toCowMutationArgs,
+  updateRuleSetReplayTarget,
+} from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
@@ -42,25 +51,21 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 interface LocationsManagementProps {
-  expectedDraftRevision: null | number;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 export function LocationsManagement({
-  expectedDraftRevision,
   onDraftMutation,
   onRegisterHistoryAction,
   onRuleSetCreated,
   practiceId,
-  ruleSetId,
+  ruleSetReplayTarget,
 }: LocationsManagementProps) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<null | {
     _id: Id<"locations">;
@@ -94,24 +99,19 @@ export function LocationsManagement({
   useEffect(() => {
     baseSchedulesRef.current = baseSchedulesQuery ?? [];
   }, [baseSchedulesQuery]);
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision;
-  }, [expectedDraftRevision]);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
-  const handleDraftMutationResult = (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
     if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
       onRuleSetCreated(result.ruleSetId);
@@ -132,11 +132,10 @@ export function LocationsManagement({
           const previousName = editingLocation.name;
 
           const updateResult = await updateLocationMutation({
-            expectedDraftRevision: getExpectedDraftRevision(),
             locationId: editingLocation._id,
             name: trimmedName,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
@@ -149,22 +148,20 @@ export function LocationsManagement({
               "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentLocationId) => {
               const redoResult = await updateLocationMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
                 name: trimmedName,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
               return { entityId: redoResult.entityId };
             },
             runUndo: async (currentLocationId) => {
               const undoResult = await updateLocationMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
                 name: previousName,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -191,10 +188,9 @@ export function LocationsManagement({
           setEditingLocation(null);
         } else {
           const createResult = await createLocationMutation({
-            expectedDraftRevision: getExpectedDraftRevision(),
             name: trimmedName,
             practiceId,
-            selectedRuleSetId: getSelectedRuleSetId(),
+            ...getCowMutationArgs(),
           });
           handleDraftMutationResult(createResult);
           const { entityId } = createResult;
@@ -209,22 +205,20 @@ export function LocationsManagement({
             onRegisterHistoryAction,
             runCreate: async () => {
               const recreateResult = await createLocationMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: locationLineageKey,
                 name: trimmedName,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(recreateResult);
               return { entityId: recreateResult.entityId };
             },
             runDelete: async (currentLocationId) => {
               const undoResult = await deleteLocationMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
                 locationLineageKey,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -327,17 +321,14 @@ export function LocationsManagement({
         return;
       }
 
-      const deleteArgs: {
-        expectedDraftRevision: null | number;
+      const deleteArgs: ReturnType<typeof getCowMutationArgs> & {
         locationId: Id<"locations">;
         locationLineageKey?: Id<"locations">;
         practiceId: Id<"practices">;
-        selectedRuleSetId: Id<"ruleSets">;
       } = {
-        expectedDraftRevision: getExpectedDraftRevision(),
+        ...getCowMutationArgs(),
         locationId,
         practiceId,
-        selectedRuleSetId: getSelectedRuleSetId(),
       };
       if (deletedSnapshot?.lineageKey) {
         deleteArgs.locationLineageKey = deletedSnapshot.lineageKey;
@@ -353,11 +344,10 @@ export function LocationsManagement({
           redo: async () => {
             try {
               const redoResult = await deleteLocationMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 locationId: currentLocationId,
                 locationLineageKey: deletedSnapshot.lineageKey,
                 practiceId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -394,11 +384,10 @@ export function LocationsManagement({
             }
 
             const recreateResult = await createLocationMutation({
-              expectedDraftRevision: getExpectedDraftRevision(),
               lineageKey: deletedSnapshot.lineageKey,
               name: deletedSnapshot.name,
               practiceId,
-              selectedRuleSetId: getSelectedRuleSetId(),
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
             currentLocationId = recreateResult.entityId;
@@ -421,12 +410,11 @@ export function LocationsManagement({
                 ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
                 dayOfWeek: schedule.dayOfWeek,
                 endTime: schedule.endTime,
-                expectedDraftRevision: getExpectedDraftRevision(),
                 lineageKey: schedule.lineageKey,
                 locationId: currentLocationId,
                 practiceId,
                 practitionerId: practitionerIdForRestore,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
                 startTime: schedule.startTime,
               });
               handleDraftMutationResult(scheduleResult);

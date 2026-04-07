@@ -32,6 +32,10 @@ import {
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 
 import { api } from "../../convex/_generated/api";
 import {
@@ -39,6 +43,11 @@ import {
   dayNameToNumber,
   generateRuleName,
 } from "../../lib/rule-name-generator";
+import {
+  ruleSetIdFromReplayTarget,
+  toCowMutationArgs,
+  updateRuleSetReplayTarget,
+} from "../utils/cow-history";
 import { Combobox, type ComboboxOption } from "./combobox";
 
 // Condition types for the new list-based UI
@@ -73,15 +82,11 @@ interface NamedEntity {
 }
 
 interface RuleBuilderProps {
-  expectedDraftRevision: null | number;
-  onDraftMutation?: (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => void;
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 type RuleConditionTreePreparation =
@@ -128,13 +133,13 @@ const isMissingEntityError = (error: unknown) =>
   );
 
 export function RuleBuilder({
-  expectedDraftRevision,
   onDraftMutation,
   onRegisterHistoryAction,
   onRuleCreated,
   practiceId,
-  ruleSetId,
+  ruleSetReplayTarget,
 }: RuleBuilderProps) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const createRuleMutation = useMutation(api.entities.createRule);
   const deleteRuleMutation = useMutation(api.entities.deleteRule);
 
@@ -161,24 +166,19 @@ export function RuleBuilder({
   useEffect(() => {
     rulesRef.current = existingRules ?? [];
   }, [existingRules]);
-  const expectedDraftRevisionRef = useRef(expectedDraftRevision);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
-    expectedDraftRevisionRef.current = expectedDraftRevision;
-  }, [expectedDraftRevision]);
-  const selectedRuleSetIdRef = useRef(ruleSetId);
-  useEffect(() => {
-    selectedRuleSetIdRef.current = ruleSetId;
-  }, [ruleSetId]);
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
 
-  const getExpectedDraftRevision = () => expectedDraftRevisionRef.current;
-  const getSelectedRuleSetId = () => selectedRuleSetIdRef.current;
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
 
-  const handleDraftMutationResult = (result: {
-    draftRevision: number;
-    ruleSetId: Id<"ruleSets">;
-  }) => {
-    expectedDraftRevisionRef.current = result.draftRevision;
-    selectedRuleSetIdRef.current = result.ruleSetId;
+  const handleDraftMutationResult = (result: DraftMutationResult) => {
+    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      result,
+    );
     onDraftMutation?.(result);
     if (onRuleCreated && result.ruleSetId !== ruleSetId) {
       onRuleCreated(result.ruleSetId);
@@ -222,10 +222,9 @@ export function RuleBuilder({
         : "Regel";
 
       const deleteResult = await deleteRuleMutation({
-        expectedDraftRevision: getExpectedDraftRevision(),
         practiceId,
         ruleId,
-        selectedRuleSetId: getSelectedRuleSetId(),
+        ...getCowMutationArgs(),
       });
       handleDraftMutationResult(deleteResult);
 
@@ -287,10 +286,9 @@ export function RuleBuilder({
 
             try {
               const redoResult = await deleteRuleMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: currentRuleId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -326,10 +324,9 @@ export function RuleBuilder({
                 typeof createRuleMutation
               >[0]["conditionTree"],
               enabled: deletedRule.enabled,
-              expectedDraftRevision: getExpectedDraftRevision(),
               name: deletedRuleName,
               practiceId,
-              selectedRuleSetId: getSelectedRuleSetId(),
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
             currentRuleId = recreateResult.entityId;
@@ -418,10 +415,9 @@ export function RuleBuilder({
             if (editingRuleId !== "new") {
               // Delete old rule first
               const deleteResult = await deleteRuleMutation({
-                expectedDraftRevision: getExpectedDraftRevision(),
                 practiceId,
                 ruleId: editingRuleId,
-                selectedRuleSetId: getSelectedRuleSetId(),
+                ...getCowMutationArgs(),
               });
               handleDraftMutationResult(deleteResult);
             }
@@ -441,10 +437,9 @@ export function RuleBuilder({
                 typeof createRuleMutation
               >[0]["conditionTree"],
               enabled: true,
-              expectedDraftRevision: getExpectedDraftRevision(),
               name: ruleName,
               practiceId,
-              selectedRuleSetId: getSelectedRuleSetId(),
+              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(createResult);
 
@@ -613,10 +608,9 @@ export function RuleBuilder({
                   }
 
                   const redoDeleteResult = await deleteRuleMutation({
-                    expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    selectedRuleSetId: getSelectedRuleSetId(),
+                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(redoDeleteResult);
 
@@ -625,10 +619,9 @@ export function RuleBuilder({
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
-                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    selectedRuleSetId: getSelectedRuleSetId(),
+                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -681,10 +674,9 @@ export function RuleBuilder({
                   }
 
                   const undoDeleteResult = await deleteRuleMutation({
-                    expectedDraftRevision: getExpectedDraftRevision(),
                     practiceId,
                     ruleId: currentRuleId,
-                    selectedRuleSetId: getSelectedRuleSetId(),
+                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(undoDeleteResult);
 
@@ -693,10 +685,9 @@ export function RuleBuilder({
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: previousRule.enabled,
-                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: previousRuleName,
                     practiceId,
-                    selectedRuleSetId: getSelectedRuleSetId(),
+                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreatePrevious);
                   currentRuleId = recreatePrevious.entityId;
@@ -731,10 +722,9 @@ export function RuleBuilder({
                       typeof createRuleMutation
                     >[0]["conditionTree"],
                     enabled: true,
-                    expectedDraftRevision: getExpectedDraftRevision(),
                     name: ruleName,
                     practiceId,
-                    selectedRuleSetId: getSelectedRuleSetId(),
+                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -743,10 +733,9 @@ export function RuleBuilder({
                 undo: async () => {
                   try {
                     const undoDeleteResult = await deleteRuleMutation({
-                      expectedDraftRevision: getExpectedDraftRevision(),
                       practiceId,
                       ruleId: currentRuleId,
-                      selectedRuleSetId: getSelectedRuleSetId(),
+                      ...getCowMutationArgs(),
                     });
                     handleDraftMutationResult(undoDeleteResult);
                     return { status: "applied" as const };

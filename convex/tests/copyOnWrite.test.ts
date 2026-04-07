@@ -26,6 +26,25 @@ function createAuthedTestContext() {
   });
 }
 
+async function getInitialRuleSetId(
+  t: ReturnType<typeof createAuthedTestContext>,
+  practiceId: Id<"practices">,
+): Promise<Id<"ruleSets">> {
+  const practice = await t.run(async (ctx) => {
+    const practice = await ctx.db.get("practices", practiceId);
+    if (!practice) {
+      throw new Error("Practice not found");
+    }
+    return practice;
+  });
+
+  if (!practice.currentActiveRuleSetId) {
+    throw new Error("Practice has no active rule set");
+  }
+
+  return practice.currentActiveRuleSetId;
+}
+
 async function insertWithLineage<TableName extends LineageTable>(
   ctx: MutationCtx,
   table: TableName,
@@ -38,6 +57,43 @@ async function insertWithLineage<TableName extends LineageTable>(
     await ctx.db.patch(table, id, { lineageKey: id } as never);
   }
   return id;
+}
+
+async function setupBaseScheduleEntities(
+  t: ReturnType<typeof createAuthedTestContext>,
+): Promise<{
+  initialRuleSetId: Id<"ruleSets">;
+  locationId: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerId: Id<"practitioners">;
+}> {
+  const practiceId = await t.mutation(api.practices.createPractice, {
+    name: "Test Practice",
+  });
+  const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+  const practitionerId = await t.run(async (ctx) => {
+    return await insertWithLineage(ctx, "practitioners", {
+      name: "Dr. Batch",
+      practiceId,
+      ruleSetId: initialRuleSetId,
+    });
+  });
+
+  const locationId = await t.run(async (ctx) => {
+    return await insertWithLineage(ctx, "locations", {
+      name: "Batch Office",
+      practiceId,
+      ruleSetId: initialRuleSetId,
+    });
+  });
+
+  return {
+    initialRuleSetId,
+    locationId,
+    practiceId,
+    practitionerId,
+  };
 }
 
 describe("Copy-on-Write Entity Reference Validation", () => {
@@ -631,6 +687,174 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         .first();
     });
     expect(remainingSchedule).toBeNull();
+  });
+
+  test("should reject empty base schedule batches without creating a draft", async () => {
+    const t = createAuthedTestContext();
+    const { initialRuleSetId, practiceId } = await setupBaseScheduleEntities(t);
+
+    await expect(
+      t.mutation(api.entities.createBaseScheduleBatch, {
+        expectedDraftRevision: null,
+        practiceId,
+        schedules: [],
+        selectedRuleSetId: initialRuleSetId,
+      }),
+    ).rejects.toThrow(/\[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY\]/);
+
+    const unsavedRuleSet = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("ruleSets")
+        .withIndex("by_practiceId_saved", (q) =>
+          q.eq("practiceId", practiceId).eq("saved", false),
+        )
+        .first();
+    });
+
+    expect(unsavedRuleSet).toBeNull();
+  });
+
+  test("should create batched base schedules in request order and bump draft revision once", async () => {
+    const t = createAuthedTestContext();
+    const { initialRuleSetId, locationId, practiceId, practitionerId } =
+      await setupBaseScheduleEntities(t);
+
+    const created = await t.mutation(api.entities.createBaseScheduleBatch, {
+      expectedDraftRevision: null,
+      practiceId,
+      schedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          locationId,
+          practitionerId,
+          startTime: "08:00",
+        },
+        {
+          dayOfWeek: 3,
+          endTime: "16:00",
+          locationId,
+          practitionerId,
+          startTime: "10:00",
+        },
+      ],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    expect(created.createdScheduleIds).toHaveLength(2);
+    expect(created.draftRevision).toBe(1);
+    expect(created.ruleSetId).not.toEqual(initialRuleSetId);
+
+    const draftRuleSet = await t.run(async (ctx) => {
+      return await ctx.db.get("ruleSets", created.ruleSetId);
+    });
+    assertDefined(draftRuleSet, "Expected draft rule set to exist");
+    expect(draftRuleSet.saved).toBe(false);
+    expect(draftRuleSet.draftRevision).toBe(1);
+
+    const createdSchedules = await t.run(async (ctx) => {
+      return await Promise.all(
+        created.createdScheduleIds.map(async (scheduleId) => {
+          const schedule = await ctx.db.get("baseSchedules", scheduleId);
+          if (!schedule) {
+            throw new Error(`Base schedule ${scheduleId} not found`);
+          }
+          return schedule;
+        }),
+      );
+    });
+
+    expect(createdSchedules.map((schedule) => schedule.dayOfWeek)).toEqual([
+      1, 3,
+    ]);
+    expect(createdSchedules.map((schedule) => schedule.startTime)).toEqual([
+      "08:00",
+      "10:00",
+    ]);
+  });
+
+  test("should reject duplicate lineage keys within a base schedule batch", async () => {
+    const t = createAuthedTestContext();
+    const { initialRuleSetId, locationId, practiceId, practitionerId } =
+      await setupBaseScheduleEntities(t);
+
+    const firstCreate = await t.mutation(api.entities.createBaseSchedule, {
+      dayOfWeek: 5,
+      endTime: "17:00",
+      expectedDraftRevision: null,
+      locationId,
+      practiceId,
+      practitionerId,
+      selectedRuleSetId: initialRuleSetId,
+      startTime: "09:00",
+    });
+    await t.mutation(api.entities.deleteBaseSchedule, {
+      baseScheduleId: firstCreate.entityId,
+      expectedDraftRevision: firstCreate.draftRevision,
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    await expect(
+      t.mutation(api.entities.createBaseScheduleBatch, {
+        expectedDraftRevision: firstCreate.draftRevision + 1,
+        practiceId,
+        schedules: [
+          {
+            dayOfWeek: 1,
+            endTime: "12:00",
+            lineageKey: firstCreate.entityId,
+            locationId,
+            practitionerId,
+            startTime: "08:00",
+          },
+          {
+            dayOfWeek: 2,
+            endTime: "13:00",
+            lineageKey: firstCreate.entityId,
+            locationId,
+            practitionerId,
+            startTime: "09:00",
+          },
+        ],
+        selectedRuleSetId: initialRuleSetId,
+      }),
+    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH\]/);
+  });
+
+  test("should reject base schedule batch lineage keys that already exist in the draft", async () => {
+    const t = createAuthedTestContext();
+    const { initialRuleSetId, locationId, practiceId, practitionerId } =
+      await setupBaseScheduleEntities(t);
+
+    const firstCreate = await t.mutation(api.entities.createBaseSchedule, {
+      dayOfWeek: 1,
+      endTime: "12:00",
+      expectedDraftRevision: null,
+      locationId,
+      practiceId,
+      practitionerId,
+      selectedRuleSetId: initialRuleSetId,
+      startTime: "08:00",
+    });
+
+    await expect(
+      t.mutation(api.entities.createBaseScheduleBatch, {
+        expectedDraftRevision: firstCreate.draftRevision,
+        practiceId,
+        schedules: [
+          {
+            dayOfWeek: 3,
+            endTime: "14:00",
+            lineageKey: firstCreate.entityId,
+            locationId,
+            practitionerId,
+            startTime: "11:00",
+          },
+        ],
+        selectedRuleSetId: initialRuleSetId,
+      }),
+    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]/);
   });
 
   test("should reject stale appointment type lineage keys and only delete current lineage", async () => {
