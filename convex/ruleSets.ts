@@ -205,6 +205,16 @@ interface RuleSetCanonicalSnapshot {
   vacations: string[];
 }
 
+const canonicalSnapshotSectionTitles = {
+  appointmentTypes: "Terminarten",
+  baseSchedules: "Arbeitszeiten",
+  locations: "Standorte",
+  mfas: "MFAs",
+  practitioners: "Behandler",
+  rules: "Regeln",
+  vacations: "Urlaub",
+} satisfies Record<keyof RuleSetCanonicalSnapshot, string>;
+
 async function buildRuleSetCanonicalSnapshot(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
@@ -405,6 +415,25 @@ async function deleteRuleConditionsByRuleSet(
   }
 }
 
+function getMultisetDifference(values: string[], comparison: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of comparison) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const difference: string[] = [];
+  for (const value of values) {
+    const remaining = counts.get(value) ?? 0;
+    if (remaining > 0) {
+      counts.set(value, remaining - 1);
+      continue;
+    }
+    difference.push(value);
+  }
+
+  return difference.toSorted();
+}
+
 function normalizeBreakTimes(
   breakTimes: undefined | { end: string; start: string }[],
 ): { end: string; start: string }[] {
@@ -499,6 +528,93 @@ function toSortedStrings(values: string[]): string[] {
 // ================================
 // RULE SET MANAGEMENT - SIMPLIFIED COW WORKFLOW
 // ================================
+
+export const getUnsavedRuleSetDiff = query({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (!draftRuleSet) {
+      throw new Error("Rule set not found");
+    }
+    if (draftRuleSet.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+    if (draftRuleSet.saved) {
+      throw new Error("Only unsaved rule sets can be diffed");
+    }
+    if (!draftRuleSet.parentVersion) {
+      throw new Error("Unsaved rule set has no parent");
+    }
+
+    const parentRuleSet = await ctx.db.get(
+      "ruleSets",
+      draftRuleSet.parentVersion,
+    );
+    if (parentRuleSet?.practiceId !== args.practiceId) {
+      throw new Error("Parent rule set not found");
+    }
+
+    const [draftSnapshot, parentSnapshot] = await Promise.all([
+      buildRuleSetCanonicalSnapshot(ctx.db, draftRuleSet._id),
+      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
+    ]);
+
+    const sectionKeys = Object.keys(
+      canonicalSnapshotSectionTitles,
+    ) as (keyof RuleSetCanonicalSnapshot)[];
+
+    const sections = sectionKeys.map((key) => {
+      const added = getMultisetDifference(
+        draftSnapshot[key],
+        parentSnapshot[key],
+      );
+      const removed = getMultisetDifference(
+        parentSnapshot[key],
+        draftSnapshot[key],
+      );
+
+      return {
+        added,
+        key,
+        removed,
+        title: canonicalSnapshotSectionTitles[key],
+      };
+    });
+
+    const totalAdded = sections.reduce(
+      (sum, section) => sum + section.added.length,
+      0,
+    );
+    const totalRemoved = sections.reduce(
+      (sum, section) => sum + section.removed.length,
+      0,
+    );
+
+    return {
+      draftRuleSet: {
+        _id: draftRuleSet._id,
+        description: draftRuleSet.description,
+        version: draftRuleSet.version,
+      },
+      parentRuleSet: {
+        _id: parentRuleSet._id,
+        description: parentRuleSet.description,
+        version: parentRuleSet.version,
+      },
+      sections,
+      totals: {
+        added: totalAdded,
+        changed: totalAdded + totalRemoved,
+        removed: totalRemoved,
+      },
+    };
+  },
+});
 
 /**
  * Saves an unsaved rule set by setting saved=true and updating the description.

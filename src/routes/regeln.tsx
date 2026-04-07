@@ -1,9 +1,10 @@
 // src/routes/regeln.tsx
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { RefreshCw, Save, Trash2 } from "lucide-react";
+import { RefreshCw, Save, Trash2, Undo2 } from "lucide-react";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -118,18 +119,607 @@ export const Route = createFileRoute("/regeln")({
   },
 });
 
+interface EntityRenameMaps {
+  appointmentTypes: Map<string, string>;
+  locations: Map<string, string>;
+  mfas: Map<string, string>;
+  practitioners: Map<string, string>;
+}
+
+interface ProjectedRuleSetDiffSection {
+  rows: StructuredDiffRow[];
+  section: RuleSetDiffSection;
+}
+
+interface RuleSetDiff {
+  draftRuleSet: {
+    _id: string;
+    description: string;
+    version: number;
+  };
+  parentRuleSet: {
+    _id: string;
+    description: string;
+    version: number;
+  };
+  sections: RuleSetDiffSection[];
+  totals: {
+    added: number;
+    changed: number;
+    removed: number;
+  };
+}
+
+interface RuleSetDiffSection {
+  added: string[];
+  key: string;
+  removed: string[];
+  title: string;
+}
+
 interface SaveDialogFormProps {
   activationName: string;
   existingSavedDescriptions: string[];
   onDiscard?: (() => void) | null;
   onSaveAndActivate: (name: string) => void;
   onSaveOnly: (name: string) => void;
+  ruleSetDiff?: null | RuleSetDiff | undefined;
   setActivationName: (name: string) => void;
 }
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+interface StructuredDiffRow {
+  after: string;
+  before: string;
+  kind: "added" | "modified" | "removed";
+  path: string;
+}
+
+interface VacationDiffCandidate {
+  key: string;
+  parsed: Record<string, unknown>;
+  value: string;
+}
+
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+
+function buildStructuredDiffRows(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+) {
+  if (section.key === "vacations") {
+    return buildVacationDiffRows(section, entityRenames);
+  }
+
+  const removedByKey = new Map<string, string>();
+  const addedByKey = new Map<string, string>();
+
+  for (const value of section.removed) {
+    removedByKey.set(getDiffItemKey(section, value, entityRenames), value);
+  }
+  for (const value of section.added) {
+    addedByKey.set(getDiffItemKey(section, value, entityRenames), value);
+  }
+
+  const keys = [...new Set([...removedByKey.keys(), ...addedByKey.keys()])];
+
+  return keys
+    .toSorted()
+    .map((key): null | StructuredDiffRow => {
+      const before = removedByKey.get(key);
+      const after = addedByKey.get(key);
+      if (
+        section.key === "baseSchedules" &&
+        before &&
+        after &&
+        isOnlyReferenceRename(section, before, after, entityRenames)
+      ) {
+        return null;
+      }
+      if (
+        section.key === "vacations" &&
+        before &&
+        after &&
+        isOnlyReferenceRename(section, before, after, entityRenames)
+      ) {
+        return null;
+      }
+
+      const changedValues =
+        before && after
+          ? formatChangedStructuredDiffValues(before, after)
+          : undefined;
+
+      return {
+        after: changedValues
+          ? changedValues.after
+          : after
+            ? formatStructuredDiffValue(after)
+            : "",
+        before: changedValues
+          ? changedValues.before
+          : before
+            ? formatStructuredDiffValue(before)
+            : "",
+        kind: before && after ? "modified" : after ? "added" : "removed",
+        path: `${section.title} > ${key}`,
+      };
+    })
+    .filter((row): row is StructuredDiffRow => row !== null);
+}
+
+function buildVacationDiffRows(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+) {
+  const removedCandidates = section.removed.map((value) =>
+    getVacationDiffCandidate(value, entityRenames),
+  );
+  const addedCandidates = section.added.map((value) =>
+    getVacationDiffCandidate(value, entityRenames),
+  );
+  const addedCountByKey = getVacationDiffCandidateCounts(addedCandidates);
+  const removedCountByKey = getVacationDiffCandidateCounts(removedCandidates);
+  const usedAdded = new Set<number>();
+  const rows: StructuredDiffRow[] = [];
+
+  for (const [removedIndex, before] of removedCandidates.entries()) {
+    if (!before) {
+      rows.push({
+        after: "",
+        before: formatStructuredDiffValue(section.removed[removedIndex] ?? ""),
+        kind: "removed",
+        path: `${section.title} > ${getDiffItemKey(
+          section,
+          section.removed[removedIndex] ?? "",
+          entityRenames,
+        )}`,
+      });
+      continue;
+    }
+
+    const matchingAddedIndexes = addedCandidates
+      .map((after, addedIndex) => ({ addedIndex, after }))
+      .filter(
+        (
+          candidate,
+        ): candidate is {
+          addedIndex: number;
+          after: VacationDiffCandidate;
+        } =>
+          Boolean(candidate.after) &&
+          !usedAdded.has(candidate.addedIndex) &&
+          candidate.after?.key === before.key,
+      );
+
+    if (
+      matchingAddedIndexes.length === 1 &&
+      addedCountByKey.get(before.key) === 1 &&
+      removedCountByKey.get(before.key) === 1
+    ) {
+      const match = matchingAddedIndexes[0];
+      if (!match) {
+        continue;
+      }
+
+      const { addedIndex, after } = match;
+      const changedValues = formatChangedStructuredDiffValues(
+        before.value,
+        after.value,
+      );
+
+      rows.push({
+        after: changedValues.after,
+        before: changedValues.before,
+        kind: "modified",
+        path: `${section.title} > ${formatVacationDiffIdentity(before.parsed)}`,
+      });
+      usedAdded.add(addedIndex);
+      continue;
+    }
+
+    rows.push({
+      after: "",
+      before: formatStructuredDiffValue(before.value),
+      kind: "removed",
+      path: `${section.title} > ${getDiffItemKey(
+        section,
+        before.value,
+        entityRenames,
+      )}`,
+    });
+  }
+
+  for (const addedIndex of addedCandidates.keys()) {
+    if (usedAdded.has(addedIndex)) {
+      continue;
+    }
+
+    rows.push({
+      after: formatStructuredDiffValue(section.added[addedIndex] ?? ""),
+      before: "",
+      kind: "added",
+      path: `${section.title} > ${getDiffItemKey(
+        section,
+        section.added[addedIndex] ?? "",
+        entityRenames,
+      )}`,
+    });
+  }
+
+  return rows.toSorted((a, b) => a.path.localeCompare(b.path));
+}
+
+function dayOfWeekLabel(value: unknown) {
+  const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  return typeof value === "number" ? (labels[value] ?? String(value)) : "";
+}
+
+function formatChangedStructuredDiffValues(
+  beforeValue: string,
+  afterValue: string,
+) {
+  const before = parseDiffValue(beforeValue);
+  const after = parseDiffValue(afterValue);
+  if (!before || !after) {
+    return {
+      after: formatStructuredDiffValue(afterValue),
+      before: formatStructuredDiffValue(beforeValue),
+    };
+  }
+
+  const changedKeys = [
+    ...new Set([...Object.keys(before), ...Object.keys(after)]),
+  ].filter((key) => !isEqualDiffValue(before[key], after[key]));
+
+  if (changedKeys.length === 0) {
+    return {
+      after: formatStructuredDiffValue(afterValue),
+      before: formatStructuredDiffValue(beforeValue),
+    };
+  }
+
+  return {
+    after: formatStructuredDiffEntries(after, changedKeys),
+    before: formatStructuredDiffEntries(before, changedKeys),
+  };
+}
+
+function formatStructuredDiffEntries(
+  value: Record<string, unknown>,
+  keys: string[],
+) {
+  return keys
+    .filter((key) => value[key] !== null && value[key] !== undefined)
+    .map((key) => `${formatStructuredKey(key)}: ${formatValue(value[key])}`)
+    .join("\n");
+}
+
+function formatStructuredDiffValue(value: string) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    return value;
+  }
+
+  return Object.entries(parsed)
+    .filter(([, entryValue]) => entryValue !== null && entryValue !== undefined)
+    .map(
+      ([key, entryValue]) =>
+        `${formatStructuredKey(key)}: ${formatValue(entryValue)}`,
+    )
+    .join("\n");
+}
+
+function formatStructuredKey(key: string) {
+  const labels: Record<string, string> = {
+    allowedPractitioners: "Behandler",
+    appointmentTypeName: "Terminart",
+    breakTimes: "Pausen",
+    children: "Bedingungen",
+    conditionType: "Bedingung",
+    date: "Datum",
+    dayOfWeek: "Tag",
+    duration: "Dauer",
+    enabled: "Aktiv",
+    endTime: "Ende",
+    followUpPlan: "Folgetermine",
+    locationName: "Standort",
+    name: "Name",
+    nodeType: "Logik",
+    operator: "Operator",
+    portion: "Teil",
+    practitionerName: "Behandler",
+    scope: "Geltungsbereich",
+    staffName: "Mitarbeiter",
+    staffType: "Typ",
+    startTime: "Start",
+    tags: "Tags",
+    valueIds: "Werte",
+    valueNumber: "Wert",
+  };
+
+  return labels[key] ?? key;
+}
+
+function formatVacationDiffIdentity(value: Record<string, unknown>) {
+  return [stringValue(value["staffName"]), stringValue(value["staffType"])]
+    .filter(Boolean)
+    .join(" > ");
+}
+
+function formatValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    if (value.every((entry) => typeof entry !== "object" || entry === null)) {
+      return value.join(", ");
+    }
+    return `${value.length} Eintrag${value.length === 1 ? "" : "e"}`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "Ja" : "Nein";
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .map(
+        ([key, entryValue]) =>
+          `${formatStructuredKey(key)}=${formatValue(entryValue)}`,
+      )
+      .join(", ");
+  }
+  return String(value);
+}
+
+function getDiffItemKey(
+  section: RuleSetDiffSection,
+  value: string,
+  entityRenames: EntityRenameMaps,
+) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    return value;
+  }
+
+  if ("name" in parsed && typeof parsed["name"] === "string") {
+    const name = parsed["name"];
+    return normalizeEntityName(section.key, name, entityRenames);
+  }
+
+  if (section.key === "baseSchedules") {
+    const locationName = stringValue(parsed["locationName"]);
+    const practitionerName = stringValue(parsed["practitionerName"]);
+
+    return [
+      normalizeRenamedValue(practitionerName, entityRenames.practitioners),
+      dayOfWeekLabel(parsed["dayOfWeek"]),
+      normalizeRenamedValue(locationName, entityRenames.locations),
+      `${stringValue(parsed["startTime"])}-${stringValue(parsed["endTime"])}`,
+    ]
+      .filter(Boolean)
+      .join(" > ");
+  }
+
+  if (section.key === "vacations") {
+    const staffName = stringValue(parsed["staffName"]);
+    return [
+      normalizeRenamedValue(
+        normalizeRenamedValue(staffName, entityRenames.practitioners),
+        entityRenames.mfas,
+      ),
+      stringValue(parsed["date"]),
+      stringValue(parsed["portion"]),
+    ]
+      .filter(Boolean)
+      .join(" > ");
+  }
+
+  if (section.key === "rules") {
+    return getRuleSummary(parsed);
+  }
+
+  return formatStructuredDiffValue(value).split("\n")[0] ?? section.title;
+}
+
+function getEntityRenames(diff: RuleSetDiff) {
+  const baseRenames: EntityRenameMaps = {
+    appointmentTypes: new Map(),
+    locations: new Map(),
+    mfas: new Map(),
+    practitioners: new Map(),
+  };
+
+  for (const section of diff.sections) {
+    switch (section.key) {
+      case "locations": {
+        baseRenames.locations = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+      case "mfas": {
+        baseRenames.mfas = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+      case "practitioners": {
+        baseRenames.practitioners = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+    }
+  }
+
+  for (const section of diff.sections) {
+    if (section.key === "appointmentTypes") {
+      baseRenames.appointmentTypes = getSectionNameRenames(
+        section,
+        baseRenames,
+      );
+    }
+  }
+
+  return baseRenames;
+}
+
+function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
+  const changedSections = diff.sections.filter(
+    (section) => section.added.length > 0 || section.removed.length > 0,
+  );
+  const entityRenames = getEntityRenames(diff);
+  return changedSections
+    .map(
+      (section): ProjectedRuleSetDiffSection => ({
+        rows: buildStructuredDiffRows(section, entityRenames),
+        section,
+      }),
+    )
+    .filter((projectedSection) => projectedSection.rows.length > 0);
+}
+
+function getRuleSummary(value: Record<string, unknown>) {
+  const children: unknown[] = Array.isArray(value["children"])
+    ? value["children"]
+    : [];
+  const firstChild: unknown = children[0];
+  if (firstChild && typeof firstChild === "object") {
+    const child = firstChild as Record<string, unknown>;
+    return [
+      "Regel",
+      stringValue(child["nodeType"]),
+      stringValue(child["conditionType"]),
+      formatValue(child["valueIds"]),
+      formatValue(child["valueNumber"]),
+    ]
+      .filter((part) => part && part !== "undefined")
+      .join(" > ");
+  }
+
+  return [
+    "Regel",
+    stringValue(value["nodeType"]),
+    stringValue(value["conditionType"]),
+  ]
+    .filter(Boolean)
+    .join(" > ");
+}
+
+function getSectionNameRenames(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+) {
+  const renames = new Map<string, string>();
+  const unmatchedAdded = [...section.added];
+
+  for (const removed of section.removed) {
+    const before = parseDiffValue(removed);
+    const beforeName = before ? stringValue(before["name"]) : "";
+    if (!before || !beforeName) {
+      continue;
+    }
+
+    const addedIndex = unmatchedAdded.findIndex((added) => {
+      const after = parseDiffValue(added);
+      const afterName = after ? stringValue(after["name"]) : "";
+      if (!after || !afterName || afterName === beforeName) {
+        return false;
+      }
+
+      return isSameAfterNormalizingReferences(
+        section.key,
+        omitKey(before, "name"),
+        omitKey(after, "name"),
+        entityRenames,
+      );
+    });
+
+    if (addedIndex === -1) {
+      continue;
+    }
+
+    const added = unmatchedAdded[addedIndex];
+    if (!added) {
+      continue;
+    }
+    const after = parseDiffValue(added);
+    const afterName = after ? stringValue(after["name"]) : "";
+    if (afterName) {
+      renames.set(beforeName, afterName);
+    }
+    unmatchedAdded.splice(addedIndex, 1);
+  }
+
+  return renames;
+}
+
+function getVacationDiffCandidate(
+  value: string,
+  entityRenames: EntityRenameMaps,
+): null | VacationDiffCandidate {
+  const parsed = parseDiffValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  const normalized = normalizeReferences("vacations", parsed, entityRenames);
+  const staffName = stringValue(normalized["staffName"]);
+  const staffType = stringValue(normalized["staffType"]);
+  if (!staffName || !staffType) {
+    return null;
+  }
+
+  return {
+    key: `${staffType}:${staffName}`,
+    parsed: normalized,
+    value,
+  };
+}
+
+function getVacationDiffCandidateCounts(
+  candidates: (null | VacationDiffCandidate)[],
+) {
+  const counts = new Map<string, number>();
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    counts.set(candidate.key, (counts.get(candidate.key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function isEqualDiffValue(before: unknown, after: unknown) {
+  return JSON.stringify(before) === JSON.stringify(after);
+}
+
+function isOnlyReferenceRename(
+  section: RuleSetDiffSection,
+  beforeValue: string,
+  afterValue: string,
+  entityRenames: EntityRenameMaps,
+) {
+  const before = parseDiffValue(beforeValue);
+  const after = parseDiffValue(afterValue);
+  if (!before || !after) {
+    return false;
+  }
+
+  return isSameAfterNormalizingReferences(
+    section.key,
+    before,
+    after,
+    entityRenames,
+  );
+}
+
+function isSameAfterNormalizingReferences(
+  sectionKey: string,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+) {
+  return (
+    JSON.stringify(normalizeReferences(sectionKey, before, entityRenames)) ===
+    JSON.stringify(normalizeReferences(sectionKey, after, entityRenames))
+  );
+}
 
 function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
@@ -154,8 +744,12 @@ function LogicView() {
     useState<Id<"ruleSets"> | null>(null);
   const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
     useState(false);
+  const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [discardTargetRuleSetId, setDiscardTargetRuleSetId] = useState<
+    Id<"ruleSets"> | undefined
+  >();
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
     Id<"ruleSets"> | undefined
   >();
@@ -164,6 +758,9 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
+  const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
+    null,
+  );
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,
@@ -574,6 +1171,17 @@ function LogicView() {
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
+  const ruleSetDiff = useQuery(
+    api.ruleSets.getUnsavedRuleSetDiff,
+    currentPractice &&
+      unsavedRuleSet?.parentVersion &&
+      !isDraftEquivalentToParent
+      ? {
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        }
+      : "skip",
+  ) as RuleSetDiff | undefined;
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
     if (
       unsavedRuleSetId &&
@@ -844,15 +1452,15 @@ function LogicView() {
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
       setIsDraftEquivalentToParent(false);
+      setIsSaveDialogOpen(false);
+      setPendingRuleSetId(undefined);
       setDraftRevisionOverride(result.draftRevision);
       if (ruleSetReplayTarget?.parentRuleSetId) {
         setDraftParentRuleSetIdOverride(ruleSetReplayTarget.parentRuleSetId);
       }
-      if (currentWorkingRuleSet?._id !== result.ruleSetId) {
-        pushUrl({ ruleSetId: result.ruleSetId });
-      }
+      pendingDraftRuleSetNavigationIdRef.current = result.ruleSetId;
     },
-    [currentWorkingRuleSet?._id, pushUrl, ruleSetReplayTarget?.parentRuleSetId],
+    [ruleSetReplayTarget?.parentRuleSetId],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -874,6 +1482,21 @@ function LogicView() {
       pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
     }
   }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
+
+  React.useEffect(() => {
+    const pendingDraftRuleSetId = pendingDraftRuleSetNavigationIdRef.current;
+    if (
+      !pendingDraftRuleSetId ||
+      unsavedRuleSet?._id !== pendingDraftRuleSetId
+    ) {
+      return;
+    }
+
+    pendingDraftRuleSetNavigationIdRef.current = null;
+    if (ruleSetIdFromUrl !== pendingDraftRuleSetId) {
+      pushUrl({ ruleSetId: pendingDraftRuleSetId });
+    }
+  }, [pushUrl, ruleSetIdFromUrl, unsavedRuleSet?._id]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = useCallback(async () => {
@@ -1172,10 +1795,17 @@ function LogicView() {
     }
   };
 
+  const handleOpenDiscardDialog = () => {
+    setDiscardTargetRuleSetId(pendingRuleSetId ?? activeRuleSet?._id);
+    setIsSaveDialogOpen(false);
+    setIsDiscardDialogOpen(true);
+  };
+
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {
       const draftToDelete = unsavedRuleSet;
-      const targetRuleSetId = pendingRuleSetId ?? activeRuleSet?._id;
+      const targetRuleSetId =
+        discardTargetRuleSetId ?? pendingRuleSetId ?? activeRuleSet?._id;
 
       void (async () => {
         try {
@@ -1192,6 +1822,8 @@ function LogicView() {
           });
 
           setPendingRuleSetId(undefined);
+          setDiscardTargetRuleSetId(undefined);
+          setIsDiscardDialogOpen(false);
           setIsSaveDialogOpen(false);
           setActivationName("");
           toast.success("Änderungen verworfen");
@@ -1237,23 +1869,31 @@ function LogicView() {
 
       {currentWorkingRuleSet && isShowingUnsavedRuleSet && (
         <div className="sticky top-3 z-40 mb-6">
-          <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-foreground">
-                Ungespeicherte Änderungen
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Ungespeicherte Änderungen
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Dieses Regelset enthält Änderungen gegenüber dem
+                  übergeordneten Regelset, die noch nicht gespeichert wurden.
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">
-                Dieses Regelset enthält Änderungen, die noch nicht gespeichert
-                wurden.
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  onClick={handleOpenDiscardDialog}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Undo2 className="h-4 w-4 mr-2" />
+                  Änderungen verwerfen
+                </Button>
+                <Button onClick={handleOpenSaveDialog} size="sm">
+                  Speichern
+                </Button>
               </div>
             </div>
-            <Button
-              className="shrink-0"
-              onClick={handleOpenSaveDialog}
-              size="sm"
-            >
-              Speichern
-            </Button>
           </div>
         </div>
       )}
@@ -1627,7 +2267,7 @@ function LogicView() {
         }}
         open={isSaveDialogOpen}
       >
-        <DialogContent>
+        <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
           <DialogHeader>
             <DialogTitle>Regelset speichern</DialogTitle>
             <DialogDescription>
@@ -1643,13 +2283,360 @@ function LogicView() {
                 ?.filter((rs) => rs.saved)
                 .map((rs) => rs.description) ?? []
             }
-            onDiscard={pendingRuleSetId ? handleDiscardChanges : null}
+            onDiscard={pendingRuleSetId ? handleOpenDiscardDialog : null}
             onSaveAndActivate={handleSaveAndActivate}
             onSaveOnly={handleSaveOnly}
+            ruleSetDiff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
             setActivationName={setActivationName}
           />
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          setIsDiscardDialogOpen(open);
+          if (!open) {
+            setDiscardTargetRuleSetId(undefined);
+          }
+        }}
+        open={isDiscardDialogOpen}
+      >
+        <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Änderungen verwerfen?</DialogTitle>
+            <VisuallyHidden>
+              <DialogDescription>
+                Diese ungespeicherten Änderungen werden gelöscht. Das kann nicht
+                rückgängig gemacht werden.
+              </DialogDescription>
+            </VisuallyHidden>
+          </DialogHeader>
+          <RuleSetDiffView
+            diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+          />
+          <RuleSetDiffChangeCount
+            diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+          />
+          <DialogFooter className="mt-2 shrink-0">
+            <Button
+              onClick={() => {
+                setIsDiscardDialogOpen(false);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleDiscardChanges}
+              type="button"
+              variant="destructive"
+            >
+              Änderungen verwerfen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function normalizeEntityName(
+  sectionKey: string,
+  name: string,
+  entityRenames: EntityRenameMaps,
+) {
+  if (sectionKey === "appointmentTypes") {
+    return normalizeRenamedValue(name, entityRenames.appointmentTypes);
+  }
+  if (sectionKey === "locations") {
+    return normalizeRenamedValue(name, entityRenames.locations);
+  }
+  if (sectionKey === "mfas") {
+    return normalizeRenamedValue(name, entityRenames.mfas);
+  }
+  if (sectionKey === "practitioners") {
+    return normalizeRenamedValue(name, entityRenames.practitioners);
+  }
+
+  return name;
+}
+
+function normalizeReferences(
+  sectionKey: string,
+  value: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+) {
+  if (sectionKey === "appointmentTypes") {
+    return {
+      ...value,
+      allowedPractitioners: normalizeRenamedArray(
+        value["allowedPractitioners"],
+        entityRenames.practitioners,
+      ),
+    };
+  }
+
+  if (sectionKey === "baseSchedules") {
+    return {
+      ...value,
+      locationName: normalizeRenamedValue(
+        stringValue(value["locationName"]),
+        entityRenames.locations,
+      ),
+      practitionerName: normalizeRenamedValue(
+        stringValue(value["practitionerName"]),
+        entityRenames.practitioners,
+      ),
+    };
+  }
+
+  if (sectionKey === "rules") {
+    return normalizeRuleReferences(value, entityRenames);
+  }
+
+  if (sectionKey === "vacations") {
+    const staffName = stringValue(value["staffName"]);
+    return {
+      ...value,
+      staffName: normalizeRenamedValue(
+        normalizeRenamedValue(staffName, entityRenames.practitioners),
+        entityRenames.mfas,
+      ),
+    };
+  }
+
+  return value;
+}
+
+function normalizeRenamedArray(value: unknown, renames: Map<string, string>) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const entries: unknown[] = value;
+  return entries.map((entry) =>
+    typeof entry === "string" ? normalizeRenamedValue(entry, renames) : entry,
+  );
+}
+
+function normalizeRenamedValue(value: string, renames: Map<string, string>) {
+  return (
+    [...renames.entries()].find(([, after]) => after === value)?.[0] ?? value
+  );
+}
+
+function normalizeRuleReferences(
+  value: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...value };
+  const conditionType = stringValue(normalized["conditionType"]);
+  const valueIds = normalized["valueIds"];
+
+  switch (conditionType) {
+    case "APPOINTMENT_TYPE": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.appointmentTypes,
+      );
+      break;
+    }
+    case "LOCATION": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.locations,
+      );
+      break;
+    }
+    case "PRACTITIONER": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.practitioners,
+      );
+      break;
+    }
+  }
+
+  if (Array.isArray(normalized["children"])) {
+    const children: unknown[] = normalized["children"];
+    normalized["children"] = children.map((child) =>
+      child && typeof child === "object"
+        ? normalizeRuleReferences(
+            child as Record<string, unknown>,
+            entityRenames,
+          )
+        : child,
+    );
+  }
+
+  return normalized;
+}
+
+function omitKey(value: Record<string, unknown>, keyToOmit: string) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== keyToOmit),
+  );
+}
+
+function parseDiffValue(value: string): null | Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function RuleSetDiffChangeCount({
+  diff,
+}: {
+  diff?: null | RuleSetDiff | undefined;
+}) {
+  if (!diff) {
+    return null;
+  }
+
+  const projectedSections = getProjectedRuleSetDiffSections(diff);
+  const changeCount = projectedSections.flatMap(
+    (projectedSection) => projectedSection.rows,
+  ).length;
+
+  return (
+    <div className="flex justify-end">
+      <Badge variant="secondary">{changeCount} Änderungen</Badge>
+    </div>
+  );
+}
+
+function RuleSetDiffSectionView({
+  projectedSection,
+}: {
+  projectedSection: ProjectedRuleSetDiffSection;
+}) {
+  const { rows, section } = projectedSection;
+  const modifiedRows = rows.filter((row) => row.kind === "modified");
+  const singleValueRows = rows.filter((row) => row.kind !== "modified");
+  return (
+    <div className="w-max overflow-hidden rounded-lg border">
+      <div className="border-b bg-muted/40 px-3 py-2">
+        <div className="text-sm font-medium">{section.title}</div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="w-max">
+          {modifiedRows.length > 0 && (
+            <table className="w-auto table-auto border-collapse text-left text-xs">
+              <thead className="bg-muted/20 font-medium text-muted-foreground">
+                <tr className="border-b">
+                  <th className="px-3 py-2 font-medium">Pfad</th>
+                  <th className="border-l px-3 py-2 font-medium">Änderung</th>
+                  <th className="border-l px-3 py-2 font-medium">Vorher</th>
+                  <th className="border-l px-3 py-2 font-medium">Nachher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modifiedRows.map((row) => (
+                  <tr className="border-b" key={`${section.key}-${row.path}`}>
+                    <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
+                      {row.path}
+                    </td>
+                    <td className="border-l px-3 py-2">
+                      <Badge variant="secondary">Geändert</Badge>
+                    </td>
+                    <td className="border-l bg-red-50/60 px-3 py-2 text-red-950">
+                      <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                        {row.before}
+                      </pre>
+                    </td>
+                    <td className="border-l bg-emerald-50/60 px-3 py-2 text-emerald-950">
+                      <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                        {row.after}
+                      </pre>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {singleValueRows.length > 0 && (
+            <table className="w-auto table-auto border-collapse text-left text-xs">
+              <thead className="bg-muted/20 font-medium text-muted-foreground">
+                <tr className="border-b">
+                  <th className="px-3 py-2 font-medium">Pfad</th>
+                  <th className="border-l px-3 py-2 font-medium">Änderung</th>
+                </tr>
+              </thead>
+              <tbody>
+                {singleValueRows.map((row) => (
+                  <tr
+                    className="border-b last:border-b-0"
+                    key={`${section.key}-${row.path}`}
+                  >
+                    <td
+                      className={
+                        row.kind === "added"
+                          ? "bg-emerald-50/60 px-3 py-2 font-medium text-emerald-950"
+                          : "bg-red-50/60 px-3 py-2 font-medium text-red-950"
+                      }
+                    >
+                      {row.path}
+                    </td>
+                    <td className="border-l px-3 py-2">
+                      <Badge
+                        className={
+                          row.kind === "added"
+                            ? "bg-emerald-100 text-emerald-900"
+                            : "bg-red-100 text-red-900"
+                        }
+                        variant="outline"
+                      >
+                        {row.kind === "added" ? "Hinzugefügt" : "Entfernt"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
+  if (diff === null) {
+    return null;
+  }
+
+  if (!diff) {
+    return (
+      <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+        Änderungen werden geladen...
+      </div>
+    );
+  }
+
+  const projectedSections = getProjectedRuleSetDiffSections(diff);
+
+  return (
+    <div className="w-max">
+      {projectedSections.length === 0 ? (
+        <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          Keine sichtbaren Änderungen zum übergeordneten Regelset.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {projectedSections.map((projectedSection) => (
+            <RuleSetDiffSectionView
+              key={projectedSection.section.key}
+              projectedSection={projectedSection}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1660,6 +2647,7 @@ function SaveDialogForm({
   onDiscard,
   onSaveAndActivate,
   onSaveOnly,
+  ruleSetDiff,
   setActivationName,
 }: SaveDialogFormProps) {
   const form = useForm({
@@ -1692,12 +2680,13 @@ function SaveDialogForm({
 
   return (
     <form
+      className="flex min-h-0 flex-col"
       onSubmit={(e) => {
         e.preventDefault();
         e.stopPropagation();
       }}
     >
-      <div className="space-y-4">
+      <div className="flex min-h-0 flex-col gap-4">
         <form.Field
           name="name"
           validators={{
@@ -1730,8 +2719,10 @@ function SaveDialogForm({
             </div>
           )}
         </form.Field>
+        <RuleSetDiffView diff={ruleSetDiff} />
       </div>
-      <DialogFooter className="flex gap-2 mt-6">
+      <RuleSetDiffChangeCount diff={ruleSetDiff} />
+      <DialogFooter className="mt-6 flex shrink-0 gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
             Änderungen verwerfen
@@ -1764,6 +2755,12 @@ function SaveDialogForm({
       </DialogFooter>
     </form>
   );
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value)
+    : "";
 }
 
 // Simulation Controls Component - Extracted from SimulationPanel
