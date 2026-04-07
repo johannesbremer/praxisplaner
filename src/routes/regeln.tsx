@@ -148,6 +148,8 @@ function LogicView() {
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
   >(null);
+  const [draftParentRuleSetIdOverride, setDraftParentRuleSetIdOverride] =
+    useState<Id<"ruleSets"> | null>(null);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
@@ -438,13 +440,22 @@ function LogicView() {
     [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
+    if (
+      unsavedRuleSetId &&
+      draftRevisionOverride !== null &&
+      draftParentRuleSetIdOverride
+    ) {
+      return {
+        draftRevision: draftRevisionOverride,
+        draftRuleSetId: unsavedRuleSetId,
+        kind: "draft",
+        parentRuleSetId: draftParentRuleSetIdOverride,
+      };
+    }
     if (!currentWorkingRuleSet) {
       return null;
     }
-    if (
-      unsavedRuleSet?.parentVersion &&
-      currentWorkingRuleSet._id === unsavedRuleSet._id
-    ) {
+    if (unsavedRuleSet?.parentVersion) {
       return {
         draftRevision: draftRevisionOverride ?? unsavedRuleSet.draftRevision,
         draftRuleSetId: unsavedRuleSet._id,
@@ -456,15 +467,30 @@ function LogicView() {
       kind: "saved-parent",
       parentRuleSetId: currentWorkingRuleSet._id,
     };
-  }, [currentWorkingRuleSet, draftRevisionOverride, unsavedRuleSet]);
+  }, [
+    currentWorkingRuleSet,
+    draftParentRuleSetIdOverride,
+    draftRevisionOverride,
+    unsavedRuleSet,
+    unsavedRuleSetId,
+  ]);
 
   React.useEffect(() => {
     if (!unsavedRuleSet) {
       setDraftRevisionOverride(null);
+      setDraftParentRuleSetIdOverride(null);
       return;
     }
     setDraftRevisionOverride(unsavedRuleSet.draftRevision);
-  }, [unsavedRuleSet, unsavedRuleSet?._id, unsavedRuleSet?.draftRevision]);
+    if (unsavedRuleSet.parentVersion) {
+      setDraftParentRuleSetIdOverride(unsavedRuleSet.parentVersion);
+    }
+  }, [
+    unsavedRuleSet,
+    unsavedRuleSet?._id,
+    unsavedRuleSet?.draftRevision,
+    unsavedRuleSet?.parentVersion,
+  ]);
 
   const historyScopeKey = useMemo(() => {
     const isWorkingOnUnsavedRuleSet =
@@ -517,6 +543,7 @@ function LogicView() {
 
         setUnsavedRuleSetId(null);
         setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
         pushUrl({ ruleSetId: discardResult.parentRuleSetId });
       } catch (error: unknown) {
         captureError(error, {
@@ -615,11 +642,14 @@ function LogicView() {
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
       setDraftRevisionOverride(result.draftRevision);
+      if (ruleSetReplayTarget?.parentRuleSetId) {
+        setDraftParentRuleSetIdOverride(ruleSetReplayTarget.parentRuleSetId);
+      }
       if (currentWorkingRuleSet?._id !== result.ruleSetId) {
         pushUrl({ ruleSetId: result.ruleSetId });
       }
     },
-    [currentWorkingRuleSet?._id, pushUrl],
+    [currentWorkingRuleSet?._id, pushUrl, ruleSetReplayTarget?.parentRuleSetId],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -778,6 +808,7 @@ function LogicView() {
 
       // Navigate to the chosen version
       setUnsavedRuleSetId(null);
+      setDraftParentRuleSetIdOverride(null);
       pushUrl({ ruleSetId: versionId });
     },
     [currentPractice, unsavedRuleSet, pushUrl],
@@ -846,6 +877,7 @@ function LogicView() {
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
       setDraftRevisionOverride(null);
+      setDraftParentRuleSetIdOverride(null);
 
       // If we came from the save dialog, switch to the pending rule set (or active when undefined)
       if (pendingRuleSetId === undefined) {
@@ -900,6 +932,7 @@ function LogicView() {
 
         setUnsavedRuleSetId(null);
         setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
         setPendingRuleSetId(undefined);
         setIsSaveDialogOpen(false);
         setActivationName("");
@@ -946,6 +979,7 @@ function LogicView() {
 
           setUnsavedRuleSetId(null);
           setDraftRevisionOverride(null);
+          setDraftParentRuleSetIdOverride(null);
 
           // Navigate to target (pending or active)
           pushUrl({ ruleSetId: pendingRuleSetId });

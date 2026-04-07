@@ -742,8 +742,11 @@ export function AppointmentTypesManagement({
           }
         },
         undo: async () => {
+          const { selectedRuleSetId } = getCowMutationArgs();
           const existingByLineage = appointmentTypesRef.current.find(
-            (type) => type.lineageKey === deletedSnapshot.lineageKey,
+            (type) =>
+              type.lineageKey === deletedSnapshot.lineageKey &&
+              type.ruleSetId === selectedRuleSetId,
           );
           if (existingByLineage) {
             const existingPractitionerLineageIds =
