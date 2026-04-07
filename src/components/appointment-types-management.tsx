@@ -258,6 +258,29 @@ interface PractitionerHistorySnapshot {
 const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
   snapshots.map((snapshot) => snapshot.lineageId).toSorted();
 
+const practitionerIdsFromSnapshots = (
+  snapshots: PractitionerHistorySnapshot[],
+): { ids: Id<"practitioners">[] } | { message: string; status: "conflict" } => {
+  const seen = new Set<Id<"practitioners">>();
+  const ids: Id<"practitioners">[] = [];
+
+  for (const snapshot of snapshots) {
+    if (!seen.has(snapshot.lineageId)) {
+      seen.add(snapshot.lineageId);
+      ids.push(snapshot.lineageId);
+    }
+  }
+
+  if (ids.length === 0) {
+    return {
+      message: "Mindestens ein Behandler muss ausgewählt werden.",
+      status: "conflict",
+    };
+  }
+
+  return { ids };
+};
+
 const samePractitionerLineageIds = (
   left: Id<"practitioners">[],
   right: Id<"practitioners">[],
@@ -367,58 +390,6 @@ export function AppointmentTypesManagement({
       .map((practitionerId) => resolvePractitionerLineageKey(practitionerId))
       .toSorted();
 
-  const resolvePractitionerIdsFromSnapshots = (
-    snapshots: PractitionerHistorySnapshot[],
-  ):
-    | { ids: Id<"practitioners">[] }
-    | { message: string; status: "conflict" } => {
-    const resolvedIds: Id<"practitioners">[] = [];
-    const seen = new Set<Id<"practitioners">>();
-
-    for (const snapshot of snapshots) {
-      const lineageMatches = practitionersRef.current.filter(
-        (practitioner) => practitioner.lineageKey === snapshot.lineageId,
-      );
-
-      if (lineageMatches.length > 1) {
-        return {
-          message:
-            `[HISTORY:PRACTITIONER_LINEAGE_AMBIGUOUS] Der Behandler "${snapshot.name}" kann nicht eindeutig zugeordnet werden.\n` +
-            `Lineage-ID: ${snapshot.lineageId}\n` +
-            `Regelset: ${ruleSetIdFromReplayTarget(ruleSetReplayTargetRef.current)}\n` +
-            `Treffer: ${lineageMatches.length}`,
-          status: "conflict",
-        };
-      }
-
-      const resolvedPractitionerId = lineageMatches[0]?._id;
-      if (!resolvedPractitionerId) {
-        return {
-          message:
-            `[HISTORY:PRACTITIONER_LINEAGE_MISSING] Der Behandler "${snapshot.name}" konnte im aktuellen Regelset nicht aufgelöst werden.\n` +
-            `Lineage-ID: ${snapshot.lineageId}\n` +
-            `Regelset: ${ruleSetIdFromReplayTarget(ruleSetReplayTargetRef.current)}\n` +
-            `Hinweis: Die Undo/Redo-Aktion verweist auf eine Behandler-Linie, die im aktuellen Entwurf fehlt.`,
-          status: "conflict",
-        };
-      }
-
-      if (!seen.has(resolvedPractitionerId)) {
-        seen.add(resolvedPractitionerId);
-        resolvedIds.push(resolvedPractitionerId);
-      }
-    }
-
-    if (resolvedIds.length === 0) {
-      return {
-        message: "Mindestens ein Behandler muss ausgewählt werden.",
-        status: "conflict",
-      };
-    }
-
-    return { ids: resolvedIds };
-  };
-
   const form = useForm({
     defaultValues: {
       duration: 30,
@@ -436,7 +407,7 @@ export function AppointmentTypesManagement({
           value.practitionerIds as Id<"practitioners">[];
         const formPractitionerSnapshots =
           createPractitionerSnapshots(formPractitionerIds);
-        const resolvedFormPractitionerIds = resolvePractitionerIdsFromSnapshots(
+        const resolvedFormPractitionerIds = practitionerIdsFromSnapshots(
           formPractitionerSnapshots,
         );
 
@@ -488,8 +459,9 @@ export function AppointmentTypesManagement({
             redoMissingMessage:
               "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
             runRedo: async (currentAppointmentTypeId) => {
-              const resolvedRedoPractitionerIds =
-                resolvePractitionerIdsFromSnapshots(afterPractitionerSnapshots);
+              const resolvedRedoPractitionerIds = practitionerIdsFromSnapshots(
+                afterPractitionerSnapshots,
+              );
               if ("status" in resolvedRedoPractitionerIds) {
                 return resolvedRedoPractitionerIds;
               }
@@ -507,10 +479,9 @@ export function AppointmentTypesManagement({
               return { entityId: redoResult.entityId };
             },
             runUndo: async (currentAppointmentTypeId) => {
-              const resolvedUndoPractitionerIds =
-                resolvePractitionerIdsFromSnapshots(
-                  beforePractitionerSnapshots,
-                );
+              const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
+                beforePractitionerSnapshots,
+              );
               if ("status" in resolvedUndoPractitionerIds) {
                 return resolvedUndoPractitionerIds;
               }
@@ -776,8 +747,9 @@ export function AppointmentTypesManagement({
             };
           }
 
-          const resolvedUndoPractitionerIds =
-            resolvePractitionerIdsFromSnapshots(deletedPractitionerSnapshots);
+          const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
+            deletedPractitionerSnapshots,
+          );
           if ("status" in resolvedUndoPractitionerIds) {
             return resolvedUndoPractitionerIds;
           }
