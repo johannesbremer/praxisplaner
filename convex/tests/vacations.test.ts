@@ -298,4 +298,97 @@ describe("vacations", () => {
       true,
     );
   });
+
+  test("vacation redo reuses vacation lineage after equivalent draft discard", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createSchedulingFixture(t);
+    const firstDate = "2026-07-06";
+    const secondDate = "2026-07-07";
+
+    const firstCreate = await t.mutation(api.vacations.createVacation, {
+      date: firstDate,
+      expectedDraftRevision: null,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(firstCreate.entityId);
+
+    const secondCreate = await t.mutation(api.vacations.createVacation, {
+      date: secondDate,
+      expectedDraftRevision: firstCreate.draftRevision,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: firstCreate.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(secondCreate.entityId);
+
+    const secondUndo = await t.mutation(api.vacations.deleteVacation, {
+      date: secondDate,
+      expectedDraftRevision: secondCreate.draftRevision,
+      lineageKey: secondCreate.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: secondCreate.ruleSetId,
+      staffType: "practitioner",
+    });
+
+    const firstUndo = await t.mutation(api.vacations.deleteVacation, {
+      date: firstDate,
+      expectedDraftRevision: secondUndo.draftRevision,
+      lineageKey: firstCreate.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: secondUndo.ruleSetId,
+      staffType: "practitioner",
+    });
+
+    const discardResult = await t.mutation(
+      api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: firstUndo.ruleSetId,
+      },
+    );
+    expect(discardResult.deleted).toBe(true);
+
+    const firstRedo = await t.mutation(api.vacations.createVacation, {
+      date: firstDate,
+      expectedDraftRevision: null,
+      lineageKey: firstCreate.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+
+    const secondRedo = await t.mutation(api.vacations.createVacation, {
+      date: secondDate,
+      expectedDraftRevision: firstRedo.draftRevision,
+      lineageKey: secondCreate.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      selectedRuleSetId: firstRedo.ruleSetId,
+      staffType: "practitioner",
+    });
+
+    const vacations = await t.query(api.vacations.getVacationsInRange, {
+      endDateExclusive: "2026-07-08",
+      ruleSetId: secondRedo.ruleSetId,
+      startDate: firstDate,
+    });
+
+    expect(vacations).toHaveLength(2);
+    expect(vacations.map((vacation) => vacation.lineageKey).toSorted()).toEqual(
+      [firstCreate.entityId, secondCreate.entityId].toSorted(),
+    );
+  });
 });

@@ -933,6 +933,7 @@ export default defineSchema({
   vacations: defineTable({
     createdAt: v.int64(),
     date: v.string(), // YYYY-MM-DD
+    lineageKey: v.optional(v.id("vacations")),
     mfaId: v.optional(v.id("mfas")),
     portion: v.union(
       v.literal("full"),
@@ -947,6 +948,7 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_date", ["ruleSetId", "date"])
+    .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"])
     .index("by_ruleSetId_practitionerId", ["ruleSetId", "practitionerId"])
     .index("by_ruleSetId_mfaId", ["ruleSetId", "mfaId"]),
 

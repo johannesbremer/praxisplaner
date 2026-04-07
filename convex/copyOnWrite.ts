@@ -39,7 +39,8 @@ function requireLineageKey<T extends string>(params: {
     | "appointment type"
     | "base schedule"
     | "location"
-    | "practitioner";
+    | "practitioner"
+    | "vacation";
   lineageKey: T | undefined;
   ruleSetId: Id<"ruleSets">;
 }): T {
@@ -576,6 +577,12 @@ export async function copyVacations(
     await db.insert("vacations", {
       createdAt: source.createdAt,
       date: source.date,
+      lineageKey: requireLineageKey({
+        entityId: source._id,
+        entityType: "vacation",
+        lineageKey: source.lineageKey,
+        ruleSetId: source.ruleSetId,
+      }),
       ...(mfaId ? { mfaId } : {}),
       portion: source.portion,
       practiceId,
