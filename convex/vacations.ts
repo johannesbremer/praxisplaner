@@ -22,6 +22,7 @@ const expectedDraftRevisionValidator = v.union(v.number(), v.null());
 
 const draftMutationResultValidator = v.object({
   draftRevision: v.number(),
+  entityId: v.optional(v.id("vacations")),
   ruleSetId: v.id("ruleSets"),
 });
 
@@ -79,7 +80,16 @@ async function resolveMfaIdInRuleSet(
 ): Promise<Id<"mfas">> {
   const mfa = await ctx.db.get("mfas", mfaId);
   if (!mfa) {
-    throw new Error("MFA nicht gefunden.");
+    const mapped = await ctx.db
+      .query("mfas")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q.eq("ruleSetId", ruleSetId).eq("lineageKey", mfaId),
+      )
+      .first();
+    if (mapped?.practiceId !== practiceId) {
+      throw new Error("MFA nicht gefunden.");
+    }
+    return mapped._id;
   }
   if (mfa.practiceId !== practiceId) {
     throw new Error("MFA gehört nicht zu dieser Praxis.");
@@ -111,7 +121,16 @@ async function resolvePractitionerIdInRuleSet(
 ): Promise<Id<"practitioners">> {
   const practitioner = await ctx.db.get("practitioners", practitionerId);
   if (!practitioner) {
-    throw new Error("Arzt nicht gefunden.");
+    const mapped = await ctx.db
+      .query("practitioners")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q.eq("ruleSetId", ruleSetId).eq("lineageKey", practitionerId),
+      )
+      .first();
+    if (mapped?.practiceId !== practiceId) {
+      throw new Error("Arzt nicht gefunden.");
+    }
+    return mapped._id;
   }
   if (practitioner.practiceId !== practiceId) {
     throw new Error("Arzt gehört nicht zu dieser Praxis.");
@@ -145,20 +164,30 @@ export const getVacationsInRange = query({
   },
   handler: async (ctx, args) => {
     await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
-    return await ctx.db
+    const vacations = await ctx.db
       .query("vacations")
       .withIndex("by_ruleSetId_date", (q) =>
         q.eq("ruleSetId", args.ruleSetId).gte("date", args.startDate),
       )
       .filter((q) => q.lt(q.field("date"), args.endDateExclusive))
       .collect();
+
+    return vacations.map((vacation) => ({
+      ...vacation,
+      lineageKey: requireVacationLineageKey(vacation),
+    }));
   },
 });
+
+function requireVacationLineageKey(vacation: Doc<"vacations">) {
+  return vacation.lineageKey ?? vacation._id;
+}
 
 export const createVacation = mutation({
   args: {
     date: v.string(),
     expectedDraftRevision: expectedDraftRevisionValidator,
+    lineageKey: v.optional(v.id("vacations")),
     mfaId: v.optional(v.id("mfas")),
     portion: vacationPortionValidator,
     practiceId: v.id("practices"),
@@ -185,6 +214,38 @@ export const createVacation = mutation({
       staffType: args.staffType,
     });
 
+    const existingByLineage = args.lineageKey
+      ? await ctx.db
+          .query("vacations")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+          )
+          .first()
+      : null;
+
+    if (existingByLineage) {
+      if (
+        existingByLineage.practiceId !== args.practiceId ||
+        existingByLineage.date !== args.date ||
+        existingByLineage.portion !== args.portion ||
+        existingByLineage.staffType !== args.staffType ||
+        (args.staffType === "practitioner"
+          ? existingByLineage.practitionerId !== resolved.practitionerId
+          : existingByLineage.mfaId !== resolved.mfaId)
+      ) {
+        throw new Error(
+          "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
+        );
+      }
+
+      const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+      return {
+        draftRevision,
+        entityId: existingByLineage._id,
+        ruleSetId,
+      };
+    }
+
     const existing = await ctx.db
       .query("vacations")
       .withIndex("by_ruleSetId_date", (q) =>
@@ -201,10 +262,29 @@ export const createVacation = mutation({
       )
       .first();
 
-    if (!existing) {
-      await ctx.db.insert("vacations", {
+    let entityId: Id<"vacations">;
+    if (existing) {
+      if (
+        args.lineageKey &&
+        existing.lineageKey &&
+        existing.lineageKey !== args.lineageKey
+      ) {
+        throw new Error(
+          "Urlaub für diesen Zeitraum existiert bereits mit anderer lineageKey.",
+        );
+      }
+      entityId = existing._id;
+      const lineageKey = args.lineageKey ?? existing._id;
+      if (existing.lineageKey !== lineageKey) {
+        await ctx.db.patch("vacations", existing._id, {
+          lineageKey,
+        });
+      }
+    } else {
+      entityId = await ctx.db.insert("vacations", {
         createdAt: BigInt(Date.now()),
         date: args.date,
+        ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
         ...(resolved.mfaId ? { mfaId: resolved.mfaId } : {}),
         portion: args.portion,
         practiceId: args.practiceId,
@@ -214,10 +294,13 @@ export const createVacation = mutation({
         ruleSetId,
         staffType: args.staffType,
       });
+      if (!args.lineageKey) {
+        await ctx.db.patch("vacations", entityId, { lineageKey: entityId });
+      }
     }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
-    return { draftRevision, ruleSetId };
+    return { draftRevision, entityId, ruleSetId };
   },
   returns: draftMutationResultValidator,
 });
@@ -226,6 +309,7 @@ export const deleteVacation = mutation({
   args: {
     date: v.string(),
     expectedDraftRevision: expectedDraftRevisionValidator,
+    lineageKey: v.optional(v.id("vacations")),
     mfaId: v.optional(v.id("mfas")),
     portion: vacationPortionValidator,
     practiceId: v.id("practices"),
@@ -252,28 +336,67 @@ export const deleteVacation = mutation({
       staffType: args.staffType,
     });
 
-    const existing = await ctx.db
-      .query("vacations")
-      .withIndex("by_ruleSetId_date", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("date", args.date),
-      )
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("staffType"), args.staffType),
-          q.eq(q.field("portion"), args.portion),
-          args.staffType === "practitioner"
-            ? q.eq(q.field("practitionerId"), resolved.practitionerId)
-            : q.eq(q.field("mfaId"), resolved.mfaId),
-        ),
-      )
-      .first();
+    const existingByLineage = args.lineageKey
+      ? await ctx.db
+          .query("vacations")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+          )
+          .first()
+      : null;
+
+    const existing =
+      existingByLineage ??
+      (args.lineageKey
+        ? null
+        : await ctx.db
+            .query("vacations")
+            .withIndex("by_ruleSetId_date", (q) =>
+              q.eq("ruleSetId", ruleSetId).eq("date", args.date),
+            )
+            .filter((q) =>
+              q.and(
+                q.eq(q.field("staffType"), args.staffType),
+                q.eq(q.field("portion"), args.portion),
+                args.staffType === "practitioner"
+                  ? q.eq(q.field("practitionerId"), resolved.practitionerId)
+                  : q.eq(q.field("mfaId"), resolved.mfaId),
+              ),
+            )
+            .first());
+
+    if (
+      existingByLineage &&
+      (existingByLineage.practiceId !== args.practiceId ||
+        existingByLineage.date !== args.date ||
+        existingByLineage.portion !== args.portion ||
+        existingByLineage.staffType !== args.staffType ||
+        (args.staffType === "practitioner"
+          ? existingByLineage.practitionerId !== resolved.practitionerId
+          : existingByLineage.mfaId !== resolved.mfaId))
+    ) {
+      throw new Error(
+        "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
+      );
+    }
+
+    const entityId = existing?._id;
 
     if (existing) {
+      if (!existing.lineageKey) {
+        await ctx.db.patch("vacations", existing._id, {
+          lineageKey: existing._id,
+        });
+      }
       await ctx.db.delete("vacations", existing._id);
     }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
-    return { draftRevision, ruleSetId };
+    return {
+      draftRevision,
+      ...(entityId ? { entityId } : {}),
+      ruleSetId,
+    };
   },
   returns: draftMutationResultValidator,
 });
@@ -291,10 +414,15 @@ export const getPractitionerVacationsForDate = query({
         q.eq("ruleSetId", args.ruleSetId).eq("date", args.date),
       )
       .collect();
-    return vacations.filter(
-      (vacation) =>
-        vacation.staffType === "practitioner" &&
-        getVacationStaffId(vacation) !== undefined,
-    );
+    return vacations
+      .filter(
+        (vacation) =>
+          vacation.staffType === "practitioner" &&
+          getVacationStaffId(vacation) !== undefined,
+      )
+      .map((vacation) => ({
+        ...vacation,
+        lineageKey: requireVacationLineageKey(vacation),
+      }));
   },
 });

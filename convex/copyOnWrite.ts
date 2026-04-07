@@ -576,6 +576,7 @@ export async function copyVacations(
     await db.insert("vacations", {
       createdAt: source.createdAt,
       date: source.date,
+      lineageKey: source.lineageKey ?? source._id,
       ...(mfaId ? { mfaId } : {}),
       portion: source.portion,
       practiceId,

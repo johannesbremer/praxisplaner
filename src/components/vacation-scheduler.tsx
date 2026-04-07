@@ -67,13 +67,30 @@ interface CreateMfaResult extends DraftMutationResult {
   entityId: Id<"mfas">;
 }
 
-interface StaffRow {
-  id: string;
-  kind: "mfa" | "practitioner";
-  name: string;
+type StaffRow =
+  | {
+      id: Id<"mfas">;
+      kind: "mfa";
+      lineageKey: Id<"mfas">;
+      name: string;
+    }
+  | {
+      id: Id<"practitioners">;
+      kind: "practitioner";
+      lineageKey: Id<"practitioners">;
+      name: string;
+    };
+
+interface VacationMutationResult extends DraftMutationResult {
+  entityId: Id<"vacations">;
 }
 
 type VacationPortion = "afternoon" | "full" | "morning";
+
+interface VacationReplaySnapshot {
+  lineageKey: Id<"vacations">;
+  portion: VacationPortion;
+}
 
 interface VacationSchedulerProps {
   editable: boolean;
@@ -242,6 +259,7 @@ export function VacationScheduler({
         .map((row) => ({
           id: row._id,
           kind: "practitioner" as const,
+          lineageKey: row.lineageKey,
           name: row.name,
         })),
     [practitioners],
@@ -254,6 +272,7 @@ export function VacationScheduler({
         .map((row) => ({
           id: row._id,
           kind: "mfa" as const,
+          lineageKey: row.lineageKey ?? row._id,
           name: row.name,
         })),
     [mfas],
@@ -345,25 +364,36 @@ export function VacationScheduler({
     return activePortions[0] ?? null;
   };
 
-  const getActivePortionsForCellFromRows = (
+  const getActiveVacationSnapshotsForCellFromRows = (
     vacationRows: NonNullable<typeof vacations>,
     staff: StaffRow,
     date: Temporal.PlainDate,
-  ): VacationPortion[] =>
-    ORDERED_PORTIONS.filter((portion) =>
-      vacationRows.some((vacation) => {
+  ): VacationReplaySnapshot[] =>
+    ORDERED_PORTIONS.flatMap((portion) => {
+      const vacation = vacationRows.find((candidate) => {
         const staffId =
-          vacation.staffType === "practitioner"
-            ? vacation.practitionerId
-            : vacation.mfaId;
+          candidate.staffType === "practitioner"
+            ? candidate.practitionerId
+            : candidate.mfaId;
         return (
-          vacation.staffType === staff.kind &&
+          candidate.staffType === staff.kind &&
           staffId === staff.id &&
-          vacation.date === date.toString() &&
-          vacation.portion === portion
+          candidate.date === date.toString() &&
+          candidate.portion === portion
         );
-      }),
-    );
+      });
+
+      if (!vacation) {
+        return [];
+      }
+
+      return [
+        {
+          lineageKey: vacation.lineageKey,
+          portion: vacation.portion,
+        },
+      ];
+    });
 
   const locationNameById = useMemo(
     () =>
@@ -482,18 +512,22 @@ export function VacationScheduler({
   const clearVacationsForDay = async (
     staff: StaffRow,
     date: Temporal.PlainDate,
-    portionsToClear?: VacationPortion[],
+    snapshotsToClear?: VacationReplaySnapshot[],
   ) => {
-    const activePortions =
-      portionsToClear ?? getActivePortionsForCell(staff, date);
+    const activeSnapshots =
+      snapshotsToClear ??
+      getActiveVacationSnapshotsForCellFromRows(
+        vacationsRef.current,
+        staff,
+        date,
+      );
 
-    for (const activePortion of activePortions) {
+    for (const snapshot of activeSnapshots) {
       const result = (await deleteVacation({
         date: date.toString(),
-        ...(staff.kind === "mfa"
-          ? { mfaId: staff.id as Id<"mfas"> }
-          : { practitionerId: staff.id as Id<"practitioners"> }),
-        portion: activePortion,
+        lineageKey: snapshot.lineageKey,
+        ...vacationStaffLineageMutationArgs(staff),
+        portion: snapshot.portion,
         practiceId,
         staffType: staff.kind,
         ...getCowMutationArgs(),
@@ -506,31 +540,37 @@ export function VacationScheduler({
     staff: StaffRow,
     date: Temporal.PlainDate,
     portions: VacationPortion[],
-    options?: { clearPortions?: VacationPortion[] },
-  ) => {
-    const currentPortions = getActivePortionsForCell(staff, date);
-    await clearVacationsForDay(
-      staff,
-      date,
-      options?.clearPortions
-        ? uniqueVacationPortions(options.clearPortions, currentPortions)
-        : undefined,
-    );
+    options?: {
+      clearSnapshots?: VacationReplaySnapshot[];
+      createSnapshots?: VacationReplaySnapshot[];
+    },
+  ): Promise<VacationReplaySnapshot[]> => {
+    await clearVacationsForDay(staff, date, options?.clearSnapshots);
 
-    let latestResult: DraftMutationResult | undefined;
+    const createdSnapshots: VacationReplaySnapshot[] = [];
     for (const portion of portions) {
-      latestResult = (await createVacation({
+      const existingSnapshot = options?.createSnapshots?.find(
+        (snapshot) => snapshot.portion === portion,
+      );
+      const result = (await createVacation({
         date: date.toString(),
-        ...(staff.kind === "mfa"
-          ? { mfaId: staff.id as Id<"mfas"> }
-          : { practitionerId: staff.id as Id<"practitioners"> }),
+        ...(existingSnapshot
+          ? { lineageKey: existingSnapshot.lineageKey }
+          : {}),
+        ...vacationStaffLineageMutationArgs(staff),
         portion,
         practiceId,
         staffType: staff.kind,
         ...getCowMutationArgs(),
-      })) as DraftMutationResult;
-      handleDraftMutationResult(latestResult);
+      })) as VacationMutationResult;
+      handleDraftMutationResult(result);
+      createdSnapshots.push({
+        lineageKey: result.entityId,
+        portion,
+      });
     }
+
+    return createdSnapshots;
   };
 
   const commitVacationChange = async (
@@ -539,30 +579,33 @@ export function VacationScheduler({
     nextPortions: VacationPortion[],
     label: string,
   ) => {
-    const previousPortions = getActivePortionsForCellFromRows(
+    const previousSnapshots = getActiveVacationSnapshotsForCellFromRows(
       vacationsRef.current,
       staff,
       date,
     );
-    const replayClearPortions = uniqueVacationPortions(
-      previousPortions,
-      nextPortions,
-    );
-    await setVacationsForDay(staff, date, nextPortions, {
-      clearPortions: replayClearPortions,
+    const nextSnapshots = await setVacationsForDay(staff, date, nextPortions, {
+      clearSnapshots: previousSnapshots,
     });
     onRegisterHistoryAction?.({
       label,
       redo: async () => {
         await setVacationsForDay(staff, date, nextPortions, {
-          clearPortions: replayClearPortions,
+          clearSnapshots: previousSnapshots,
+          createSnapshots: nextSnapshots,
         });
         return { status: "applied" as const };
       },
       undo: async () => {
-        await setVacationsForDay(staff, date, previousPortions, {
-          clearPortions: replayClearPortions,
-        });
+        await setVacationsForDay(
+          staff,
+          date,
+          previousSnapshots.map((snapshot) => snapshot.portion),
+          {
+            clearSnapshots: nextSnapshots,
+            createSnapshots: previousSnapshots,
+          },
+        );
         return { status: "applied" as const };
       },
     });
@@ -957,7 +1000,7 @@ export function VacationScheduler({
                             <Button
                               aria-label="MFA entfernen"
                               onClick={() => {
-                                void handleRemoveMfa(staff.id as Id<"mfas">);
+                                void handleRemoveMfa(staff.id);
                               }}
                               size="icon"
                               title="MFA entfernen"
@@ -1335,10 +1378,8 @@ function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return date.with({ day: 1 });
 }
 
-function uniqueVacationPortions(
-  ...portionGroups: VacationPortion[][]
-): VacationPortion[] {
-  return ORDERED_PORTIONS.filter((portion) =>
-    portionGroups.some((group) => group.includes(portion)),
-  );
+function vacationStaffLineageMutationArgs(staff: StaffRow) {
+  return staff.kind === "mfa"
+    ? { mfaId: staff.lineageKey }
+    : { practitionerId: staff.lineageKey };
 }
