@@ -521,13 +521,12 @@ function LogicView() {
     lastHistoryScopeRef.current = historyScopeKey;
   }, [clearRegelnHistoryAction, historyScopeKey]);
 
+  const isRegelnHistoryTab =
+    activeTab === "rule-management" || activeTab === "vacation-scheduler";
+
   const maybeDiscardEquivalentUnsavedRuleSet = useCallback(
     async (reason: "redo" | "undo") => {
-      if (
-        activeTab !== "rule-management" ||
-        !currentPractice ||
-        !unsavedRuleSet
-      ) {
+      if (!isRegelnHistoryTab || !currentPractice || !unsavedRuleSet) {
         return;
       }
 
@@ -554,10 +553,10 @@ function LogicView() {
       }
     },
     [
-      activeTab,
       captureError,
       currentPractice,
       discardUnsavedIfEquivalentMutation,
+      isRegelnHistoryTab,
       pushUrl,
       unsavedRuleSet,
     ],
@@ -599,7 +598,7 @@ function LogicView() {
 
   const regelnUndoRedoControls = useMemo(
     () =>
-      activeTab === "rule-management" &&
+      isRegelnHistoryTab &&
       (canUndoRegelnHistoryAction || canRedoRegelnHistoryAction)
         ? {
             canRedo: canRedoRegelnHistoryAction,
@@ -609,9 +608,9 @@ function LogicView() {
           }
         : null,
     [
-      activeTab,
       canRedoRegelnHistoryAction,
       canUndoRegelnHistoryAction,
+      isRegelnHistoryTab,
       runRegelnRedo,
       runRegelnUndo,
     ],
