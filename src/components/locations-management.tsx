@@ -84,8 +84,8 @@ export function LocationsManagement({
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
-  const createBaseScheduleMutation = useMutation(
-    api.entities.createBaseSchedule,
+  const createBaseScheduleBatchMutation = useMutation(
+    api.entities.createBaseScheduleBatch,
   );
   const locationsRef = useRef(locationsQuery ?? []);
   useEffect(() => {
@@ -296,7 +296,6 @@ export function LocationsManagement({
               dayOfWeek: schedule.dayOfWeek,
               endTime: schedule.endTime,
               lineageKey: schedule.lineageKey,
-              practitionerId: schedule.practitionerId,
               practitionerLineageKey: practitioner.lineageKey,
               startTime: schedule.startTime,
             });
@@ -392,30 +391,39 @@ export function LocationsManagement({
             handleDraftMutationResult(recreateResult);
             currentLocationId = recreateResult.entityId;
 
-            for (const schedule of deletedScheduleSnapshots) {
-              const existingByLineage = baseSchedulesRef.current.find(
-                (entry) => entry.lineageKey === schedule.lineageKey,
-              );
-              if (existingByLineage) {
-                continue;
-              }
-
-              const practitionerByLineage = practitionersRef.current.find(
-                (entry) => entry.lineageKey === schedule.practitionerLineageKey,
-              );
-              const practitionerIdForRestore =
-                practitionerByLineage?._id ?? schedule.practitionerId;
-
-              const scheduleResult = await createBaseScheduleMutation({
-                ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-                dayOfWeek: schedule.dayOfWeek,
-                endTime: schedule.endTime,
-                lineageKey: schedule.lineageKey,
-                locationId: currentLocationId,
+            const missingSchedules = deletedScheduleSnapshots.filter(
+              (schedule) =>
+                !baseSchedulesRef.current.some(
+                  (entry) => entry.lineageKey === schedule.lineageKey,
+                ),
+            );
+            if (missingSchedules.length > 0) {
+              const scheduleResult = await createBaseScheduleBatchMutation({
                 practiceId,
-                practitionerId: practitionerIdForRestore,
+                schedules: missingSchedules.map((schedule) => {
+                  const practitionerByLineage = practitionersRef.current.find(
+                    (entry) =>
+                      entry.lineageKey === schedule.practitionerLineageKey,
+                  );
+                  if (!practitionerByLineage) {
+                    throw new Error(
+                      `[HISTORY:LOCATION_DELETE_PRACTITIONER_LINEAGE_MISSING] Behandler mit lineageKey ${schedule.practitionerLineageKey} konnte nicht geladen werden.`,
+                    );
+                  }
+
+                  return {
+                    ...(schedule.breakTimes && {
+                      breakTimes: schedule.breakTimes,
+                    }),
+                    dayOfWeek: schedule.dayOfWeek,
+                    endTime: schedule.endTime,
+                    lineageKey: schedule.lineageKey,
+                    locationId: currentLocationId,
+                    practitionerId: practitionerByLineage._id,
+                    startTime: schedule.startTime,
+                  };
+                }),
                 ...getCowMutationArgs(),
-                startTime: schedule.startTime,
               });
               handleDraftMutationResult(scheduleResult);
             }

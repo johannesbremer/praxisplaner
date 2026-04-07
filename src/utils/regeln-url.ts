@@ -118,6 +118,7 @@ export function useRegelnUrl(options: {
     }
     void navigate({
       replace: false,
+      resetScroll: false,
       search: nextSearch,
       to: "/regeln",
     });

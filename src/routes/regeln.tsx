@@ -129,6 +129,8 @@ interface SaveDialogFormProps {
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+
 function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
   // URL is the source of truth. No local tab/date/patientType/ruleSet state.
@@ -150,6 +152,8 @@ function LogicView() {
   >(null);
   const [draftParentRuleSetIdOverride, setDraftParentRuleSetIdOverride] =
     useState<Id<"ruleSets"> | null>(null);
+  const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
+    useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
@@ -159,13 +163,16 @@ function LogicView() {
   const [isClearingSimulatedAppointments, setIsClearingSimulatedAppointments] =
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
+  const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,
     clear: clearRegelnHistoryAction,
     pushAction: pushRegelnHistoryAction,
     redo: redoRegelnHistoryAction,
+    redoDepth: redoRegelnHistoryDepth,
     undo: undoRegelnHistoryAction,
+    undoDepth: undoRegelnHistoryDepth,
   } = useLocalHistory();
 
   const registerRegelnHistoryAction = useCallback(
@@ -335,13 +342,37 @@ function LogicView() {
     if (!ruleSetsQuery || !currentPractice) {
       return;
     }
-    return ruleSetsQuery.map((rs) => ({
+    const ruleSets = ruleSetsQuery.map((rs) => ({
       _id: rs._id,
       description: rs.description,
       isActive: currentPractice.currentActiveRuleSetId === rs._id,
       version: rs.version,
     }));
-  }, [ruleSetsQuery, currentPractice]);
+
+    if (
+      unsavedRuleSetId &&
+      discardingUnsavedRuleSetIdRef.current !== unsavedRuleSetId &&
+      !ruleSets.some((rs) => rs._id === unsavedRuleSetId)
+    ) {
+      const parentRuleSet = draftParentRuleSetIdOverride
+        ? ruleSetsQuery.find((rs) => rs._id === draftParentRuleSetIdOverride)
+        : undefined;
+
+      ruleSets.push({
+        _id: unsavedRuleSetId,
+        description: UNSAVED_RULE_SET_DESCRIPTION,
+        isActive: currentPractice.currentActiveRuleSetId === unsavedRuleSetId,
+        version: (parentRuleSet?.version ?? 0) + 1,
+      });
+    }
+
+    return ruleSets;
+  }, [
+    currentPractice,
+    draftParentRuleSetIdOverride,
+    ruleSetsQuery,
+    unsavedRuleSetId,
+  ]);
 
   // Mutations
   const activateRuleSetMutation = useMutation(api.ruleSets.setActiveRuleSet);
@@ -350,27 +381,119 @@ function LogicView() {
   );
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
-  );
-  const discardUnsavedIfEquivalentMutation = useMutation(
+  ).withOptimisticUpdate((localStore, args) => {
+    const queryArgs = { practiceId: args.practiceId };
+
+    const allRuleSets = localStore.getQuery(
+      api.ruleSets.getAllRuleSets,
+      queryArgs,
+    );
+    if (allRuleSets !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getAllRuleSets,
+        queryArgs,
+        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
+      );
+    }
+
+    const unsavedRuleSet = localStore.getQuery(
+      api.ruleSets.getUnsavedRuleSet,
+      queryArgs,
+    );
+    if (unsavedRuleSet?._id === args.ruleSetId) {
+      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
+    }
+
+    const versionHistory = localStore.getQuery(
+      api.ruleSets.getVersionHistory,
+      queryArgs,
+    );
+    if (versionHistory !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getVersionHistory,
+        queryArgs,
+        versionHistory.filter((version) => version.id !== args.ruleSetId),
+      );
+    }
+  });
+  const discardEquivalentUnsavedRuleSetMutation = useMutation(
     api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
-  );
+  ).withOptimisticUpdate((localStore, args) => {
+    const queryArgs = { practiceId: args.practiceId };
+
+    const allRuleSets = localStore.getQuery(
+      api.ruleSets.getAllRuleSets,
+      queryArgs,
+    );
+    if (allRuleSets !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getAllRuleSets,
+        queryArgs,
+        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
+      );
+    }
+
+    const unsavedRuleSet = localStore.getQuery(
+      api.ruleSets.getUnsavedRuleSet,
+      queryArgs,
+    );
+    if (unsavedRuleSet?._id === args.ruleSetId) {
+      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
+    }
+
+    const versionHistory = localStore.getQuery(
+      api.ruleSets.getVersionHistory,
+      queryArgs,
+    );
+    if (versionHistory !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getVersionHistory,
+        queryArgs,
+        versionHistory.filter((version) => version.id !== args.ruleSetId),
+      );
+    }
+  });
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
 
   // Find any existing unsaved rule set (not active and no explicit selection)
   const existingUnsavedRuleSet = ruleSetsWithActive?.find(
-    (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen",
+    (rs) => !rs.isActive && rs.description === UNSAVED_RULE_SET_DESCRIPTION,
   );
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
+    if (
+      unsavedRuleSetId &&
+      discardingUnsavedRuleSetIdRef.current === unsavedRuleSetId
+    ) {
+      return;
+    }
+
     const rawUnsaved = unsavedRuleSetId
       ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
       : undefined;
-    if (!rawUnsaved || !currentPractice) {
+    if (!currentPractice) {
       return;
     }
+    if (!rawUnsaved) {
+      if (!unsavedRuleSetId || !draftParentRuleSetIdOverride) {
+        return;
+      }
+      const parentRuleSet = ruleSetsQuery?.find(
+        (rs) => rs._id === draftParentRuleSetIdOverride,
+      );
+      return {
+        _id: unsavedRuleSetId,
+        description: UNSAVED_RULE_SET_DESCRIPTION,
+        draftRevision: draftRevisionOverride ?? 0,
+        isActive: currentPractice.currentActiveRuleSetId === unsavedRuleSetId,
+        parentVersion: draftParentRuleSetIdOverride,
+        version: (parentRuleSet?.version ?? 0) + 1,
+      };
+    }
+
     return {
       _id: rawUnsaved._id,
       description: rawUnsaved.description,
@@ -379,7 +502,13 @@ function LogicView() {
       parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
-  }, [ruleSetsQuery, unsavedRuleSetId, currentPractice]);
+  }, [
+    currentPractice,
+    draftParentRuleSetIdOverride,
+    draftRevisionOverride,
+    ruleSetsQuery,
+    unsavedRuleSetId,
+  ]);
 
   // Get the search params directly to determine which rule set to use
   const routeSearch: RegelnSearchParams = Route.useSearch();
@@ -439,6 +568,12 @@ function LogicView() {
     () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
+  const isShowingUnsavedRuleSet =
+    Boolean(unsavedRuleSet) &&
+    currentWorkingRuleSet?._id === unsavedRuleSet?._id;
+  const hasBlockingUnsavedChanges = Boolean(
+    unsavedRuleSet && !isDraftEquivalentToParent,
+  );
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
     if (
       unsavedRuleSetId &&
@@ -479,6 +614,7 @@ function LogicView() {
     if (!unsavedRuleSet) {
       setDraftRevisionOverride(null);
       setDraftParentRuleSetIdOverride(null);
+      setIsDraftEquivalentToParent(false);
       return;
     }
     setDraftRevisionOverride(unsavedRuleSet.draftRevision);
@@ -524,48 +660,31 @@ function LogicView() {
   const isRegelnHistoryTab =
     activeTab === "rule-management" || activeTab === "vacation-scheduler";
 
-  const maybeDiscardEquivalentUnsavedRuleSet = useCallback(
-    async (reason: "redo" | "undo") => {
-      if (!isRegelnHistoryTab || !currentPractice || !unsavedRuleSet) {
-        return;
-      }
-
-      try {
-        const discardResult = await discardUnsavedIfEquivalentMutation({
-          practiceId: currentPractice._id,
-          ruleSetId: unsavedRuleSet._id,
-        });
-
-        if (!discardResult.deleted || !discardResult.parentRuleSetId) {
-          return;
-        }
-
-        setUnsavedRuleSetId(null);
-        setDraftRevisionOverride(null);
-        setDraftParentRuleSetIdOverride(null);
-        pushUrl({ ruleSetId: discardResult.parentRuleSetId });
-      } catch (error: unknown) {
-        captureError(error, {
-          context: `ruleset_auto_discard_after_${reason}`,
-          practiceId: currentPractice._id,
-          ruleSetId: unsavedRuleSet._id,
-        });
-      }
-    },
-    [
-      captureError,
-      currentPractice,
-      discardUnsavedIfEquivalentMutation,
-      isRegelnHistoryTab,
-      pushUrl,
-      unsavedRuleSet,
-    ],
-  );
-
   const runRegelnUndo = useCallback(async () => {
+    if (!currentPractice) {
+      toast.info("Keine rückgängig machbare Änderung vorhanden.");
+      return;
+    }
+
+    const optimisticallySelectedParentRuleSetId =
+      isRegelnHistoryTab &&
+      undoRegelnHistoryDepth === 1 &&
+      ruleSetIdFromUrl === unsavedRuleSet?._id
+        ? unsavedRuleSet?.parentVersion
+        : undefined;
+
+    if (optimisticallySelectedParentRuleSetId) {
+      setIsDraftEquivalentToParent(true);
+      pushUrl({ ruleSetId: optimisticallySelectedParentRuleSetId });
+    }
+
     const result = await undoRegelnHistoryAction();
 
     if (result.status === "conflict") {
+      if (optimisticallySelectedParentRuleSetId && unsavedRuleSet) {
+        setIsDraftEquivalentToParent(false);
+        pushUrl({ ruleSetId: unsavedRuleSet._id });
+      }
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
         description: result.message,
       });
@@ -573,16 +692,90 @@ function LogicView() {
     }
     if (result.status === "applied") {
       toast.success("Änderung rückgängig gemacht");
-      await maybeDiscardEquivalentUnsavedRuleSet("undo");
+      if (
+        !result.canUndoAfter &&
+        isRegelnHistoryTab &&
+        unsavedRuleSet?.parentVersion
+      ) {
+        const draftToDiscard = unsavedRuleSet;
+        const parentRuleSetId = unsavedRuleSet.parentVersion;
+        discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
+        setUnsavedRuleSetId(null);
+        setIsDraftEquivalentToParent(false);
+        setDraftRevisionOverride(null);
+        setDraftParentRuleSetIdOverride(null);
+        pushUrl({ ruleSetId: parentRuleSetId });
+
+        try {
+          const discardResult = await discardEquivalentUnsavedRuleSetMutation({
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDiscard._id,
+          });
+
+          if (!discardResult.deleted) {
+            discardingUnsavedRuleSetIdRef.current = null;
+            setUnsavedRuleSetId(draftToDiscard._id);
+            setDraftRevisionOverride(draftToDiscard.draftRevision);
+            setDraftParentRuleSetIdOverride(parentRuleSetId);
+            setIsDraftEquivalentToParent(false);
+            pushUrl({ ruleSetId: draftToDiscard._id });
+          }
+        } catch (error: unknown) {
+          discardingUnsavedRuleSetIdRef.current = null;
+          setUnsavedRuleSetId(draftToDiscard._id);
+          setDraftRevisionOverride(draftToDiscard.draftRevision);
+          setDraftParentRuleSetIdOverride(parentRuleSetId);
+          setIsDraftEquivalentToParent(false);
+          pushUrl({ ruleSetId: draftToDiscard._id });
+          captureError(error, {
+            context: "discard_equivalent_draft_after_final_undo",
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDiscard._id,
+          });
+        } finally {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDiscard._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
+        }
+      }
       return;
     }
     toast.info("Keine rückgängig machbare Änderung vorhanden.");
-  }, [maybeDiscardEquivalentUnsavedRuleSet, undoRegelnHistoryAction]);
+  }, [
+    isRegelnHistoryTab,
+    pushUrl,
+    ruleSetIdFromUrl,
+    captureError,
+    currentPractice,
+    discardEquivalentUnsavedRuleSetMutation,
+    undoRegelnHistoryAction,
+    undoRegelnHistoryDepth,
+    unsavedRuleSet,
+  ]);
 
   const runRegelnRedo = useCallback(async () => {
+    const previousRuleSetId = ruleSetIdFromUrl;
+    setIsDraftEquivalentToParent(false);
+    const shouldRestorePreviousRuleSet =
+      previousRuleSetId !== undefined &&
+      unsavedRuleSet !== undefined &&
+      previousRuleSetId !== unsavedRuleSet._id;
+    if (
+      isRegelnHistoryTab &&
+      redoRegelnHistoryDepth > 0 &&
+      unsavedRuleSet &&
+      ruleSetIdFromUrl !== unsavedRuleSet._id
+    ) {
+      pushUrl({ ruleSetId: unsavedRuleSet._id });
+    }
+
     const result = await redoRegelnHistoryAction();
 
     if (result.status === "conflict") {
+      if (shouldRestorePreviousRuleSet) {
+        setIsDraftEquivalentToParent(true);
+        pushUrl({ ruleSetId: previousRuleSetId });
+      }
       toast.error("Änderung konnte nicht wiederhergestellt werden", {
         description: result.message,
       });
@@ -590,11 +783,21 @@ function LogicView() {
     }
     if (result.status === "applied") {
       toast.success("Änderung wiederhergestellt");
-      await maybeDiscardEquivalentUnsavedRuleSet("redo");
       return;
     }
+    if (shouldRestorePreviousRuleSet) {
+      setIsDraftEquivalentToParent(true);
+      pushUrl({ ruleSetId: previousRuleSetId });
+    }
     toast.info("Keine wiederherstellbare Änderung vorhanden.");
-  }, [maybeDiscardEquivalentUnsavedRuleSet, redoRegelnHistoryAction]);
+  }, [
+    isRegelnHistoryTab,
+    pushUrl,
+    redoRegelnHistoryAction,
+    redoRegelnHistoryDepth,
+    ruleSetIdFromUrl,
+    unsavedRuleSet,
+  ]);
 
   const regelnUndoRedoControls = useMemo(
     () =>
@@ -640,6 +843,7 @@ function LogicView() {
   const handleDraftMutation = useCallback(
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
+      setIsDraftEquivalentToParent(false);
       setDraftRevisionOverride(result.draftRevision);
       if (ruleSetReplayTarget?.parentRuleSetId) {
         setDraftParentRuleSetIdOverride(ruleSetReplayTarget.parentRuleSetId);
@@ -798,7 +1002,7 @@ function LogicView() {
       const versionId = version.hash as Id<"ruleSets">;
 
       // If we have unsaved changes and the target is not the unsaved draft, show save dialog
-      if (unsavedRuleSet && versionId !== unsavedRuleSet._id) {
+      if (hasBlockingUnsavedChanges && versionId !== unsavedRuleSet?._id) {
         setPendingRuleSetId(versionId);
         setActivationName("");
         setIsSaveDialogOpen(true);
@@ -810,7 +1014,7 @@ function LogicView() {
       setDraftParentRuleSetIdOverride(null);
       pushUrl({ ruleSetId: versionId });
     },
-    [currentPractice, unsavedRuleSet, pushUrl],
+    [currentPractice, hasBlockingUnsavedChanges, pushUrl, unsavedRuleSet],
   );
 
   // Show loading state if practice is being initialized
@@ -875,6 +1079,7 @@ function LogicView() {
       setIsSaveDialogOpen(false);
       setActivationName("");
       setUnsavedRuleSetId(null); // Clear unsaved state
+      setIsDraftEquivalentToParent(false);
       setDraftRevisionOverride(null);
       setDraftParentRuleSetIdOverride(null);
 
@@ -930,6 +1135,7 @@ function LogicView() {
         // If it's already saved, there's nothing to do
 
         setUnsavedRuleSetId(null);
+        setIsDraftEquivalentToParent(false);
         setDraftRevisionOverride(null);
         setDraftParentRuleSetIdOverride(null);
         setPendingRuleSetId(undefined);
@@ -968,36 +1174,54 @@ function LogicView() {
 
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {
-      // Delete the unsaved rule set from the database
+      const draftToDelete = unsavedRuleSet;
+      const targetRuleSetId = pendingRuleSetId ?? activeRuleSet?._id;
+
       void (async () => {
         try {
-          await deleteUnsavedRuleSetMutation({
-            practiceId: currentPractice._id,
-            ruleSetId: unsavedRuleSet._id,
-          });
-
+          discardingUnsavedRuleSetIdRef.current = draftToDelete._id;
           setUnsavedRuleSetId(null);
+          setIsDraftEquivalentToParent(false);
           setDraftRevisionOverride(null);
           setDraftParentRuleSetIdOverride(null);
+          pushUrl({ ruleSetId: targetRuleSetId });
 
-          // Navigate to target (pending or active)
-          pushUrl({ ruleSetId: pendingRuleSetId });
+          await deleteUnsavedRuleSetMutation({
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDelete._id,
+          });
+
           setPendingRuleSetId(undefined);
-
           setIsSaveDialogOpen(false);
           setActivationName("");
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
+          setUnsavedRuleSetId(draftToDelete._id);
+          setDraftRevisionOverride(draftToDelete.draftRevision);
+          if (draftToDelete.parentVersion) {
+            setDraftParentRuleSetIdOverride(draftToDelete.parentVersion);
+          } else {
+            setDraftParentRuleSetIdOverride(null);
+          }
+          pushUrl({ ruleSetId: draftToDelete._id });
+
           captureError(error, {
             context: "discard_changes",
             practiceId: currentPractice._id,
-            ruleSetId: unsavedRuleSet._id,
+            ruleSetId: draftToDelete._id,
           });
 
           toast.error("Fehler beim Verwerfen der Änderungen", {
             description:
               error instanceof Error ? error.message : "Unbekannter Fehler",
           });
+        } finally {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
         }
       })();
     }
@@ -1011,29 +1235,28 @@ function LogicView() {
         </h1>
       </div>
 
-      {currentWorkingRuleSet &&
-        unsavedRuleSet?._id === currentWorkingRuleSet._id && (
-          <div className="sticky top-3 z-40 mb-6">
-            <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-foreground">
-                  Ungespeicherte Änderungen
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Dieses Regelset enthält Änderungen, die noch nicht gespeichert
-                  wurden.
-                </div>
+      {currentWorkingRuleSet && isShowingUnsavedRuleSet && (
+        <div className="sticky top-3 z-40 mb-6">
+          <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-foreground">
+                Ungespeicherte Änderungen
               </div>
-              <Button
-                className="shrink-0"
-                onClick={handleOpenSaveDialog}
-                size="sm"
-              >
-                Speichern
-              </Button>
+              <div className="text-sm text-muted-foreground">
+                Dieses Regelset enthält Änderungen, die noch nicht gespeichert
+                wurden.
+              </div>
             </div>
+            <Button
+              className="shrink-0"
+              onClick={handleOpenSaveDialog}
+              size="sm"
+            >
+              Speichern
+            </Button>
           </div>
-        )}
+        </div>
+      )}
 
       {/* Page-level Tabs */}
       <ClientOnly fallback={<div />}>
@@ -1077,15 +1300,15 @@ function LogicView() {
                           <div className="border rounded-lg p-4">
                             <VersionGraph
                               onVersionClick={handleVersionClick}
-                              {...((unsavedRuleSetId || ruleSetIdFromUrl) && {
-                                selectedVersionId: (unsavedRuleSetId ||
-                                  ruleSetIdFromUrl) as string,
+                              {...((ruleSetIdFromUrl || unsavedRuleSetId) && {
+                                selectedVersionId: (ruleSetIdFromUrl ||
+                                  unsavedRuleSetId) as string,
                               })}
                               versions={versionsQuery}
                             />
                           </div>
                           {/* Show current state indicator */}
-                          {unsavedRuleSet && (
+                          {isShowingUnsavedRuleSet && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Badge className="text-xs" variant="secondary">
                                 Ungespeicherte Änderungen
@@ -1098,7 +1321,7 @@ function LogicView() {
 
                       <div className="flex gap-2">
                         {/* Show save button when we have an unsaved rule set or when creating the first one */}
-                        {(unsavedRuleSet ??
+                        {(isShowingUnsavedRuleSet ||
                           (ruleSetsQuery?.length === 0 &&
                             currentWorkingRuleSet)) && (
                           <Button
@@ -1112,7 +1335,7 @@ function LogicView() {
 
                         {/* Show activate button when a different rule set is selected and there are no unsaved changes */}
                         {selectedRuleSet &&
-                          !unsavedRuleSet &&
+                          !hasBlockingUnsavedChanges &&
                           !selectedRuleSet.isActive && (
                             <Button
                               onClick={() =>
@@ -1223,7 +1446,10 @@ function LogicView() {
                   }}
                   onSimulationRuleSetChange={(id) => {
                     // If unsaved exists and target is not the unsaved id, show save dialog
-                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
+                    if (
+                      hasBlockingUnsavedChanges &&
+                      id !== unsavedRuleSet?._id
+                    ) {
                       setPendingRuleSetId(id);
                       setActivationName("");
                       setIsSaveDialogOpen(true);
@@ -1250,7 +1476,7 @@ function LogicView() {
                         <CardTitle>
                           {currentWorkingRuleSet ? (
                             <>
-                              {unsavedRuleSet ? (
+                              {isShowingUnsavedRuleSet ? (
                                 <>
                                   Regeln in{" "}
                                   <Badge className="ml-2" variant="secondary">
@@ -1345,7 +1571,10 @@ function LogicView() {
                     });
                   }}
                   onSimulationRuleSetChange={(id) => {
-                    if (unsavedRuleSet && id !== unsavedRuleSet._id) {
+                    if (
+                      hasBlockingUnsavedChanges &&
+                      id !== unsavedRuleSet?._id
+                    ) {
                       setPendingRuleSetId(id);
                       setActivationName("");
                       setIsSaveDialogOpen(true);
