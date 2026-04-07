@@ -408,6 +408,16 @@ async function resolvePractitionerIdInRuleSet(
 ): Promise<Id<"practitioners">> {
   const practitionerEntity = await db.get("practitioners", practitionerId);
   if (!practitionerEntity) {
+    const practitionerCopy = await db
+      .query("practitioners")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q.eq("ruleSetId", ruleSetId).eq("lineageKey", practitionerId),
+      )
+      .first();
+    if (practitionerCopy?.practiceId === practiceId) {
+      return practitionerCopy._id;
+    }
+
     throw new Error(
       `[LINEAGE:PRACTITIONER_SOURCE_NOT_FOUND] Behandler ${practitionerId} konnte nicht geladen werden. ` +
         "Die Änderung referenziert vermutlich eine veraltete ID oder einen nicht mehr verfügbaren Herkunftsdatensatz.",
