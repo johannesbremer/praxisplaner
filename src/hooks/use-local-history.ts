@@ -23,6 +23,8 @@ interface LocalHistoryState {
   canRedo: boolean;
   canUndo: boolean;
   isRunning: boolean;
+  redoDepth: number;
+  undoDepth: number;
 }
 
 interface UseLocalHistoryOptions {
@@ -44,6 +46,8 @@ const DEFAULT_STATE: LocalHistoryState = {
   canRedo: false,
   canUndo: false,
   isRunning: false,
+  redoDepth: 0,
+  undoDepth: 0,
 };
 
 const EMPTY_OPTIONS: UseLocalHistoryOptions = {};
@@ -69,6 +73,8 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
       canRedo: redoRef.current.length > 0,
       canUndo: historyRef.current.length > 0,
       isRunning: queuedOperationCountRef.current > 0,
+      redoDepth: redoRef.current.length,
+      undoDepth: historyRef.current.length,
     });
   }, []);
 
@@ -176,7 +182,9 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
     isRunning: state.isRunning,
     pushAction,
     redo,
+    redoDepth: state.redoDepth,
     undo,
+    undoDepth: state.undoDepth,
   };
 }
 
