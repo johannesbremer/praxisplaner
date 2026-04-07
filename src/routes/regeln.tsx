@@ -163,6 +163,7 @@ function LogicView() {
   const [isClearingSimulatedAppointments, setIsClearingSimulatedAppointments] =
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
+  const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,
@@ -350,6 +351,7 @@ function LogicView() {
 
     if (
       unsavedRuleSetId &&
+      discardingUnsavedRuleSetIdRef.current !== unsavedRuleSetId &&
       !ruleSets.some((rs) => rs._id === unsavedRuleSetId)
     ) {
       const parentRuleSet = draftParentRuleSetIdOverride
@@ -379,7 +381,41 @@ function LogicView() {
   );
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
-  );
+  ).withOptimisticUpdate((localStore, args) => {
+    const queryArgs = { practiceId: args.practiceId };
+
+    const allRuleSets = localStore.getQuery(
+      api.ruleSets.getAllRuleSets,
+      queryArgs,
+    );
+    if (allRuleSets !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getAllRuleSets,
+        queryArgs,
+        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
+      );
+    }
+
+    const unsavedRuleSet = localStore.getQuery(
+      api.ruleSets.getUnsavedRuleSet,
+      queryArgs,
+    );
+    if (unsavedRuleSet?._id === args.ruleSetId) {
+      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
+    }
+
+    const versionHistory = localStore.getQuery(
+      api.ruleSets.getVersionHistory,
+      queryArgs,
+    );
+    if (versionHistory !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getVersionHistory,
+        queryArgs,
+        versionHistory.filter((version) => version.id !== args.ruleSetId),
+      );
+    }
+  });
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -391,6 +427,13 @@ function LogicView() {
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
+    if (
+      unsavedRuleSetId &&
+      discardingUnsavedRuleSetIdRef.current === unsavedRuleSetId
+    ) {
+      return;
+    }
+
     const rawUnsaved = unsavedRuleSetId
       ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
       : undefined;
@@ -1048,37 +1091,54 @@ function LogicView() {
 
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {
-      // Delete the unsaved rule set from the database
+      const draftToDelete = unsavedRuleSet;
+      const targetRuleSetId = pendingRuleSetId ?? activeRuleSet?._id;
+
       void (async () => {
         try {
-          await deleteUnsavedRuleSetMutation({
-            practiceId: currentPractice._id,
-            ruleSetId: unsavedRuleSet._id,
-          });
-
+          discardingUnsavedRuleSetIdRef.current = draftToDelete._id;
           setUnsavedRuleSetId(null);
           setIsDraftEquivalentToParent(false);
           setDraftRevisionOverride(null);
           setDraftParentRuleSetIdOverride(null);
+          pushUrl({ ruleSetId: targetRuleSetId });
 
-          // Navigate to target (pending or active)
-          pushUrl({ ruleSetId: pendingRuleSetId });
+          await deleteUnsavedRuleSetMutation({
+            practiceId: currentPractice._id,
+            ruleSetId: draftToDelete._id,
+          });
+
           setPendingRuleSetId(undefined);
-
           setIsSaveDialogOpen(false);
           setActivationName("");
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
+          setUnsavedRuleSetId(draftToDelete._id);
+          setDraftRevisionOverride(draftToDelete.draftRevision);
+          if (draftToDelete.parentVersion) {
+            setDraftParentRuleSetIdOverride(draftToDelete.parentVersion);
+          } else {
+            setDraftParentRuleSetIdOverride(null);
+          }
+          pushUrl({ ruleSetId: draftToDelete._id });
+
           captureError(error, {
             context: "discard_changes",
             practiceId: currentPractice._id,
-            ruleSetId: unsavedRuleSet._id,
+            ruleSetId: draftToDelete._id,
           });
 
           toast.error("Fehler beim Verwerfen der Änderungen", {
             description:
               error instanceof Error ? error.message : "Unbekannter Fehler",
           });
+        } finally {
+          if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
+            discardingUnsavedRuleSetIdRef.current = null;
+          }
         }
       })();
     }
