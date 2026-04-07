@@ -180,7 +180,12 @@ export const getVacationsInRange = query({
 });
 
 function requireVacationLineageKey(vacation: Doc<"vacations">) {
-  return vacation.lineageKey ?? vacation._id;
+  if (!vacation.lineageKey) {
+    throw new Error(
+      `[INVARIANT:VACATION_LINEAGE_KEY_MISSING] Urlaub ${vacation._id} in Regelset ${vacation.ruleSetId} hat keinen lineageKey.`,
+    );
+  }
+  return vacation.lineageKey;
 }
 
 export const createVacation = mutation({
@@ -274,7 +279,7 @@ export const createVacation = mutation({
         );
       }
       entityId = existing._id;
-      const lineageKey = args.lineageKey ?? existing._id;
+      const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
       if (existing.lineageKey !== lineageKey) {
         await ctx.db.patch("vacations", existing._id, {
           lineageKey,
@@ -383,11 +388,7 @@ export const deleteVacation = mutation({
     const entityId = existing?._id;
 
     if (existing) {
-      if (!existing.lineageKey) {
-        await ctx.db.patch("vacations", existing._id, {
-          lineageKey: existing._id,
-        });
-      }
+      requireVacationLineageKey(existing);
       await ctx.db.delete("vacations", existing._id);
     }
 
