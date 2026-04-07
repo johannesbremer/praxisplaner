@@ -954,7 +954,6 @@ function BaseScheduleDialog({
     }
   };
 
-  const createScheduleMutation = useMutation(api.entities.createBaseSchedule);
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
   );
@@ -1066,35 +1065,58 @@ function BaseScheduleDialog({
             handleDraftMutationResult(deleteResult);
           }
 
-          // Create new schedules for each selected day
-          for (const dayOfWeek of selectedDays) {
-            const createData: ReturnType<typeof getCowMutationArgs> & {
-              breakTimes?: { end: string; start: string }[];
-              dayOfWeek: number;
-              endTime: string;
-              locationId: Id<"locations">;
-              practiceId: Id<"practices">;
-              practitionerId: Id<"practitioners">;
-              startTime: string;
-            } = {
+          const batchSchedules: BatchCreateScheduleInput[] = selectedDays.map(
+            (dayOfWeek) => ({
+              ...(value.breakTimes.length > 0
+                ? { breakTimes: value.breakTimes }
+                : {}),
               dayOfWeek,
               endTime: value.endTime,
               locationId: value.locationId as Id<"locations">,
-              practiceId,
               practitionerId: schedule.practitionerId,
               startTime: value.startTime,
-              ...getCowMutationArgs(),
-            };
+            }),
+          );
+          const batchResult = await createScheduleBatchMutation({
+            practiceId,
+            schedules: batchSchedules,
+            ...getCowMutationArgs(),
+          });
+          handleDraftMutationResult(batchResult);
 
-            if (value.breakTimes.length > 0) {
-              createData.breakTimes = value.breakTimes;
+          if (batchResult.createdScheduleIds.length !== batchSchedules.length) {
+            const error = new Error(
+              "Erstellte Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
+            );
+            captureError(error, {
+              context: "base_schedule_batch_update_mapping_count_mismatch",
+              createdScheduleCount: batchResult.createdScheduleIds.length,
+              practiceId,
+              requestedScheduleCount: batchSchedules.length,
+            });
+            toast.error(error.message);
+            return;
+          }
+
+          for (const [index, createData] of batchSchedules.entries()) {
+            const createdEntityId = batchResult.createdScheduleIds[index];
+            if (!createdEntityId) {
+              const error = new Error(
+                "Erstellte Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
+              );
+              captureError(error, {
+                context: "base_schedule_batch_update_mapping",
+                createdScheduleCount: batchResult.createdScheduleIds.length,
+                practiceId,
+                requestedScheduleCount: batchSchedules.length,
+              });
+              toast.error(error.message);
+              return;
             }
 
-            const result = await createScheduleMutation(createData);
-            handleDraftMutationResult(result);
             const createdPayload = toCreatedSchedulePayload(
               createData,
-              result.entityId,
+              createdEntityId,
               practitionerLineageByIdAtSubmitStart,
               locationLineageByIdAtSubmitStart,
             ).match(
@@ -1112,7 +1134,7 @@ function BaseScheduleDialog({
               return;
             }
             createdSchedulePayloads.push(createdPayload);
-            createdScheduleIds.push(result.entityId);
+            createdScheduleIds.push(createdEntityId);
           }
 
           toast.success(

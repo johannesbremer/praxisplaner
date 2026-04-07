@@ -2911,9 +2911,9 @@ describe("Rule Engine: Real-World Scenarios", () => {
 // ================================
 
 /**
- * Helper to create a base schedule for testing slot generation.
+ * Helper to insert a base schedule for testing slot generation.
  */
-async function createBaseSchedule(
+async function insertBaseSchedule(
   t: TestContext,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
@@ -2962,7 +2962,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create base schedule: Monday-Friday 9am-5pm
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3034,7 +3034,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create base schedules for Monday and Tuesday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3042,7 +3042,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     ); // Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3108,7 +3108,7 @@ describe("E2E: Slot Generation with Rules", () => {
       [practitionerId],
     );
 
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3203,7 +3203,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for both practitioners on Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3211,7 +3211,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     );
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3298,7 +3298,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for Monday and Tuesday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3306,7 +3306,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     ); // Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3436,7 +3436,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for both practitioners at both locations on Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3444,8 +3444,8 @@ describe("E2E: Slot Generation with Rules", () => {
       mainOfficeId,
       1,
     );
-    await createBaseSchedule(t, practiceId, ruleSetId, drSmithId, branchId, 1);
-    await createBaseSchedule(
+    await insertBaseSchedule(t, practiceId, ruleSetId, drSmithId, branchId, 1);
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3600,7 +3600,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedule for Mondays, Thursdays, and Fridays
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3608,7 +3608,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     ); // Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3616,7 +3616,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       4,
     ); // Thursday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3709,7 +3709,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for Monday and Tuesday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3717,7 +3717,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     ); // Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3839,7 +3839,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedule for Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3942,7 +3942,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for Monday at both locations with both doctors
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3950,8 +3950,8 @@ describe("E2E: Slot Generation with Rules", () => {
       mainOfficeId,
       1,
     );
-    await createBaseSchedule(t, practiceId, ruleSetId, drSmithId, branchId, 1);
-    await createBaseSchedule(
+    await insertBaseSchedule(t, practiceId, ruleSetId, drSmithId, branchId, 1);
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -3959,7 +3959,7 @@ describe("E2E: Slot Generation with Rules", () => {
       mainOfficeId,
       1,
     );
-    await createBaseSchedule(t, practiceId, ruleSetId, drJonesId, branchId, 1);
+    await insertBaseSchedule(t, practiceId, ruleSetId, drJonesId, branchId, 1);
 
     // Create rule: Block if Monday AND Dr. Smith AND NOT Main Office
     const conditionTree = {
@@ -4076,7 +4076,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for both practitioners on Thursdays
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -4084,7 +4084,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       4,
     ); // Thursday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -4229,7 +4229,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for next Monday (Oct 27) and following Monday (Nov 3)
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -4237,7 +4237,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     );
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -4376,7 +4376,7 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Create schedules for Monday and Friday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,
@@ -4384,7 +4384,7 @@ describe("E2E: Slot Generation with Rules", () => {
       locationId,
       1,
     ); // Monday
-    await createBaseSchedule(
+    await insertBaseSchedule(
       t,
       practiceId,
       ruleSetId,

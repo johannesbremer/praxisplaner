@@ -646,15 +646,19 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
     const discardedDraftRuleSetId = firstDelete.ruleSetId;
 
-    await t.mutation(api.entities.createBaseSchedule, {
-      dayOfWeek: 1,
-      endTime: "12:00",
+    await t.mutation(api.entities.createBaseScheduleBatch, {
       expectedDraftRevision: firstDelete.draftRevision,
-      locationId,
       practiceId,
-      practitionerId,
+      schedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          locationId,
+          practitionerId,
+          startTime: "08:00",
+        },
+      ],
       selectedRuleSetId: initialRuleSetId,
-      startTime: "08:00",
     });
 
     await t.mutation(api.ruleSets.deleteUnsavedRuleSet, {
@@ -778,18 +782,27 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const { initialRuleSetId, locationId, practiceId, practitionerId } =
       await setupBaseScheduleEntities(t);
 
-    const firstCreate = await t.mutation(api.entities.createBaseSchedule, {
-      dayOfWeek: 5,
-      endTime: "17:00",
+    const firstCreate = await t.mutation(api.entities.createBaseScheduleBatch, {
       expectedDraftRevision: null,
-      locationId,
       practiceId,
-      practitionerId,
+      schedules: [
+        {
+          dayOfWeek: 5,
+          endTime: "17:00",
+          locationId,
+          practitionerId,
+          startTime: "09:00",
+        },
+      ],
       selectedRuleSetId: initialRuleSetId,
-      startTime: "09:00",
     });
+    const firstCreatedScheduleId = firstCreate.createdScheduleIds[0];
+    assertDefined(
+      firstCreatedScheduleId,
+      "Expected created base schedule id from batch",
+    );
     await t.mutation(api.entities.deleteBaseSchedule, {
-      baseScheduleId: firstCreate.entityId,
+      baseScheduleId: firstCreatedScheduleId,
       expectedDraftRevision: firstCreate.draftRevision,
       practiceId,
       selectedRuleSetId: initialRuleSetId,
@@ -803,7 +816,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
           {
             dayOfWeek: 1,
             endTime: "12:00",
-            lineageKey: firstCreate.entityId,
+            lineageKey: firstCreatedScheduleId,
             locationId,
             practitionerId,
             startTime: "08:00",
@@ -811,7 +824,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
           {
             dayOfWeek: 2,
             endTime: "13:00",
-            lineageKey: firstCreate.entityId,
+            lineageKey: firstCreatedScheduleId,
             locationId,
             practitionerId,
             startTime: "09:00",
@@ -827,16 +840,25 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const { initialRuleSetId, locationId, practiceId, practitionerId } =
       await setupBaseScheduleEntities(t);
 
-    const firstCreate = await t.mutation(api.entities.createBaseSchedule, {
-      dayOfWeek: 1,
-      endTime: "12:00",
+    const firstCreate = await t.mutation(api.entities.createBaseScheduleBatch, {
       expectedDraftRevision: null,
-      locationId,
       practiceId,
-      practitionerId,
+      schedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          locationId,
+          practitionerId,
+          startTime: "08:00",
+        },
+      ],
       selectedRuleSetId: initialRuleSetId,
-      startTime: "08:00",
     });
+    const firstCreatedScheduleId = firstCreate.createdScheduleIds[0];
+    assertDefined(
+      firstCreatedScheduleId,
+      "Expected created base schedule id from batch",
+    );
 
     await expect(
       t.mutation(api.entities.createBaseScheduleBatch, {
@@ -846,7 +868,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
           {
             dayOfWeek: 3,
             endTime: "14:00",
-            lineageKey: firstCreate.entityId,
+            lineageKey: firstCreatedScheduleId,
             locationId,
             practitionerId,
             startTime: "11:00",

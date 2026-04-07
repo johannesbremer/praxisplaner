@@ -380,9 +380,6 @@ function LogicView() {
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
   );
-  const discardUnsavedIfEquivalentMutation = useMutation(
-    api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
-  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -582,84 +579,6 @@ function LogicView() {
 
   const isRegelnHistoryTab =
     activeTab === "rule-management" || activeTab === "vacation-scheduler";
-  const deferredDraftCleanupRef = useRef<null | ReturnType<typeof setTimeout>>(
-    null,
-  );
-  const isDraftEquivalentToParentRef = useRef(isDraftEquivalentToParent);
-  const ruleSetIdFromUrlRef = useRef(ruleSetIdFromUrl);
-  const unsavedRuleSetIdRef = useRef(unsavedRuleSetId);
-
-  React.useEffect(() => {
-    isDraftEquivalentToParentRef.current = isDraftEquivalentToParent;
-  }, [isDraftEquivalentToParent]);
-
-  React.useEffect(() => {
-    ruleSetIdFromUrlRef.current = ruleSetIdFromUrl;
-  }, [ruleSetIdFromUrl]);
-
-  React.useEffect(() => {
-    unsavedRuleSetIdRef.current = unsavedRuleSetId;
-  }, [unsavedRuleSetId]);
-
-  const cancelDeferredDraftCleanup = useCallback(() => {
-    if (deferredDraftCleanupRef.current) {
-      clearTimeout(deferredDraftCleanupRef.current);
-      deferredDraftCleanupRef.current = null;
-    }
-  }, []);
-
-  React.useEffect(
-    () => cancelDeferredDraftCleanup,
-    [cancelDeferredDraftCleanup],
-  );
-
-  const scheduleEquivalentDraftCleanup = useCallback(
-    (draftRuleSetId: Id<"ruleSets">, parentRuleSetId: Id<"ruleSets">) => {
-      if (!currentPractice) {
-        return;
-      }
-
-      cancelDeferredDraftCleanup();
-      deferredDraftCleanupRef.current = setTimeout(() => {
-        deferredDraftCleanupRef.current = null;
-        void discardUnsavedIfEquivalentMutation({
-          practiceId: currentPractice._id,
-          ruleSetId: draftRuleSetId,
-        })
-          .then((discardResult) => {
-            if (
-              !discardResult.deleted ||
-              unsavedRuleSetIdRef.current !== draftRuleSetId ||
-              !isDraftEquivalentToParentRef.current
-            ) {
-              return;
-            }
-
-            setUnsavedRuleSetId(null);
-            setIsDraftEquivalentToParent(false);
-            setDraftRevisionOverride(null);
-            setDraftParentRuleSetIdOverride(null);
-            if (ruleSetIdFromUrlRef.current === draftRuleSetId) {
-              pushUrl({ ruleSetId: parentRuleSetId });
-            }
-          })
-          .catch((error: unknown) => {
-            captureError(error, {
-              context: "ruleset_deferred_equivalent_draft_cleanup",
-              practiceId: currentPractice._id,
-              ruleSetId: draftRuleSetId,
-            });
-          });
-      }, 5000);
-    },
-    [
-      cancelDeferredDraftCleanup,
-      captureError,
-      currentPractice,
-      discardUnsavedIfEquivalentMutation,
-      pushUrl,
-    ],
-  );
 
   const runRegelnUndo = useCallback(async () => {
     const optimisticallySelectedParentRuleSetId =
@@ -695,10 +614,6 @@ function LogicView() {
       ) {
         setIsDraftEquivalentToParent(true);
         pushUrl({ ruleSetId: unsavedRuleSet.parentVersion });
-        scheduleEquivalentDraftCleanup(
-          unsavedRuleSet._id,
-          unsavedRuleSet.parentVersion,
-        );
       }
       return;
     }
@@ -707,7 +622,6 @@ function LogicView() {
     isRegelnHistoryTab,
     pushUrl,
     ruleSetIdFromUrl,
-    scheduleEquivalentDraftCleanup,
     undoRegelnHistoryAction,
     undoRegelnHistoryDepth,
     unsavedRuleSet,
@@ -715,7 +629,6 @@ function LogicView() {
 
   const runRegelnRedo = useCallback(async () => {
     const previousRuleSetId = ruleSetIdFromUrl;
-    cancelDeferredDraftCleanup();
     setIsDraftEquivalentToParent(false);
     const shouldRestorePreviousRuleSet =
       previousRuleSetId !== undefined &&
@@ -752,7 +665,6 @@ function LogicView() {
     }
     toast.info("Keine wiederherstellbare Änderung vorhanden.");
   }, [
-    cancelDeferredDraftCleanup,
     isRegelnHistoryTab,
     pushUrl,
     redoRegelnHistoryAction,
@@ -805,7 +717,6 @@ function LogicView() {
   const handleDraftMutation = useCallback(
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
-      cancelDeferredDraftCleanup();
       setIsDraftEquivalentToParent(false);
       setDraftRevisionOverride(result.draftRevision);
       if (ruleSetReplayTarget?.parentRuleSetId) {
@@ -815,12 +726,7 @@ function LogicView() {
         pushUrl({ ruleSetId: result.ruleSetId });
       }
     },
-    [
-      cancelDeferredDraftCleanup,
-      currentWorkingRuleSet?._id,
-      pushUrl,
-      ruleSetReplayTarget?.parentRuleSetId,
-    ],
+    [currentWorkingRuleSet?._id, pushUrl, ruleSetReplayTarget?.parentRuleSetId],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -1046,7 +952,6 @@ function LogicView() {
 
       setIsSaveDialogOpen(false);
       setActivationName("");
-      cancelDeferredDraftCleanup();
       setUnsavedRuleSetId(null); // Clear unsaved state
       setIsDraftEquivalentToParent(false);
       setDraftRevisionOverride(null);
@@ -1103,7 +1008,6 @@ function LogicView() {
         }
         // If it's already saved, there's nothing to do
 
-        cancelDeferredDraftCleanup();
         setUnsavedRuleSetId(null);
         setIsDraftEquivalentToParent(false);
         setDraftRevisionOverride(null);
@@ -1152,7 +1056,6 @@ function LogicView() {
             ruleSetId: unsavedRuleSet._id,
           });
 
-          cancelDeferredDraftCleanup();
           setUnsavedRuleSetId(null);
           setIsDraftEquivalentToParent(false);
           setDraftRevisionOverride(null);
