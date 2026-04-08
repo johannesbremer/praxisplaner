@@ -10,6 +10,12 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  ConditionOperator,
+  ConditionTreeNode,
+  ConditionType,
+  Scope,
+} from "@/convex/ruleEngine";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +54,10 @@ import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
 
+import {
+  conditionTreeToConditions,
+  generateRuleName,
+} from "../../lib/rule-name-generator";
 import { createSimulatedContext } from "../../lib/utils";
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
@@ -131,6 +141,17 @@ interface ProjectedRuleSetDiffSection {
   section: RuleSetDiffSection;
 }
 
+interface RuleNameContext {
+  appointmentTypes: RuleNameEntity[];
+  locations: RuleNameEntity[];
+  practitioners: RuleNameEntity[];
+}
+
+interface RuleNameEntity {
+  _id: string;
+  name: string;
+}
+
 interface RuleSetDiff {
   draftRuleSet: {
     _id: string;
@@ -163,6 +184,7 @@ interface SaveDialogFormProps {
   onDiscard?: (() => void) | null;
   onSaveAndActivate: (name: string) => void;
   onSaveOnly: (name: string) => void;
+  ruleNameContext: RuleNameContext | undefined;
   ruleSetDiff?: null | RuleSetDiff | undefined;
   setActivationName: (name: string) => void;
 }
@@ -188,6 +210,7 @@ const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
 function buildStructuredDiffRows(
   section: RuleSetDiffSection,
   entityRenames: EntityRenameMaps,
+  ruleNameContext?: RuleNameContext,
 ) {
   if (section.key === "vacations") {
     return buildVacationDiffRows(section, entityRenames);
@@ -197,13 +220,13 @@ function buildStructuredDiffRows(
   const addedByKey = new Map<string, string[]>();
 
   for (const value of section.removed) {
-    const key = getDiffItemKey(section, value, entityRenames);
+    const key = getDiffItemKey(section, value, entityRenames, ruleNameContext);
     const bucket = removedByKey.get(key) ?? [];
     bucket.push(value);
     removedByKey.set(key, bucket);
   }
   for (const value of section.added) {
-    const key = getDiffItemKey(section, value, entityRenames);
+    const key = getDiffItemKey(section, value, entityRenames, ruleNameContext);
     const bucket = addedByKey.get(key) ?? [];
     bucket.push(value);
     addedByKey.set(key, bucket);
@@ -514,6 +537,27 @@ function formatPrimitiveValue(value: unknown) {
   return String(value);
 }
 
+function formatRuleDiffSummary(
+  value: Record<string, unknown>,
+  ruleNameContext: RuleNameContext,
+) {
+  const tree = parseRuleDiffTree(value);
+  if (!tree) {
+    return null;
+  }
+
+  try {
+    return generateRuleName(
+      conditionTreeToConditions(tree),
+      ruleNameContext.appointmentTypes,
+      ruleNameContext.practitioners,
+      ruleNameContext.locations,
+    );
+  } catch {
+    return null;
+  }
+}
+
 function formatStructuredDiffEntries(
   value: Record<string, unknown>,
   keys: string[],
@@ -610,6 +654,7 @@ function getDiffItemKey(
   section: RuleSetDiffSection,
   value: string,
   entityRenames: EntityRenameMaps,
+  ruleNameContext?: RuleNameContext,
 ) {
   const parsed = parseDiffValue(value);
   if (!parsed || typeof parsed !== "object") {
@@ -650,7 +695,7 @@ function getDiffItemKey(
   }
 
   if (section.key === "rules") {
-    return getRuleSummary(parsed);
+    return getRuleSummary(parsed, ruleNameContext);
   }
 
   return formatStructuredDiffValue(value).split("\n")[0] ?? section.title;
@@ -693,7 +738,10 @@ function getEntityRenames(diff: RuleSetDiff) {
   return baseRenames;
 }
 
-function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
+function getProjectedRuleSetDiffSections(
+  diff: RuleSetDiff,
+  ruleNameContext?: RuleNameContext,
+) {
   const changedSections = diff.sections.filter(
     (section) => section.added.length > 0 || section.removed.length > 0,
   );
@@ -701,14 +749,24 @@ function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
   return changedSections
     .map(
       (section): ProjectedRuleSetDiffSection => ({
-        rows: buildStructuredDiffRows(section, entityRenames),
+        rows: buildStructuredDiffRows(section, entityRenames, ruleNameContext),
         section,
       }),
     )
     .filter((projectedSection) => projectedSection.rows.length > 0);
 }
 
-function getRuleSummary(value: Record<string, unknown>) {
+function getRuleSummary(
+  value: Record<string, unknown>,
+  ruleNameContext?: RuleNameContext,
+) {
+  const naturalLanguageRule = ruleNameContext
+    ? formatRuleDiffSummary(value, ruleNameContext)
+    : null;
+  if (naturalLanguageRule) {
+    return naturalLanguageRule;
+  }
+
   const children: unknown[] = Array.isArray(value["children"])
     ? value["children"]
     : [];
@@ -1316,6 +1374,38 @@ function LogicView() {
         }
       : "skip",
   ) as RuleSetDiff | undefined;
+  const diffAppointmentTypesQuery = useQuery(
+    api.entities.getAppointmentTypes,
+    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+  );
+  const diffPractitionersQuery = useQuery(
+    api.entities.getPractitioners,
+    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+  );
+  const ruleNameContext = useMemo<RuleNameContext | undefined>(() => {
+    if (
+      !diffAppointmentTypesQuery ||
+      !diffPractitionersQuery ||
+      !locationsListQuery
+    ) {
+      return;
+    }
+
+    return {
+      appointmentTypes: diffAppointmentTypesQuery.map((item) => ({
+        _id: item.name,
+        name: item.name,
+      })),
+      locations: locationsListQuery.map((item) => ({
+        _id: item.name,
+        name: item.name,
+      })),
+      practitioners: diffPractitionersQuery.map((item) => ({
+        _id: item.name,
+        name: item.name,
+      })),
+    };
+  }, [diffAppointmentTypesQuery, diffPractitionersQuery, locationsListQuery]);
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
     if (
       unsavedRuleSetId &&
@@ -2420,6 +2510,7 @@ function LogicView() {
             onDiscard={pendingRuleSetId ? handleOpenDiscardDialog : null}
             onSaveAndActivate={handleSaveAndActivate}
             onSaveOnly={handleSaveOnly}
+            ruleNameContext={ruleNameContext}
             ruleSetDiff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
             setActivationName={setActivationName}
           />
@@ -2447,9 +2538,11 @@ function LogicView() {
           </DialogHeader>
           <RuleSetDiffView
             diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+            ruleNameContext={ruleNameContext}
           />
           <RuleSetDiffChangeCount
             diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+            ruleNameContext={ruleNameContext}
           />
           <DialogFooter className="mt-2 shrink-0">
             <Button
@@ -2644,6 +2737,62 @@ function omitKey(value: Record<string, unknown>, keyToOmit: string) {
   );
 }
 
+function parseConditionTreeNode(value: unknown): ConditionTreeNode | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const parsed = value as Record<string, unknown>;
+  const nodeType = stringValue(parsed["nodeType"]);
+
+  if (nodeType === "CONDITION") {
+    const conditionType = stringValue(parsed["conditionType"]);
+    const operator = stringValue(parsed["operator"]);
+    if (!conditionType || !operator) {
+      return null;
+    }
+
+    const conditionNode: ConditionTreeNode = {
+      conditionType: conditionType as ConditionType,
+      nodeType: "CONDITION",
+      operator: operator as ConditionOperator,
+    };
+
+    const scope = stringValue(parsed["scope"]);
+    if (scope) {
+      conditionNode.scope = scope as Scope;
+    }
+
+    if (Array.isArray(parsed["valueIds"])) {
+      conditionNode.valueIds = parsed["valueIds"].filter(
+        (entry): entry is string => typeof entry === "string",
+      );
+    }
+
+    if (typeof parsed["valueNumber"] === "number") {
+      conditionNode.valueNumber = parsed["valueNumber"];
+    }
+
+    return conditionNode;
+  }
+
+  if (nodeType === "AND" || nodeType === "NOT") {
+    const childValues = Array.isArray(parsed["children"])
+      ? parsed["children"]
+      : [];
+    const parsedChildren = childValues
+      .map((child) => parseConditionTreeNode(child))
+      .filter((child): child is ConditionTreeNode => child !== null);
+
+    return {
+      children: parsedChildren,
+      nodeType,
+    };
+  }
+
+  return null;
+}
+
 function parseDiffValue(value: string): null | Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -2655,16 +2804,34 @@ function parseDiffValue(value: string): null | Record<string, unknown> {
   }
 }
 
+function parseRuleDiffTree(
+  value: Record<string, unknown>,
+): ConditionTreeNode | null {
+  const childValues = Array.isArray(value["children"]) ? value["children"] : [];
+  const firstChild: unknown = childValues[0];
+  const treeRoot =
+    value["nodeType"] === null || value["nodeType"] === undefined
+      ? firstChild
+      : value;
+
+  return parseConditionTreeNode(treeRoot);
+}
+
 function RuleSetDiffChangeCount({
   diff,
+  ruleNameContext,
 }: {
   diff?: null | RuleSetDiff | undefined;
+  ruleNameContext: RuleNameContext | undefined;
 }) {
   if (!diff) {
     return null;
   }
 
-  const projectedSections = getProjectedRuleSetDiffSections(diff);
+  const projectedSections = getProjectedRuleSetDiffSections(
+    diff,
+    ruleNameContext,
+  );
   const changeCount = projectedSections.flatMap(
     (projectedSection) => projectedSection.rows,
   ).length;
@@ -2768,7 +2935,13 @@ function RuleSetDiffSectionView({
   );
 }
 
-function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
+function RuleSetDiffView({
+  diff,
+  ruleNameContext,
+}: {
+  diff?: null | RuleSetDiff | undefined;
+  ruleNameContext: RuleNameContext | undefined;
+}) {
   if (diff === null) {
     return null;
   }
@@ -2781,7 +2954,10 @@ function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
     );
   }
 
-  const projectedSections = getProjectedRuleSetDiffSections(diff);
+  const projectedSections = getProjectedRuleSetDiffSections(
+    diff,
+    ruleNameContext,
+  );
 
   return (
     <div className="w-max">
@@ -2809,6 +2985,7 @@ function SaveDialogForm({
   onDiscard,
   onSaveAndActivate,
   onSaveOnly,
+  ruleNameContext,
   ruleSetDiff,
   setActivationName,
 }: SaveDialogFormProps) {
@@ -2881,9 +3058,12 @@ function SaveDialogForm({
             </div>
           )}
         </form.Field>
-        <RuleSetDiffView diff={ruleSetDiff} />
+        <RuleSetDiffView diff={ruleSetDiff} ruleNameContext={ruleNameContext} />
       </div>
-      <RuleSetDiffChangeCount diff={ruleSetDiff} />
+      <RuleSetDiffChangeCount
+        diff={ruleSetDiff}
+        ruleNameContext={ruleNameContext}
+      />
       <DialogFooter className="mt-6 flex shrink-0 gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
