@@ -172,6 +172,7 @@ type SimulatedContext = SchedulingSimulatedContext;
 interface StructuredDiffRow {
   after: string;
   before: string;
+  id: string;
   kind: "added" | "modified" | "removed";
   path: string;
 }
@@ -192,23 +193,32 @@ function buildStructuredDiffRows(
     return buildVacationDiffRows(section, entityRenames);
   }
 
-  const removedByKey = new Map<string, string>();
-  const addedByKey = new Map<string, string>();
+  const removedByKey = new Map<string, string[]>();
+  const addedByKey = new Map<string, string[]>();
 
   for (const value of section.removed) {
-    removedByKey.set(getDiffItemKey(section, value, entityRenames), value);
+    const key = getDiffItemKey(section, value, entityRenames);
+    const bucket = removedByKey.get(key) ?? [];
+    bucket.push(value);
+    removedByKey.set(key, bucket);
   }
   for (const value of section.added) {
-    addedByKey.set(getDiffItemKey(section, value, entityRenames), value);
+    const key = getDiffItemKey(section, value, entityRenames);
+    const bucket = addedByKey.get(key) ?? [];
+    bucket.push(value);
+    addedByKey.set(key, bucket);
   }
 
   const keys = [...new Set([...removedByKey.keys(), ...addedByKey.keys()])];
 
-  return keys
-    .toSorted()
-    .map((key): null | StructuredDiffRow => {
-      const before = removedByKey.get(key);
-      const after = addedByKey.get(key);
+  return keys.toSorted().flatMap((key): StructuredDiffRow[] => {
+    const beforeEntries = removedByKey.get(key) ?? [];
+    const afterEntries = addedByKey.get(key) ?? [];
+    const pairCount = Math.max(beforeEntries.length, afterEntries.length);
+
+    return Array.from({ length: pairCount }, (_, pairIndex) => {
+      const before = beforeEntries[pairIndex];
+      const after = afterEntries[pairIndex];
       if (
         section.key === "baseSchedules" &&
         before &&
@@ -242,11 +252,12 @@ function buildStructuredDiffRows(
           : before
             ? formatStructuredDiffValue(before)
             : "",
+        id: `${section.key}:${key}:${pairIndex}`,
         kind: before && after ? "modified" : after ? "added" : "removed",
         path: `${section.title} > ${key}`,
       };
-    })
-    .filter((row): row is StructuredDiffRow => row !== null);
+    }).filter((row): row is StructuredDiffRow => row !== null);
+  });
 }
 
 function buildVacationDiffRows(
@@ -269,6 +280,7 @@ function buildVacationDiffRows(
       rows.push({
         after: "",
         before: formatStructuredDiffValue(section.removed[removedIndex] ?? ""),
+        id: `${section.key}:removed:${removedIndex}`,
         kind: "removed",
         path: `${section.title} > ${getDiffItemKey(
           section,
@@ -312,6 +324,7 @@ function buildVacationDiffRows(
       rows.push({
         after: changedValues.after,
         before: changedValues.before,
+        id: `${section.key}:modified:${before.key}:${removedIndex}`,
         kind: "modified",
         path: `${section.title} > ${formatVacationDiffIdentity(before.parsed)}`,
       });
@@ -322,6 +335,7 @@ function buildVacationDiffRows(
     rows.push({
       after: "",
       before: formatStructuredDiffValue(before.value),
+      id: `${section.key}:removed:${before.key}:${removedIndex}`,
       kind: "removed",
       path: `${section.title} > ${getDiffItemKey(
         section,
@@ -339,6 +353,7 @@ function buildVacationDiffRows(
     rows.push({
       after: formatStructuredDiffValue(section.added[addedIndex] ?? ""),
       before: "",
+      id: `${section.key}:added:${addedIndex}`,
       kind: "added",
       path: `${section.title} > ${getDiffItemKey(
         section,
@@ -2362,6 +2377,31 @@ function normalizeEntityName(
   return name;
 }
 
+function normalizeFollowUpPlanReferences(
+  value: unknown,
+  renames: Map<string, string>,
+) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const steps: unknown[] = value;
+  return steps.map((step) => {
+    if (!step || typeof step !== "object") {
+      return step;
+    }
+
+    const parsedStep = step as Record<string, unknown>;
+    return {
+      ...parsedStep,
+      appointmentTypeName: normalizeRenamedValue(
+        stringValue(parsedStep["appointmentTypeName"]),
+        renames,
+      ),
+    };
+  });
+}
+
 function normalizeReferences(
   sectionKey: string,
   value: Record<string, unknown>,
@@ -2373,6 +2413,10 @@ function normalizeReferences(
       allowedPractitioners: normalizeRenamedArray(
         value["allowedPractitioners"],
         entityRenames.practitioners,
+      ),
+      followUpPlan: normalizeFollowUpPlanReferences(
+        value["followUpPlan"],
+        entityRenames.appointmentTypes,
       ),
     };
   }
@@ -2435,7 +2479,9 @@ function normalizeRuleReferences(
   const valueIds = normalized["valueIds"];
 
   switch (conditionType) {
-    case "APPOINTMENT_TYPE": {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY": {
       normalized["valueIds"] = normalizeRenamedArray(
         valueIds,
         entityRenames.appointmentTypes,
@@ -2538,7 +2584,7 @@ function RuleSetDiffSectionView({
               </thead>
               <tbody>
                 {modifiedRows.map((row) => (
-                  <tr className="border-b" key={`${section.key}-${row.path}`}>
+                  <tr className="border-b" key={row.id}>
                     <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
                       {row.path}
                     </td>
@@ -2570,10 +2616,7 @@ function RuleSetDiffSectionView({
               </thead>
               <tbody>
                 {singleValueRows.map((row) => (
-                  <tr
-                    className="border-b last:border-b-0"
-                    key={`${section.key}-${row.path}`}
-                  >
+                  <tr className="border-b last:border-b-0" key={row.id}>
                     <td
                       className={
                         row.kind === "added"
