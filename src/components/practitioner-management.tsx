@@ -89,20 +89,18 @@ export default function PractitionerManagement({
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
+  useEffect(() => {
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
+  const getCowMutationArgs = () =>
+    toCowMutationArgs(ruleSetReplayTargetRef.current);
   const deleteWithDependenciesMutation = useMutation(
     api.entities.deletePractitionerWithDependencies,
   );
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,
@@ -358,18 +356,16 @@ function PractitionerDialog({
   useEffect(() => {
     practitionersRef.current = practitionersQuery ?? [];
   }, [practitionersQuery]);
-
-  const createMutation = useMutation(api.entities.createPractitioner);
-  const deleteMutation = useMutation(api.entities.deletePractitioner);
-  const updateMutation = useMutation(api.entities.updatePractitioner);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
-
   const getCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
 
+  const createMutation = useMutation(api.entities.createPractitioner);
+  const deleteMutation = useMutation(api.entities.deletePractitioner);
+  const updateMutation = useMutation(api.entities.updatePractitioner);
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,

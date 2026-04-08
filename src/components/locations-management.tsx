@@ -103,10 +103,8 @@ export function LocationsManagement({
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
-
   const getCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
-
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,

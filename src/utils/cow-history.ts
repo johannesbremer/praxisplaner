@@ -1,5 +1,10 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+export interface CowMutationArgs {
+  expectedDraftRevision: null | number;
+  selectedRuleSetId: Id<"ruleSets">;
+}
+
 export interface DraftMutationResult {
   draftRevision: number;
   ruleSetId: Id<"ruleSets">;
@@ -93,10 +98,7 @@ export function ruleSetIdFromReplayTarget(
     : target.parentRuleSetId;
 }
 
-export function toCowMutationArgs(target: RuleSetReplayTarget): {
-  expectedDraftRevision: null | number;
-  selectedRuleSetId: Id<"ruleSets">;
-} {
+export function toCowMutationArgs(target: RuleSetReplayTarget): CowMutationArgs {
   if (target.kind === "draft") {
     return {
       expectedDraftRevision: target.draftRevision,

@@ -350,7 +350,6 @@ export function AppointmentTypesManagement({
 
   const getCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
-
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,

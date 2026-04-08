@@ -950,7 +950,6 @@ function LogicView() {
     redo: redoRegelnHistoryAction,
     redoDepth: redoRegelnHistoryDepth,
     undo: undoRegelnHistoryAction,
-    undoDepth: undoRegelnHistoryDepth,
   } = useLocalHistory();
 
   const registerRegelnHistoryAction = useCallback(
@@ -1172,41 +1171,7 @@ function LogicView() {
   });
   const discardEquivalentUnsavedRuleSetMutation = useMutation(
     api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
-  ).withOptimisticUpdate((localStore, args) => {
-    const queryArgs = { practiceId: args.practiceId };
-
-    const allRuleSets = localStore.getQuery(
-      api.ruleSets.getAllRuleSets,
-      queryArgs,
-    );
-    if (allRuleSets !== undefined) {
-      localStore.setQuery(
-        api.ruleSets.getAllRuleSets,
-        queryArgs,
-        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
-      );
-    }
-
-    const unsavedRuleSet = localStore.getQuery(
-      api.ruleSets.getUnsavedRuleSet,
-      queryArgs,
-    );
-    if (unsavedRuleSet?._id === args.ruleSetId) {
-      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
-    }
-
-    const versionHistory = localStore.getQuery(
-      api.ruleSets.getVersionHistory,
-      queryArgs,
-    );
-    if (versionHistory !== undefined) {
-      localStore.setQuery(
-        api.ruleSets.getVersionHistory,
-        queryArgs,
-        versionHistory.filter((version) => version.id !== args.ruleSetId),
-      );
-    }
-  });
+  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -1379,7 +1344,6 @@ function LogicView() {
       parentRuleSetId: resolvedCurrentWorkingRuleSet._id,
     };
   }, [draftRevisionOverride, resolvedCurrentWorkingRuleSet, unsavedRuleSet]);
-
   React.useEffect(() => {
     if (!ruleSetsQuery || !unsavedRuleSetId) {
       return;
@@ -1449,25 +1413,9 @@ function LogicView() {
       return;
     }
 
-    const optimisticallySelectedParentRuleSetId =
-      isRegelnHistoryTab &&
-      undoRegelnHistoryDepth === 1 &&
-      ruleSetIdFromUrl === unsavedRuleSet?._id
-        ? unsavedRuleSet?.parentVersion
-        : undefined;
-
-    if (optimisticallySelectedParentRuleSetId) {
-      setIsDraftEquivalentToParent(true);
-      pushUrl({ ruleSetId: optimisticallySelectedParentRuleSetId });
-    }
-
     const result = await undoRegelnHistoryAction();
 
     if (result.status === "conflict") {
-      if (optimisticallySelectedParentRuleSetId && unsavedRuleSet) {
-        setIsDraftEquivalentToParent(false);
-        pushUrl({ ruleSetId: unsavedRuleSet._id });
-      }
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
         description: result.message,
       });
@@ -1483,10 +1431,6 @@ function LogicView() {
         const draftToDiscard = unsavedRuleSet;
         const parentRuleSetId = unsavedRuleSet.parentVersion;
         discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
-        setUnsavedRuleSetId(null);
-        setIsDraftEquivalentToParent(false);
-        setDraftRevisionOverride(null);
-        pushUrl({ ruleSetId: parentRuleSetId });
 
         try {
           const discardResult = await discardEquivalentUnsavedRuleSetMutation({
@@ -1494,8 +1438,12 @@ function LogicView() {
             ruleSetId: draftToDiscard._id,
           });
 
-          if (!discardResult.deleted) {
-            discardingUnsavedRuleSetIdRef.current = null;
+          if (discardResult.deleted) {
+            setUnsavedRuleSetId(null);
+            setDraftRevisionOverride(null);
+            setIsDraftEquivalentToParent(false);
+            pushUrl({ ruleSetId: parentRuleSetId });
+          } else {
             setUnsavedRuleSetId(draftToDiscard._id);
             setDraftRevisionOverride(draftToDiscard.draftRevision);
             setIsDraftEquivalentToParent(false);
@@ -1524,12 +1472,10 @@ function LogicView() {
   }, [
     isRegelnHistoryTab,
     pushUrl,
-    ruleSetIdFromUrl,
     captureError,
     currentPractice,
     discardEquivalentUnsavedRuleSetMutation,
     undoRegelnHistoryAction,
-    undoRegelnHistoryDepth,
     unsavedRuleSet,
   ]);
 
@@ -1641,15 +1587,24 @@ function LogicView() {
   React.useEffect(() => {
     // Only enforce when the ruleSet segment is missing entirely.
     // Do NOT override a user-chosen named rule set in the URL.
-    if (
-      unsavedRuleSet &&
-      !raw.ruleSet &&
-      ruleSetIdFromUrl !== unsavedRuleSet._id &&
-      // Avoid navigating before we know the date from URL/state
-      selectedDate instanceof Date
-    ) {
-      pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
+    if (discardingUnsavedRuleSetIdRef.current !== null) {
+      return;
     }
+    if (!unsavedRuleSet) {
+      return;
+    }
+    if (raw.ruleSet) {
+      return;
+    }
+    if (ruleSetIdFromUrl === unsavedRuleSet._id) {
+      return;
+    }
+    // Avoid navigating before we know the date from URL/state.
+    if (!(selectedDate instanceof Date)) {
+      return;
+    }
+
+    pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
   }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
 
   React.useEffect(() => {
@@ -1695,6 +1650,9 @@ function LogicView() {
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
+    if (discardingUnsavedRuleSetIdRef.current !== null) {
+      return;
+    }
     if (!existingUnsavedRuleSet) {
       return;
     }

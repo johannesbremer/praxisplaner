@@ -598,7 +598,7 @@ export const getUnsavedRuleSetDiff = query({
 
     const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
     if (!draftRuleSet) {
-      throw new Error("Rule set not found");
+      return null;
     }
     if (draftRuleSet.practiceId !== args.practiceId) {
       throw new Error("Rule set does not belong to this practice");

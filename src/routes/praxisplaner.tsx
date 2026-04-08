@@ -135,7 +135,6 @@ function PraxisPlanerComponent() {
     api.ruleSets.getActiveRuleSet,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
-
   // Query locations to map standortParam to locationId
   const locationsData = useQuery(
     api.entities.getLocationsFromActive,

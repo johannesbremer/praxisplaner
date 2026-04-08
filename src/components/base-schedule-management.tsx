@@ -494,10 +494,8 @@ export default function BaseScheduleManagement({
   useIsomorphicLayoutEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
-
   const getCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
-
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,
@@ -939,10 +937,8 @@ function BaseScheduleDialog({
   useIsomorphicLayoutEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
-
-  const getCowMutationArgs = () =>
+  const getLocalCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
-
   const handleDraftMutationResult = (result: DraftMutationResult) => {
     ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
       ruleSetReplayTargetRef.current,
@@ -967,7 +963,7 @@ function BaseScheduleDialog({
       await createScheduleBatchMutation({
         practiceId,
         schedules,
-        ...getCowMutationArgs(),
+        ...getLocalCowMutationArgs(),
       }),
     [createScheduleBatchMutation, practiceId],
   );
@@ -1060,7 +1056,7 @@ function BaseScheduleDialog({
             const deleteResult = await deleteScheduleMutation({
               baseScheduleId: scheduleId,
               practiceId,
-              ...getCowMutationArgs(),
+              ...getLocalCowMutationArgs(),
             });
             handleDraftMutationResult(deleteResult);
           }
@@ -1080,7 +1076,7 @@ function BaseScheduleDialog({
           const batchResult = await createScheduleBatchMutation({
             practiceId,
             schedules: batchSchedules,
-            ...getCowMutationArgs(),
+            ...getLocalCowMutationArgs(),
           });
           handleDraftMutationResult(batchResult);
 
@@ -1196,7 +1192,7 @@ function BaseScheduleDialog({
           const batchResult = await createScheduleBatchMutation({
             practiceId,
             schedules: batchSchedules,
-            ...getCowMutationArgs(),
+            ...getLocalCowMutationArgs(),
           });
           handleDraftMutationResult(batchResult);
 
@@ -1320,7 +1316,7 @@ function BaseScheduleDialog({
                   expectedPresentLineageKeys: presentLineageKeys,
                   practiceId,
                   replacementSchedules: [],
-                  ...getCowMutationArgs(),
+                  ...getLocalCowMutationArgs(),
                 });
                 handleDraftMutationResult(undoResult);
               } catch (error: unknown) {
@@ -1396,7 +1392,7 @@ function BaseScheduleDialog({
                 expectedPresentLineageKeys: oldLineageKeys,
                 practiceId,
                 replacementSchedules,
-                ...getCowMutationArgs(),
+                ...getLocalCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
               return { status: "applied" as const };
@@ -1426,7 +1422,7 @@ function BaseScheduleDialog({
                 expectedPresentLineageKeys: newLineageKeys,
                 practiceId,
                 replacementSchedules,
-                ...getCowMutationArgs(),
+                ...getLocalCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
               return { status: "applied" as const };
