@@ -40,6 +40,7 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
+  getAccessibleRuleSetForQuery,
 } from "./practiceAccess";
 import {
   type ConditionTreeNode,
@@ -888,7 +889,10 @@ export const getAppointmentTypes = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
+    if (!ruleSet) {
+      return [];
+    }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1566,7 +1570,10 @@ export const getPractitioners = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
+    if (!ruleSet) {
+      return [];
+    }
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1801,7 +1808,10 @@ export const getLocations = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
+    if (!ruleSet) {
+      return [];
+    }
     const locations = await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2307,7 +2317,10 @@ export const getBaseSchedules = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
+    if (!ruleSet) {
+      return [];
+    }
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2886,7 +2899,10 @@ export const getRules = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
+    if (!ruleSet) {
+      return [];
+    }
     // Get all root nodes (rules)
     const roots = await ctx.db
       .query("ruleConditions")

@@ -259,19 +259,11 @@ async function buildRuleSetCanonicalSnapshot(
       .collect(),
   ]);
 
-  const practitionerNameById = new Map(
-    practitioners.map((practitioner) => [practitioner._id, practitioner.name]),
-  );
-  const locationNameById = new Map(
-    locations.map((location) => [location._id, location.name]),
-  );
-  const appointmentTypeNameById = new Map(
-    appointmentTypes.map((appointmentType) => [
-      appointmentType._id,
-      appointmentType.name,
-    ]),
-  );
-  const mfaNameById = new Map(mfas.map((mfa) => [mfa._id, mfa.name]));
+  const practitionerNameByReference = createEntityNameLookup(practitioners);
+  const locationNameByReference = createEntityNameLookup(locations);
+  const appointmentTypeNameByReference =
+    createEntityNameLookup(appointmentTypes);
+  const mfaNameByReference = createEntityNameLookup(mfas);
 
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
@@ -319,15 +311,16 @@ async function buildRuleSetCanonicalSnapshot(
         ),
         allowedPractitioners: toSortedStrings(
           appointmentType.allowedPractitionerIds.map(
-            (id) => practitionerNameById.get(id) ?? id,
+            (id) => practitionerNameByReference.get(id) ?? id,
           ),
         ),
         duration: appointmentType.duration,
         followUpPlan:
           appointmentType.followUpPlan?.map((step) => ({
             appointmentTypeName:
-              appointmentTypeNameById.get(step.appointmentTypeLineageKey) ??
-              step.appointmentTypeLineageKey,
+              appointmentTypeNameByReference.get(
+                step.appointmentTypeLineageKey,
+              ) ?? step.appointmentTypeLineageKey,
             locationMode: step.locationMode,
             note: step.note ?? null,
             offsetUnit: step.offsetUnit,
@@ -354,10 +347,10 @@ async function buildRuleSetCanonicalSnapshot(
         dayOfWeek: baseSchedule.dayOfWeek,
         endTime: baseSchedule.endTime,
         locationName:
-          locationNameById.get(baseSchedule.locationId) ??
+          locationNameByReference.get(baseSchedule.locationId) ??
           baseSchedule.locationId,
         practitionerName:
-          practitionerNameById.get(baseSchedule.practitionerId) ??
+          practitionerNameByReference.get(baseSchedule.practitionerId) ??
           baseSchedule.practitionerId,
         startTime: baseSchedule.startTime,
       }),
@@ -387,9 +380,9 @@ async function buildRuleSetCanonicalSnapshot(
         serializeRuleConditionTree(
           rootRule,
           childrenByParentId,
-          appointmentTypeNameById,
-          locationNameById,
-          practitionerNameById,
+          appointmentTypeNameByReference,
+          locationNameByReference,
+          practitionerNameByReference,
           rootRule.copyFromId ?? rootRule._id,
         ),
       ),
@@ -409,10 +402,10 @@ async function buildRuleSetCanonicalSnapshot(
         staffName:
           vacation.staffType === "practitioner"
             ? vacation.practitionerId
-              ? practitionerNameById.get(vacation.practitionerId)
+              ? practitionerNameByReference.get(vacation.practitionerId)
               : undefined
             : vacation.mfaId
-              ? mfaNameById.get(vacation.mfaId)
+              ? mfaNameByReference.get(vacation.mfaId)
               : undefined,
         staffType: vacation.staffType,
       }),
@@ -428,6 +421,16 @@ async function buildRuleSetCanonicalSnapshot(
     rules: canonicalRules,
     vacations: canonicalVacations,
   };
+}
+
+function createEntityNameLookup(
+  entities: { _id: string; lineageKey?: string; name: string }[],
+) {
+  const entries = entities.flatMap((entity) => [
+    [entity._id, entity.name] as const,
+    ...(entity.lineageKey ? ([[entity.lineageKey, entity.name]] as const) : []),
+  ]);
+  return new Map(entries);
 }
 
 async function deleteRuleConditionsByRuleSet(
@@ -484,9 +487,9 @@ function normalizeBreakTimes(
 
 function normalizeValueIds(
   node: Doc<"ruleConditions">,
-  appointmentTypeNameById: Map<string, string>,
-  locationNameById: Map<string, string>,
-  practitionerNameById: Map<string, string>,
+  appointmentTypeNameByReference: Map<string, string>,
+  locationNameByReference: Map<string, string>,
+  practitionerNameByReference: Map<string, string>,
 ): null | string[] {
   if (!node.valueIds || node.valueIds.length === 0) {
     return null;
@@ -500,17 +503,21 @@ function normalizeValueIds(
     case "CONCURRENT_COUNT":
     case "DAILY_CAPACITY": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, appointmentTypeNameById)),
+        node.valueIds.map((id) =>
+          lookupMapped(id, appointmentTypeNameByReference),
+        ),
       );
     }
     case "LOCATION": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, locationNameById)),
+        node.valueIds.map((id) => lookupMapped(id, locationNameByReference)),
       );
     }
     case "PRACTITIONER": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, practitionerNameById)),
+        node.valueIds.map((id) =>
+          lookupMapped(id, practitionerNameByReference),
+        ),
       );
     }
     default: {
@@ -536,9 +543,9 @@ function requireStableDiffKey(
 function serializeRuleConditionTree(
   node: Doc<"ruleConditions">,
   childrenByParentId: Map<Id<"ruleConditions">, Doc<"ruleConditions">[]>,
-  appointmentTypeNameById: Map<string, string>,
-  locationNameById: Map<string, string>,
-  practitionerNameById: Map<string, string>,
+  appointmentTypeNameByReference: Map<string, string>,
+  locationNameByReference: Map<string, string>,
+  practitionerNameByReference: Map<string, string>,
   diffKey?: string,
 ): CanonicalRuleConditionNode {
   const children = childrenByParentId.get(node._id) ?? [];
@@ -553,9 +560,9 @@ function serializeRuleConditionTree(
       serializeRuleConditionTree(
         child,
         childrenByParentId,
-        appointmentTypeNameById,
-        locationNameById,
-        practitionerNameById,
+        appointmentTypeNameByReference,
+        locationNameByReference,
+        practitionerNameByReference,
       ),
     ),
     conditionType: node.conditionType ?? null,
@@ -565,9 +572,9 @@ function serializeRuleConditionTree(
     scope: node.scope ?? null,
     valueIds: normalizeValueIds(
       node,
-      appointmentTypeNameById,
-      locationNameById,
-      practitionerNameById,
+      appointmentTypeNameByReference,
+      locationNameByReference,
+      practitionerNameByReference,
     ),
     valueNumber: node.valueNumber ?? null,
   };
@@ -591,16 +598,16 @@ export const getUnsavedRuleSetDiff = query({
 
     const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
     if (!draftRuleSet) {
-      throw new Error("Rule set not found");
+      return null;
     }
     if (draftRuleSet.practiceId !== args.practiceId) {
       throw new Error("Rule set does not belong to this practice");
     }
     if (draftRuleSet.saved) {
-      throw new Error("Only unsaved rule sets can be diffed");
+      return null;
     }
     if (!draftRuleSet.parentVersion) {
-      throw new Error("Unsaved rule set has no parent");
+      return null;
     }
 
     const parentRuleSet = await ctx.db.get(
@@ -608,7 +615,7 @@ export const getUnsavedRuleSetDiff = query({
       draftRuleSet.parentVersion,
     );
     if (parentRuleSet?.practiceId !== args.practiceId) {
-      throw new Error("Parent rule set not found");
+      return null;
     }
 
     const [draftSnapshot, parentSnapshot] = await Promise.all([
