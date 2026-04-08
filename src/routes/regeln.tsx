@@ -207,6 +207,76 @@ interface VacationDiffCandidate {
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
 
+function buildSimilarityMatchedDiffRows(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+  ruleNameContext: RuleNameContext | undefined,
+  addedCandidates: { index: number; key: string; value: string }[],
+  removedCandidates: { index: number; key: string; value: string }[],
+) {
+  const rows: StructuredDiffRow[] = [];
+  const remainingAdded = [...addedCandidates];
+  const remainingRemoved = [...removedCandidates];
+
+  while (remainingRemoved.length > 0 && remainingAdded.length > 0) {
+    const bestMatch = findBestDiffCandidateMatch(
+      section,
+      entityRenames,
+      remainingAdded,
+      remainingRemoved,
+    );
+    if (!bestMatch) {
+      break;
+    }
+
+    const beforeCandidate = remainingRemoved.splice(
+      bestMatch.removedIndex,
+      1,
+    )[0];
+    const afterCandidate = remainingAdded.splice(bestMatch.addedIndex, 1)[0];
+    if (!beforeCandidate || !afterCandidate) {
+      continue;
+    }
+
+    const before = beforeCandidate.value;
+    const after = afterCandidate.value;
+    const changedValues = formatChangedStructuredDiffValues(before, after);
+
+    rows.push({
+      after: changedValues.after,
+      before: changedValues.before,
+      id: `${section.key}:similarity:${beforeCandidate.index}:${afterCandidate.index}`,
+      kind: "modified",
+      path: getSimilarityMatchedDiffPath(
+        section,
+        before,
+        after,
+        entityRenames,
+        ruleNameContext,
+      ),
+    });
+  }
+
+  rows.push(
+    ...remainingRemoved.map((candidate) => ({
+      after: "",
+      before: formatStructuredDiffValue(candidate.value),
+      id: `${section.key}:removed-leftover:${candidate.index}`,
+      kind: "removed" as const,
+      path: candidate.key,
+    })),
+    ...remainingAdded.map((candidate) => ({
+      after: formatStructuredDiffValue(candidate.value),
+      before: "",
+      id: `${section.key}:added-leftover:${candidate.index}`,
+      kind: "added" as const,
+      path: candidate.key,
+    })),
+  );
+
+  return rows;
+}
+
 function buildStructuredDiffRows(
   section: RuleSetDiffSection,
   entityRenames: EntityRenameMaps,
@@ -216,32 +286,61 @@ function buildStructuredDiffRows(
     return buildVacationDiffRows(section, entityRenames);
   }
 
-  const removedByKey = new Map<string, string[]>();
-  const addedByKey = new Map<string, string[]>();
+  const removedCandidates = section.removed.map((value, index) => ({
+    index,
+    key: getDiffItemKey(section, value, entityRenames, ruleNameContext),
+    value,
+  }));
+  const addedCandidates = section.added.map((value, index) => ({
+    index,
+    key: getDiffItemKey(section, value, entityRenames, ruleNameContext),
+    value,
+  }));
+  const removedByKey = new Map<
+    string,
+    {
+      index: number;
+      key: string;
+      value: string;
+    }[]
+  >();
+  const addedByKey = new Map<
+    string,
+    {
+      index: number;
+      key: string;
+      value: string;
+    }[]
+  >();
+  const usedRemoved = new Set<number>();
+  const usedAdded = new Set<number>();
+  const rows: StructuredDiffRow[] = [];
 
-  for (const value of section.removed) {
-    const key = getDiffItemKey(section, value, entityRenames, ruleNameContext);
+  for (const candidate of removedCandidates) {
+    const { key } = candidate;
     const bucket = removedByKey.get(key) ?? [];
-    bucket.push(value);
+    bucket.push(candidate);
     removedByKey.set(key, bucket);
   }
-  for (const value of section.added) {
-    const key = getDiffItemKey(section, value, entityRenames, ruleNameContext);
+  for (const candidate of addedCandidates) {
+    const { key } = candidate;
     const bucket = addedByKey.get(key) ?? [];
-    bucket.push(value);
+    bucket.push(candidate);
     addedByKey.set(key, bucket);
   }
 
   const keys = [...new Set([...removedByKey.keys(), ...addedByKey.keys()])];
 
-  return keys.toSorted().flatMap((key): StructuredDiffRow[] => {
+  for (const key of keys.toSorted()) {
     const beforeEntries = removedByKey.get(key) ?? [];
     const afterEntries = addedByKey.get(key) ?? [];
     const pairCount = Math.max(beforeEntries.length, afterEntries.length);
 
-    return Array.from({ length: pairCount }, (_, pairIndex) => {
-      const before = beforeEntries[pairIndex];
-      const after = afterEntries[pairIndex];
+    const nextRows = Array.from({ length: pairCount }, (_, pairIndex) => {
+      const beforeEntry = beforeEntries[pairIndex];
+      const afterEntry = afterEntries[pairIndex];
+      const before = beforeEntry?.value;
+      const after = afterEntry?.value;
       if (
         section.key === "baseSchedules" &&
         before &&
@@ -262,7 +361,14 @@ function buildStructuredDiffRows(
       const changedValues =
         before && after
           ? formatChangedStructuredDiffValues(before, after)
-          : undefined;
+          : null;
+
+      if (beforeEntry) {
+        usedRemoved.add(beforeEntry.index);
+      }
+      if (afterEntry) {
+        usedAdded.add(afterEntry.index);
+      }
 
       return {
         after: changedValues
@@ -277,10 +383,24 @@ function buildStructuredDiffRows(
             : "",
         id: `${section.key}:${key}:${pairIndex}`,
         kind: before && after ? "modified" : after ? "added" : "removed",
-        path: `${section.title} > ${key}`,
+        path: key,
       };
     }).filter((row): row is StructuredDiffRow => row !== null);
-  });
+
+    rows.push(...nextRows);
+  }
+
+  const leftoverModifiedRows = buildSimilarityMatchedDiffRows(
+    section,
+    entityRenames,
+    ruleNameContext,
+    addedCandidates.filter((candidate) => !usedAdded.has(candidate.index)),
+    removedCandidates.filter((candidate) => !usedRemoved.has(candidate.index)),
+  );
+
+  return [...rows, ...leftoverModifiedRows].toSorted((a, b) =>
+    a.path.localeCompare(b.path),
+  );
 }
 
 function buildVacationDiffRows(
@@ -305,11 +425,11 @@ function buildVacationDiffRows(
         before: formatStructuredDiffValue(section.removed[removedIndex] ?? ""),
         id: `${section.key}:removed:${removedIndex}`,
         kind: "removed",
-        path: `${section.title} > ${getDiffItemKey(
+        path: getDiffItemKey(
           section,
           section.removed[removedIndex] ?? "",
           entityRenames,
-        )}`,
+        ),
       });
       continue;
     }
@@ -349,7 +469,7 @@ function buildVacationDiffRows(
         before: changedValues.before,
         id: `${section.key}:modified:${before.key}:${removedIndex}`,
         kind: "modified",
-        path: `${section.title} > ${formatVacationDiffIdentity(before.parsed)}`,
+        path: formatVacationDiffIdentity(before.parsed),
       });
       usedAdded.add(addedIndex);
       continue;
@@ -360,11 +480,7 @@ function buildVacationDiffRows(
       before: formatStructuredDiffValue(before.value),
       id: `${section.key}:removed:${before.key}:${removedIndex}`,
       kind: "removed",
-      path: `${section.title} > ${getDiffItemKey(
-        section,
-        before.value,
-        entityRenames,
-      )}`,
+      path: getDiffItemKey(section, before.value, entityRenames),
     });
   }
 
@@ -378,11 +494,11 @@ function buildVacationDiffRows(
       before: "",
       id: `${section.key}:added:${addedIndex}`,
       kind: "added",
-      path: `${section.title} > ${getDiffItemKey(
+      path: getDiffItemKey(
         section,
         section.added[addedIndex] ?? "",
         entityRenames,
-      )}`,
+      ),
     });
   }
 
@@ -392,6 +508,44 @@ function buildVacationDiffRows(
 function dayOfWeekLabel(value: unknown) {
   const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return typeof value === "number" ? (labels[value] ?? String(value)) : "";
+}
+
+function findBestDiffCandidateMatch(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+  addedCandidates: { index: number; key: string; value: string }[],
+  removedCandidates: { index: number; key: string; value: string }[],
+) {
+  let bestMatch:
+    | undefined
+    | {
+        addedIndex: number;
+        removedIndex: number;
+        score: number;
+      };
+
+  for (const [removedIndex, removedCandidate] of removedCandidates.entries()) {
+    for (const [addedIndex, addedCandidate] of addedCandidates.entries()) {
+      const score = getDiffCandidateSimilarityScore(
+        section,
+        removedCandidate.value,
+        addedCandidate.value,
+        entityRenames,
+      );
+      if (score === null) {
+        continue;
+      }
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = {
+          addedIndex,
+          removedIndex,
+          score,
+        };
+      }
+    }
+  }
+
+  return bestMatch;
 }
 
 function formatChangedStructuredDiffValues(
@@ -650,6 +804,87 @@ function formatValue(value: unknown): string {
   return formatPrimitiveValue(value);
 }
 
+function getComparableDiffEntries(
+  value: unknown,
+  prefix = "",
+  result = new Map<string, string>(),
+) {
+  if (Array.isArray(value)) {
+    for (const [index, entry] of value.entries()) {
+      getComparableDiffEntries(entry, `${prefix}[${index}]`, result);
+    }
+    return result;
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value)) {
+      const nextPrefix = prefix ? `${prefix}.${key}` : key;
+      getComparableDiffEntries(entry, nextPrefix, result);
+    }
+    return result;
+  }
+
+  result.set(prefix, JSON.stringify(value));
+  return result;
+}
+
+function getDiffCandidateSimilarityScore(
+  section: RuleSetDiffSection,
+  beforeValue: string,
+  afterValue: string,
+  entityRenames: EntityRenameMaps,
+) {
+  const before = parseDiffValue(beforeValue);
+  const after = parseDiffValue(afterValue);
+  if (!before || !after) {
+    return null;
+  }
+
+  const normalizedBefore = normalizeReferences(
+    section.key,
+    before,
+    entityRenames,
+  );
+  const normalizedAfter = normalizeReferences(
+    section.key,
+    after,
+    entityRenames,
+  );
+  const beforeEntries = getComparableDiffEntries(normalizedBefore);
+  const afterEntries = getComparableDiffEntries(normalizedAfter);
+  const beforeKeys = new Set(beforeEntries.keys());
+  const afterKeys = new Set(afterEntries.keys());
+  const allKeys = [...new Set([...beforeKeys, ...afterKeys])];
+  if (allKeys.length === 0) {
+    return null;
+  }
+
+  let equalCount = 0;
+  let changedCount = 0;
+  for (const key of allKeys) {
+    const beforeEntry = beforeEntries.get(key);
+    const afterEntry = afterEntries.get(key);
+    if (beforeEntry === afterEntry) {
+      equalCount += 1;
+      continue;
+    }
+    if (beforeEntry !== undefined && afterEntry !== undefined) {
+      changedCount += 1;
+    }
+  }
+
+  if (changedCount === 0 || equalCount === 0) {
+    return null;
+  }
+
+  const ratio = equalCount / allKeys.length;
+  if (ratio < 0.45) {
+    return null;
+  }
+
+  return ratio;
+}
+
 function getDiffItemKey(
   section: RuleSetDiffSection,
   value: string,
@@ -839,6 +1074,29 @@ function getSectionNameRenames(
   }
 
   return renames;
+}
+
+function getSimilarityMatchedDiffPath(
+  section: RuleSetDiffSection,
+  beforeValue: string,
+  afterValue: string,
+  entityRenames: EntityRenameMaps,
+  ruleNameContext?: RuleNameContext,
+) {
+  const beforeKey = getDiffItemKey(
+    section,
+    beforeValue,
+    entityRenames,
+    ruleNameContext,
+  );
+  const afterKey = getDiffItemKey(
+    section,
+    afterValue,
+    entityRenames,
+    ruleNameContext,
+  );
+
+  return beforeKey.length >= afterKey.length ? beforeKey : afterKey;
 }
 
 function getVacationDiffCandidate(
@@ -2860,14 +3118,6 @@ function RuleSetDiffSectionView({
         <div className="w-max">
           {modifiedRows.length > 0 && (
             <table className="w-auto table-auto border-collapse text-left text-xs">
-              <thead className="bg-muted/20 font-medium text-muted-foreground">
-                <tr className="border-b">
-                  <th className="px-3 py-2 font-medium">Pfad</th>
-                  <th className="border-l px-3 py-2 font-medium">Änderung</th>
-                  <th className="border-l px-3 py-2 font-medium">Vorher</th>
-                  <th className="border-l px-3 py-2 font-medium">Nachher</th>
-                </tr>
-              </thead>
               <tbody>
                 {modifiedRows.map((row) => (
                   <tr className="border-b" key={row.id}>
@@ -2894,12 +3144,6 @@ function RuleSetDiffSectionView({
           )}
           {singleValueRows.length > 0 && (
             <table className="w-auto table-auto border-collapse text-left text-xs">
-              <thead className="bg-muted/20 font-medium text-muted-foreground">
-                <tr className="border-b">
-                  <th className="px-3 py-2 font-medium">Pfad</th>
-                  <th className="border-l px-3 py-2 font-medium">Änderung</th>
-                </tr>
-              </thead>
               <tbody>
                 {singleValueRows.map((row) => (
                   <tr className="border-b last:border-b-0" key={row.id}>
