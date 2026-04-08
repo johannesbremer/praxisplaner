@@ -199,101 +199,23 @@ interface StructuredDiffRow {
   path: string;
 }
 
-interface VacationDiffCandidate {
-  key: string;
-  parsed: Record<string, unknown>;
-  value: string;
-}
-
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
-
-function buildSimilarityMatchedDiffRows(
-  section: RuleSetDiffSection,
-  entityRenames: EntityRenameMaps,
-  ruleNameContext: RuleNameContext | undefined,
-  addedCandidates: { index: number; key: string; value: string }[],
-  removedCandidates: { index: number; key: string; value: string }[],
-) {
-  const rows: StructuredDiffRow[] = [];
-  const remainingAdded = [...addedCandidates];
-  const remainingRemoved = [...removedCandidates];
-
-  while (remainingRemoved.length > 0 && remainingAdded.length > 0) {
-    const bestMatch = findBestDiffCandidateMatch(
-      section,
-      entityRenames,
-      remainingAdded,
-      remainingRemoved,
-    );
-    if (!bestMatch) {
-      break;
-    }
-
-    const beforeCandidate = remainingRemoved.splice(
-      bestMatch.removedIndex,
-      1,
-    )[0];
-    const afterCandidate = remainingAdded.splice(bestMatch.addedIndex, 1)[0];
-    if (!beforeCandidate || !afterCandidate) {
-      continue;
-    }
-
-    const before = beforeCandidate.value;
-    const after = afterCandidate.value;
-    const changedValues = formatChangedStructuredDiffValues(before, after);
-
-    rows.push({
-      after: changedValues.after,
-      before: changedValues.before,
-      id: `${section.key}:similarity:${beforeCandidate.index}:${afterCandidate.index}`,
-      kind: "modified",
-      path: getSimilarityMatchedDiffPath(
-        section,
-        before,
-        after,
-        entityRenames,
-        ruleNameContext,
-      ),
-    });
-  }
-
-  rows.push(
-    ...remainingRemoved.map((candidate) => ({
-      after: "",
-      before: formatStructuredDiffValue(candidate.value),
-      id: `${section.key}:removed-leftover:${candidate.index}`,
-      kind: "removed" as const,
-      path: candidate.key,
-    })),
-    ...remainingAdded.map((candidate) => ({
-      after: formatStructuredDiffValue(candidate.value),
-      before: "",
-      id: `${section.key}:added-leftover:${candidate.index}`,
-      kind: "added" as const,
-      path: candidate.key,
-    })),
-  );
-
-  return rows;
-}
 
 function buildStructuredDiffRows(
   section: RuleSetDiffSection,
   entityRenames: EntityRenameMaps,
   ruleNameContext?: RuleNameContext,
 ) {
-  if (section.key === "vacations") {
-    return buildVacationDiffRows(section, entityRenames);
-  }
-
   const removedCandidates = section.removed.map((value, index) => ({
     index,
-    key: getDiffItemKey(section, value, entityRenames, ruleNameContext),
+    key: getDiffItemMatchKey(section, value),
+    path: getDiffItemPath(section, value, entityRenames, ruleNameContext),
     value,
   }));
   const addedCandidates = section.added.map((value, index) => ({
     index,
-    key: getDiffItemKey(section, value, entityRenames, ruleNameContext),
+    key: getDiffItemMatchKey(section, value),
+    path: getDiffItemPath(section, value, entityRenames, ruleNameContext),
     value,
   }));
   const removedByKey = new Map<
@@ -301,6 +223,7 @@ function buildStructuredDiffRows(
     {
       index: number;
       key: string;
+      path: string;
       value: string;
     }[]
   >();
@@ -309,6 +232,7 @@ function buildStructuredDiffRows(
     {
       index: number;
       key: string;
+      path: string;
       value: string;
     }[]
   >();
@@ -383,169 +307,46 @@ function buildStructuredDiffRows(
             : "",
         id: `${section.key}:${key}:${pairIndex}`,
         kind: before && after ? "modified" : after ? "added" : "removed",
-        path: key,
+        path: afterEntry?.path ?? beforeEntry?.path ?? key,
       };
     }).filter((row): row is StructuredDiffRow => row !== null);
 
     rows.push(...nextRows);
   }
 
-  const leftoverModifiedRows = buildSimilarityMatchedDiffRows(
-    section,
-    entityRenames,
-    ruleNameContext,
-    addedCandidates.filter((candidate) => !usedAdded.has(candidate.index)),
-    removedCandidates.filter((candidate) => !usedRemoved.has(candidate.index)),
-  );
+  const remainingRows = [
+    ...removedCandidates
+      .filter((candidate) => !usedRemoved.has(candidate.index))
+      .map(
+        (candidate): StructuredDiffRow => ({
+          after: "",
+          before: formatStructuredDiffValue(candidate.value),
+          id: `${section.key}:removed:${candidate.index}`,
+          kind: "removed",
+          path: candidate.path,
+        }),
+      ),
+    ...addedCandidates
+      .filter((candidate) => !usedAdded.has(candidate.index))
+      .map(
+        (candidate): StructuredDiffRow => ({
+          after: formatStructuredDiffValue(candidate.value),
+          before: "",
+          id: `${section.key}:added:${candidate.index}`,
+          kind: "added",
+          path: candidate.path,
+        }),
+      ),
+  ];
 
-  return [...rows, ...leftoverModifiedRows].toSorted((a, b) =>
+  return [...rows, ...remainingRows].toSorted((a, b) =>
     a.path.localeCompare(b.path),
   );
-}
-
-function buildVacationDiffRows(
-  section: RuleSetDiffSection,
-  entityRenames: EntityRenameMaps,
-) {
-  const removedCandidates = section.removed.map((value) =>
-    getVacationDiffCandidate(value, entityRenames),
-  );
-  const addedCandidates = section.added.map((value) =>
-    getVacationDiffCandidate(value, entityRenames),
-  );
-  const addedCountByKey = getVacationDiffCandidateCounts(addedCandidates);
-  const removedCountByKey = getVacationDiffCandidateCounts(removedCandidates);
-  const usedAdded = new Set<number>();
-  const rows: StructuredDiffRow[] = [];
-
-  for (const [removedIndex, before] of removedCandidates.entries()) {
-    if (!before) {
-      rows.push({
-        after: "",
-        before: formatStructuredDiffValue(section.removed[removedIndex] ?? ""),
-        id: `${section.key}:removed:${removedIndex}`,
-        kind: "removed",
-        path: getDiffItemKey(
-          section,
-          section.removed[removedIndex] ?? "",
-          entityRenames,
-        ),
-      });
-      continue;
-    }
-
-    const matchingAddedIndexes = addedCandidates
-      .map((after, addedIndex) => ({ addedIndex, after }))
-      .filter(
-        (
-          candidate,
-        ): candidate is {
-          addedIndex: number;
-          after: VacationDiffCandidate;
-        } =>
-          Boolean(candidate.after) &&
-          !usedAdded.has(candidate.addedIndex) &&
-          candidate.after?.key === before.key,
-      );
-
-    if (
-      matchingAddedIndexes.length === 1 &&
-      addedCountByKey.get(before.key) === 1 &&
-      removedCountByKey.get(before.key) === 1
-    ) {
-      const match = matchingAddedIndexes[0];
-      if (!match) {
-        continue;
-      }
-
-      const { addedIndex, after } = match;
-      const changedValues = formatChangedStructuredDiffValues(
-        before.value,
-        after.value,
-      );
-
-      rows.push({
-        after: changedValues.after,
-        before: changedValues.before,
-        id: `${section.key}:modified:${before.key}:${removedIndex}`,
-        kind: "modified",
-        path: formatVacationDiffIdentity(before.parsed),
-      });
-      usedAdded.add(addedIndex);
-      continue;
-    }
-
-    rows.push({
-      after: "",
-      before: formatStructuredDiffValue(before.value),
-      id: `${section.key}:removed:${before.key}:${removedIndex}`,
-      kind: "removed",
-      path: getDiffItemKey(section, before.value, entityRenames),
-    });
-  }
-
-  for (const addedIndex of addedCandidates.keys()) {
-    if (usedAdded.has(addedIndex)) {
-      continue;
-    }
-
-    rows.push({
-      after: formatStructuredDiffValue(section.added[addedIndex] ?? ""),
-      before: "",
-      id: `${section.key}:added:${addedIndex}`,
-      kind: "added",
-      path: getDiffItemKey(
-        section,
-        section.added[addedIndex] ?? "",
-        entityRenames,
-      ),
-    });
-  }
-
-  return rows.toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
 function dayOfWeekLabel(value: unknown) {
   const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return typeof value === "number" ? (labels[value] ?? String(value)) : "";
-}
-
-function findBestDiffCandidateMatch(
-  section: RuleSetDiffSection,
-  entityRenames: EntityRenameMaps,
-  addedCandidates: { index: number; key: string; value: string }[],
-  removedCandidates: { index: number; key: string; value: string }[],
-) {
-  let bestMatch:
-    | undefined
-    | {
-        addedIndex: number;
-        removedIndex: number;
-        score: number;
-      };
-
-  for (const [removedIndex, removedCandidate] of removedCandidates.entries()) {
-    for (const [addedIndex, addedCandidate] of addedCandidates.entries()) {
-      const score = getDiffCandidateSimilarityScore(
-        section,
-        removedCandidate.value,
-        addedCandidate.value,
-        entityRenames,
-      );
-      if (score === null) {
-        continue;
-      }
-      if (!bestMatch || score > bestMatch.score) {
-        bestMatch = {
-          addedIndex,
-          removedIndex,
-          score,
-        };
-      }
-    }
-  }
-
-  return bestMatch;
 }
 
 function formatChangedStructuredDiffValues(
@@ -563,7 +364,10 @@ function formatChangedStructuredDiffValues(
 
   const changedKeys = [
     ...new Set([...Object.keys(before), ...Object.keys(after)]),
-  ].filter((key) => !isEqualDiffValue(before[key], after[key]));
+  ].filter(
+    (key) =>
+      !isDiffMetadataKey(key) && !isEqualDiffValue(before[key], after[key]),
+  );
 
   if (changedKeys.length === 0) {
     return {
@@ -717,7 +521,12 @@ function formatStructuredDiffEntries(
   keys: string[],
 ) {
   return keys
-    .filter((key) => value[key] !== null && value[key] !== undefined)
+    .filter(
+      (key) =>
+        !isDiffMetadataKey(key) &&
+        value[key] !== null &&
+        value[key] !== undefined,
+    )
     .map(
       (key) =>
         `${formatStructuredKey(key)}: ${formatFieldValue(key, value[key])}`,
@@ -732,7 +541,12 @@ function formatStructuredDiffValue(value: string) {
   }
 
   return Object.entries(parsed)
-    .filter(([, entryValue]) => entryValue !== null && entryValue !== undefined)
+    .filter(
+      ([key, entryValue]) =>
+        !isDiffMetadataKey(key) &&
+        entryValue !== null &&
+        entryValue !== undefined,
+    )
     .map(
       ([key, entryValue]) =>
         `${formatStructuredKey(key)}: ${formatFieldValue(key, entryValue)}`,
@@ -771,15 +585,6 @@ function formatStructuredKey(key: string) {
   return labels[key] ?? key;
 }
 
-function formatVacationDiffIdentity(value: Record<string, unknown>) {
-  return [
-    stringValue(value["staffName"]),
-    formatEnumValue("staffType", value["staffType"]),
-  ]
-    .filter(Boolean)
-    .join(" > ");
-}
-
 function formatValue(value: unknown): string {
   if (Array.isArray(value)) {
     if (value.length === 0) {
@@ -804,88 +609,24 @@ function formatValue(value: unknown): string {
   return formatPrimitiveValue(value);
 }
 
-function getComparableDiffEntries(
-  value: unknown,
-  prefix = "",
-  result = new Map<string, string>(),
-) {
-  if (Array.isArray(value)) {
-    for (const [index, entry] of value.entries()) {
-      getComparableDiffEntries(entry, `${prefix}[${index}]`, result);
-    }
-    return result;
+function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      `[INVARIANT:DIFF_VALUE_INVALID] Abschnitt ${section.key} enthaelt keinen gueltigen Diff-Wert.`,
+    );
   }
 
-  if (value && typeof value === "object") {
-    for (const [key, entry] of Object.entries(value)) {
-      const nextPrefix = prefix ? `${prefix}.${key}` : key;
-      getComparableDiffEntries(entry, nextPrefix, result);
-    }
-    return result;
+  if (typeof parsed["__diffKey"] === "string") {
+    return parsed["__diffKey"];
   }
 
-  result.set(prefix, JSON.stringify(value));
-  return result;
+  throw new Error(
+    `[INVARIANT:DIFF_KEY_MISSING] Abschnitt ${section.key} hat keinen stabilen Diff-Schluessel.`,
+  );
 }
 
-function getDiffCandidateSimilarityScore(
-  section: RuleSetDiffSection,
-  beforeValue: string,
-  afterValue: string,
-  entityRenames: EntityRenameMaps,
-) {
-  const before = parseDiffValue(beforeValue);
-  const after = parseDiffValue(afterValue);
-  if (!before || !after) {
-    return null;
-  }
-
-  const normalizedBefore = normalizeReferences(
-    section.key,
-    before,
-    entityRenames,
-  );
-  const normalizedAfter = normalizeReferences(
-    section.key,
-    after,
-    entityRenames,
-  );
-  const beforeEntries = getComparableDiffEntries(normalizedBefore);
-  const afterEntries = getComparableDiffEntries(normalizedAfter);
-  const beforeKeys = new Set(beforeEntries.keys());
-  const afterKeys = new Set(afterEntries.keys());
-  const allKeys = [...new Set([...beforeKeys, ...afterKeys])];
-  if (allKeys.length === 0) {
-    return null;
-  }
-
-  let equalCount = 0;
-  let changedCount = 0;
-  for (const key of allKeys) {
-    const beforeEntry = beforeEntries.get(key);
-    const afterEntry = afterEntries.get(key);
-    if (beforeEntry === afterEntry) {
-      equalCount += 1;
-      continue;
-    }
-    if (beforeEntry !== undefined && afterEntry !== undefined) {
-      changedCount += 1;
-    }
-  }
-
-  if (changedCount === 0 || equalCount === 0) {
-    return null;
-  }
-
-  const ratio = equalCount / allKeys.length;
-  if (ratio < 0.45) {
-    return null;
-  }
-
-  return ratio;
-}
-
-function getDiffItemKey(
+function getDiffItemPath(
   section: RuleSetDiffSection,
   value: string,
   entityRenames: EntityRenameMaps,
@@ -1076,63 +817,8 @@ function getSectionNameRenames(
   return renames;
 }
 
-function getSimilarityMatchedDiffPath(
-  section: RuleSetDiffSection,
-  beforeValue: string,
-  afterValue: string,
-  entityRenames: EntityRenameMaps,
-  ruleNameContext?: RuleNameContext,
-) {
-  const beforeKey = getDiffItemKey(
-    section,
-    beforeValue,
-    entityRenames,
-    ruleNameContext,
-  );
-  const afterKey = getDiffItemKey(
-    section,
-    afterValue,
-    entityRenames,
-    ruleNameContext,
-  );
-
-  return beforeKey.length >= afterKey.length ? beforeKey : afterKey;
-}
-
-function getVacationDiffCandidate(
-  value: string,
-  entityRenames: EntityRenameMaps,
-): null | VacationDiffCandidate {
-  const parsed = parseDiffValue(value);
-  if (!parsed) {
-    return null;
-  }
-
-  const normalized = normalizeReferences("vacations", parsed, entityRenames);
-  const staffName = stringValue(normalized["staffName"]);
-  const staffType = stringValue(normalized["staffType"]);
-  if (!staffName || !staffType) {
-    return null;
-  }
-
-  return {
-    key: `${staffType}:${staffName}`,
-    parsed: normalized,
-    value,
-  };
-}
-
-function getVacationDiffCandidateCounts(
-  candidates: (null | VacationDiffCandidate)[],
-) {
-  const counts = new Map<string, number>();
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    counts.set(candidate.key, (counts.get(candidate.key) ?? 0) + 1);
-  }
-  return counts;
+function isDiffMetadataKey(key: string) {
+  return key.startsWith("__");
 }
 
 function isEqualDiffValue(before: unknown, after: unknown) {
@@ -1525,20 +1211,11 @@ function LogicView() {
       return;
     }
     if (!rawUnsaved) {
-      if (!unsavedRuleSetId || !draftParentRuleSetIdOverride) {
-        return;
-      }
-      const parentRuleSet = ruleSetsQuery?.find(
-        (rs) => rs._id === draftParentRuleSetIdOverride,
-      );
-      return {
-        _id: unsavedRuleSetId,
-        description: UNSAVED_RULE_SET_DESCRIPTION,
-        draftRevision: draftRevisionOverride ?? 0,
-        isActive: currentPractice.currentActiveRuleSetId === unsavedRuleSetId,
-        parentVersion: draftParentRuleSetIdOverride,
-        version: (parentRuleSet?.version ?? 0) + 1,
-      };
+      return;
+    }
+
+    if (rawUnsaved.saved) {
+      return;
     }
 
     return {
@@ -1549,13 +1226,7 @@ function LogicView() {
       parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
-  }, [
-    currentPractice,
-    draftParentRuleSetIdOverride,
-    draftRevisionOverride,
-    ruleSetsQuery,
-    unsavedRuleSetId,
-  ]);
+  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId]);
 
   // Get the search params directly to determine which rule set to use
   const routeSearch: RegelnSearchParams = Route.useSearch();
@@ -1579,12 +1250,22 @@ function LogicView() {
     () => preliminarySelectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [preliminarySelectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
+  const resolvedPreliminaryWorkingRuleSet = useMemo(
+    () =>
+      preliminaryWorkingRuleSet &&
+      ruleSetsWithActive?.some(
+        (ruleSet) => ruleSet._id === preliminaryWorkingRuleSet._id,
+      )
+        ? preliminaryWorkingRuleSet
+        : undefined,
+    [preliminaryWorkingRuleSet, ruleSetsWithActive],
+  );
 
   // Fetch locations for the working rule set
   const locationsListQuery = useQuery(
     api.entities.getLocations,
-    preliminaryWorkingRuleSet
-      ? { ruleSetId: preliminaryWorkingRuleSet._id }
+    resolvedPreliminaryWorkingRuleSet
+      ? { ruleSetId: resolvedPreliminaryWorkingRuleSet._id }
       : "skip",
   );
 
@@ -1615,6 +1296,16 @@ function LogicView() {
     () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
+  const resolvedCurrentWorkingRuleSet = useMemo(
+    () =>
+      currentWorkingRuleSet &&
+      ruleSetsWithActive?.some(
+        (ruleSet) => ruleSet._id === currentWorkingRuleSet._id,
+      )
+        ? currentWorkingRuleSet
+        : undefined,
+    [currentWorkingRuleSet, ruleSetsWithActive],
+  );
   const isShowingUnsavedRuleSet =
     Boolean(unsavedRuleSet) &&
     currentWorkingRuleSet?._id === unsavedRuleSet?._id;
@@ -1634,11 +1325,15 @@ function LogicView() {
   ) as RuleSetDiff | undefined;
   const diffAppointmentTypesQuery = useQuery(
     api.entities.getAppointmentTypes,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+    resolvedCurrentWorkingRuleSet
+      ? { ruleSetId: resolvedCurrentWorkingRuleSet._id }
+      : "skip",
   );
   const diffPractitionersQuery = useQuery(
     api.entities.getPractitioners,
-    currentWorkingRuleSet ? { ruleSetId: currentWorkingRuleSet._id } : "skip",
+    resolvedCurrentWorkingRuleSet
+      ? { ruleSetId: resolvedCurrentWorkingRuleSet._id }
+      : "skip",
   );
   const ruleNameContext = useMemo<RuleNameContext | undefined>(() => {
     if (
@@ -1665,19 +1360,7 @@ function LogicView() {
     };
   }, [diffAppointmentTypesQuery, diffPractitionersQuery, locationsListQuery]);
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
-    if (
-      unsavedRuleSetId &&
-      draftRevisionOverride !== null &&
-      draftParentRuleSetIdOverride
-    ) {
-      return {
-        draftRevision: draftRevisionOverride,
-        draftRuleSetId: unsavedRuleSetId,
-        kind: "draft",
-        parentRuleSetId: draftParentRuleSetIdOverride,
-      };
-    }
-    if (!currentWorkingRuleSet) {
+    if (!resolvedCurrentWorkingRuleSet) {
       return null;
     }
     if (unsavedRuleSet?.parentVersion) {
@@ -1690,15 +1373,27 @@ function LogicView() {
     }
     return {
       kind: "saved-parent",
-      parentRuleSetId: currentWorkingRuleSet._id,
+      parentRuleSetId: resolvedCurrentWorkingRuleSet._id,
     };
-  }, [
-    currentWorkingRuleSet,
-    draftParentRuleSetIdOverride,
-    draftRevisionOverride,
-    unsavedRuleSet,
-    unsavedRuleSetId,
-  ]);
+  }, [draftRevisionOverride, resolvedCurrentWorkingRuleSet, unsavedRuleSet]);
+
+  React.useEffect(() => {
+    if (!ruleSetsQuery || !unsavedRuleSetId) {
+      return;
+    }
+
+    const draftStillExists = ruleSetsQuery.some(
+      (ruleSet) => ruleSet._id === unsavedRuleSetId && !ruleSet.saved,
+    );
+    if (draftStillExists) {
+      return;
+    }
+
+    setUnsavedRuleSetId(null);
+    setDraftRevisionOverride(null);
+    setDraftParentRuleSetIdOverride(null);
+    setIsDraftEquivalentToParent(false);
+  }, [ruleSetsQuery, unsavedRuleSetId]);
 
   React.useEffect(() => {
     if (!unsavedRuleSet) {
@@ -2802,7 +2497,7 @@ function LogicView() {
             diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
             ruleNameContext={ruleNameContext}
           />
-          <DialogFooter className="mt-2 shrink-0">
+          <DialogFooter className="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">
             <Button
               onClick={() => {
                 setIsDiscardDialogOpen(false);
@@ -3095,7 +2790,7 @@ function RuleSetDiffChangeCount({
   ).length;
 
   return (
-    <div className="flex justify-end">
+    <div className="mt-2 flex shrink-0 justify-end">
       <Badge variant="secondary">{changeCount} Änderungen</Badge>
     </div>
   );
@@ -3308,7 +3003,7 @@ function SaveDialogForm({
         diff={ruleSetDiff}
         ruleNameContext={ruleNameContext}
       />
-      <DialogFooter className="mt-6 flex shrink-0 gap-2">
+      <DialogFooter className="mt-4 flex shrink-0 flex-wrap items-center justify-end gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
             Änderungen verwerfen

@@ -184,6 +184,7 @@ async function deleteVacationsByRuleSet(
  * Delete rule conditions by ruleSetId in batches.
  */
 interface CanonicalRuleConditionNode {
+  __diffKey?: string;
   childOrder: number;
   children: CanonicalRuleConditionNode[];
   conditionType: null | string;
@@ -275,6 +276,11 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          practitioner.lineageKey,
+          practitioner._id,
+          "Behandler",
+        ),
         name: practitioner.name,
         tags: toSortedStrings(practitioner.tags ?? []),
       }),
@@ -282,16 +288,35 @@ async function buildRuleSetCanonicalSnapshot(
     .toSorted();
 
   const canonicalLocations = locations
-    .map((location) => JSON.stringify({ name: location.name }))
+    .map((location) =>
+      JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          location.lineageKey,
+          location._id,
+          "Standort",
+        ),
+        name: location.name,
+      }),
+    )
     .toSorted();
 
   const canonicalMfas = mfas
-    .map((mfa) => JSON.stringify({ name: mfa.name }))
+    .map((mfa) =>
+      JSON.stringify({
+        __diffKey: requireStableDiffKey(mfa.lineageKey, mfa._id, "MFA"),
+        name: mfa.name,
+      }),
+    )
     .toSorted();
 
   const canonicalAppointmentTypes = appointmentTypes
     .map((appointmentType) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          appointmentType.lineageKey,
+          appointmentType._id,
+          "Terminart",
+        ),
         allowedPractitioners: toSortedStrings(
           appointmentType.allowedPractitionerIds.map(
             (id) => practitionerNameById.get(id) ?? id,
@@ -320,6 +345,11 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalBaseSchedules = baseSchedules
     .map((baseSchedule) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          baseSchedule.lineageKey,
+          baseSchedule._id,
+          "Arbeitszeit",
+        ),
         breakTimes: normalizeBreakTimes(baseSchedule.breakTimes),
         dayOfWeek: baseSchedule.dayOfWeek,
         endTime: baseSchedule.endTime,
@@ -360,6 +390,7 @@ async function buildRuleSetCanonicalSnapshot(
           appointmentTypeNameById,
           locationNameById,
           practitionerNameById,
+          rootRule.copyFromId ?? rootRule._id,
         ),
       ),
     )
@@ -368,6 +399,11 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalVacations = vacations
     .map((vacation) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          vacation.lineageKey,
+          vacation._id,
+          "Urlaub",
+        ),
         date: vacation.date,
         portion: vacation.portion,
         staffName:
@@ -483,12 +519,27 @@ function normalizeValueIds(
   }
 }
 
+function requireStableDiffKey(
+  lineageKey: string | undefined,
+  entityId: string,
+  entityType: string,
+) {
+  if (!lineageKey) {
+    throw new Error(
+      `[INVARIANT:DIFF_KEY_MISSING] ${entityType} ${entityId} hat keinen stabilen Diff-Schluessel.`,
+    );
+  }
+
+  return lineageKey;
+}
+
 function serializeRuleConditionTree(
   node: Doc<"ruleConditions">,
   childrenByParentId: Map<Id<"ruleConditions">, Doc<"ruleConditions">[]>,
   appointmentTypeNameById: Map<string, string>,
   locationNameById: Map<string, string>,
   practitionerNameById: Map<string, string>,
+  diffKey?: string,
 ): CanonicalRuleConditionNode {
   const children = childrenByParentId.get(node._id) ?? [];
   const orderedChildren = [...children].toSorted(
@@ -496,6 +547,7 @@ function serializeRuleConditionTree(
   );
 
   return {
+    ...(diffKey ? { __diffKey: diffKey } : {}),
     childOrder: node.childOrder,
     children: orderedChildren.map((child) =>
       serializeRuleConditionTree(

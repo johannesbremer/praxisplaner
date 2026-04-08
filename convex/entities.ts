@@ -2588,6 +2588,7 @@ async function insertConditionTreeNode(
 export const createRule = mutation({
   args: {
     conditionTree: conditionTreeNodeValidator,
+    copyFromId: v.optional(v.id("ruleConditions")),
     enabled: v.optional(v.boolean()),
     expectedDraftRevision: expectedDraftRevisionValidator,
     name: v.string(),
@@ -2618,6 +2619,7 @@ export const createRule = mutation({
     // Create the root node (the rule itself)
     const rootId = await ctx.db.insert("ruleConditions", {
       childOrder: 0, // Root nodes don't have siblings, but we set this for consistency
+      ...(args.copyFromId && { copyFromId: args.copyFromId }),
       createdAt: now,
       enabled: args.enabled ?? true,
       isRoot: true,

@@ -323,6 +323,7 @@ export function RuleBuilder({
               conditionTree: preparedRule.conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
+              copyFromId: deletedRule.copyFromId ?? deletedRule._id,
               enabled: deletedRule.enabled,
               name: deletedRuleName,
               practiceId,
@@ -436,6 +437,9 @@ export function RuleBuilder({
               conditionTree: conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
+              ...(previousRule && {
+                copyFromId: previousRule.copyFromId ?? previousRule._id,
+              }),
               enabled: true,
               name: ruleName,
               practiceId,
@@ -618,6 +622,7 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
+                    copyFromId: previousRule.copyFromId ?? previousRule._id,
                     enabled: true,
                     name: ruleName,
                     practiceId,
@@ -684,6 +689,7 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
+                    copyFromId: previousRule.copyFromId ?? previousRule._id,
                     enabled: previousRule.enabled,
                     name: previousRuleName,
                     practiceId,
@@ -721,6 +727,7 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
+                    copyFromId: currentRuleId,
                     enabled: true,
                     name: ruleName,
                     practiceId,
