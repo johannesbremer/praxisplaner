@@ -40,7 +40,6 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
-  getAccessibleRuleSetForQuery,
 } from "./practiceAccess";
 import {
   type ConditionTreeNode,
@@ -889,10 +888,7 @@ export const getAppointmentTypes = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
-    if (!ruleSet) {
-      return [];
-    }
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1570,10 +1566,7 @@ export const getPractitioners = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
-    if (!ruleSet) {
-      return [];
-    }
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1808,10 +1801,7 @@ export const getLocations = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
-    if (!ruleSet) {
-      return [];
-    }
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     const locations = await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2317,10 +2307,7 @@ export const getBaseSchedules = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
-    if (!ruleSet) {
-      return [];
-    }
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2594,6 +2581,31 @@ async function insertConditionTreeNode(
   }
 }
 
+async function resolveValidatedRuleCopyFromId(
+  db: DatabaseReader,
+  practiceId: Id<"practices">,
+  copyFromId: Id<"ruleConditions">,
+): Promise<Id<"ruleConditions">> {
+  const sourceRule = await db.get("ruleConditions", copyFromId);
+  if (!sourceRule) {
+    throw new Error(
+      `[INVARIANT:RULE_COPY_SOURCE_NOT_FOUND] Regel ${copyFromId} konnte nicht geladen werden.`,
+    );
+  }
+  if (sourceRule.practiceId !== practiceId) {
+    throw new Error(
+      `[INVARIANT:RULE_COPY_SOURCE_PRACTICE_MISMATCH] Regel ${copyFromId} gehoert nicht zur Praxis ${practiceId}.`,
+    );
+  }
+  if (!sourceRule.isRoot) {
+    throw new Error(
+      `[INVARIANT:RULE_COPY_SOURCE_NOT_ROOT] copyFromId ${copyFromId} muss auf eine Wurzelregel zeigen.`,
+    );
+  }
+
+  return sourceRule.copyFromId ?? sourceRule._id;
+}
+
 /**
  * Create a new rule with its condition tree in an unsaved rule set.
  * Returns both the created rule ID and the rule set ID.
@@ -2628,11 +2640,18 @@ export const createRule = mutation({
     );
 
     const now = BigInt(Date.now());
+    const canonicalCopyFromId = args.copyFromId
+      ? await resolveValidatedRuleCopyFromId(
+          ctx.db,
+          args.practiceId,
+          args.copyFromId,
+        )
+      : undefined;
 
     // Create the root node (the rule itself)
     const rootId = await ctx.db.insert("ruleConditions", {
       childOrder: 0, // Root nodes don't have siblings, but we set this for consistency
-      ...(args.copyFromId && { copyFromId: args.copyFromId }),
+      ...(canonicalCopyFromId && { copyFromId: canonicalCopyFromId }),
       createdAt: now,
       enabled: args.enabled ?? true,
       isRoot: true,
@@ -2899,10 +2918,7 @@ export const getRules = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const ruleSet = await getAccessibleRuleSetForQuery(ctx, args.ruleSetId);
-    if (!ruleSet) {
-      return [];
-    }
+    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
     // Get all root nodes (rules)
     const roots = await ctx.db
       .query("ruleConditions")

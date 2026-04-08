@@ -123,20 +123,6 @@ export async function getAccessiblePracticeIdsForQuery(
   return memberships.map((membership) => membership.practiceId);
 }
 
-export async function getAccessibleRuleSetForQuery(
-  ctx: QueryCtx,
-  ruleSetId: Id<"ruleSets">,
-  minimumRole: PracticeRole = "staff",
-): Promise<Doc<"ruleSets"> | null> {
-  const ruleSet = await ctx.db.get("ruleSets", ruleSetId);
-  if (!ruleSet) {
-    return null;
-  }
-
-  await ensurePracticeAccessForQuery(ctx, ruleSet.practiceId, minimumRole);
-  return ruleSet;
-}
-
 async function findPracticeMembership(
   ctx: MutationCtx | QueryCtx,
   practiceId: Id<"practices">,

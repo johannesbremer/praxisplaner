@@ -1,3 +1,4 @@
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useMutation, useQuery } from "convex/react";
 import {
   BriefcaseMedical,
@@ -18,6 +19,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -1101,6 +1103,13 @@ export function VacationScheduler({
             <>
               <DialogHeader>
                 <DialogTitle>{formatDateFull(conflictDialog.date)}</DialogTitle>
+                <VisuallyHidden>
+                  <DialogDescription>
+                    Zeigt die Urlaubskonflikte für den ausgewählten Tag und
+                    erlaubt bei bearbeitbaren Einträgen die Auswahl des
+                    betroffenen Tagesabschnitts.
+                  </DialogDescription>
+                </VisuallyHidden>
               </DialogHeader>
 
               <div className="rounded-lg border p-3 text-sm font-medium">

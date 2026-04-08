@@ -479,7 +479,7 @@ function formatEnumValue(key: string, value: unknown) {
     },
     portion: {
       afternoon: "Nachmittag",
-      full: "Ganztags",
+      full: "Ganztägig",
       morning: "Vormittag",
     },
     practitionerMode: {
@@ -718,8 +718,8 @@ function getDiffItemPath(
         normalizeRenamedValue(staffName, entityRenames.practitioners),
         entityRenames.mfas,
       ),
-      stringValue(parsed["date"]),
-      stringValue(parsed["portion"]),
+      formatPrimitiveValue(parsed["date"]),
+      formatEnumValue("portion", parsed["portion"]),
     ]
       .filter(Boolean)
       .join(" > ");
@@ -1342,11 +1342,7 @@ function LogicView() {
   );
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
-    currentPractice &&
-      unsavedRuleSet &&
-      ruleSetsQuery?.some((ruleSet) => ruleSet._id === unsavedRuleSet._id) &&
-      unsavedRuleSet.parentVersion &&
-      !isDraftEquivalentToParent
+    currentPractice && unsavedRuleSet && !isDraftEquivalentToParent
       ? {
           practiceId: currentPractice._id,
           ruleSetId: unsavedRuleSet._id,
@@ -2435,11 +2431,13 @@ function LogicView() {
         <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
           <DialogHeader>
             <DialogTitle>Regelset speichern</DialogTitle>
-            <DialogDescription>
-              {pendingRuleSetId
-                ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
-                : "Geben Sie einen eindeutigen Namen für dieses Regelset ein."}
-            </DialogDescription>
+            <VisuallyHidden>
+              <DialogDescription>
+                {pendingRuleSetId
+                  ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
+                  : "Geben Sie einen eindeutigen Namen für dieses Regelset ein."}
+              </DialogDescription>
+            </VisuallyHidden>
           </DialogHeader>
           <SaveDialogForm
             activationName={activationName}

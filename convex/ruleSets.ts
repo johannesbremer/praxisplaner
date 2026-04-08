@@ -598,7 +598,7 @@ export const getUnsavedRuleSetDiff = query({
 
     const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
     if (!draftRuleSet) {
-      return null;
+      throw new Error("Rule set not found");
     }
     if (draftRuleSet.practiceId !== args.practiceId) {
       throw new Error("Rule set does not belong to this practice");
@@ -607,7 +607,7 @@ export const getUnsavedRuleSetDiff = query({
       return null;
     }
     if (!draftRuleSet.parentVersion) {
-      return null;
+      throw new Error("Unsaved rule set has no parent");
     }
 
     const parentRuleSet = await ctx.db.get(
@@ -615,7 +615,7 @@ export const getUnsavedRuleSetDiff = query({
       draftRuleSet.parentVersion,
     );
     if (parentRuleSet?.practiceId !== args.practiceId) {
-      return null;
+      throw new Error("Parent rule set not found");
     }
 
     const [draftSnapshot, parentSnapshot] = await Promise.all([
