@@ -401,13 +401,129 @@ function formatChangedStructuredDiffValues(
   };
 }
 
+function formatEnumValue(key: string, value: unknown) {
+  const stringifiedValue = stringValue(value);
+
+  const enumLabels: Record<string, Record<string, string>> = {
+    conditionType: {
+      APPOINTMENT_TYPE: "Terminart",
+      CLIENT_TYPE: "Patiententyp",
+      CONCURRENT_COUNT: "Parallele Termine",
+      DAILY_CAPACITY: "Tageskapazitaet",
+      DATE_RANGE: "Datumsbereich",
+      DAY_OF_WEEK: "Wochentag",
+      DAYS_AHEAD: "Tage im Voraus",
+      HOURS_AHEAD: "Stunden im Voraus",
+      LOCATION: "Standort",
+      PATIENT_AGE: "Patientenalter",
+      PRACTITIONER: "Behandler",
+      PRACTITIONER_TAG: "Behandler-Tag",
+    },
+    locationMode: {
+      any: "Beliebiger Standort",
+      inherit: "Standort uebernehmen",
+      selected: "Ausgewaehlter Standort",
+    },
+    offsetUnit: {
+      days: "Tage",
+      minutes: "Minuten",
+      months: "Monate",
+      weeks: "Wochen",
+    },
+    operator: {
+      EQUALS: "Ist gleich",
+      GREATER_THAN: "Groesser als",
+      GREATER_THAN_OR_EQUAL: "Groesser oder gleich",
+      IS: "Ist",
+      IS_NOT: "Ist nicht",
+      LESS_THAN: "Kleiner als",
+      LESS_THAN_OR_EQUAL: "Kleiner oder gleich",
+    },
+    portion: {
+      afternoon: "Nachmittag",
+      full: "Ganztags",
+      morning: "Vormittag",
+    },
+    practitionerMode: {
+      any: "Beliebiger Behandler",
+      inherit: "Behandler uebernehmen",
+      selected: "Ausgewaehlter Behandler",
+    },
+    scope: {
+      location: "Standort",
+      practice: "Praxis",
+      practitioner: "Behandler",
+      real: "Echt",
+      simulation: "Simulation",
+    },
+    searchMode: {
+      exact_after_previous: "Direkt nach dem vorherigen Termin",
+      first_available_on_or_after: "Erster verfuegbarer Termin ab dann",
+      same_day: "Am selben Tag",
+    },
+    staffType: {
+      mfa: "MFA",
+      practitioner: "Behandler",
+    },
+  };
+
+  return enumLabels[key]?.[stringifiedValue] ?? stringifiedValue;
+}
+
+function formatFieldValue(key: string, value: unknown) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    if (value.every((entry) => typeof entry !== "object" || entry === null)) {
+      return value
+        .map((entry) =>
+          typeof entry === "string"
+            ? formatEnumValue(key, entry)
+            : formatPrimitiveValue(entry),
+        )
+        .join(", ");
+    }
+    return `${value.length} Eintrag${value.length === 1 ? "" : "e"}`;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Ja" : "Nein";
+  }
+
+  if (value && typeof value === "object") {
+    return formatValue(value);
+  }
+
+  return formatEnumValue(key, value);
+}
+
+function formatPrimitiveValue(value: unknown) {
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split("-");
+      return `${day}.${month}.${year}`;
+    }
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return String(value);
+}
+
 function formatStructuredDiffEntries(
   value: Record<string, unknown>,
   keys: string[],
 ) {
   return keys
     .filter((key) => value[key] !== null && value[key] !== undefined)
-    .map((key) => `${formatStructuredKey(key)}: ${formatValue(value[key])}`)
+    .map(
+      (key) =>
+        `${formatStructuredKey(key)}: ${formatFieldValue(key, value[key])}`,
+    )
     .join("\n");
 }
 
@@ -421,7 +537,7 @@ function formatStructuredDiffValue(value: string) {
     .filter(([, entryValue]) => entryValue !== null && entryValue !== undefined)
     .map(
       ([key, entryValue]) =>
-        `${formatStructuredKey(key)}: ${formatValue(entryValue)}`,
+        `${formatStructuredKey(key)}: ${formatFieldValue(key, entryValue)}`,
     )
     .join("\n");
 }
@@ -458,7 +574,10 @@ function formatStructuredKey(key: string) {
 }
 
 function formatVacationDiffIdentity(value: Record<string, unknown>) {
-  return [stringValue(value["staffName"]), stringValue(value["staffType"])]
+  return [
+    stringValue(value["staffName"]),
+    formatEnumValue("staffType", value["staffType"]),
+  ]
     .filter(Boolean)
     .join(" > ");
 }
@@ -469,7 +588,7 @@ function formatValue(value: unknown): string {
       return "[]";
     }
     if (value.every((entry) => typeof entry !== "object" || entry === null)) {
-      return value.join(", ");
+      return value.map((entry) => formatPrimitiveValue(entry)).join(", ");
     }
     return `${value.length} Eintrag${value.length === 1 ? "" : "e"}`;
   }
@@ -480,11 +599,11 @@ function formatValue(value: unknown): string {
     return Object.entries(value)
       .map(
         ([key, entryValue]) =>
-          `${formatStructuredKey(key)}=${formatValue(entryValue)}`,
+          `${formatStructuredKey(key)}=${formatFieldValue(key, entryValue)}`,
       )
       .join(", ");
   }
-  return String(value);
+  return formatPrimitiveValue(value);
 }
 
 function getDiffItemKey(
