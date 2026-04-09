@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { err, ok, type Result, ResultAsync } from "neverthrow";
+import { ResultAsync } from "neverthrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -30,38 +30,13 @@ import {
   temporalDayToLegacy,
 } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
-
-// Hardcoded timezone for Berlin
-const TIMEZONE = "Europe/Berlin";
-
-/**
- * Handler for editing blocked slots.
- * Returns false if we just finished resizing (to prevent opening edit dialog),
- * otherwise returns true to indicate the edit should proceed.
- */
-function handleEditBlockedSlot(
-  blockedSlotId: string,
-  justFinishedResizingRef: React.RefObject<null | string>,
-): boolean {
-  // Prevent opening edit dialog if we just finished resizing this blocked slot
-  if (justFinishedResizingRef.current === blockedSlotId) {
-    return false;
-  }
-  return true;
-}
-
-function parsePlainTimeResult(
-  value: string,
-  source: string,
-): Result<Temporal.PlainTime, ReturnType<typeof invalidStateError>> {
-  try {
-    return ok(Temporal.PlainTime.from(value));
-  } catch (error) {
-    return err(
-      invalidStateError(`Invalid time format: ${value}`, source, error),
-    );
-  }
-}
+import {
+  type BlockedSlotConversionOptions,
+  handleEditBlockedSlot,
+  parsePlainTimeResult,
+  type SimulationConversionOptions,
+  TIMEZONE,
+} from "./use-calendar-logic-helpers";
 
 /**
  * Deep comparison of appointment arrays.
@@ -2428,23 +2403,6 @@ export function useCalendarLogic({
     },
     [appointments, timeToSlot, totalSlots],
   );
-
-  interface SimulationConversionOptions {
-    columnOverride?: string;
-    durationMinutes?: number;
-    endISO?: string;
-    locationId?: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
-    startISO?: string;
-  }
-
-  interface BlockedSlotConversionOptions {
-    endISO?: string;
-    locationId?: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
-    startISO?: string;
-    title?: string;
-  }
 
   /**
    * Converts a real appointment into a simulated appointment for testing scheduling scenarios.
