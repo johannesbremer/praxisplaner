@@ -1183,13 +1183,6 @@ function LogicView() {
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
-    if (
-      unsavedRuleSetId &&
-      discardingUnsavedRuleSetIdRef.current === unsavedRuleSetId
-    ) {
-      return;
-    }
-
     const rawUnsaved = unsavedRuleSetId
       ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
       : undefined;
@@ -1587,9 +1580,6 @@ function LogicView() {
   React.useEffect(() => {
     // Only enforce when the ruleSet segment is missing entirely.
     // Do NOT override a user-chosen named rule set in the URL.
-    if (discardingUnsavedRuleSetIdRef.current !== null) {
-      return;
-    }
     if (!unsavedRuleSet) {
       return;
     }
@@ -1650,9 +1640,6 @@ function LogicView() {
 
   // Auto-detect existing unsaved rule set on load
   React.useEffect(() => {
-    if (discardingUnsavedRuleSetIdRef.current !== null) {
-      return;
-    }
     if (!existingUnsavedRuleSet) {
       return;
     }

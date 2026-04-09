@@ -98,7 +98,9 @@ export function ruleSetIdFromReplayTarget(
     : target.parentRuleSetId;
 }
 
-export function toCowMutationArgs(target: RuleSetReplayTarget): CowMutationArgs {
+export function toCowMutationArgs(
+  target: RuleSetReplayTarget,
+): CowMutationArgs {
   if (target.kind === "draft") {
     return {
       expectedDraftRevision: target.draftRevision,

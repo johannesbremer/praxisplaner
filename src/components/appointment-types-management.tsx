@@ -8,7 +8,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
@@ -360,6 +360,44 @@ export function AppointmentTypesManagement({
       onRuleSetCreated(result.ruleSetId);
     }
   };
+  const upsertAppointmentTypeRef = useCallback(
+    (
+      appointmentType: AppointmentType,
+      options?: { previousLineageKey?: Id<"appointmentTypes"> | undefined },
+    ) => {
+      const next = [...appointmentTypesRef.current];
+      const matchIndex = next.findIndex(
+        (existing) =>
+          existing._id === appointmentType._id ||
+          existing.lineageKey === appointmentType.lineageKey ||
+          (options?.previousLineageKey !== undefined &&
+            existing.lineageKey === options.previousLineageKey),
+      );
+
+      if (matchIndex === -1) {
+        next.push(appointmentType);
+      } else {
+        next[matchIndex] = appointmentType;
+      }
+
+      appointmentTypesRef.current = next;
+    },
+    [],
+  );
+  const removeAppointmentTypeFromRef = useCallback(
+    (params: {
+      id: Id<"appointmentTypes">;
+      lineageKey?: Id<"appointmentTypes"> | undefined;
+    }) => {
+      appointmentTypesRef.current = appointmentTypesRef.current.filter(
+        (existing) =>
+          existing._id !== params.id &&
+          (params.lineageKey === undefined ||
+            existing.lineageKey !== params.lineageKey),
+      );
+    },
+    [],
+  );
 
   const resolvePractitionerLineageKey = (practitionerId: Id<"practitioners">) =>
     practitionersRef.current.find(
@@ -449,6 +487,18 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(updateResult);
+          upsertAppointmentTypeRef(
+            {
+              ...editingAppointmentType,
+              _id: updateResult.entityId,
+              allowedPractitionerIds: afterState.practitionerIds,
+              duration: afterState.duration,
+              followUpPlan: afterState.followUpPlan ?? [],
+              name: afterState.name,
+              ruleSetId: updateResult.ruleSetId,
+            },
+            { previousLineageKey: appointmentTypeLineageKey },
+          );
           registerLineageUpdateHistoryAction({
             entitiesRef: appointmentTypesRef,
             initialEntityId: updateResult.entityId,
@@ -553,6 +603,19 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
+          upsertAppointmentTypeRef({
+            _creationTime: 0,
+            _id: createResult.entityId,
+            allowedPractitionerIds: resolvedFormPractitionerIds.ids,
+            createdAt: 0n,
+            duration: value.duration,
+            followUpPlan: normalizedFollowUpPlan ?? [],
+            lastModified: 0n,
+            lineageKey: createResult.entityId,
+            name: trimmedName,
+            practiceId,
+            ruleSetId: createResult.ruleSetId,
+          });
           const { entityId } = createResult;
 
           const appointmentTypeLineageKey = entityId;
@@ -683,6 +746,10 @@ export function AppointmentTypesManagement({
         ...getCowMutationArgs(),
       });
       handleDraftMutationResult(deleteResult);
+      removeAppointmentTypeFromRef({
+        id: appointmentType._id,
+        lineageKey: deletedSnapshot.lineageKey,
+      });
 
       let currentAppointmentTypeId = appointmentType._id;
 
@@ -763,6 +830,19 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
           });
           handleDraftMutationResult(recreateResult);
+          upsertAppointmentTypeRef({
+            _creationTime: 0,
+            _id: recreateResult.entityId,
+            allowedPractitionerIds: resolvedUndoPractitionerIds.ids,
+            createdAt: 0n,
+            duration: deletedSnapshot.duration,
+            followUpPlan: deletedSnapshot.followUpPlan ?? [],
+            lastModified: 0n,
+            lineageKey: deletedSnapshot.lineageKey,
+            name: deletedSnapshot.name,
+            practiceId,
+            ruleSetId: recreateResult.ruleSetId,
+          });
           currentAppointmentTypeId = recreateResult.entityId;
           return { status: "applied" as const };
         },
