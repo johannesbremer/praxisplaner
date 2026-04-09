@@ -474,6 +474,7 @@ async function getSlotsForDayImpl(
     const effectiveAppointments = getEffectiveAppointmentsForScope(
       preloadedData.appointments,
       appointmentScope,
+      ruleSetId,
     );
 
     for (const slot of candidateSlots) {

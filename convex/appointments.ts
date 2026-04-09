@@ -57,6 +57,7 @@ const appointmentResultValidator = v.object({
   seriesId: v.optional(v.string()),
   seriesStepId: v.optional(v.string()),
   seriesStepIndex: v.optional(v.int64()),
+  simulationRuleSetId: v.optional(v.id("ruleSets")),
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
@@ -263,6 +264,13 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+function getSimulationScopeRuleSetId(args: {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}) {
+  return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
 async function remapAppointmentIds(
   ctx: { db: DatabaseReader },
   appointments: AppointmentDoc[],
@@ -367,11 +375,25 @@ export const getAppointments = query({
     let resultAppointments: AppointmentDoc[];
 
     if (scope === "simulation") {
-      resultAppointments = combineForSimulationScope(appointments);
-    } else if (scope === "all") {
-      resultAppointments = appointments.toSorted((a, b) =>
-        a.start.localeCompare(b.start),
+      resultAppointments = combineForSimulationScope(
+        appointments.filter(
+          (appointment) =>
+            appointment.isSimulation !== true ||
+            appointment.simulationRuleSetId === undefined ||
+            appointment.simulationRuleSetId ===
+              getSimulationScopeRuleSetId(args),
+        ),
       );
+    } else if (scope === "all") {
+      resultAppointments = appointments
+        .filter(
+          (appointment) =>
+            appointment.isSimulation !== true ||
+            appointment.simulationRuleSetId === undefined ||
+            appointment.simulationRuleSetId ===
+              getSimulationScopeRuleSetId(args),
+        )
+        .toSorted((a, b) => a.start.localeCompare(b.start));
     } else {
       resultAppointments = appointments
         .filter((appointment) => appointment.isSimulation !== true)
@@ -439,11 +461,27 @@ export const getAppointmentsInRange = query({
     }
 
     if (scope === "simulation") {
-      return combineForSimulationScope(appointments);
+      return combineForSimulationScope(
+        appointments.filter(
+          (appointment) =>
+            appointment.isSimulation !== true ||
+            appointment.simulationRuleSetId === undefined ||
+            appointment.simulationRuleSetId ===
+              getSimulationScopeRuleSetId(args),
+        ),
+      );
     }
 
     if (scope === "all") {
-      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
+      return appointments
+        .filter(
+          (appointment) =>
+            appointment.isSimulation !== true ||
+            appointment.simulationRuleSetId === undefined ||
+            appointment.simulationRuleSetId ===
+              getSimulationScopeRuleSetId(args),
+        )
+        .toSorted((a, b) => a.start.localeCompare(b.start));
     }
 
     return appointments
@@ -640,6 +678,7 @@ export const createAppointment = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.string(),
     title: v.string(),
     userId: v.optional(v.id("users")),
@@ -669,6 +708,7 @@ export const updateAppointment = mutation({
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.optional(v.string()),
     title: v.optional(v.string()),
     userId: v.optional(v.id("users")),

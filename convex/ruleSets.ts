@@ -69,6 +69,51 @@ async function deleteAppointmentTypesByRuleSet(
 /**
  * Delete practitioners by ruleSetId in batches.
  */
+async function applyPendingSimulationAppointmentsForRuleSet(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+) {
+  const simulationAppointments = await db
+    .query("appointments")
+    .withIndex("by_simulationRuleSetId", (q) =>
+      q.eq("simulationRuleSetId", ruleSetId),
+    )
+    .collect();
+
+  for (const simulationAppointment of simulationAppointments) {
+    if (!simulationAppointment.replacesAppointmentId) {
+      continue;
+    }
+
+    const replacedAppointment = await db.get(
+      "appointments",
+      simulationAppointment.replacesAppointmentId,
+    );
+    if (!replacedAppointment) {
+      await db.delete("appointments", simulationAppointment._id);
+      continue;
+    }
+
+    await db.patch("appointments", replacedAppointment._id, {
+      appointmentTypeId: simulationAppointment.appointmentTypeId,
+      appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
+      end: simulationAppointment.end,
+      lastModified: BigInt(Date.now()),
+      locationId: simulationAppointment.locationId,
+      ...(simulationAppointment.patientId
+        ? { patientId: simulationAppointment.patientId }
+        : {}),
+      practitionerId: simulationAppointment.practitionerId,
+      start: simulationAppointment.start,
+      title: simulationAppointment.title,
+      ...(simulationAppointment.userId
+        ? { userId: simulationAppointment.userId }
+        : {}),
+    });
+    await db.delete("appointments", simulationAppointment._id);
+  }
+}
+
 async function deletePractitionersByRuleSet(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
@@ -86,6 +131,31 @@ async function deletePractitionersByRuleSet(
     batch = await db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .take(batchSize);
+  }
+}
+
+async function deleteSimulationAppointmentsByRuleSet(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+  batchSize = 100,
+): Promise<void> {
+  let batch = await db
+    .query("appointments")
+    .withIndex("by_simulationRuleSetId", (q) =>
+      q.eq("simulationRuleSetId", ruleSetId),
+    )
+    .take(batchSize);
+
+  while (batch.length > 0) {
+    for (const item of batch) {
+      await db.delete("appointments", item._id);
+    }
+    batch = await db
+      .query("appointments")
+      .withIndex("by_simulationRuleSetId", (q) =>
+        q.eq("simulationRuleSetId", ruleSetId),
+      )
       .take(batchSize);
   }
 }
@@ -197,6 +267,7 @@ interface CanonicalRuleConditionNode {
 }
 
 interface RuleSetCanonicalSnapshot {
+  appointmentCoverage: string[];
   appointmentTypes: string[];
   baseSchedules: string[];
   locations: string[];
@@ -207,6 +278,7 @@ interface RuleSetCanonicalSnapshot {
 }
 
 const canonicalSnapshotSectionTitles = {
+  appointmentCoverage: "Terminverschiebungen",
   appointmentTypes: "Terminarten",
   baseSchedules: "Arbeitszeiten",
   locations: "Standorte",
@@ -215,6 +287,109 @@ const canonicalSnapshotSectionTitles = {
   rules: "Regeln",
   vacations: "Urlaub",
 } satisfies Record<keyof RuleSetCanonicalSnapshot, string>;
+
+async function buildAppointmentCoverageDiffSection(
+  db: DatabaseReader,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const simulationAppointments = await db
+    .query("appointments")
+    .withIndex("by_simulationRuleSetId", (q) =>
+      q.eq("simulationRuleSetId", args.ruleSetId),
+    )
+    .collect();
+
+  if (simulationAppointments.length === 0) {
+    return {
+      added: [],
+      key: "appointmentCoverage",
+      removed: [],
+      title: canonicalSnapshotSectionTitles.appointmentCoverage,
+    };
+  }
+
+  const [patients, users, practitioners] = await Promise.all([
+    db
+      .query("patients")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect(),
+    db.query("users").collect(),
+    db.query("practitioners").collect(),
+  ]);
+
+  const patientById = new Map(
+    patients.map((patient) => [patient._id, patient]),
+  );
+  const userById = new Map(users.map((user) => [user._id, user]));
+  const practitionerNameById = new Map(
+    practitioners.flatMap((practitioner) => [
+      [practitioner._id, practitioner.name] as const,
+      ...(practitioner.lineageKey
+        ? ([[practitioner.lineageKey, practitioner.name]] as const)
+        : []),
+    ]),
+  );
+
+  const added: string[] = [];
+  const removed: string[] = [];
+
+  for (const simulationAppointment of simulationAppointments) {
+    if (!simulationAppointment.replacesAppointmentId) {
+      continue;
+    }
+
+    const replacedAppointment = await db.get(
+      "appointments",
+      simulationAppointment.replacesAppointmentId,
+    );
+    if (!replacedAppointment) {
+      continue;
+    }
+
+    const patientLabel = simulationAppointment.patientId
+      ? (patientById.get(simulationAppointment.patientId)?.lastName ??
+        `Patient ${simulationAppointment.patientId}`)
+      : simulationAppointment.userId
+        ? (userById.get(simulationAppointment.userId)?.lastName ??
+          userById.get(simulationAppointment.userId)?.email ??
+          `Benutzer ${simulationAppointment.userId}`)
+        : "Unbekannt";
+
+    const beforePractitioner =
+      (replacedAppointment.practitionerId
+        ? practitionerNameById.get(replacedAppointment.practitionerId)
+        : undefined) ?? "Unzugewiesen";
+    const afterPractitioner =
+      (simulationAppointment.practitionerId
+        ? practitionerNameById.get(simulationAppointment.practitionerId)
+        : undefined) ?? "Unzugewiesen";
+
+    removed.push(
+      JSON.stringify({
+        __diffKey: replacedAppointment._id,
+        patientLastName: patientLabel,
+        practitionerName: beforePractitioner,
+      }),
+    );
+    added.push(
+      JSON.stringify({
+        __diffKey: replacedAppointment._id,
+        patientLastName: patientLabel,
+        practitionerName: afterPractitioner,
+      }),
+    );
+  }
+
+  return {
+    added: added.toSorted(),
+    key: "appointmentCoverage",
+    removed: removed.toSorted(),
+    title: canonicalSnapshotSectionTitles.appointmentCoverage,
+  };
+}
 
 async function buildRuleSetCanonicalSnapshot(
   db: DatabaseReader,
@@ -413,6 +588,7 @@ async function buildRuleSetCanonicalSnapshot(
     .toSorted();
 
   return {
+    appointmentCoverage: [],
     appointmentTypes: canonicalAppointmentTypes,
     baseSchedules: canonicalBaseSchedules,
     locations: canonicalLocations,
@@ -618,10 +794,15 @@ export const getUnsavedRuleSetDiff = query({
       throw new Error("Parent rule set not found");
     }
 
-    const [draftSnapshot, parentSnapshot] = await Promise.all([
-      buildRuleSetCanonicalSnapshot(ctx.db, draftRuleSet._id),
-      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
-    ]);
+    const [draftSnapshot, parentSnapshot, appointmentCoverageSection] =
+      await Promise.all([
+        buildRuleSetCanonicalSnapshot(ctx.db, draftRuleSet._id),
+        buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
+        buildAppointmentCoverageDiffSection(ctx.db, {
+          practiceId: args.practiceId,
+          ruleSetId: draftRuleSet._id,
+        }),
+      ]);
 
     const sectionKeys = Object.keys(
       canonicalSnapshotSectionTitles,
@@ -644,12 +825,16 @@ export const getUnsavedRuleSetDiff = query({
         title: canonicalSnapshotSectionTitles[key],
       };
     });
+    const sectionsWithCoverage = [
+      ...sections.filter((section) => section.key !== "appointmentCoverage"),
+      appointmentCoverageSection,
+    ];
 
-    const totalAdded = sections.reduce(
+    const totalAdded = sectionsWithCoverage.reduce(
       (sum, section) => sum + section.added.length,
       0,
     );
-    const totalRemoved = sections.reduce(
+    const totalRemoved = sectionsWithCoverage.reduce(
       (sum, section) => sum + section.removed.length,
       0,
     );
@@ -665,7 +850,7 @@ export const getUnsavedRuleSetDiff = query({
         description: parentRuleSet.description,
         version: parentRuleSet.version,
       },
-      sections,
+      sections: sectionsWithCoverage,
       totals: {
         added: totalAdded,
         changed: totalAdded + totalRemoved,
@@ -734,6 +919,10 @@ export const saveUnsavedRuleSet = mutation({
       await ctx.db.patch("practices", args.practiceId, {
         currentActiveRuleSetId: unsavedRuleSet._id,
       });
+      await applyPendingSimulationAppointmentsForRuleSet(
+        ctx.db,
+        unsavedRuleSet._id,
+      );
     }
 
     return unsavedRuleSet._id;
@@ -770,6 +959,7 @@ export const discardUnsavedRuleSet = mutation({
     await deleteVacationsByRuleSet(ctx.db, ruleSetId);
     await deleteMfasByRuleSet(ctx.db, ruleSetId);
     await deleteRuleConditionsByRuleSet(ctx.db, ruleSetId);
+    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSetId);
 
     // Finally, delete the rule set itself
     await ctx.db.delete("ruleSets", ruleSetId);
@@ -879,6 +1069,7 @@ export const setActiveRuleSet = mutation({
     await ctx.db.patch("practices", args.practiceId, {
       currentActiveRuleSetId: args.ruleSetId,
     });
+    await applyPendingSimulationAppointmentsForRuleSet(ctx.db, args.ruleSetId);
   },
 });
 
@@ -981,6 +1172,7 @@ export const deleteUnsavedRuleSet = mutation({
     await deleteBaseSchedulesByRuleSet(ctx.db, args.ruleSetId);
     await deleteVacationsByRuleSet(ctx.db, args.ruleSetId);
     await deleteMfasByRuleSet(ctx.db, args.ruleSetId);
+    await deleteSimulationAppointmentsByRuleSet(ctx.db, args.ruleSetId);
 
     // Finally, delete the rule set itself
     await ctx.db.delete("ruleSets", args.ruleSetId);
@@ -1053,6 +1245,7 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
     await deleteBaseSchedulesByRuleSet(ctx.db, ruleSet._id);
     await deleteVacationsByRuleSet(ctx.db, ruleSet._id);
     await deleteMfasByRuleSet(ctx.db, ruleSet._id);
+    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSet._id);
     await ctx.db.delete("ruleSets", ruleSet._id);
 
     return {

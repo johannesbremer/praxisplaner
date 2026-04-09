@@ -24,6 +24,79 @@ const coverageSuggestionValidator = v.object({
   targetPractitionerName: v.optional(v.string()),
 });
 
+export async function resolveAppointmentTypeIdForRuleSet(
+  db: DatabaseReader,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    practiceId: Id<"practices">;
+    targetRuleSetId: Id<"ruleSets">;
+  },
+): Promise<Id<"appointmentTypes">> {
+  const appointmentType = await db.get(
+    "appointmentTypes",
+    args.appointmentTypeId,
+  );
+  if (!appointmentType) {
+    throw new Error(`Terminart ${args.appointmentTypeId} nicht gefunden.`);
+  }
+  if (appointmentType.practiceId !== args.practiceId) {
+    throw new Error("Terminart gehört nicht zu dieser Praxis.");
+  }
+  if (appointmentType.ruleSetId === args.targetRuleSetId) {
+    return appointmentType._id;
+  }
+
+  const lineageKey = appointmentType.lineageKey ?? appointmentType._id;
+  const mappedAppointmentType = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
+    )
+    .first();
+
+  if (mappedAppointmentType?.practiceId !== args.practiceId) {
+    throw new Error(
+      "Terminart konnte im Ziel-Regelset nicht aufgelöst werden.",
+    );
+  }
+
+  return mappedAppointmentType._id;
+}
+
+export async function resolveLocationIdForRuleSet(
+  db: DatabaseReader,
+  args: {
+    locationId: Id<"locations">;
+    practiceId: Id<"practices">;
+    targetRuleSetId: Id<"ruleSets">;
+  },
+): Promise<Id<"locations">> {
+  const location = await db.get("locations", args.locationId);
+  if (!location) {
+    throw new Error(`Standort ${args.locationId} nicht gefunden.`);
+  }
+  if (location.practiceId !== args.practiceId) {
+    throw new Error("Standort gehört nicht zu dieser Praxis.");
+  }
+  if (location.ruleSetId === args.targetRuleSetId) {
+    return location._id;
+  }
+
+  const lineageKey = location.lineageKey ?? location._id;
+  const mappedLocation = await db
+    .query("locations")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
+    )
+    .first();
+
+  if (mappedLocation?.practiceId !== args.practiceId) {
+    throw new Error("Standort konnte im Ziel-Regelset nicht aufgelöst werden.");
+  }
+
+  return mappedLocation._id;
+}
+
 export async function resolvePractitionerIdForRuleSet(
   db: DatabaseReader,
   args: {
@@ -129,7 +202,7 @@ async function previewPractitionerCoverageForAppointment(
     };
   }
 
-  const selectedAppointmentTypeId = await resolveAppointmentTypeIdInRuleSet(
+  const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
     ctx.db,
     {
       appointmentTypeId: args.appointment.appointmentTypeId,
@@ -137,7 +210,7 @@ async function previewPractitionerCoverageForAppointment(
       targetRuleSetId: args.ruleSetId,
     },
   );
-  const selectedLocationId = await resolveLocationIdInRuleSet(ctx.db, {
+  const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
     locationId: args.appointment.locationId,
     practiceId: args.practiceId,
     targetRuleSetId: args.ruleSetId,
@@ -237,79 +310,6 @@ async function previewPractitionerCoverageForAppointment(
     targetPractitionerId: bestCandidate.activePractitionerId,
     targetPractitionerName: bestCandidate.name,
   };
-}
-
-async function resolveAppointmentTypeIdInRuleSet(
-  db: DatabaseReader,
-  args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    practiceId: Id<"practices">;
-    targetRuleSetId: Id<"ruleSets">;
-  },
-): Promise<Id<"appointmentTypes">> {
-  const appointmentType = await db.get(
-    "appointmentTypes",
-    args.appointmentTypeId,
-  );
-  if (!appointmentType) {
-    throw new Error(`Terminart ${args.appointmentTypeId} nicht gefunden.`);
-  }
-  if (appointmentType.practiceId !== args.practiceId) {
-    throw new Error("Terminart gehört nicht zu dieser Praxis.");
-  }
-  if (appointmentType.ruleSetId === args.targetRuleSetId) {
-    return appointmentType._id;
-  }
-
-  const lineageKey = appointmentType.lineageKey ?? appointmentType._id;
-  const mappedAppointmentType = await db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
-    )
-    .first();
-
-  if (mappedAppointmentType?.practiceId !== args.practiceId) {
-    throw new Error(
-      "Terminart konnte im Ziel-Regelset nicht aufgelöst werden.",
-    );
-  }
-
-  return mappedAppointmentType._id;
-}
-
-async function resolveLocationIdInRuleSet(
-  db: DatabaseReader,
-  args: {
-    locationId: Id<"locations">;
-    practiceId: Id<"practices">;
-    targetRuleSetId: Id<"ruleSets">;
-  },
-): Promise<Id<"locations">> {
-  const location = await db.get("locations", args.locationId);
-  if (!location) {
-    throw new Error(`Standort ${args.locationId} nicht gefunden.`);
-  }
-  if (location.practiceId !== args.practiceId) {
-    throw new Error("Standort gehört nicht zu dieser Praxis.");
-  }
-  if (location.ruleSetId === args.targetRuleSetId) {
-    return location._id;
-  }
-
-  const lineageKey = location.lineageKey ?? location._id;
-  const mappedLocation = await db
-    .query("locations")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
-    )
-    .first();
-
-  if (mappedLocation?.practiceId !== args.practiceId) {
-    throw new Error("Standort konnte im Ziel-Regelset nicht aufgelöst werden.");
-  }
-
-  return mappedLocation._id;
 }
 
 async function resolvePractitionerIdInRuleSet(

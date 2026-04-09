@@ -5,7 +5,11 @@ import type { MutationCtx } from "./_generated/server";
 
 import { mutation, query } from "./_generated/server";
 import { findConflictingAppointment } from "./appointmentConflicts";
-import { resolvePractitionerIdForRuleSet } from "./appointmentCoverage";
+import {
+  resolveAppointmentTypeIdForRuleSet,
+  resolveLocationIdForRuleSet,
+  resolvePractitionerIdForRuleSet,
+} from "./appointmentCoverage";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -327,16 +331,21 @@ async function createVacationInDraft(
     portion: "afternoon" | "full" | "morning";
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
+    resolvedRuleSetId?: Id<"ruleSets">;
     selectedRuleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
   },
 ) {
-  const { ruleSetId } = await resolveDraftForWrite(
-    ctx.db,
-    args.practiceId,
-    args.expectedDraftRevision,
-    args.selectedRuleSetId,
-  );
+  let ruleSetId = args.resolvedRuleSetId;
+  if (!ruleSetId) {
+    const resolvedDraft = await resolveDraftForWrite(
+      ctx.db,
+      args.practiceId,
+      args.expectedDraftRevision,
+      args.selectedRuleSetId,
+    );
+    ruleSetId = resolvedDraft.ruleSetId;
+  }
 
   const resolved = await assertStaffExists(ctx, {
     ...(args.mfaId ? { mfaId: args.mfaId } : {}),
@@ -453,6 +462,12 @@ export const createVacationWithCoverageAdjustments = mutation({
     if (!practice?.currentActiveRuleSetId) {
       throw new Error("Aktives Regelset nicht gefunden.");
     }
+    const { ruleSetId } = await resolveDraftForWrite(
+      ctx.db,
+      args.practiceId,
+      args.expectedDraftRevision,
+      args.selectedRuleSetId,
+    );
 
     const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
       practiceId: args.practiceId,
@@ -535,9 +550,72 @@ export const createVacationWithCoverageAdjustments = mutation({
         );
       }
 
-      await ctx.db.patch("appointments", appointment._id, {
+      const selectedPractitionerId = await resolvePractitionerIdForRuleSet(
+        ctx.db,
+        {
+          practiceId: args.practiceId,
+          practitionerId: reassignment.targetPractitionerId,
+          ruleSetId,
+        },
+      );
+      const selectedAppointmentTypeId =
+        await resolveAppointmentTypeIdForRuleSet(ctx.db, {
+          appointmentTypeId: appointment.appointmentTypeId,
+          practiceId: args.practiceId,
+          targetRuleSetId: ruleSetId,
+        });
+      const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
+        locationId: appointment.locationId,
+        practiceId: args.practiceId,
+        targetRuleSetId: ruleSetId,
+      });
+
+      const existingSimulation = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", appointment._id),
+        )
+        .collect();
+      const matchingSimulation = existingSimulation.find(
+        (entry) =>
+          entry.isSimulation === true &&
+          entry.simulationRuleSetId === ruleSetId,
+      );
+
+      if (matchingSimulation) {
+        await ctx.db.patch("appointments", matchingSimulation._id, {
+          appointmentTypeId: selectedAppointmentTypeId,
+          end: appointment.end,
+          lastModified: now,
+          locationId: selectedLocationId,
+          ...(appointment.patientId
+            ? { patientId: appointment.patientId }
+            : {}),
+          practitionerId: selectedPractitionerId,
+          simulationRuleSetId: ruleSetId,
+          start: appointment.start,
+          title: appointment.title,
+          ...(appointment.userId ? { userId: appointment.userId } : {}),
+        });
+        continue;
+      }
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: selectedAppointmentTypeId,
+        appointmentTypeTitle: appointment.appointmentTypeTitle,
+        createdAt: now,
+        end: appointment.end,
+        isSimulation: true,
         lastModified: now,
-        practitionerId: reassignment.targetPractitionerId,
+        locationId: selectedLocationId,
+        ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
+        practiceId: args.practiceId,
+        practitionerId: selectedPractitionerId,
+        replacesAppointmentId: appointment._id,
+        simulationRuleSetId: ruleSetId,
+        start: appointment.start,
+        title: appointment.title,
+        ...(appointment.userId ? { userId: appointment.userId } : {}),
       });
     }
 
@@ -547,7 +625,8 @@ export const createVacationWithCoverageAdjustments = mutation({
       portion: args.portion,
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
-      selectedRuleSetId: args.selectedRuleSetId,
+      resolvedRuleSetId: ruleSetId,
+      selectedRuleSetId: ruleSetId,
       staffType: "practitioner",
     });
   },

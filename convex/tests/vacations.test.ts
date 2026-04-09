@@ -380,7 +380,7 @@ describe("vacations", () => {
     ).toContain("Kein freier qualifizierter Behandler");
   });
 
-  test("creating a vacation with coverage adjustments reassigns movable appointments", async () => {
+  test("creating a vacation with coverage adjustments stages simulation changes until activation", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
     const monday = nextWeekday(1);
@@ -426,20 +426,126 @@ describe("vacations", () => {
       },
     );
 
-    const movedAppointment = await t.run(async (ctx) =>
+    const unchangedAppointment = await t.run(async (ctx) =>
       ctx.db.get("appointments", appointmentId),
     );
+    const simulatedAppointments = await t.query(
+      api.appointments.getAppointments,
+      {
+        activeRuleSetId: fixture.ruleSetId,
+        scope: "simulation",
+        selectedRuleSetId: result.ruleSetId,
+      },
+    );
+    const draftPractitioners = await t.query(api.entities.getPractitioners, {
+      ruleSetId: result.ruleSetId,
+    });
+    const draftPreferredPractitionerId = draftPractitioners.find(
+      (practitioner) =>
+        practitioner.lineageKey === fixture.preferredPractitionerId,
+    )?._id;
+    assertDefined(draftPreferredPractitionerId);
     const vacations = await t.query(api.vacations.getVacationsInRange, {
       endDateExclusive: monday.add({ days: 1 }).toString(),
       ruleSetId: result.ruleSetId,
       startDate: monday.toString(),
     });
 
-    expect(movedAppointment?.practitionerId).toBe(
-      fixture.preferredPractitionerId,
+    expect(unchangedAppointment?.practitionerId).toBe(
+      fixture.absentPractitionerId,
     );
+    expect(
+      simulatedAppointments.find(
+        (candidate) => candidate.replacesAppointmentId === appointmentId,
+      )?.practitionerId,
+    ).toBe(draftPreferredPractitionerId);
     expect(vacations).toHaveLength(1);
     expect(vacations[0]?.portion).toBe("morning");
+
+    await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaubsplanung",
+      practiceId: fixture.practiceId,
+      setAsActive: true,
+    });
+
+    const activatedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+    const remainingSimulations = await t.run(async (ctx) =>
+      ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", result.ruleSetId),
+        )
+        .collect(),
+    );
+
+    expect(activatedAppointment?.practitionerId).toBe(
+      draftPreferredPractitionerId,
+    );
+    expect(remainingSimulations).toHaveLength(0);
+  });
+
+  test("unsaved diff lists staged practitioner changes by patient surname", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const draftResult = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerId: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    const diff = await t.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: fixture.practiceId,
+      ruleSetId: draftResult.ruleSetId,
+    });
+
+    const coverageSection = diff?.sections.find(
+      (section) => section.key === "appointmentCoverage",
+    );
+
+    expect(coverageSection?.added).toHaveLength(1);
+    expect(coverageSection?.removed).toHaveLength(1);
+    expect(coverageSection?.added[0]).toContain("Dr. Zuletzt Gesehen");
+    expect(coverageSection?.removed[0]).toContain("Dr. Urlaub");
+    expect(coverageSection?.added[0]).toContain("Patientin");
   });
 
   test("deleting an MFA cascades that MFA's vacations", async () => {

@@ -479,6 +479,7 @@ export default defineSchema({
     seriesId: v.optional(v.string()),
     seriesStepId: v.optional(v.string()),
     seriesStepIndex: v.optional(v.int64()),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
     userId: v.optional(v.id("users")),
 
     // Metadata
@@ -492,6 +493,7 @@ export default defineSchema({
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_simulationRuleSetId", ["simulationRuleSetId"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
     .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])

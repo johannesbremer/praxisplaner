@@ -110,6 +110,7 @@ export async function findConflictingAppointment(
 export function getEffectiveAppointmentsForScope(
   appointments: Doc<"appointments">[],
   scope: AppointmentBookingScope,
+  simulationRuleSetId?: Id<"ruleSets">,
 ): Doc<"appointments">[] {
   const visibleAppointments = appointments.filter(
     (appointment) => appointment.cancelledAt === undefined,
@@ -121,9 +122,20 @@ export function getEffectiveAppointmentsForScope(
     );
   }
 
-  const simulationAppointments = visibleAppointments.filter(
-    (appointment) => appointment.isSimulation === true,
-  );
+  const simulationAppointments = visibleAppointments.filter((appointment) => {
+    if (appointment.isSimulation !== true) {
+      return false;
+    }
+
+    if (!simulationRuleSetId) {
+      return true;
+    }
+
+    return (
+      appointment.simulationRuleSetId === undefined ||
+      appointment.simulationRuleSetId === simulationRuleSetId
+    );
+  });
   const replacedIds = new Set(
     simulationAppointments
       .map((appointment) => appointment.replacesAppointmentId)

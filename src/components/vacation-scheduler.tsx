@@ -172,7 +172,7 @@ export function VacationScheduler({
       })
       .toString(),
     ...(activeRuleSet?._id ? { selectedRuleSetId: ruleSetId } : {}),
-    scope: "real",
+    scope: "simulation",
     start: monthDate
       .toZonedDateTime({
         plainTime: Temporal.PlainTime.from("00:00"),
