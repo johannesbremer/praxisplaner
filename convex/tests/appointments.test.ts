@@ -639,3 +639,67 @@ describe("appointments self-service cancellation", () => {
     expect(remainingAppointments).toHaveLength(0);
   });
 });
+
+describe("appointments update safety", () => {
+  test("updateAppointment rejects moving an appointment onto an occupied practitioner slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_collision";
+    const userId = await createUser(t, authId, "update-collision@example.com");
+    const authed = t.withIdentity({
+      email: "update-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const otherPractitionerId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      return await ctx.db.insert("practitioners", {
+        name: "Dr. Other",
+        practiceId: baseData.practiceId,
+        ruleSetId: practice?.currentActiveRuleSetId as Id<"ruleSets">,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        baseData.appointmentTypeId,
+      );
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        allowedPractitionerIds: [
+          ...(appointmentType?.allowedPractitionerIds ?? []),
+          otherPractitionerId,
+        ],
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+    await insertAppointment(t, {
+      ...baseData,
+      practitionerId: otherPractitionerId,
+      userId,
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: appointmentToMove,
+        practitionerId: otherPractitionerId,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+});

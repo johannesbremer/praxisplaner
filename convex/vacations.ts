@@ -4,6 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
 import { mutation, query } from "./_generated/server";
+import { findConflictingAppointment } from "./appointmentConflicts";
+import { resolvePractitionerIdForRuleSet } from "./appointmentCoverage";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -24,6 +26,11 @@ const draftMutationResultValidator = v.object({
   draftRevision: v.number(),
   entityId: v.optional(v.id("vacations")),
   ruleSetId: v.id("ruleSets"),
+});
+
+const vacationCoverageReassignmentValidator = v.object({
+  appointmentId: v.id("appointments"),
+  targetPractitionerId: v.id("practitioners"),
 });
 
 async function assertStaffExists(
@@ -306,6 +313,243 @@ export const createVacation = mutation({
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
+  },
+  returns: draftMutationResultValidator,
+});
+
+async function createVacationInDraft(
+  ctx: MutationCtx,
+  args: {
+    date: string;
+    expectedDraftRevision: null | number;
+    lineageKey?: Id<"vacations">;
+    mfaId?: Id<"mfas">;
+    portion: "afternoon" | "full" | "morning";
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    selectedRuleSetId: Id<"ruleSets">;
+    staffType: "mfa" | "practitioner";
+  },
+) {
+  const { ruleSetId } = await resolveDraftForWrite(
+    ctx.db,
+    args.practiceId,
+    args.expectedDraftRevision,
+    args.selectedRuleSetId,
+  );
+
+  const resolved = await assertStaffExists(ctx, {
+    ...(args.mfaId ? { mfaId: args.mfaId } : {}),
+    practiceId: args.practiceId,
+    ...(args.practitionerId ? { practitionerId: args.practitionerId } : {}),
+    ruleSetId,
+    staffType: args.staffType,
+  });
+
+  const existingByLineage = args.lineageKey
+    ? await ctx.db
+        .query("vacations")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+        )
+        .first()
+    : null;
+
+  if (existingByLineage) {
+    if (
+      existingByLineage.practiceId !== args.practiceId ||
+      existingByLineage.date !== args.date ||
+      existingByLineage.portion !== args.portion ||
+      existingByLineage.staffType !== args.staffType ||
+      (args.staffType === "practitioner"
+        ? existingByLineage.practitionerId !== resolved.practitionerId
+        : existingByLineage.mfaId !== resolved.mfaId)
+    ) {
+      throw new Error(
+        "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
+      );
+    }
+
+    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    return {
+      draftRevision,
+      entityId: existingByLineage._id,
+      ruleSetId,
+    };
+  }
+
+  const existing = await ctx.db
+    .query("vacations")
+    .withIndex("by_ruleSetId_date", (q) =>
+      q.eq("ruleSetId", ruleSetId).eq("date", args.date),
+    )
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("staffType"), args.staffType),
+        q.eq(q.field("portion"), args.portion),
+        args.staffType === "practitioner"
+          ? q.eq(q.field("practitionerId"), resolved.practitionerId)
+          : q.eq(q.field("mfaId"), resolved.mfaId),
+      ),
+    )
+    .first();
+
+  let entityId: Id<"vacations">;
+  if (existing) {
+    if (
+      args.lineageKey &&
+      existing.lineageKey &&
+      existing.lineageKey !== args.lineageKey
+    ) {
+      throw new Error(
+        "Urlaub für diesen Zeitraum existiert bereits mit anderer lineageKey.",
+      );
+    }
+    entityId = existing._id;
+    const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
+    if (existing.lineageKey !== lineageKey) {
+      await ctx.db.patch("vacations", existing._id, {
+        lineageKey,
+      });
+    }
+  } else {
+    entityId = await ctx.db.insert("vacations", {
+      createdAt: BigInt(Date.now()),
+      date: args.date,
+      ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
+      ...(resolved.mfaId ? { mfaId: resolved.mfaId } : {}),
+      portion: args.portion,
+      practiceId: args.practiceId,
+      ...(resolved.practitionerId
+        ? { practitionerId: resolved.practitionerId }
+        : {}),
+      ruleSetId,
+      staffType: args.staffType,
+    });
+    if (!args.lineageKey) {
+      await ctx.db.patch("vacations", entityId, { lineageKey: entityId });
+    }
+  }
+
+  const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+  return { draftRevision, entityId, ruleSetId };
+}
+
+export const createVacationWithCoverageAdjustments = mutation({
+  args: {
+    date: v.string(),
+    expectedDraftRevision: expectedDraftRevisionValidator,
+    portion: vacationPortionValidator,
+    practiceId: v.id("practices"),
+    practitionerId: v.id("practitioners"),
+    reassignments: v.array(vacationCoverageReassignmentValidator),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (!practice?.currentActiveRuleSetId) {
+      throw new Error("Aktives Regelset nicht gefunden.");
+    }
+
+    const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      ruleSetId: practice.currentActiveRuleSetId,
+    });
+
+    const now = BigInt(Date.now());
+    for (const reassignment of args.reassignments) {
+      const appointment = await ctx.db.get(
+        "appointments",
+        reassignment.appointmentId,
+      );
+      if (!appointment) {
+        throw new Error("Termin nicht gefunden.");
+      }
+      if (appointment.practiceId !== args.practiceId) {
+        throw new Error("Termin gehört nicht zu dieser Praxis.");
+      }
+      if (
+        appointment.cancelledAt !== undefined ||
+        appointment.isSimulation === true
+      ) {
+        throw new Error("Nur echte, aktive Termine können verschoben werden.");
+      }
+      if (appointment.practitionerId !== activePractitionerId) {
+        throw new Error(
+          "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
+        );
+      }
+      if (appointment.seriesId !== undefined) {
+        throw new Error(
+          "Kettentermine können derzeit nicht automatisch verschoben werden.",
+        );
+      }
+
+      const targetPractitioner = await ctx.db.get(
+        "practitioners",
+        reassignment.targetPractitionerId,
+      );
+      if (
+        targetPractitioner?.practiceId !== args.practiceId ||
+        targetPractitioner.ruleSetId !== practice.currentActiveRuleSetId
+      ) {
+        throw new Error("Ziel-Behandler konnte nicht validiert werden.");
+      }
+
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        appointment.appointmentTypeId,
+      );
+      if (!appointmentType) {
+        throw new Error("Terminart des Termins konnte nicht geladen werden.");
+      }
+      if (
+        !appointmentType.allowedPractitionerIds.includes(
+          reassignment.targetPractitionerId,
+        )
+      ) {
+        throw new Error(
+          "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
+        );
+      }
+
+      const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+        candidate: {
+          end: appointment.end,
+          locationId: appointment.locationId,
+          practitionerId: reassignment.targetPractitionerId,
+          start: appointment.start,
+        },
+        excludeAppointmentIds: [appointment._id],
+        practiceId: args.practiceId,
+        scope: "real",
+      });
+
+      if (conflictingAppointment) {
+        throw new Error(
+          "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
+        );
+      }
+
+      await ctx.db.patch("appointments", appointment._id, {
+        lastModified: now,
+        practitionerId: reassignment.targetPractitionerId,
+      });
+    }
+
+    return await createVacationInDraft(ctx, {
+      date: args.date,
+      expectedDraftRevision: args.expectedDraftRevision,
+      portion: args.portion,
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      selectedRuleSetId: args.selectedRuleSetId,
+      staffType: "practitioner",
+    });
   },
   returns: draftMutationResultValidator,
 });

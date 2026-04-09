@@ -705,6 +705,64 @@ export const updateAppointment = mutation({
       }
     }
 
+    const resolvedAppointmentTypeId =
+      filteredUpdateData.appointmentTypeId ??
+      existingAppointment.appointmentTypeId;
+    const resolvedLocationId =
+      filteredUpdateData.locationId ?? existingAppointment.locationId;
+    const resolvedPractitionerId =
+      filteredUpdateData.practitionerId ?? existingAppointment.practitionerId;
+    const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
+    const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
+    const resolvedIsSimulation =
+      filteredUpdateData.isSimulation ?? existingAppointment.isSimulation;
+
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      resolvedAppointmentTypeId,
+    );
+    if (!appointmentType) {
+      throw new Error(
+        `Appointment type with ID ${resolvedAppointmentTypeId} not found`,
+      );
+    }
+
+    if (
+      resolvedPractitionerId &&
+      !appointmentType.allowedPractitionerIds.includes(resolvedPractitionerId)
+    ) {
+      throw new Error(
+        "Der gewählte Behandler ist für diese Terminart nicht freigegeben.",
+      );
+    }
+
+    const hasSchedulingChange =
+      resolvedLocationId !== existingAppointment.locationId ||
+      resolvedPractitionerId !== existingAppointment.practitionerId ||
+      resolvedStart !== existingAppointment.start ||
+      resolvedEnd !== existingAppointment.end ||
+      resolvedIsSimulation !== existingAppointment.isSimulation;
+
+    if (hasSchedulingChange) {
+      const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+        candidate: {
+          end: resolvedEnd,
+          locationId: resolvedLocationId,
+          ...(resolvedPractitionerId
+            ? { practitionerId: resolvedPractitionerId }
+            : {}),
+          start: resolvedStart,
+        },
+        excludeAppointmentIds: [existingAppointment._id],
+        practiceId: existingAppointment.practiceId,
+        scope: getAppointmentBookingScope(resolvedIsSimulation),
+      });
+
+      if (conflictingAppointment) {
+        throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+      }
+    }
+
     if (existingAppointment.seriesId !== undefined) {
       const seriesId = existingAppointment.seriesId;
       if (!seriesId) {

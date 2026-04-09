@@ -22,6 +22,123 @@ function createAuthedTestContext() {
   });
 }
 
+async function createCoverageFixture(
+  t: ReturnType<typeof createAuthedTestContext>,
+) {
+  await ensureProvisionedUser(t);
+  return await t.run(async (ctx) => {
+    const practiceId = await ctx.db.insert("practices", {
+      name: "Coverage Test Practice",
+    });
+
+    const ruleSetId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      description: "Coverage Rule Set",
+      draftRevision: 0,
+      practiceId,
+      saved: true,
+      version: 1,
+    });
+
+    await ctx.db.patch("practices", practiceId, {
+      currentActiveRuleSetId: ruleSetId,
+    });
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", "workos_vacations"))
+      .first();
+    assertDefined(user);
+    await ctx.db.insert("practiceMembers", {
+      createdAt: BigInt(Date.now()),
+      practiceId,
+      role: "owner",
+      userId: user._id,
+    });
+
+    const locationId = await insertWithLineage(ctx, "locations", {
+      name: "Praxis",
+      practiceId,
+      ruleSetId,
+    });
+    const absentPractitionerId = await insertWithLineage(ctx, "practitioners", {
+      name: "Dr. Urlaub",
+      practiceId,
+      ruleSetId,
+    });
+    const preferredPractitionerId = await insertWithLineage(
+      ctx,
+      "practitioners",
+      {
+        name: "Dr. Zuletzt Gesehen",
+        practiceId,
+        ruleSetId,
+      },
+    );
+    const fallbackPractitionerId = await insertWithLineage(
+      ctx,
+      "practitioners",
+      {
+        name: "Dr. Frei",
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    for (const practitionerId of [
+      absentPractitionerId,
+      preferredPractitionerId,
+      fallbackPractitionerId,
+    ]) {
+      await insertWithLineage(ctx, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "12:00",
+        locationId,
+        practiceId,
+        practitionerId,
+        ruleSetId,
+        startTime: "08:00",
+      });
+    }
+
+    const appointmentTypeId = await insertWithLineage(ctx, "appointmentTypes", {
+      allowedPractitionerIds: [
+        absentPractitionerId,
+        preferredPractitionerId,
+        fallbackPractitionerId,
+      ],
+      createdAt: BigInt(Date.now()),
+      duration: 30,
+      followUpPlan: [],
+      lastModified: BigInt(Date.now()),
+      name: "Kontrolle",
+      practiceId,
+      ruleSetId,
+    });
+
+    const patientId = await ctx.db.insert("patients", {
+      createdAt: BigInt(Date.now()),
+      dateOfBirth: "1980-01-01",
+      firstName: "Paula",
+      lastModified: BigInt(Date.now()),
+      lastName: "Patientin",
+      patientId: 1001,
+      practiceId,
+    });
+
+    return {
+      absentPractitionerId,
+      appointmentTypeId,
+      fallbackPractitionerId,
+      locationId,
+      patientId,
+      practiceId,
+      preferredPractitionerId,
+      ruleSetId,
+    };
+  });
+}
+
 async function createSchedulingFixture(
   t: ReturnType<typeof createAuthedTestContext>,
 ) {
@@ -116,6 +233,215 @@ function nextWeekday(weekday: number): Temporal.PlainDate {
 }
 
 describe("vacations", () => {
+  test("coverage preview prefers the practitioner the patient saw last and reports leftovers", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    await t.run(async (ctx) => {
+      const olderStart = monday
+        .subtract({ days: 21 })
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const recentStart = monday
+        .subtract({ days: 7 })
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(olderStart)
+          .add({ minutes: 30 })
+          .toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.fallbackPractitionerId,
+        start: olderStart,
+        title: "Alter Termin",
+      });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(recentStart)
+          .add({ minutes: 30 })
+          .toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.preferredPractitionerId,
+        start: recentStart,
+        title: "Letzter Termin",
+      });
+
+      const movableStart = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const blockedStart = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:30"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+
+      for (const practitionerId of [
+        fixture.preferredPractitionerId,
+        fixture.fallbackPractitionerId,
+      ]) {
+        await ctx.db.insert("appointments", {
+          appointmentTypeId: fixture.appointmentTypeId,
+          appointmentTypeTitle: "Kontrolle",
+          createdAt: now,
+          end: Temporal.ZonedDateTime.from(blockedStart)
+            .add({ minutes: 30 })
+            .toString(),
+          lastModified: now,
+          locationId: fixture.locationId,
+          practiceId: fixture.practiceId,
+          practitionerId,
+          start: blockedStart,
+          title: "Blockiert",
+        });
+      }
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(movableStart)
+          .add({ minutes: 30 })
+          .toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start: movableStart,
+        title: "Soll verschoben werden",
+      });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(blockedStart)
+          .add({ minutes: 30 })
+          .toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start: blockedStart,
+        title: "Bleibt in Restliste",
+      });
+    });
+
+    const preview = await t.query(
+      api.appointmentCoverage.previewPractitionerAbsenceCoverage,
+      {
+        date: monday.toString(),
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+
+    expect(preview.affectedCount).toBe(2);
+    expect(preview.movableCount).toBe(1);
+    expect(preview.unmovedCount).toBe(1);
+    expect(
+      preview.suggestions.find(
+        (suggestion: (typeof preview.suggestions)[number]) =>
+          suggestion.targetPractitionerId !== undefined,
+      )?.targetPractitionerId,
+    ).toBe(fixture.preferredPractitionerId);
+    expect(
+      preview.suggestions.find(
+        (suggestion: (typeof preview.suggestions)[number]) =>
+          suggestion.targetPractitionerId === undefined,
+      )?.reason,
+    ).toContain("Kein freier qualifizierter Behandler");
+  });
+
+  test("creating a vacation with coverage adjustments reassigns movable appointments", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const result = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerId: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    const movedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+    const vacations = await t.query(api.vacations.getVacationsInRange, {
+      endDateExclusive: monday.add({ days: 1 }).toString(),
+      ruleSetId: result.ruleSetId,
+      startDate: monday.toString(),
+    });
+
+    expect(movedAppointment?.practitionerId).toBe(
+      fixture.preferredPractitionerId,
+    );
+    expect(vacations).toHaveLength(1);
+    expect(vacations[0]?.portion).toBe("morning");
+  });
+
   test("deleting an MFA cascades that MFA's vacations", async () => {
     const t = createAuthedTestContext();
     await ensureProvisionedUser(t);

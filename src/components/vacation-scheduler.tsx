@@ -65,6 +65,14 @@ interface ConflictDialogState {
   staff: StaffRow;
 }
 
+interface CoverageSuggestion {
+  appointmentId: Id<"appointments">;
+  reason?: string;
+  start: string;
+  targetPractitionerId?: Id<"practitioners">;
+  targetPractitionerName?: string;
+}
+
 interface CreateMfaResult extends DraftMutationResult {
   entityId: Id<"mfas">;
 }
@@ -214,6 +222,9 @@ export function VacationScheduler({
   const createMfa = useMutation(api.mfas.create);
   const removeMfa = useMutation(api.mfas.remove);
   const createVacation = useMutation(api.vacations.createVacation);
+  const createVacationWithCoverageAdjustments = useMutation(
+    api.vacations.createVacationWithCoverageAdjustments,
+  );
   const deleteVacation = useMutation(api.vacations.deleteVacation);
 
   const [newMfaName, setNewMfaName] = useState("");
@@ -802,6 +813,20 @@ export function VacationScheduler({
         conflictDialog.portion,
       )
     : [];
+  const coveragePreview = useQuery(
+    api.appointmentCoverage.previewPractitionerAbsenceCoverage,
+    editable &&
+      conflictDialog?.mode === "create" &&
+      conflictDialog.staff.kind === "practitioner"
+      ? {
+          date: conflictDialog.date.toString(),
+          portion: conflictDialog.portion,
+          practiceId,
+          practitionerId: conflictDialog.staff.id,
+          ruleSetId,
+        }
+      : "skip",
+  );
   const dialogPortionOptions: VacationPortion[] = conflictDialog
     ? getAvailablePortionsForDay(
         conflictDialog.staff,
@@ -809,6 +834,15 @@ export function VacationScheduler({
         conflictDialog.portion,
       )
     : ["full"];
+  const coverageSuggestionByAppointmentId = useMemo(
+    () =>
+      new Map<string, CoverageSuggestion>(
+        ((coveragePreview?.suggestions ?? []) as CoverageSuggestion[]).map(
+          (suggestion) => [suggestion.appointmentId, suggestion],
+        ),
+      ),
+    [coveragePreview],
+  );
 
   const renderCell = (staff: StaffRow, date: Temporal.PlainDate) => {
     const displayedPortion = getDisplayedPortionForCell(staff, date);
@@ -1113,8 +1147,21 @@ export function VacationScheduler({
               </DialogHeader>
 
               <div className="rounded-lg border p-3 text-sm font-medium">
-                {dialogConflicts.length} Konflikte
+                {coveragePreview &&
+                conflictDialog.staff.kind === "practitioner" &&
+                conflictDialog.mode === "create"
+                  ? `${coveragePreview.movableCount} von ${coveragePreview.affectedCount} Terminen können automatisch verschoben werden`
+                  : `${dialogConflicts.length} Konflikte`}
               </div>
+
+              {editable &&
+                conflictDialog.mode === "create" &&
+                conflictDialog.staff.kind === "practitioner" &&
+                coveragePreview === undefined && (
+                  <div className="rounded-lg border p-3 text-sm text-muted-foreground">
+                    Verschiebevorschläge werden berechnet.
+                  </div>
+                )}
 
               {editable && (
                 <div className="flex items-center gap-2">
@@ -1173,6 +1220,8 @@ export function VacationScheduler({
                             .filter(Boolean)
                             .join(" ") || user.email
                         : undefined;
+                    const coverageSuggestion =
+                      coverageSuggestionByAppointmentId.get(conflict.id);
                     return (
                       <div className="p-3" key={conflict.id}>
                         <div className="font-medium">{conflict.title}</div>
@@ -1225,6 +1274,26 @@ export function VacationScheduler({
                             Im PVS öffnen
                           </Button>
                         )}
+                        {editable &&
+                          conflictDialog.mode === "create" &&
+                          conflictDialog.staff.kind === "practitioner" &&
+                          coverageSuggestion?.targetPractitionerName && (
+                            <div className="mt-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+                              Wird verschoben zu{" "}
+                              <span className="font-medium">
+                                {coverageSuggestion.targetPractitionerName}
+                              </span>
+                              .
+                            </div>
+                          )}
+                        {editable &&
+                          conflictDialog.mode === "create" &&
+                          conflictDialog.staff.kind === "practitioner" &&
+                          coverageSuggestion?.reason && (
+                            <div className="mt-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                              {coverageSuggestion.reason}
+                            </div>
+                          )}
                       </div>
                     );
                   })}
@@ -1268,13 +1337,50 @@ export function VacationScheduler({
                 )}
                 {editable && conflictDialog.mode === "create" && (
                   <Button
+                    disabled={
+                      conflictDialog.staff.kind === "practitioner" &&
+                      coveragePreview === undefined
+                    }
                     onClick={() => {
-                      void commitVacationChange(
-                        conflictDialog.staff,
-                        conflictDialog.date,
-                        [conflictDialog.portion],
-                        "Urlaub eingetragen",
-                      )
+                      const applyChange =
+                        conflictDialog.staff.kind === "practitioner" &&
+                        coveragePreview
+                          ? createVacationWithCoverageAdjustments({
+                              date: conflictDialog.date.toString(),
+                              expectedDraftRevision:
+                                ruleSetReplayTargetRef.current.kind === "draft"
+                                  ? ruleSetReplayTargetRef.current.draftRevision
+                                  : null,
+                              portion: conflictDialog.portion,
+                              practiceId,
+                              practitionerId: conflictDialog.staff.lineageKey,
+                              reassignments: (
+                                coveragePreview.suggestions as CoverageSuggestion[]
+                              ).flatMap((suggestion) =>
+                                suggestion.targetPractitionerId
+                                  ? [
+                                      {
+                                        appointmentId: suggestion.appointmentId,
+                                        targetPractitionerId:
+                                          suggestion.targetPractitionerId,
+                                      },
+                                    ]
+                                  : [],
+                              ),
+                              selectedRuleSetId: ruleSetIdFromReplayTarget(
+                                ruleSetReplayTargetRef.current,
+                              ),
+                            }).then((result) => {
+                              handleDraftMutationResult(result);
+                            })
+                          : commitVacationChange(
+                              conflictDialog.staff,
+                              conflictDialog.date,
+                              [conflictDialog.portion],
+                              "Urlaub eingetragen",
+                            );
+
+                      void applyChange
                         .then(() => {
                           setConflictDialog(null);
                         })
@@ -1291,7 +1397,12 @@ export function VacationScheduler({
                         });
                     }}
                   >
-                    Trotzdem eintragen
+                    {coveragePreview &&
+                    conflictDialog.staff.kind === "practitioner"
+                      ? coveragePreview.movableCount > 0
+                        ? `Urlaub eintragen und ${coveragePreview.movableCount} Termine verschieben`
+                        : "Urlaub mit Restkonflikten eintragen"
+                      : "Trotzdem eintragen"}
                   </Button>
                 )}
                 {editable && conflictDialog.mode === "inspect" && (
