@@ -1,16 +1,35 @@
-import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
-
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { createAppointmentFromTrustedSource } from "./appointments";
 import {
+  APPOINTMENT_TIMEZONE,
+  type BookingSessionState,
+  type DataSharingContact,
+  type DataSharingContactInput,
+  ISO_DATE_REGEX,
+  type MutationCtx,
+  type QueryCtx,
+  SESSION_TTL_MS,
+  type SessionDoc,
+  type SessionWithState,
+  type StateAtStep,
+  type StepInsertMap,
+  type StepPatchMap,
+  type StepQueryMap,
+  type StepReadCtx,
+  type StepSnapshotMetaKeys,
+  type StepTableDocMap,
+  type StepTableInput,
+  type StepTableInsert,
+  type StepTableName,
+} from "./bookingSessions.shared";
+import {
   beihilfeStatusValidator,
-  type BookingSessionStep,
   bookingSessionStepValidator,
   dataSharingContactInputValidator,
   hzvStatusValidator,
@@ -25,119 +44,6 @@ import {
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQuery,
 } from "./userIdentity";
-
-// Context types for helper functions
-type MutationCtx = GenericMutationCtx<DataModel>;
-type QueryCtx = GenericQueryCtx<DataModel>;
-type SessionDoc = Doc<"bookingSessions">;
-type SessionWithState = SessionDoc & { state: BookingSessionState };
-interface StepReadCtx {
-  db: MutationCtx["db"] | QueryCtx["db"];
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const APPOINTMENT_TIMEZONE = "Europe/Berlin";
-
-// ============================================================================
-// TYPE HELPERS
-// ============================================================================
-
-type BookingSessionState = BookingSessionStep;
-type DataSharingContact =
-  Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
-type DataSharingContactInput = Omit<DataSharingContact, "userId">;
-
-// Helper to narrow state to a specific step
-type StateAtStep<S extends BookingSessionState["step"]> = Extract<
-  BookingSessionState,
-  { step: S }
->;
-
-type StepInsertMap = {
-  [K in StepTableName]: (
-    ctx: MutationCtx,
-    data: StepTableInsert<K>,
-  ) => Promise<Id<K>>;
-};
-
-type StepPatchMap = {
-  [K in StepTableName]: (
-    ctx: MutationCtx,
-    id: Id<K>,
-    data: Partial<StepTableInsert<K>>,
-  ) => Promise<void>;
-};
-
-type StepQueryMap = {
-  [K in StepTableName]: (
-    ctx: StepReadCtx,
-    sessionId: Id<"bookingSessions">,
-  ) => Promise<StepTableDocMap[K][]>;
-};
-
-type StepSnapshotMetaKeys =
-  | "_creationTime"
-  | "_id"
-  | "createdAt"
-  | "lastModified"
-  | "practiceId"
-  | "ruleSetId"
-  | "sessionId"
-  | "userId";
-
-interface StepTableDocMap {
-  bookingExistingCalendarSelectionSteps: Doc<"bookingExistingCalendarSelectionSteps">;
-  bookingExistingConfirmationSteps: Doc<"bookingExistingConfirmationSteps">;
-  bookingExistingDataSharingSteps: Doc<"bookingExistingDataSharingSteps">;
-  bookingExistingDoctorSelectionSteps: Doc<"bookingExistingDoctorSelectionSteps">;
-  bookingExistingPersonalDataSteps: Doc<"bookingExistingPersonalDataSteps">;
-  bookingLocationSteps: Doc<"bookingLocationSteps">;
-  bookingNewCalendarSelectionSteps: Doc<"bookingNewCalendarSelectionSteps">;
-  bookingNewConfirmationSteps: Doc<"bookingNewConfirmationSteps">;
-  bookingNewDataSharingSteps: Doc<"bookingNewDataSharingSteps">;
-  bookingNewGkvDetailSteps: Doc<"bookingNewGkvDetailSteps">;
-  bookingNewInsuranceTypeSteps: Doc<"bookingNewInsuranceTypeSteps">;
-  bookingNewPersonalDataSteps: Doc<"bookingNewPersonalDataSteps">;
-  bookingNewPkvConsentSteps: Doc<"bookingNewPkvConsentSteps">;
-  bookingNewPkvDetailSteps: Doc<"bookingNewPkvDetailSteps">;
-  bookingPatientStatusSteps: Doc<"bookingPatientStatusSteps">;
-  bookingPrivacySteps: Doc<"bookingPrivacySteps">;
-}
-
-type StepTableInput<T extends StepTableName> = Omit<
-  StepTableInsert<T>,
-  "createdAt" | "lastModified"
->;
-
-type StepTableInsert<T extends StepTableName> = Omit<
-  StepTableDocMap[T],
-  "_creationTime" | "_id"
->;
-
-type StepTableName = keyof Pick<
-  DataModel,
-  | "bookingExistingCalendarSelectionSteps"
-  | "bookingExistingConfirmationSteps"
-  | "bookingExistingDataSharingSteps"
-  | "bookingExistingDoctorSelectionSteps"
-  | "bookingExistingPersonalDataSteps"
-  | "bookingLocationSteps"
-  | "bookingNewCalendarSelectionSteps"
-  | "bookingNewConfirmationSteps"
-  | "bookingNewDataSharingSteps"
-  | "bookingNewGkvDetailSteps"
-  | "bookingNewInsuranceTypeSteps"
-  | "bookingNewPersonalDataSteps"
-  | "bookingNewPkvConsentSteps"
-  | "bookingNewPkvDetailSteps"
-  | "bookingPatientStatusSteps"
-  | "bookingPrivacySteps"
->;
 
 function getCalendarStepForConfirmationState(
   state: Extract<
