@@ -128,6 +128,25 @@ const baseScheduleCreatePayloadValidator = v.object({
 });
 
 const replaceBaseScheduleSetResultValidator = v.object({
+  appliedSchedules: v.array(
+    v.object({
+      breakTimes: v.optional(
+        v.array(
+          v.object({
+            end: v.string(),
+            start: v.string(),
+          }),
+        ),
+      ),
+      dayOfWeek: v.number(),
+      endTime: v.string(),
+      entityId: v.id("baseSchedules"),
+      lineageKey: v.id("baseSchedules"),
+      locationId: v.id("locations"),
+      practitionerId: v.id("practitioners"),
+      startTime: v.string(),
+    }),
+  ),
   createdScheduleIds: v.array(v.id("baseSchedules")),
   deletedScheduleIds: v.array(v.id("baseSchedules")),
   draftRevision: v.number(),
@@ -221,6 +240,21 @@ async function resolveDraftRuleSetForMutation(
 // ================================
 // SHARED HELPER FUNCTIONS
 // ================================
+
+async function ensureBaseScheduleLineageKeyForWrite(
+  db: DatabaseWriter,
+  entity: Doc<"baseSchedules">,
+): Promise<Id<"baseSchedules">> {
+  if (entity.lineageKey) {
+    return entity.lineageKey;
+  }
+
+  await verifyEntityInUnsavedRuleSet(db, entity.ruleSetId, "base schedule");
+  await db.patch("baseSchedules", entity._id, {
+    lineageKey: entity._id,
+  });
+  return entity._id;
+}
 
 function missingLineageKeyError(params: {
   entityId: string;
@@ -2050,6 +2084,274 @@ export const updateBaseSchedule = mutation({
 });
 
 /**
+ * Update a set of base schedules in an unsaved rule set while preserving as
+ * many existing lineage keys as possible.
+ */
+export const updateBaseScheduleSet = mutation({
+  args: {
+    expectedDraftRevision: expectedDraftRevisionValidator,
+    expectedPresentLineageKeys: v.array(v.id("baseSchedules")),
+    practiceId: v.id("practices"),
+    schedules: v.array(baseScheduleCreatePayloadValidator),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const ruleSetId = await resolveDraftRuleSetForMutation(
+      ctx.db,
+      args.practiceId,
+      args.expectedDraftRevision,
+      args.selectedRuleSetId,
+    );
+
+    if (args.expectedPresentLineageKeys.length === 0) {
+      throw new Error(
+        "Keine Arbeitszeiten ausgewählt. Die Änderung kann nicht angewendet werden.",
+      );
+    }
+
+    if (args.schedules.length === 0) {
+      throw new Error(
+        "Mindestens eine Arbeitszeit muss für die Aktualisierung angegeben werden.",
+      );
+    }
+
+    const existingSchedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+
+    const existingSchedulesByLineage = new Map<
+      Id<"baseSchedules">,
+      Doc<"baseSchedules">
+    >();
+    for (const schedule of existingSchedules) {
+      const lineageKey = await ensureBaseScheduleLineageKeyForWrite(
+        ctx.db,
+        schedule,
+      );
+      existingSchedulesByLineage.set(lineageKey, {
+        ...schedule,
+        lineageKey,
+      });
+    }
+
+    const expectedLineageSet = new Set(args.expectedPresentLineageKeys);
+    const selectedSchedules: Doc<"baseSchedules">[] = [];
+    for (const lineageKey of args.expectedPresentLineageKeys) {
+      const schedule = existingSchedulesByLineage.get(lineageKey);
+      if (!schedule) {
+        throw new Error(
+          "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher aktualisiert werden.",
+        );
+      }
+      selectedSchedules.push(schedule);
+    }
+
+    const resolvedPractitionerIds = new Map<
+      Id<"practitioners">,
+      Id<"practitioners">
+    >();
+    const resolvedLocationIds = new Map<Id<"locations">, Id<"locations">>();
+    const resolvePractitionerId = async (
+      practitionerId: Id<"practitioners">,
+    ) => {
+      let resolved = resolvedPractitionerIds.get(practitionerId);
+      if (!resolved) {
+        resolved = await resolvePractitionerIdInRuleSet(
+          ctx.db,
+          practitionerId,
+          args.practiceId,
+          ruleSetId,
+        );
+        resolvedPractitionerIds.set(practitionerId, resolved);
+      }
+      return resolved;
+    };
+    const resolveLocationId = async (locationId: Id<"locations">) => {
+      let resolved = resolvedLocationIds.get(locationId);
+      if (!resolved) {
+        resolved = await resolveLocationIdInRuleSet(
+          ctx.db,
+          locationId,
+          args.practiceId,
+          ruleSetId,
+        );
+        resolvedLocationIds.set(locationId, resolved);
+      }
+      return resolved;
+    };
+
+    const explicitDesiredSchedules: {
+      breakTimes?: { end: string; start: string }[];
+      dayOfWeek: number;
+      endTime: string;
+      lineageKey: Id<"baseSchedules">;
+      locationId: Id<"locations">;
+      practitionerId: Id<"practitioners">;
+      startTime: string;
+    }[] = [];
+    const implicitDesiredSchedules: {
+      breakTimes?: { end: string; start: string }[];
+      dayOfWeek: number;
+      endTime: string;
+      locationId: Id<"locations">;
+      practitionerId: Id<"practitioners">;
+      startTime: string;
+    }[] = [];
+    const seenExplicitLineages = new Set<Id<"baseSchedules">>();
+
+    for (const schedule of args.schedules) {
+      const practitionerId = await resolvePractitionerId(
+        schedule.practitionerId,
+      );
+      const locationId = await resolveLocationId(schedule.locationId);
+      const normalized = {
+        ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        locationId,
+        practitionerId,
+        startTime: schedule.startTime,
+      };
+
+      if (schedule.lineageKey) {
+        if (!expectedLineageSet.has(schedule.lineageKey)) {
+          throw new Error(
+            "Die Arbeitszeiten können nicht sicher aktualisiert werden, weil eine unbekannte lineageKey übergeben wurde.",
+          );
+        }
+        if (seenExplicitLineages.has(schedule.lineageKey)) {
+          throw new Error(
+            `[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_UPDATE] Arbeitszeit mit lineageKey ${schedule.lineageKey} wurde mehrfach in derselben Update-Anfrage übergeben.`,
+          );
+        }
+        seenExplicitLineages.add(schedule.lineageKey);
+        explicitDesiredSchedules.push({
+          ...normalized,
+          lineageKey: schedule.lineageKey,
+        });
+      } else {
+        implicitDesiredSchedules.push(normalized);
+      }
+    }
+
+    await verifyEntityInUnsavedRuleSet(ctx.db, ruleSetId, "base schedule");
+
+    const appliedSchedules: {
+      breakTimes?: { end: string; start: string }[];
+      dayOfWeek: number;
+      endTime: string;
+      entityId: Id<"baseSchedules">;
+      lineageKey: Id<"baseSchedules">;
+      locationId: Id<"locations">;
+      practitionerId: Id<"practitioners">;
+      startTime: string;
+    }[] = [];
+    const createdScheduleIds: Id<"baseSchedules">[] = [];
+    const deletedScheduleIds: Id<"baseSchedules">[] = [];
+    const consumedLineageKeys = new Set<Id<"baseSchedules">>();
+
+    for (const desired of explicitDesiredSchedules) {
+      const existing = existingSchedulesByLineage.get(desired.lineageKey);
+      if (!existing) {
+        throw new Error(
+          "Die Arbeitszeiten haben sich zwischenzeitlich geändert und können nicht sicher aktualisiert werden.",
+        );
+      }
+
+      await ctx.db.patch("baseSchedules", existing._id, {
+        ...(desired.breakTimes ? { breakTimes: desired.breakTimes } : {}),
+        ...(desired.breakTimes === undefined ? { breakTimes: undefined } : {}),
+        dayOfWeek: desired.dayOfWeek,
+        endTime: desired.endTime,
+        locationId: desired.locationId,
+        practitionerId: desired.practitionerId,
+        startTime: desired.startTime,
+      });
+
+      consumedLineageKeys.add(desired.lineageKey);
+      appliedSchedules.push({
+        ...desired,
+        entityId: existing._id,
+      });
+    }
+
+    const recyclableSchedules = selectedSchedules.filter(
+      (
+        schedule,
+      ): schedule is Doc<"baseSchedules"> & {
+        lineageKey: Id<"baseSchedules">;
+      } => {
+        const lineageKey = schedule.lineageKey;
+        return lineageKey !== undefined && !consumedLineageKeys.has(lineageKey);
+      },
+    );
+
+    for (const desired of implicitDesiredSchedules) {
+      const recycled = recyclableSchedules.shift();
+      if (recycled) {
+        const lineageKey = recycled.lineageKey;
+        await ctx.db.patch("baseSchedules", recycled._id, {
+          ...(desired.breakTimes ? { breakTimes: desired.breakTimes } : {}),
+          ...(desired.breakTimes === undefined
+            ? { breakTimes: undefined }
+            : {}),
+          dayOfWeek: desired.dayOfWeek,
+          endTime: desired.endTime,
+          locationId: desired.locationId,
+          practitionerId: desired.practitionerId,
+          startTime: desired.startTime,
+        });
+        consumedLineageKeys.add(lineageKey);
+        appliedSchedules.push({
+          ...desired,
+          entityId: recycled._id,
+          lineageKey,
+        });
+        continue;
+      }
+
+      const createdId = await ctx.db.insert("baseSchedules", {
+        ...(desired.breakTimes ? { breakTimes: desired.breakTimes } : {}),
+        dayOfWeek: desired.dayOfWeek,
+        endTime: desired.endTime,
+        locationId: desired.locationId,
+        practiceId: args.practiceId,
+        practitionerId: desired.practitionerId,
+        ruleSetId,
+        startTime: desired.startTime,
+      });
+      await ctx.db.patch("baseSchedules", createdId, {
+        lineageKey: createdId,
+      });
+      createdScheduleIds.push(createdId);
+      appliedSchedules.push({
+        ...desired,
+        entityId: createdId,
+        lineageKey: createdId,
+      });
+    }
+
+    for (const schedule of recyclableSchedules) {
+      await ctx.db.delete("baseSchedules", schedule._id);
+      deletedScheduleIds.push(schedule._id);
+    }
+
+    const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
+    return {
+      appliedSchedules,
+      createdScheduleIds,
+      deletedScheduleIds,
+      draftRevision,
+      ruleSetId,
+    };
+  },
+  returns: replaceBaseScheduleSetResultValidator,
+});
+
+/**
  * Delete a base schedule from an unsaved rule set
  */
 export const deleteBaseSchedule = mutation({
@@ -2183,6 +2485,16 @@ export const replaceBaseScheduleSet = mutation({
       presentExpectedAbsentLineageKeys.size === replacementLineageKeys.size;
 
     if (targetAlreadyApplied) {
+      const appliedSchedules: {
+        breakTimes?: { end: string; start: string }[];
+        dayOfWeek: number;
+        endTime: string;
+        entityId: Id<"baseSchedules">;
+        lineageKey: Id<"baseSchedules">;
+        locationId: Id<"locations">;
+        practitionerId: Id<"practitioners">;
+        startTime: string;
+      }[] = [];
       const existingCreatedIds: Id<"baseSchedules">[] = [];
       for (const lineageKey of replacementLineageKeys) {
         const existing = existingSchedulesByLineage.get(lineageKey);
@@ -2192,6 +2504,16 @@ export const replaceBaseScheduleSet = mutation({
           );
         }
         existingCreatedIds.push(existing._id);
+        appliedSchedules.push({
+          ...(existing.breakTimes ? { breakTimes: existing.breakTimes } : {}),
+          dayOfWeek: existing.dayOfWeek,
+          endTime: existing.endTime,
+          entityId: existing._id,
+          lineageKey,
+          locationId: existing.locationId,
+          practitionerId: existing.practitionerId,
+          startTime: existing.startTime,
+        });
       }
       const currentDraftRevision = await ctx.db.get("ruleSets", ruleSetId);
       if (!currentDraftRevision) {
@@ -2200,6 +2522,7 @@ export const replaceBaseScheduleSet = mutation({
         );
       }
       return {
+        appliedSchedules,
         createdScheduleIds: existingCreatedIds,
         deletedScheduleIds: [],
         draftRevision: currentDraftRevision.draftRevision,
@@ -2231,6 +2554,16 @@ export const replaceBaseScheduleSet = mutation({
       Id<"practitioners">
     >();
     const resolvedLocationIds = new Map<Id<"locations">, Id<"locations">>();
+    const appliedSchedules: {
+      breakTimes?: { end: string; start: string }[];
+      dayOfWeek: number;
+      endTime: string;
+      entityId: Id<"baseSchedules">;
+      lineageKey: Id<"baseSchedules">;
+      locationId: Id<"locations">;
+      practitionerId: Id<"practitioners">;
+      startTime: string;
+    }[] = [];
     const createdScheduleIds: Id<"baseSchedules">[] = [];
     for (const schedule of args.replacementSchedules) {
       let practitionerId = resolvedPractitionerIds.get(schedule.practitionerId);
@@ -2272,6 +2605,16 @@ export const replaceBaseScheduleSet = mutation({
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
       });
       createdScheduleIds.push(createdId);
+      appliedSchedules.push({
+        ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
+        dayOfWeek: schedule.dayOfWeek,
+        endTime: schedule.endTime,
+        entityId: createdId,
+        lineageKey: schedule.lineageKey,
+        locationId,
+        practitionerId,
+        startTime: schedule.startTime,
+      });
       existingSchedulesByLineage.set(schedule.lineageKey, {
         _creationTime: 0,
         _id: createdId,
@@ -2289,6 +2632,7 @@ export const replaceBaseScheduleSet = mutation({
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return {
+      appliedSchedules,
       createdScheduleIds,
       deletedScheduleIds: expectedPresentIds,
       draftRevision,

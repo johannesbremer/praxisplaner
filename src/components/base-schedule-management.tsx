@@ -102,6 +102,17 @@ interface BaseScheduleManagementProps {
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
+interface BaseScheduleMutationAppliedSchedule {
+  breakTimes?: { end: string; start: string }[];
+  dayOfWeek: number;
+  endTime: string;
+  entityId: Id<"baseSchedules">;
+  lineageKey: Id<"baseSchedules">;
+  locationId: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+  startTime: string;
+}
+
 interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
   _creationTime?: number; // Optional for synthetic objects
   // Group editing metadata - computed fields not in schema
@@ -113,10 +124,15 @@ interface ExtendedSchedule extends Omit<Doc<"baseSchedules">, "_creationTime"> {
 type LocationMatchEntity = Pick<Doc<"locations">, "_id" | "name"> & {
   lineageKey: Id<"locations">;
 };
+
+type MaterializedSchedule = Doc<"baseSchedules"> & {
+  _creationTime: number;
+  lineageKey: Id<"baseSchedules">;
+};
+
 type PractitionerMatchEntity = Pick<Doc<"practitioners">, "_id" | "name"> & {
   lineageKey: Id<"practitioners">;
 };
-
 interface SchedulePayload {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
@@ -125,6 +141,10 @@ interface SchedulePayload {
   locationLineageId: Id<"locations">;
   practitionerLineageId: Id<"practitioners">;
   startTime: string;
+}
+
+interface SchedulesRef {
+  current: MaterializedSchedule[];
 }
 
 const requireLineageKey = <TId extends string>(
@@ -407,6 +427,119 @@ const toBatchCreateScheduleInput = (
     lineageKey: payload.lineageKey,
   }));
 
+const scheduleDocFromInput = (params: {
+  entityId: Id<"baseSchedules">;
+  practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
+  schedule: {
+    breakTimes?: { end: string; start: string }[];
+    dayOfWeek: number;
+    endTime: string;
+    lineageKey?: Id<"baseSchedules">;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+    startTime: string;
+  };
+}): MaterializedSchedule => {
+  const lineageKey = params.schedule.lineageKey ?? params.entityId;
+  return {
+    _creationTime: Date.now(),
+    _id: params.entityId,
+    ...(params.schedule.breakTimes
+      ? { breakTimes: params.schedule.breakTimes }
+      : {}),
+    dayOfWeek: params.schedule.dayOfWeek,
+    endTime: params.schedule.endTime,
+    lineageKey,
+    locationId: params.schedule.locationId,
+    practiceId: params.practiceId,
+    practitionerId: params.schedule.practitionerId,
+    ruleSetId: params.ruleSetId,
+    startTime: params.schedule.startTime,
+  };
+};
+
+const removeSchedulesFromRef = (
+  schedulesRef: SchedulesRef,
+  lineageKeys: Id<"baseSchedules">[],
+) => {
+  if (lineageKeys.length === 0) {
+    return;
+  }
+  const lineageKeySet = new Set(lineageKeys);
+  schedulesRef.current = schedulesRef.current.filter(
+    (scheduleItem) => !lineageKeySet.has(scheduleItem.lineageKey),
+  );
+};
+
+const upsertSchedulesInRef = (
+  schedulesRef: SchedulesRef,
+  nextSchedules: MaterializedSchedule[],
+) => {
+  if (nextSchedules.length === 0) {
+    return;
+  }
+  const next = [...schedulesRef.current];
+  for (const scheduleItem of nextSchedules) {
+    const matchIndex = next.findIndex(
+      (existing) =>
+        existing._id === scheduleItem._id ||
+        existing.lineageKey === scheduleItem.lineageKey,
+    );
+    if (matchIndex === -1) {
+      next.push(scheduleItem);
+    } else {
+      next[matchIndex] = scheduleItem;
+    }
+  }
+  schedulesRef.current = next;
+};
+
+const applyBatchCreateResultToRef = (params: {
+  createdScheduleIds: Id<"baseSchedules">[];
+  practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
+  schedules: BatchCreateScheduleInput[];
+  schedulesRef: SchedulesRef;
+}) => {
+  upsertSchedulesInRef(
+    params.schedulesRef,
+    params.schedules.flatMap((scheduleItem, index) => {
+      const createdId = params.createdScheduleIds[index];
+      if (!createdId) {
+        return [];
+      }
+      return [
+        scheduleDocFromInput({
+          entityId: createdId,
+          practiceId: params.practiceId,
+          ruleSetId: params.ruleSetId,
+          schedule: scheduleItem,
+        }),
+      ];
+    }),
+  );
+};
+
+const applyReplaceResultToRef = (params: {
+  appliedSchedules: BaseScheduleMutationAppliedSchedule[];
+  practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
+  schedulesRef: SchedulesRef;
+}) => {
+  upsertSchedulesInRef(
+    params.schedulesRef,
+    params.appliedSchedules.map((appliedSchedule) =>
+      scheduleDocFromInput({
+        entityId: appliedSchedule.entityId,
+        practiceId: params.practiceId,
+        ruleSetId: params.ruleSetId,
+        schedule: appliedSchedule,
+      }),
+    ),
+  );
+};
+
 const toCreatedSchedulePayload = (
   createData: {
     breakTimes?: { end: string; start: string }[];
@@ -595,6 +728,7 @@ export default function BaseScheduleManagement({
         ...getCowMutationArgs(),
       });
       handleDraftMutationResult(result);
+      removeSchedulesFromRef(schedulesRef, deletedLineageKeys);
 
       toast.success(
         `${scheduleIds.length > 1 ? "Arbeitszeiten" : "Arbeitszeit"} erfolgreich gelöscht`,
@@ -624,6 +758,7 @@ export default function BaseScheduleManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
+              removeSchedulesFromRef(schedulesRef, presentLineageKeys);
             } catch (error: unknown) {
               if (isBaseScheduleMissingError(error)) {
                 return { status: "applied" as const };
@@ -682,6 +817,13 @@ export default function BaseScheduleManagement({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
+            applyBatchCreateResultToRef({
+              createdScheduleIds: undoResult.createdScheduleIds,
+              practiceId,
+              ruleSetId: undoResult.ruleSetId,
+              schedules: batchSchedules,
+              schedulesRef,
+            });
 
             return { status: "applied" as const };
           },
@@ -953,7 +1095,9 @@ function BaseScheduleDialog({
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
   );
-  const deleteScheduleMutation = useMutation(api.entities.deleteBaseSchedule);
+  const updateScheduleSetMutation = useMutation(
+    api.entities.updateBaseScheduleSet,
+  );
   const replaceScheduleSetMutation = useMutation(
     api.entities.replaceBaseScheduleSet,
   );
@@ -967,7 +1111,6 @@ function BaseScheduleDialog({
       }),
     [createScheduleBatchMutation, practiceId],
   );
-
   const form = useForm({
     defaultValues: {
       breakTimes: schedule?.breakTimes ?? [],
@@ -986,6 +1129,7 @@ function BaseScheduleDialog({
         const createdScheduleIds: Id<"baseSchedules">[] = [];
         const createdSchedulePayloads: SchedulePayload[] = [];
         const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
+        let oldSchedulePayloads: SchedulePayload[] = [];
         const practitionerLineageByIdAtSubmitStart =
           buildPractitionerLineageByIdMap(practitionersRef.current).match(
             (value) => value,
@@ -1051,87 +1195,97 @@ function BaseScheduleDialog({
             return;
           }
 
-          // Delete all existing schedules in the group
-          for (const scheduleId of scheduleIdsToDelete) {
-            const deleteResult = await deleteScheduleMutation({
-              baseScheduleId: scheduleId,
-              practiceId,
-              ...getLocalCowMutationArgs(),
-            });
-            handleDraftMutationResult(deleteResult);
-          }
-
-          const batchSchedules: BatchCreateScheduleInput[] = selectedDays.map(
-            (dayOfWeek) => ({
-              ...(value.breakTimes.length > 0
-                ? { breakTimes: value.breakTimes }
-                : {}),
-              dayOfWeek,
-              endTime: value.endTime,
-              locationId: value.locationId as Id<"locations">,
-              practitionerId: schedule.practitionerId,
-              startTime: value.startTime,
-            }),
+          const resolvedOldSchedulePayloads = Result.combine(
+            deletedScheduleSnapshots.map((previous) =>
+              toSchedulePayloadFromLineageSnapshot(
+                previous,
+                practitionerLineageByIdAtSubmitStart,
+                locationLineageByIdAtSubmitStart,
+              ),
+            ),
+          ).match<null | SchedulePayload[]>(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "base_schedule_old_payloads",
+                practiceId,
+              });
+              toast.error(error.message);
+              return null;
+            },
           );
-          const batchResult = await createScheduleBatchMutation({
+          if (resolvedOldSchedulePayloads === null) {
+            return;
+          }
+          oldSchedulePayloads = resolvedOldSchedulePayloads;
+
+          const existingPayloadByDay = new Map(
+            oldSchedulePayloads.map((payload) => [payload.dayOfWeek, payload]),
+          );
+          const nextSchedules: BatchCreateScheduleInput[] = selectedDays
+            .toSorted()
+            .map((dayOfWeek) => {
+              const existingPayload = existingPayloadByDay.get(dayOfWeek);
+              return {
+                ...(value.breakTimes.length > 0
+                  ? { breakTimes: value.breakTimes }
+                  : {}),
+                dayOfWeek,
+                endTime: value.endTime,
+                ...(existingPayload
+                  ? { lineageKey: existingPayload.lineageKey }
+                  : {}),
+                locationId: value.locationId as Id<"locations">,
+                practitionerId: schedule.practitionerId,
+                startTime: value.startTime,
+              };
+            });
+
+          const updateResult = await updateScheduleSetMutation({
+            expectedPresentLineageKeys: oldSchedulePayloads.map(
+              (payload) => payload.lineageKey,
+            ),
             practiceId,
-            schedules: batchSchedules,
+            schedules: nextSchedules,
             ...getLocalCowMutationArgs(),
           });
-          handleDraftMutationResult(batchResult);
+          handleDraftMutationResult(updateResult);
+          removeSchedulesFromRef(
+            schedulesRef,
+            oldSchedulePayloads.map((payload) => payload.lineageKey),
+          );
+          applyReplaceResultToRef({
+            appliedSchedules: updateResult.appliedSchedules,
+            practiceId,
+            ruleSetId: updateResult.ruleSetId,
+            schedulesRef,
+          });
 
-          if (batchResult.createdScheduleIds.length !== batchSchedules.length) {
-            const error = new Error(
-              "Erstellte Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
-            );
-            captureError(error, {
-              context: "base_schedule_batch_update_mapping_count_mismatch",
-              createdScheduleCount: batchResult.createdScheduleIds.length,
-              practiceId,
-              requestedScheduleCount: batchSchedules.length,
-            });
-            toast.error(error.message);
+          const updatedSchedulePayloads = Result.combine(
+            updateResult.appliedSchedules.map((appliedSchedule) =>
+              toCreatedSchedulePayload(
+                appliedSchedule,
+                appliedSchedule.lineageKey,
+                practitionerLineageByIdAtSubmitStart,
+                locationLineageByIdAtSubmitStart,
+              ),
+            ),
+          ).match<null | SchedulePayload[]>(
+            (value) => value,
+            (error) => {
+              captureFrontendError(error, {
+                context: "base_schedule_updated_payloads",
+                practiceId,
+              });
+              toast.error(error.message);
+              return null;
+            },
+          );
+          if (updatedSchedulePayloads === null) {
             return;
           }
 
-          for (const [index, createData] of batchSchedules.entries()) {
-            const createdEntityId = batchResult.createdScheduleIds[index];
-            if (!createdEntityId) {
-              const error = new Error(
-                "Erstellte Arbeitszeiten konnten nicht vollständig zugeordnet werden.",
-              );
-              captureError(error, {
-                context: "base_schedule_batch_update_mapping",
-                createdScheduleCount: batchResult.createdScheduleIds.length,
-                practiceId,
-                requestedScheduleCount: batchSchedules.length,
-              });
-              toast.error(error.message);
-              return;
-            }
-
-            const createdPayload = toCreatedSchedulePayload(
-              createData,
-              createdEntityId,
-              practitionerLineageByIdAtSubmitStart,
-              locationLineageByIdAtSubmitStart,
-            ).match(
-              (value) => value,
-              (error) => {
-                captureFrontendError(error, {
-                  context: "base_schedule_created_payload",
-                  practiceId,
-                });
-                toast.error(error.message);
-                return null;
-              },
-            );
-            if (!createdPayload) {
-              return;
-            }
-            createdSchedulePayloads.push(createdPayload);
-            createdScheduleIds.push(createdEntityId);
-          }
+          createdSchedulePayloads.push(...updatedSchedulePayloads);
 
           toast.success(
             `Arbeitszeit${selectedDays.length > 1 ? "en" : ""} erfolgreich aktualisiert`,
@@ -1195,6 +1349,13 @@ function BaseScheduleDialog({
             ...getLocalCowMutationArgs(),
           });
           handleDraftMutationResult(batchResult);
+          applyBatchCreateResultToRef({
+            createdScheduleIds: batchResult.createdScheduleIds,
+            practiceId,
+            ruleSetId: batchResult.ruleSetId,
+            schedules: batchSchedules,
+            schedulesRef,
+          });
 
           if (batchResult.createdScheduleIds.length !== batchSchedules.length) {
             const error = new Error(
@@ -1296,6 +1457,13 @@ function BaseScheduleDialog({
               }
               const redoResult = await runCreateScheduleBatch(batchSchedules);
               handleDraftMutationResult(redoResult);
+              applyBatchCreateResultToRef({
+                createdScheduleIds: redoResult.createdScheduleIds,
+                practiceId,
+                ruleSetId: redoResult.ruleSetId,
+                schedules: batchSchedules,
+                schedulesRef,
+              });
               return { status: "applied" as const };
             },
             undo: async () => {
@@ -1319,6 +1487,7 @@ function BaseScheduleDialog({
                   ...getLocalCowMutationArgs(),
                 });
                 handleDraftMutationResult(undoResult);
+                removeSchedulesFromRef(schedulesRef, presentLineageKeys);
               } catch (error: unknown) {
                 if (!isBaseScheduleMissingError(error)) {
                   return {
@@ -1336,28 +1505,6 @@ function BaseScheduleDialog({
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
-          const oldSchedulePayloads = Result.combine(
-            deletedScheduleSnapshots.map((previous) =>
-              toSchedulePayloadFromLineageSnapshot(
-                previous,
-                practitionerLineageByIdAtSubmitStart,
-                locationLineageByIdAtSubmitStart,
-              ),
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "base_schedule_old_payloads",
-                practiceId,
-              });
-              toast.error(error.message);
-              return null;
-            },
-          );
-          if (!oldSchedulePayloads) {
-            return;
-          }
           const newLineageKeys = createdSchedulePayloads.map(
             (payload) => payload.lineageKey,
           );
@@ -1395,6 +1542,13 @@ function BaseScheduleDialog({
                 ...getLocalCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
+              removeSchedulesFromRef(schedulesRef, oldLineageKeys);
+              applyReplaceResultToRef({
+                appliedSchedules: redoResult.appliedSchedules,
+                practiceId,
+                ruleSetId: redoResult.ruleSetId,
+                schedulesRef,
+              });
               return { status: "applied" as const };
             },
             undo: async () => {
@@ -1425,6 +1579,13 @@ function BaseScheduleDialog({
                 ...getLocalCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
+              removeSchedulesFromRef(schedulesRef, newLineageKeys);
+              applyReplaceResultToRef({
+                appliedSchedules: undoResult.appliedSchedules,
+                practiceId,
+                ruleSetId: undoResult.ruleSetId,
+                schedulesRef,
+              });
               return { status: "applied" as const };
             },
           });
