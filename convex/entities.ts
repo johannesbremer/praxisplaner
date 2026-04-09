@@ -143,7 +143,9 @@ const replaceBaseScheduleSetResultValidator = v.object({
       entityId: v.id("baseSchedules"),
       lineageKey: v.id("baseSchedules"),
       locationId: v.id("locations"),
+      locationLineageKey: v.id("locations"),
       practitionerId: v.id("practitioners"),
+      practitionerLineageKey: v.id("practitioners"),
       startTime: v.string(),
     }),
   ),
@@ -254,6 +256,36 @@ async function ensureBaseScheduleLineageKeyForWrite(
     lineageKey: entity._id,
   });
   return entity._id;
+}
+
+async function getResolvedBaseScheduleReferenceLineage(params: {
+  db: DatabaseReader;
+  locationId: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+}): Promise<{
+  locationLineageKey: Id<"locations">;
+  practitionerLineageKey: Id<"practitioners">;
+}> {
+  const [location, practitioner] = await Promise.all([
+    params.db.get("locations", params.locationId),
+    params.db.get("practitioners", params.practitionerId),
+  ]);
+
+  if (!location) {
+    throw new Error(
+      `[INVARIANT:LOCATION_NOT_FOUND] Standort ${params.locationId} konnte nicht geladen werden.`,
+    );
+  }
+  if (!practitioner) {
+    throw new Error(
+      `[INVARIANT:PRACTITIONER_NOT_FOUND] Behandler ${params.practitionerId} konnte nicht geladen werden.`,
+    );
+  }
+
+  return {
+    locationLineageKey: requireLocationLineageKey(location),
+    practitionerLineageKey: requirePractitionerLineageKey(practitioner),
+  };
 }
 
 function missingLineageKeyError(params: {
@@ -2246,7 +2278,9 @@ export const updateBaseScheduleSet = mutation({
       entityId: Id<"baseSchedules">;
       lineageKey: Id<"baseSchedules">;
       locationId: Id<"locations">;
+      locationLineageKey: Id<"locations">;
       practitionerId: Id<"practitioners">;
+      practitionerLineageKey: Id<"practitioners">;
       startTime: string;
     }[] = [];
     const createdScheduleIds: Id<"baseSchedules">[] = [];
@@ -2271,10 +2305,16 @@ export const updateBaseScheduleSet = mutation({
         startTime: desired.startTime,
       });
 
+      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+        db: ctx.db,
+        locationId: desired.locationId,
+        practitionerId: desired.practitionerId,
+      });
       consumedLineageKeys.add(desired.lineageKey);
       appliedSchedules.push({
         ...desired,
         entityId: existing._id,
+        ...referenceLineage,
       });
     }
 
@@ -2304,11 +2344,17 @@ export const updateBaseScheduleSet = mutation({
           practitionerId: desired.practitionerId,
           startTime: desired.startTime,
         });
+        const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+          db: ctx.db,
+          locationId: desired.locationId,
+          practitionerId: desired.practitionerId,
+        });
         consumedLineageKeys.add(lineageKey);
         appliedSchedules.push({
           ...desired,
           entityId: recycled._id,
           lineageKey,
+          ...referenceLineage,
         });
         continue;
       }
@@ -2326,11 +2372,17 @@ export const updateBaseScheduleSet = mutation({
       await ctx.db.patch("baseSchedules", createdId, {
         lineageKey: createdId,
       });
+      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+        db: ctx.db,
+        locationId: desired.locationId,
+        practitionerId: desired.practitionerId,
+      });
       createdScheduleIds.push(createdId);
       appliedSchedules.push({
         ...desired,
         entityId: createdId,
         lineageKey: createdId,
+        ...referenceLineage,
       });
     }
 
@@ -2492,7 +2544,9 @@ export const replaceBaseScheduleSet = mutation({
         entityId: Id<"baseSchedules">;
         lineageKey: Id<"baseSchedules">;
         locationId: Id<"locations">;
+        locationLineageKey: Id<"locations">;
         practitionerId: Id<"practitioners">;
+        practitionerLineageKey: Id<"practitioners">;
         startTime: string;
       }[] = [];
       const existingCreatedIds: Id<"baseSchedules">[] = [];
@@ -2504,6 +2558,11 @@ export const replaceBaseScheduleSet = mutation({
           );
         }
         existingCreatedIds.push(existing._id);
+        const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+          db: ctx.db,
+          locationId: existing.locationId,
+          practitionerId: existing.practitionerId,
+        });
         appliedSchedules.push({
           ...(existing.breakTimes ? { breakTimes: existing.breakTimes } : {}),
           dayOfWeek: existing.dayOfWeek,
@@ -2511,7 +2570,9 @@ export const replaceBaseScheduleSet = mutation({
           entityId: existing._id,
           lineageKey,
           locationId: existing.locationId,
+          locationLineageKey: referenceLineage.locationLineageKey,
           practitionerId: existing.practitionerId,
+          practitionerLineageKey: referenceLineage.practitionerLineageKey,
           startTime: existing.startTime,
         });
       }
@@ -2561,7 +2622,9 @@ export const replaceBaseScheduleSet = mutation({
       entityId: Id<"baseSchedules">;
       lineageKey: Id<"baseSchedules">;
       locationId: Id<"locations">;
+      locationLineageKey: Id<"locations">;
       practitionerId: Id<"practitioners">;
+      practitionerLineageKey: Id<"practitioners">;
       startTime: string;
     }[] = [];
     const createdScheduleIds: Id<"baseSchedules">[] = [];
@@ -2605,6 +2668,11 @@ export const replaceBaseScheduleSet = mutation({
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
       });
       createdScheduleIds.push(createdId);
+      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+        db: ctx.db,
+        locationId,
+        practitionerId,
+      });
       appliedSchedules.push({
         ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
         dayOfWeek: schedule.dayOfWeek,
@@ -2612,7 +2680,9 @@ export const replaceBaseScheduleSet = mutation({
         entityId: createdId,
         lineageKey: schedule.lineageKey,
         locationId,
+        locationLineageKey: referenceLineage.locationLineageKey,
         practitionerId,
+        practitionerLineageKey: referenceLineage.practitionerLineageKey,
         startTime: schedule.startTime,
       });
       existingSchedulesByLineage.set(schedule.lineageKey, {

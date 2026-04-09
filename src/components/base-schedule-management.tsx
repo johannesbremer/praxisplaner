@@ -109,7 +109,9 @@ interface BaseScheduleMutationAppliedSchedule {
   entityId: Id<"baseSchedules">;
   lineageKey: Id<"baseSchedules">;
   locationId: Id<"locations">;
+  locationLineageKey: Id<"locations">;
   practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
   startTime: string;
 }
 
@@ -458,6 +460,18 @@ const scheduleDocFromInput = (params: {
     startTime: params.schedule.startTime,
   };
 };
+
+const toSchedulePayloadFromAppliedSchedule = (
+  schedule: BaseScheduleMutationAppliedSchedule,
+): SchedulePayload => ({
+  ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
+  dayOfWeek: schedule.dayOfWeek,
+  endTime: schedule.endTime,
+  lineageKey: schedule.lineageKey,
+  locationLineageId: schedule.locationLineageKey,
+  practitionerLineageId: schedule.practitionerLineageKey,
+  startTime: schedule.startTime,
+});
 
 const removeSchedulesFromRef = (
   schedulesRef: SchedulesRef,
@@ -1261,29 +1275,10 @@ function BaseScheduleDialog({
             schedulesRef,
           });
 
-          const updatedSchedulePayloads = Result.combine(
-            updateResult.appliedSchedules.map((appliedSchedule) =>
-              toCreatedSchedulePayload(
-                appliedSchedule,
-                appliedSchedule.lineageKey,
-                practitionerLineageByIdAtSubmitStart,
-                locationLineageByIdAtSubmitStart,
-              ),
-            ),
-          ).match<null | SchedulePayload[]>(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "base_schedule_updated_payloads",
-                practiceId,
-              });
-              toast.error(error.message);
-              return null;
-            },
+          const updatedSchedulePayloads = updateResult.appliedSchedules.map(
+            (appliedSchedule) =>
+              toSchedulePayloadFromAppliedSchedule(appliedSchedule),
           );
-          if (updatedSchedulePayloads === null) {
-            return;
-          }
 
           createdSchedulePayloads.push(...updatedSchedulePayloads);
 
