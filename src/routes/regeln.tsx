@@ -317,6 +317,12 @@ function buildStructuredDiffRows(
       const afterEntry = afterEntries[pairIndex];
       const before = beforeEntry?.value;
       const after = afterEntry?.value;
+      if (beforeEntry) {
+        usedRemoved.add(beforeEntry.index);
+      }
+      if (afterEntry) {
+        usedAdded.add(afterEntry.index);
+      }
       if (
         section.key === "baseSchedules" &&
         before &&
@@ -338,13 +344,6 @@ function buildStructuredDiffRows(
         before && after
           ? formatChangedStructuredDiffValues(section, before, after)
           : null;
-
-      if (beforeEntry) {
-        usedRemoved.add(beforeEntry.index);
-      }
-      if (afterEntry) {
-        usedAdded.add(afterEntry.index);
-      }
 
       return {
         after: changedValues

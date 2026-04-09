@@ -121,6 +121,11 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
+const getReplayCopySource = (
+  rule: Pick<RuleFromDB, "_id" | "copyFromId">,
+): { copyFromId?: Id<"ruleConditions"> } =>
+  rule.copyFromId ? { copyFromId: rule.copyFromId } : {};
+
 export function RuleBuilder({
   onDraftMutation,
   onRegisterHistoryAction,
@@ -307,7 +312,7 @@ export function RuleBuilder({
               conditionTree: preparedRule.conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
-              copyFromId: deletedRule.copyFromId ?? deletedRule._id,
+              ...getReplayCopySource(deletedRule),
               enabled: deletedRule.enabled,
               name: deletedRuleName,
               practiceId,
@@ -421,9 +426,7 @@ export function RuleBuilder({
               conditionTree: conditionTree as Parameters<
                 typeof createRuleMutation
               >[0]["conditionTree"],
-              ...(previousRule && {
-                copyFromId: previousRule.copyFromId ?? previousRule._id,
-              }),
+              ...(previousRule ? getReplayCopySource(previousRule) : {}),
               enabled: true,
               name: ruleName,
               practiceId,
@@ -593,7 +596,7 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
-                    copyFromId: previousRule.copyFromId ?? previousRule._id,
+                    ...getReplayCopySource(previousRule),
                     enabled: true,
                     name: ruleName,
                     practiceId,
@@ -656,7 +659,7 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
-                    copyFromId: previousRule.copyFromId ?? previousRule._id,
+                    ...getReplayCopySource(previousRule),
                     enabled: previousRule.enabled,
                     name: previousRuleName,
                     practiceId,
@@ -693,7 +696,6 @@ export function RuleBuilder({
                     conditionTree: preparedRule.conditionTree as Parameters<
                       typeof createRuleMutation
                     >[0]["conditionTree"],
-                    copyFromId: currentRuleId,
                     enabled: true,
                     name: ruleName,
                     practiceId,
