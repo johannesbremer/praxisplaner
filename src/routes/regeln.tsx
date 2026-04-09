@@ -1,14 +1,21 @@
 // src/routes/regeln.tsx
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { RefreshCw, Save, Trash2 } from "lucide-react";
+import { RefreshCw, Save, Trash2, Undo2 } from "lucide-react";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  ConditionOperator,
+  ConditionTreeNode,
+  ConditionType,
+  Scope,
+} from "@/convex/ruleEngine";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +46,10 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
-import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
+import {
+  RESERVED_UNSAVED_DESCRIPTION,
+  validateRuleSetDescriptionSync,
+} from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -47,6 +57,10 @@ import type { PatientInfo } from "../types";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
 
+import {
+  conditionTreeToConditions,
+  generateRuleName,
+} from "../../lib/rule-name-generator";
 import { createSimulatedContext } from "../../lib/utils";
 import { AppointmentTypeSelector } from "../components/appointment-type-selector";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
@@ -118,18 +132,779 @@ export const Route = createFileRoute("/regeln")({
   },
 });
 
+interface EntityRenameMaps {
+  appointmentTypes: Map<string, string>;
+  locations: Map<string, string>;
+  mfas: Map<string, string>;
+  practitioners: Map<string, string>;
+}
+
+interface ProjectedRuleSetDiffSection {
+  rows: StructuredDiffRow[];
+  section: RuleSetDiffSection;
+}
+
+interface RuleNameContext {
+  appointmentTypes: RuleNameEntity[];
+  locations: RuleNameEntity[];
+  practitioners: RuleNameEntity[];
+}
+
+interface RuleNameEntity {
+  _id: string;
+  name: string;
+}
+
+interface RuleSetDiff {
+  draftRuleSet: {
+    _id: string;
+    description: string;
+    version: number;
+  };
+  parentRuleSet: {
+    _id: string;
+    description: string;
+    version: number;
+  };
+  sections: RuleSetDiffSection[];
+  totals: {
+    added: number;
+    changed: number;
+    removed: number;
+  };
+}
+
+interface RuleSetDiffSection {
+  added: string[];
+  key: string;
+  removed: string[];
+  title: string;
+}
+
 interface SaveDialogFormProps {
   activationName: string;
   existingSavedDescriptions: string[];
   onDiscard?: (() => void) | null;
   onSaveAndActivate: (name: string) => void;
   onSaveOnly: (name: string) => void;
+  ruleSetDiff?: null | RuleSetDiff | undefined;
   setActivationName: (name: string) => void;
 }
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+interface StructuredDiffRow {
+  after: string;
+  before: string;
+  id: string;
+  kind: "added" | "modified" | "removed";
+  path: string;
+}
+
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+
+function buildRuleNameContextFromTree(
+  tree: ConditionTreeNode,
+): RuleNameContext {
+  const appointmentTypes = new Set<string>();
+  const locations = new Set<string>();
+  const practitioners = new Set<string>();
+  const conditions = conditionTreeToConditions(tree);
+
+  for (const condition of conditions) {
+    switch (condition.type) {
+      case "APPOINTMENT_TYPE": {
+        for (const valueId of condition.valueIds ?? []) {
+          appointmentTypes.add(valueId);
+        }
+        break;
+      }
+      case "CONCURRENT_COUNT":
+      case "DAILY_CAPACITY": {
+        for (const appointmentType of condition.appointmentTypes ?? []) {
+          appointmentTypes.add(appointmentType);
+        }
+        break;
+      }
+      case "LOCATION": {
+        for (const valueId of condition.valueIds ?? []) {
+          locations.add(valueId);
+        }
+        break;
+      }
+      case "PRACTITIONER": {
+        for (const valueId of condition.valueIds ?? []) {
+          practitioners.add(valueId);
+        }
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+
+  return {
+    appointmentTypes: [...appointmentTypes].map((name) => ({
+      _id: name,
+      name,
+    })),
+    locations: [...locations].map((name) => ({ _id: name, name })),
+    practitioners: [...practitioners].map((name) => ({ _id: name, name })),
+  };
+}
+
+function buildStructuredDiffRows(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+) {
+  const removedCandidates = section.removed.map((value, index) => ({
+    index,
+    key: getDiffItemMatchKey(section, value),
+    path: getDiffItemPath(section, value, entityRenames),
+    value,
+  }));
+  const addedCandidates = section.added.map((value, index) => ({
+    index,
+    key: getDiffItemMatchKey(section, value),
+    path: getDiffItemPath(section, value, entityRenames),
+    value,
+  }));
+  const removedByKey = new Map<
+    string,
+    {
+      index: number;
+      key: string;
+      path: string;
+      value: string;
+    }[]
+  >();
+  const addedByKey = new Map<
+    string,
+    {
+      index: number;
+      key: string;
+      path: string;
+      value: string;
+    }[]
+  >();
+  const usedRemoved = new Set<number>();
+  const usedAdded = new Set<number>();
+  const rows: StructuredDiffRow[] = [];
+
+  for (const candidate of removedCandidates) {
+    const { key } = candidate;
+    const bucket = removedByKey.get(key) ?? [];
+    bucket.push(candidate);
+    removedByKey.set(key, bucket);
+  }
+  for (const candidate of addedCandidates) {
+    const { key } = candidate;
+    const bucket = addedByKey.get(key) ?? [];
+    bucket.push(candidate);
+    addedByKey.set(key, bucket);
+  }
+
+  const keys = [...new Set([...removedByKey.keys(), ...addedByKey.keys()])];
+
+  for (const key of keys.toSorted()) {
+    const beforeEntries = removedByKey.get(key) ?? [];
+    const afterEntries = addedByKey.get(key) ?? [];
+    const pairCount = Math.max(beforeEntries.length, afterEntries.length);
+
+    const nextRows = Array.from({ length: pairCount }, (_, pairIndex) => {
+      const beforeEntry = beforeEntries[pairIndex];
+      const afterEntry = afterEntries[pairIndex];
+      const before = beforeEntry?.value;
+      const after = afterEntry?.value;
+      if (beforeEntry) {
+        usedRemoved.add(beforeEntry.index);
+      }
+      if (afterEntry) {
+        usedAdded.add(afterEntry.index);
+      }
+      if (
+        section.key === "baseSchedules" &&
+        before &&
+        after &&
+        isOnlyReferenceRename(section, before, after, entityRenames)
+      ) {
+        return null;
+      }
+      if (
+        section.key === "vacations" &&
+        before &&
+        after &&
+        isOnlyReferenceRename(section, before, after, entityRenames)
+      ) {
+        return null;
+      }
+
+      const changedValues =
+        before && after
+          ? formatChangedStructuredDiffValues(section, before, after)
+          : null;
+
+      return {
+        after: changedValues
+          ? changedValues.after
+          : after
+            ? formatStructuredDiffValue(after)
+            : "",
+        before: changedValues
+          ? changedValues.before
+          : before
+            ? formatStructuredDiffValue(before)
+            : "",
+        id: `${section.key}:${key}:${pairIndex}`,
+        kind: before && after ? "modified" : after ? "added" : "removed",
+        path: afterEntry?.path ?? beforeEntry?.path ?? key,
+      };
+    }).filter((row): row is StructuredDiffRow => row !== null);
+
+    rows.push(...nextRows);
+  }
+
+  const remainingRows = [
+    ...removedCandidates
+      .filter((candidate) => !usedRemoved.has(candidate.index))
+      .map(
+        (candidate): StructuredDiffRow => ({
+          after: "",
+          before: formatStructuredDiffValue(candidate.value),
+          id: `${section.key}:removed:${candidate.index}`,
+          kind: "removed",
+          path: candidate.path,
+        }),
+      ),
+    ...addedCandidates
+      .filter((candidate) => !usedAdded.has(candidate.index))
+      .map(
+        (candidate): StructuredDiffRow => ({
+          after: formatStructuredDiffValue(candidate.value),
+          before: "",
+          id: `${section.key}:added:${candidate.index}`,
+          kind: "added",
+          path: candidate.path,
+        }),
+      ),
+  ];
+
+  return [...rows, ...remainingRows].toSorted((a, b) =>
+    a.path.localeCompare(b.path),
+  );
+}
+
+function dayOfWeekLabel(value: unknown) {
+  const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  return typeof value === "number" ? (labels[value] ?? String(value)) : "";
+}
+
+function formatChangedStructuredDiffValues(
+  section: RuleSetDiffSection,
+  beforeValue: string,
+  afterValue: string,
+) {
+  const before = parseDiffValue(beforeValue);
+  const after = parseDiffValue(afterValue);
+  if (!before || !after) {
+    return {
+      after: formatStructuredDiffValue(afterValue),
+      before: formatStructuredDiffValue(beforeValue),
+    };
+  }
+
+  if (section.key === "rules") {
+    return {
+      after: getRuleSummary(after),
+      before: getRuleSummary(before),
+    };
+  }
+
+  const changedKeys = [
+    ...new Set([...Object.keys(before), ...Object.keys(after)]),
+  ].filter(
+    (key) =>
+      !isDiffMetadataKey(key) && !isEqualDiffValue(before[key], after[key]),
+  );
+
+  if (changedKeys.length === 0) {
+    return {
+      after: formatStructuredDiffValue(afterValue),
+      before: formatStructuredDiffValue(beforeValue),
+    };
+  }
+
+  return {
+    after: formatStructuredDiffEntries(after, changedKeys),
+    before: formatStructuredDiffEntries(before, changedKeys),
+  };
+}
+
+function formatEnumValue(key: string, value: unknown) {
+  const stringifiedValue = stringValue(value);
+
+  const enumLabels: Record<string, Record<string, string>> = {
+    conditionType: {
+      APPOINTMENT_TYPE: "Terminart",
+      CLIENT_TYPE: "Patiententyp",
+      CONCURRENT_COUNT: "Parallele Termine",
+      DAILY_CAPACITY: "Tageskapazitaet",
+      DATE_RANGE: "Datumsbereich",
+      DAY_OF_WEEK: "Wochentag",
+      DAYS_AHEAD: "Tage im Voraus",
+      HOURS_AHEAD: "Stunden im Voraus",
+      LOCATION: "Standort",
+      PATIENT_AGE: "Patientenalter",
+      PRACTITIONER: "Behandler",
+      PRACTITIONER_TAG: "Behandler-Tag",
+    },
+    locationMode: {
+      any: "Beliebiger Standort",
+      inherit: "Standort uebernehmen",
+      selected: "Ausgewaehlter Standort",
+    },
+    offsetUnit: {
+      days: "Tage",
+      minutes: "Minuten",
+      months: "Monate",
+      weeks: "Wochen",
+    },
+    operator: {
+      EQUALS: "Ist gleich",
+      GREATER_THAN: "Groesser als",
+      GREATER_THAN_OR_EQUAL: "Groesser oder gleich",
+      IS: "Ist",
+      IS_NOT: "Ist nicht",
+      LESS_THAN: "Kleiner als",
+      LESS_THAN_OR_EQUAL: "Kleiner oder gleich",
+    },
+    portion: {
+      afternoon: "Nachmittag",
+      full: "Ganztägig",
+      morning: "Vormittag",
+    },
+    practitionerMode: {
+      any: "Beliebiger Behandler",
+      inherit: "Behandler uebernehmen",
+      selected: "Ausgewaehlter Behandler",
+    },
+    scope: {
+      location: "Standort",
+      practice: "Praxis",
+      practitioner: "Behandler",
+      real: "Echt",
+      simulation: "Simulation",
+    },
+    searchMode: {
+      exact_after_previous: "Direkt nach dem vorherigen Termin",
+      first_available_on_or_after: "Erster verfuegbarer Termin ab dann",
+      same_day: "Am selben Tag",
+    },
+    staffType: {
+      mfa: "MFA",
+      practitioner: "Behandler",
+    },
+  };
+
+  return enumLabels[key]?.[stringifiedValue] ?? stringifiedValue;
+}
+
+function formatFieldValue(key: string, value: unknown) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    if (value.every((entry) => typeof entry !== "object" || entry === null)) {
+      return value
+        .map((entry) =>
+          typeof entry === "string"
+            ? formatEnumValue(key, entry)
+            : formatPrimitiveValue(entry),
+        )
+        .join(", ");
+    }
+    return `${value.length} Eintrag${value.length === 1 ? "" : "e"}`;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Ja" : "Nein";
+  }
+
+  if (value && typeof value === "object") {
+    return formatValue(value);
+  }
+
+  return formatEnumValue(key, value);
+}
+
+function formatPrimitiveValue(value: unknown) {
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split("-");
+      return `${day}.${month}.${year}`;
+    }
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return String(value);
+}
+
+function formatRuleDiffSummary(value: Record<string, unknown>) {
+  const tree = parseRuleDiffTree(value);
+  if (!tree) {
+    return null;
+  }
+
+  const snapshotRuleNameContext = buildRuleNameContextFromTree(tree);
+
+  try {
+    return generateRuleName(
+      conditionTreeToConditions(tree),
+      snapshotRuleNameContext.appointmentTypes,
+      snapshotRuleNameContext.practitioners,
+      snapshotRuleNameContext.locations,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function formatStructuredDiffEntries(
+  value: Record<string, unknown>,
+  keys: string[],
+) {
+  return keys
+    .filter(
+      (key) =>
+        !isDiffMetadataKey(key) &&
+        value[key] !== null &&
+        value[key] !== undefined,
+    )
+    .map(
+      (key) =>
+        `${formatStructuredKey(key)}: ${formatFieldValue(key, value[key])}`,
+    )
+    .join("\n");
+}
+
+function formatStructuredDiffValue(value: string) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    return value;
+  }
+
+  return Object.entries(parsed)
+    .filter(
+      ([key, entryValue]) =>
+        !isDiffMetadataKey(key) &&
+        entryValue !== null &&
+        entryValue !== undefined,
+    )
+    .map(
+      ([key, entryValue]) =>
+        `${formatStructuredKey(key)}: ${formatFieldValue(key, entryValue)}`,
+    )
+    .join("\n");
+}
+
+function formatStructuredKey(key: string) {
+  const labels: Record<string, string> = {
+    allowedPractitioners: "Behandler",
+    appointmentTypeName: "Terminart",
+    breakTimes: "Pausen",
+    children: "Bedingungen",
+    conditionType: "Bedingung",
+    date: "Datum",
+    dayOfWeek: "Tag",
+    duration: "Dauer",
+    enabled: "Aktiv",
+    endTime: "Ende",
+    followUpPlan: "Folgetermine",
+    locationName: "Standort",
+    name: "Name",
+    nodeType: "Logik",
+    operator: "Operator",
+    portion: "Teil",
+    practitionerName: "Behandler",
+    scope: "Geltungsbereich",
+    staffName: "Mitarbeiter",
+    staffType: "Typ",
+    startTime: "Start",
+    tags: "Tags",
+    valueIds: "Werte",
+    valueNumber: "Wert",
+  };
+
+  return labels[key] ?? key;
+}
+
+function formatValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    if (value.every((entry) => typeof entry !== "object" || entry === null)) {
+      return value.map((entry) => formatPrimitiveValue(entry)).join(", ");
+    }
+    return `${value.length} Eintrag${value.length === 1 ? "" : "e"}`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "Ja" : "Nein";
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .map(
+        ([key, entryValue]) =>
+          `${formatStructuredKey(key)}=${formatFieldValue(key, entryValue)}`,
+      )
+      .join(", ");
+  }
+  return formatPrimitiveValue(value);
+}
+
+function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      `[INVARIANT:DIFF_VALUE_INVALID] Abschnitt ${section.key} enthaelt keinen gueltigen Diff-Wert.`,
+    );
+  }
+
+  if (typeof parsed["__diffKey"] === "string") {
+    return parsed["__diffKey"];
+  }
+
+  throw new Error(
+    `[INVARIANT:DIFF_KEY_MISSING] Abschnitt ${section.key} hat keinen stabilen Diff-Schluessel.`,
+  );
+}
+
+function getDiffItemPath(
+  section: RuleSetDiffSection,
+  value: string,
+  entityRenames: EntityRenameMaps,
+) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    return value;
+  }
+
+  if ("name" in parsed && typeof parsed["name"] === "string") {
+    const name = parsed["name"];
+    return normalizeEntityName(section.key, name, entityRenames);
+  }
+
+  if (section.key === "baseSchedules") {
+    const locationName = stringValue(parsed["locationName"]);
+    const practitionerName = stringValue(parsed["practitionerName"]);
+
+    return [
+      normalizeRenamedValue(practitionerName, entityRenames.practitioners),
+      dayOfWeekLabel(parsed["dayOfWeek"]),
+      normalizeRenamedValue(locationName, entityRenames.locations),
+      `${stringValue(parsed["startTime"])}-${stringValue(parsed["endTime"])}`,
+    ]
+      .filter(Boolean)
+      .join(" > ");
+  }
+
+  if (section.key === "vacations") {
+    const staffName = stringValue(parsed["staffName"]);
+    return [
+      normalizeRenamedValue(
+        normalizeRenamedValue(staffName, entityRenames.practitioners),
+        entityRenames.mfas,
+      ),
+      formatPrimitiveValue(parsed["date"]),
+      formatEnumValue("portion", parsed["portion"]),
+    ]
+      .filter(Boolean)
+      .join(" > ");
+  }
+
+  if (section.key === "rules") {
+    return getRuleSummary(parsed);
+  }
+
+  return formatStructuredDiffValue(value).split("\n")[0] ?? section.title;
+}
+
+function getEntityRenames(diff: RuleSetDiff) {
+  const baseRenames: EntityRenameMaps = {
+    appointmentTypes: new Map(),
+    locations: new Map(),
+    mfas: new Map(),
+    practitioners: new Map(),
+  };
+
+  for (const section of diff.sections) {
+    switch (section.key) {
+      case "locations": {
+        baseRenames.locations = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+      case "mfas": {
+        baseRenames.mfas = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+      case "practitioners": {
+        baseRenames.practitioners = getSectionNameRenames(section, baseRenames);
+        break;
+      }
+    }
+  }
+
+  for (const section of diff.sections) {
+    if (section.key === "appointmentTypes") {
+      baseRenames.appointmentTypes = getSectionNameRenames(
+        section,
+        baseRenames,
+      );
+    }
+  }
+
+  return baseRenames;
+}
+
+function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
+  const changedSections = diff.sections.filter(
+    (section) => section.added.length > 0 || section.removed.length > 0,
+  );
+  const entityRenames = getEntityRenames(diff);
+  return changedSections
+    .map(
+      (section): ProjectedRuleSetDiffSection => ({
+        rows: buildStructuredDiffRows(section, entityRenames),
+        section,
+      }),
+    )
+    .filter((projectedSection) => projectedSection.rows.length > 0);
+}
+
+function getRuleSummary(value: Record<string, unknown>) {
+  const naturalLanguageRule = formatRuleDiffSummary(value);
+  if (naturalLanguageRule) {
+    return naturalLanguageRule;
+  }
+
+  const children: unknown[] = Array.isArray(value["children"])
+    ? value["children"]
+    : [];
+  const firstChild: unknown = children[0];
+  if (firstChild && typeof firstChild === "object") {
+    const child = firstChild as Record<string, unknown>;
+    return [
+      "Regel",
+      stringValue(child["nodeType"]),
+      stringValue(child["conditionType"]),
+      formatValue(child["valueIds"]),
+      formatValue(child["valueNumber"]),
+    ]
+      .filter((part) => part && part !== "undefined")
+      .join(" > ");
+  }
+
+  return [
+    "Regel",
+    stringValue(value["nodeType"]),
+    stringValue(value["conditionType"]),
+  ]
+    .filter(Boolean)
+    .join(" > ");
+}
+
+function getSectionNameRenames(
+  section: RuleSetDiffSection,
+  entityRenames: EntityRenameMaps,
+) {
+  const renames = new Map<string, string>();
+  const unmatchedAdded = [...section.added];
+
+  for (const removed of section.removed) {
+    const before = parseDiffValue(removed);
+    const beforeName = before ? stringValue(before["name"]) : "";
+    if (!before || !beforeName) {
+      continue;
+    }
+
+    const addedIndex = unmatchedAdded.findIndex((added) => {
+      const after = parseDiffValue(added);
+      const afterName = after ? stringValue(after["name"]) : "";
+      if (!after || !afterName || afterName === beforeName) {
+        return false;
+      }
+
+      return isSameAfterNormalizingReferences(
+        section.key,
+        omitKey(before, "name"),
+        omitKey(after, "name"),
+        entityRenames,
+      );
+    });
+
+    if (addedIndex === -1) {
+      continue;
+    }
+
+    const added = unmatchedAdded[addedIndex];
+    if (!added) {
+      continue;
+    }
+    const after = parseDiffValue(added);
+    const afterName = after ? stringValue(after["name"]) : "";
+    if (afterName) {
+      renames.set(beforeName, afterName);
+    }
+    unmatchedAdded.splice(addedIndex, 1);
+  }
+
+  return renames;
+}
+
+function isDiffMetadataKey(key: string) {
+  return key.startsWith("__");
+}
+
+function isEqualDiffValue(before: unknown, after: unknown) {
+  return JSON.stringify(before) === JSON.stringify(after);
+}
+
+function isOnlyReferenceRename(
+  section: RuleSetDiffSection,
+  beforeValue: string,
+  afterValue: string,
+  entityRenames: EntityRenameMaps,
+) {
+  const before = parseDiffValue(beforeValue);
+  const after = parseDiffValue(afterValue);
+  if (!before || !after) {
+    return false;
+  }
+
+  return isSameAfterNormalizingReferences(
+    section.key,
+    before,
+    after,
+    entityRenames,
+  );
+}
+
+function isSameAfterNormalizingReferences(
+  sectionKey: string,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+) {
+  return (
+    JSON.stringify(normalizeReferences(sectionKey, before, entityRenames)) ===
+    JSON.stringify(normalizeReferences(sectionKey, after, entityRenames))
+  );
+}
 
 function LogicView() {
   // URL helpers: central source of truth for parsing and navigation
@@ -150,12 +925,14 @@ function LogicView() {
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
   >(null);
-  const [draftParentRuleSetIdOverride, setDraftParentRuleSetIdOverride] =
-    useState<Id<"ruleSets"> | null>(null);
   const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
     useState(false);
+  const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [discardTargetRuleSetId, setDiscardTargetRuleSetId] = useState<
+    Id<"ruleSets"> | undefined
+  >();
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
     Id<"ruleSets"> | undefined
   >();
@@ -164,6 +941,9 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
+  const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
+    null,
+  );
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,
@@ -172,7 +952,6 @@ function LogicView() {
     redo: redoRegelnHistoryAction,
     redoDepth: redoRegelnHistoryDepth,
     undo: undoRegelnHistoryAction,
-    undoDepth: undoRegelnHistoryDepth,
   } = useLocalHistory();
 
   const registerRegelnHistoryAction = useCallback(
@@ -342,37 +1121,13 @@ function LogicView() {
     if (!ruleSetsQuery || !currentPractice) {
       return;
     }
-    const ruleSets = ruleSetsQuery.map((rs) => ({
+    return ruleSetsQuery.map((rs) => ({
       _id: rs._id,
       description: rs.description,
       isActive: currentPractice.currentActiveRuleSetId === rs._id,
       version: rs.version,
     }));
-
-    if (
-      unsavedRuleSetId &&
-      discardingUnsavedRuleSetIdRef.current !== unsavedRuleSetId &&
-      !ruleSets.some((rs) => rs._id === unsavedRuleSetId)
-    ) {
-      const parentRuleSet = draftParentRuleSetIdOverride
-        ? ruleSetsQuery.find((rs) => rs._id === draftParentRuleSetIdOverride)
-        : undefined;
-
-      ruleSets.push({
-        _id: unsavedRuleSetId,
-        description: UNSAVED_RULE_SET_DESCRIPTION,
-        isActive: currentPractice.currentActiveRuleSetId === unsavedRuleSetId,
-        version: (parentRuleSet?.version ?? 0) + 1,
-      });
-    }
-
-    return ruleSets;
-  }, [
-    currentPractice,
-    draftParentRuleSetIdOverride,
-    ruleSetsQuery,
-    unsavedRuleSetId,
-  ]);
+  }, [currentPractice, ruleSetsQuery]);
 
   // Mutations
   const activateRuleSetMutation = useMutation(api.ruleSets.setActiveRuleSet);
@@ -418,41 +1173,7 @@ function LogicView() {
   });
   const discardEquivalentUnsavedRuleSetMutation = useMutation(
     api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
-  ).withOptimisticUpdate((localStore, args) => {
-    const queryArgs = { practiceId: args.practiceId };
-
-    const allRuleSets = localStore.getQuery(
-      api.ruleSets.getAllRuleSets,
-      queryArgs,
-    );
-    if (allRuleSets !== undefined) {
-      localStore.setQuery(
-        api.ruleSets.getAllRuleSets,
-        queryArgs,
-        allRuleSets.filter((ruleSet) => ruleSet._id !== args.ruleSetId),
-      );
-    }
-
-    const unsavedRuleSet = localStore.getQuery(
-      api.ruleSets.getUnsavedRuleSet,
-      queryArgs,
-    );
-    if (unsavedRuleSet?._id === args.ruleSetId) {
-      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
-    }
-
-    const versionHistory = localStore.getQuery(
-      api.ruleSets.getVersionHistory,
-      queryArgs,
-    );
-    if (versionHistory !== undefined) {
-      localStore.setQuery(
-        api.ruleSets.getVersionHistory,
-        queryArgs,
-        versionHistory.filter((version) => version.id !== args.ruleSetId),
-      );
-    }
-  });
+  );
 
   const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
   // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
@@ -464,13 +1185,6 @@ function LogicView() {
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
-    if (
-      unsavedRuleSetId &&
-      discardingUnsavedRuleSetIdRef.current === unsavedRuleSetId
-    ) {
-      return;
-    }
-
     const rawUnsaved = unsavedRuleSetId
       ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
       : undefined;
@@ -478,20 +1192,11 @@ function LogicView() {
       return;
     }
     if (!rawUnsaved) {
-      if (!unsavedRuleSetId || !draftParentRuleSetIdOverride) {
-        return;
-      }
-      const parentRuleSet = ruleSetsQuery?.find(
-        (rs) => rs._id === draftParentRuleSetIdOverride,
-      );
-      return {
-        _id: unsavedRuleSetId,
-        description: UNSAVED_RULE_SET_DESCRIPTION,
-        draftRevision: draftRevisionOverride ?? 0,
-        isActive: currentPractice.currentActiveRuleSetId === unsavedRuleSetId,
-        parentVersion: draftParentRuleSetIdOverride,
-        version: (parentRuleSet?.version ?? 0) + 1,
-      };
+      return;
+    }
+
+    if (rawUnsaved.saved) {
+      return;
     }
 
     return {
@@ -502,13 +1207,7 @@ function LogicView() {
       parentVersion: rawUnsaved.parentVersion,
       version: rawUnsaved.version,
     };
-  }, [
-    currentPractice,
-    draftParentRuleSetIdOverride,
-    draftRevisionOverride,
-    ruleSetsQuery,
-    unsavedRuleSetId,
-  ]);
+  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId]);
 
   // Get the search params directly to determine which rule set to use
   const routeSearch: RegelnSearchParams = Route.useSearch();
@@ -522,22 +1221,32 @@ function LogicView() {
       return;
     }
     if (ruleSetId === "ungespeichert") {
-      return ruleSetsWithActive?.find((rs) => rs._id === unsavedRuleSet?._id);
+      return ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSet?._id);
     }
     // Match by ID directly - IDs are unique and prevent collisions
-    return ruleSetsWithActive?.find((rs) => rs._id === ruleSetId);
-  }, [ruleSetsWithActive, unsavedRuleSet, routeSearch.regelwerk]);
+    return ruleSetsQuery?.find((rs) => rs._id === ruleSetId);
+  }, [ruleSetsQuery, routeSearch.regelwerk, unsavedRuleSet]);
 
   const preliminaryWorkingRuleSet = useMemo(
     () => preliminarySelectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [preliminarySelectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
+  const resolvedPreliminaryWorkingRuleSet = useMemo(
+    () =>
+      preliminaryWorkingRuleSet &&
+      ruleSetsQuery?.some(
+        (ruleSet) => ruleSet._id === preliminaryWorkingRuleSet._id,
+      )
+        ? preliminaryWorkingRuleSet
+        : undefined,
+    [preliminaryWorkingRuleSet, ruleSetsQuery],
+  );
 
   // Fetch locations for the working rule set
   const locationsListQuery = useQuery(
     api.entities.getLocations,
-    preliminaryWorkingRuleSet
-      ? { ruleSetId: preliminaryWorkingRuleSet._id }
+    resolvedPreliminaryWorkingRuleSet
+      ? { ruleSetId: resolvedPreliminaryWorkingRuleSet._id }
       : "skip",
   );
 
@@ -559,8 +1268,15 @@ function LogicView() {
 
   // Determine current working rule set based on the properly computed ruleSetIdFromUrl
   const selectedRuleSet = useMemo(
-    () => ruleSetsWithActive?.find((rs) => rs._id === ruleSetIdFromUrl),
-    [ruleSetsWithActive, ruleSetIdFromUrl],
+    () => ruleSetsQuery?.find((rs) => rs._id === ruleSetIdFromUrl),
+    [ruleSetsQuery, ruleSetIdFromUrl],
+  );
+  const resolvedRuleSetIdFromUrl = useMemo(
+    () =>
+      ruleSetsQuery?.some((ruleSet) => ruleSet._id === ruleSetIdFromUrl)
+        ? ruleSetIdFromUrl
+        : undefined,
+    [ruleSetIdFromUrl, ruleSetsQuery],
   );
 
   // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
@@ -568,26 +1284,53 @@ function LogicView() {
     () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
     [selectedRuleSet, unsavedRuleSet, activeRuleSet],
   );
+  const resolvedCurrentWorkingRuleSet = useMemo(
+    () =>
+      currentWorkingRuleSet &&
+      ruleSetsQuery?.some(
+        (ruleSet) => ruleSet._id === currentWorkingRuleSet._id,
+      )
+        ? currentWorkingRuleSet
+        : undefined,
+    [currentWorkingRuleSet, ruleSetsQuery],
+  );
   const isShowingUnsavedRuleSet =
     Boolean(unsavedRuleSet) &&
     currentWorkingRuleSet?._id === unsavedRuleSet?._id;
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
-  const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
+  const ruleSetDiff = useQuery(
+    api.ruleSets.getUnsavedRuleSetDiff,
+    currentPractice && unsavedRuleSet && !isDraftEquivalentToParent
+      ? {
+          practiceId: currentPractice._id,
+          ruleSetId: unsavedRuleSet._id,
+        }
+      : "skip",
+  ) as RuleSetDiff | undefined;
+  React.useEffect(() => {
     if (
-      unsavedRuleSetId &&
-      draftRevisionOverride !== null &&
-      draftParentRuleSetIdOverride
+      !raw.ruleSet ||
+      raw.ruleSet === RESERVED_UNSAVED_DESCRIPTION ||
+      !ruleSetsQuery ||
+      resolvedRuleSetIdFromUrl ||
+      unsavedRuleSet
     ) {
-      return {
-        draftRevision: draftRevisionOverride,
-        draftRuleSetId: unsavedRuleSetId,
-        kind: "draft",
-        parentRuleSetId: draftParentRuleSetIdOverride,
-      };
+      return;
     }
-    if (!currentWorkingRuleSet) {
+
+    pushUrl({ ruleSetId: activeRuleSet?._id });
+  }, [
+    activeRuleSet?._id,
+    pushUrl,
+    raw.ruleSet,
+    ruleSetsQuery,
+    resolvedRuleSetIdFromUrl,
+    unsavedRuleSet,
+  ]);
+  const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
+    if (!resolvedCurrentWorkingRuleSet) {
       return null;
     }
     if (unsavedRuleSet?.parentVersion) {
@@ -600,27 +1343,33 @@ function LogicView() {
     }
     return {
       kind: "saved-parent",
-      parentRuleSetId: currentWorkingRuleSet._id,
+      parentRuleSetId: resolvedCurrentWorkingRuleSet._id,
     };
-  }, [
-    currentWorkingRuleSet,
-    draftParentRuleSetIdOverride,
-    draftRevisionOverride,
-    unsavedRuleSet,
-    unsavedRuleSetId,
-  ]);
+  }, [draftRevisionOverride, resolvedCurrentWorkingRuleSet, unsavedRuleSet]);
+  React.useEffect(() => {
+    if (!ruleSetsQuery || !unsavedRuleSetId) {
+      return;
+    }
+
+    const draftStillExists = ruleSetsQuery.some(
+      (ruleSet) => ruleSet._id === unsavedRuleSetId && !ruleSet.saved,
+    );
+    if (draftStillExists) {
+      return;
+    }
+
+    setUnsavedRuleSetId(null);
+    setDraftRevisionOverride(null);
+    setIsDraftEquivalentToParent(false);
+  }, [ruleSetsQuery, unsavedRuleSetId]);
 
   React.useEffect(() => {
     if (!unsavedRuleSet) {
       setDraftRevisionOverride(null);
-      setDraftParentRuleSetIdOverride(null);
       setIsDraftEquivalentToParent(false);
       return;
     }
     setDraftRevisionOverride(unsavedRuleSet.draftRevision);
-    if (unsavedRuleSet.parentVersion) {
-      setDraftParentRuleSetIdOverride(unsavedRuleSet.parentVersion);
-    }
   }, [
     unsavedRuleSet,
     unsavedRuleSet?._id,
@@ -666,25 +1415,9 @@ function LogicView() {
       return;
     }
 
-    const optimisticallySelectedParentRuleSetId =
-      isRegelnHistoryTab &&
-      undoRegelnHistoryDepth === 1 &&
-      ruleSetIdFromUrl === unsavedRuleSet?._id
-        ? unsavedRuleSet?.parentVersion
-        : undefined;
-
-    if (optimisticallySelectedParentRuleSetId) {
-      setIsDraftEquivalentToParent(true);
-      pushUrl({ ruleSetId: optimisticallySelectedParentRuleSetId });
-    }
-
     const result = await undoRegelnHistoryAction();
 
     if (result.status === "conflict") {
-      if (optimisticallySelectedParentRuleSetId && unsavedRuleSet) {
-        setIsDraftEquivalentToParent(false);
-        pushUrl({ ruleSetId: unsavedRuleSet._id });
-      }
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
         description: result.message,
       });
@@ -700,11 +1433,6 @@ function LogicView() {
         const draftToDiscard = unsavedRuleSet;
         const parentRuleSetId = unsavedRuleSet.parentVersion;
         discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
-        setUnsavedRuleSetId(null);
-        setIsDraftEquivalentToParent(false);
-        setDraftRevisionOverride(null);
-        setDraftParentRuleSetIdOverride(null);
-        pushUrl({ ruleSetId: parentRuleSetId });
 
         try {
           const discardResult = await discardEquivalentUnsavedRuleSetMutation({
@@ -712,11 +1440,14 @@ function LogicView() {
             ruleSetId: draftToDiscard._id,
           });
 
-          if (!discardResult.deleted) {
-            discardingUnsavedRuleSetIdRef.current = null;
+          if (discardResult.deleted) {
+            setUnsavedRuleSetId(null);
+            setDraftRevisionOverride(null);
+            setIsDraftEquivalentToParent(false);
+            pushUrl({ ruleSetId: parentRuleSetId });
+          } else {
             setUnsavedRuleSetId(draftToDiscard._id);
             setDraftRevisionOverride(draftToDiscard.draftRevision);
-            setDraftParentRuleSetIdOverride(parentRuleSetId);
             setIsDraftEquivalentToParent(false);
             pushUrl({ ruleSetId: draftToDiscard._id });
           }
@@ -724,7 +1455,6 @@ function LogicView() {
           discardingUnsavedRuleSetIdRef.current = null;
           setUnsavedRuleSetId(draftToDiscard._id);
           setDraftRevisionOverride(draftToDiscard.draftRevision);
-          setDraftParentRuleSetIdOverride(parentRuleSetId);
           setIsDraftEquivalentToParent(false);
           pushUrl({ ruleSetId: draftToDiscard._id });
           captureError(error, {
@@ -744,12 +1474,10 @@ function LogicView() {
   }, [
     isRegelnHistoryTab,
     pushUrl,
-    ruleSetIdFromUrl,
     captureError,
     currentPractice,
     discardEquivalentUnsavedRuleSetMutation,
     undoRegelnHistoryAction,
-    undoRegelnHistoryDepth,
     unsavedRuleSet,
   ]);
 
@@ -844,15 +1572,12 @@ function LogicView() {
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
       setIsDraftEquivalentToParent(false);
+      setIsSaveDialogOpen(false);
+      setPendingRuleSetId(undefined);
       setDraftRevisionOverride(result.draftRevision);
-      if (ruleSetReplayTarget?.parentRuleSetId) {
-        setDraftParentRuleSetIdOverride(ruleSetReplayTarget.parentRuleSetId);
-      }
-      if (currentWorkingRuleSet?._id !== result.ruleSetId) {
-        pushUrl({ ruleSetId: result.ruleSetId });
-      }
+      pendingDraftRuleSetNavigationIdRef.current = result.ruleSetId;
     },
-    [currentWorkingRuleSet?._id, pushUrl, ruleSetReplayTarget?.parentRuleSetId],
+    [],
   );
 
   // Helper to push the canonical URL reflecting current UI intent
@@ -864,16 +1589,37 @@ function LogicView() {
   React.useEffect(() => {
     // Only enforce when the ruleSet segment is missing entirely.
     // Do NOT override a user-chosen named rule set in the URL.
-    if (
-      unsavedRuleSet &&
-      !raw.ruleSet &&
-      ruleSetIdFromUrl !== unsavedRuleSet._id &&
-      // Avoid navigating before we know the date from URL/state
-      selectedDate instanceof Date
-    ) {
-      pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
+    if (!unsavedRuleSet) {
+      return;
     }
+    if (raw.ruleSet) {
+      return;
+    }
+    if (ruleSetIdFromUrl === unsavedRuleSet._id) {
+      return;
+    }
+    // Avoid navigating before we know the date from URL/state.
+    if (!(selectedDate instanceof Date)) {
+      return;
+    }
+
+    pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
   }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
+
+  React.useEffect(() => {
+    const pendingDraftRuleSetId = pendingDraftRuleSetNavigationIdRef.current;
+    if (
+      !pendingDraftRuleSetId ||
+      unsavedRuleSet?._id !== pendingDraftRuleSetId
+    ) {
+      return;
+    }
+
+    pendingDraftRuleSetNavigationIdRef.current = null;
+    if (ruleSetIdFromUrl !== pendingDraftRuleSetId) {
+      pushUrl({ ruleSetId: pendingDraftRuleSetId });
+    }
+  }, [pushUrl, ruleSetIdFromUrl, unsavedRuleSet?._id]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = useCallback(async () => {
@@ -1011,7 +1757,6 @@ function LogicView() {
 
       // Navigate to the chosen version
       setUnsavedRuleSetId(null);
-      setDraftParentRuleSetIdOverride(null);
       pushUrl({ ruleSetId: versionId });
     },
     [currentPractice, hasBlockingUnsavedChanges, pushUrl, unsavedRuleSet],
@@ -1081,7 +1826,6 @@ function LogicView() {
       setUnsavedRuleSetId(null); // Clear unsaved state
       setIsDraftEquivalentToParent(false);
       setDraftRevisionOverride(null);
-      setDraftParentRuleSetIdOverride(null);
 
       // If we came from the save dialog, switch to the pending rule set (or active when undefined)
       if (pendingRuleSetId === undefined) {
@@ -1137,7 +1881,6 @@ function LogicView() {
         setUnsavedRuleSetId(null);
         setIsDraftEquivalentToParent(false);
         setDraftRevisionOverride(null);
-        setDraftParentRuleSetIdOverride(null);
         setPendingRuleSetId(undefined);
         setIsSaveDialogOpen(false);
         setActivationName("");
@@ -1172,10 +1915,21 @@ function LogicView() {
     }
   };
 
+  const handleOpenDiscardDialog = () => {
+    setDiscardTargetRuleSetId(pendingRuleSetId ?? activeRuleSet?._id);
+    setIsDiscardDialogOpen(true);
+  };
+
   const handleDiscardChanges = () => {
     if (unsavedRuleSet) {
       const draftToDelete = unsavedRuleSet;
-      const targetRuleSetId = pendingRuleSetId ?? activeRuleSet?._id;
+      const targetRuleSetId =
+        discardTargetRuleSetId ?? pendingRuleSetId ?? activeRuleSet?._id;
+      const wasSaveDialogOpen = isSaveDialogOpen;
+
+      setIsSaveDialogOpen(false);
+      setIsDiscardDialogOpen(false);
+      setActivationName("");
 
       void (async () => {
         try {
@@ -1183,7 +1937,6 @@ function LogicView() {
           setUnsavedRuleSetId(null);
           setIsDraftEquivalentToParent(false);
           setDraftRevisionOverride(null);
-          setDraftParentRuleSetIdOverride(null);
           pushUrl({ ruleSetId: targetRuleSetId });
 
           await deleteUnsavedRuleSetMutation({
@@ -1192,8 +1945,7 @@ function LogicView() {
           });
 
           setPendingRuleSetId(undefined);
-          setIsSaveDialogOpen(false);
-          setActivationName("");
+          setDiscardTargetRuleSetId(undefined);
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
           if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
@@ -1201,10 +1953,8 @@ function LogicView() {
           }
           setUnsavedRuleSetId(draftToDelete._id);
           setDraftRevisionOverride(draftToDelete.draftRevision);
-          if (draftToDelete.parentVersion) {
-            setDraftParentRuleSetIdOverride(draftToDelete.parentVersion);
-          } else {
-            setDraftParentRuleSetIdOverride(null);
+          if (wasSaveDialogOpen) {
+            setIsSaveDialogOpen(true);
           }
           pushUrl({ ruleSetId: draftToDelete._id });
 
@@ -1237,23 +1987,31 @@ function LogicView() {
 
       {currentWorkingRuleSet && isShowingUnsavedRuleSet && (
         <div className="sticky top-3 z-40 mb-6">
-          <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-foreground">
-                Ungespeicherte Änderungen
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 rounded-2xl border border-red-300 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Ungespeicherte Änderungen
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Dieses Regelset enthält Änderungen gegenüber dem
+                  übergeordneten Regelset, die noch nicht gespeichert wurden.
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">
-                Dieses Regelset enthält Änderungen, die noch nicht gespeichert
-                wurden.
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  onClick={handleOpenDiscardDialog}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Undo2 className="h-4 w-4 mr-2" />
+                  Änderungen verwerfen
+                </Button>
+                <Button onClick={handleOpenSaveDialog} size="sm">
+                  Speichern
+                </Button>
               </div>
             </div>
-            <Button
-              className="shrink-0"
-              onClick={handleOpenSaveDialog}
-              size="sm"
-            >
-              Speichern
-            </Button>
           </div>
         </div>
       )}
@@ -1336,7 +2094,7 @@ function LogicView() {
                         {/* Show activate button when a different rule set is selected and there are no unsaved changes */}
                         {selectedRuleSet &&
                           !hasBlockingUnsavedChanges &&
-                          !selectedRuleSet.isActive && (
+                          selectedRuleSet._id !== activeRuleSet?._id && (
                             <Button
                               onClick={() =>
                                 void handleActivateRuleSet(selectedRuleSet._id)
@@ -1395,7 +2153,7 @@ function LogicView() {
 
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
-                {ruleSetIdFromUrl ? (
+                {resolvedRuleSetIdFromUrl ? (
                   <div className="flex justify-center">
                     <PatientBookingFlow
                       dateRange={dateRange}
@@ -1410,7 +2168,7 @@ function LogicView() {
                         });
                       }}
                       practiceId={currentPractice._id}
-                      ruleSetId={ruleSetIdFromUrl}
+                      ruleSetId={resolvedRuleSetIdFromUrl}
                       simulatedContext={simulatedContext}
                     />
                   </div>
@@ -1461,7 +2219,7 @@ function LogicView() {
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={ruleSetIdFromUrl}
+                  simulationRuleSetId={resolvedRuleSetIdFromUrl}
                 />
               </div>
             </div>
@@ -1486,7 +2244,8 @@ function LogicView() {
                               ) : (
                                 <>
                                   Regeln in {currentWorkingRuleSet.description}
-                                  {currentWorkingRuleSet.isActive && (
+                                  {currentWorkingRuleSet._id ===
+                                    activeRuleSet?._id && (
                                     <Badge className="ml-2" variant="default">
                                       AKTIV
                                     </Badge>
@@ -1525,7 +2284,7 @@ function LogicView() {
           <TabsContent value="staff-view">
             <div className="space-y-6">
               <div className="space-y-6">
-                {ruleSetIdFromUrl ? (
+                {resolvedRuleSetIdFromUrl ? (
                   <MedicalStaffDisplay
                     onUpdateSimulatedContext={(ctx) => {
                       setSimulatedContext(ctx);
@@ -1536,7 +2295,7 @@ function LogicView() {
                     }}
                     patient={patientInfo}
                     practiceId={currentPractice._id}
-                    ruleSetId={ruleSetIdFromUrl}
+                    ruleSetId={resolvedRuleSetIdFromUrl}
                     simulatedContext={simulatedContext}
                     simulationDate={simulationDate}
                   />
@@ -1586,7 +2345,7 @@ function LogicView() {
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={ruleSetIdFromUrl}
+                  simulationRuleSetId={resolvedRuleSetIdFromUrl}
                 />
               </div>
             </div>
@@ -1627,14 +2386,16 @@ function LogicView() {
         }}
         open={isSaveDialogOpen}
       >
-        <DialogContent>
+        <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
           <DialogHeader>
-            <DialogTitle>Regelset speichern</DialogTitle>
-            <DialogDescription>
-              {pendingRuleSetId
-                ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
-                : "Geben Sie einen eindeutigen Namen für dieses Regelset ein."}
-            </DialogDescription>
+            <DialogTitle>Änderungen speichern</DialogTitle>
+            <VisuallyHidden>
+              <DialogDescription>
+                {pendingRuleSetId
+                  ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
+                  : "Geben Sie einen eindeutigen Namen für diese Änderungen ein."}
+              </DialogDescription>
+            </VisuallyHidden>
           </DialogHeader>
           <SaveDialogForm
             activationName={activationName}
@@ -1646,10 +2407,460 @@ function LogicView() {
             onDiscard={pendingRuleSetId ? handleDiscardChanges : null}
             onSaveAndActivate={handleSaveAndActivate}
             onSaveOnly={handleSaveOnly}
+            ruleSetDiff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
             setActivationName={setActivationName}
           />
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          setIsDiscardDialogOpen(open);
+          if (!open) {
+            setDiscardTargetRuleSetId(undefined);
+          }
+        }}
+        open={isDiscardDialogOpen}
+      >
+        <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Änderungen verwerfen?</DialogTitle>
+            <VisuallyHidden>
+              <DialogDescription>
+                Diese ungespeicherten Änderungen werden gelöscht. Das kann nicht
+                rückgängig gemacht werden.
+              </DialogDescription>
+            </VisuallyHidden>
+          </DialogHeader>
+          <RuleSetDiffView
+            diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+          />
+          <RuleSetDiffChangeCount
+            diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
+          />
+          <DialogFooter className="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              onClick={() => {
+                setIsDiscardDialogOpen(false);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleDiscardChanges}
+              type="button"
+              variant="destructive"
+            >
+              Änderungen verwerfen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function normalizeEntityName(
+  sectionKey: string,
+  name: string,
+  entityRenames: EntityRenameMaps,
+) {
+  if (sectionKey === "appointmentTypes") {
+    return normalizeRenamedValue(name, entityRenames.appointmentTypes);
+  }
+  if (sectionKey === "locations") {
+    return normalizeRenamedValue(name, entityRenames.locations);
+  }
+  if (sectionKey === "mfas") {
+    return normalizeRenamedValue(name, entityRenames.mfas);
+  }
+  if (sectionKey === "practitioners") {
+    return normalizeRenamedValue(name, entityRenames.practitioners);
+  }
+
+  return name;
+}
+
+function normalizeFollowUpPlanReferences(
+  value: unknown,
+  renames: Map<string, string>,
+) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const steps: unknown[] = value;
+  return steps.map((step) => {
+    if (!step || typeof step !== "object") {
+      return step;
+    }
+
+    const parsedStep = step as Record<string, unknown>;
+    return {
+      ...parsedStep,
+      appointmentTypeName: normalizeRenamedValue(
+        stringValue(parsedStep["appointmentTypeName"]),
+        renames,
+      ),
+    };
+  });
+}
+
+function normalizeReferences(
+  sectionKey: string,
+  value: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+) {
+  if (sectionKey === "appointmentTypes") {
+    return {
+      ...value,
+      allowedPractitioners: normalizeRenamedArray(
+        value["allowedPractitioners"],
+        entityRenames.practitioners,
+      ),
+      followUpPlan: normalizeFollowUpPlanReferences(
+        value["followUpPlan"],
+        entityRenames.appointmentTypes,
+      ),
+    };
+  }
+
+  if (sectionKey === "baseSchedules") {
+    return {
+      ...value,
+      locationName: normalizeRenamedValue(
+        stringValue(value["locationName"]),
+        entityRenames.locations,
+      ),
+      practitionerName: normalizeRenamedValue(
+        stringValue(value["practitionerName"]),
+        entityRenames.practitioners,
+      ),
+    };
+  }
+
+  if (sectionKey === "rules") {
+    return normalizeRuleReferences(value, entityRenames);
+  }
+
+  if (sectionKey === "vacations") {
+    const staffName = stringValue(value["staffName"]);
+    return {
+      ...value,
+      staffName: normalizeRenamedValue(
+        normalizeRenamedValue(staffName, entityRenames.practitioners),
+        entityRenames.mfas,
+      ),
+    };
+  }
+
+  return value;
+}
+
+function normalizeRenamedArray(value: unknown, renames: Map<string, string>) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const entries: unknown[] = value;
+  return entries.map((entry) =>
+    typeof entry === "string" ? normalizeRenamedValue(entry, renames) : entry,
+  );
+}
+
+function normalizeRenamedValue(value: string, renames: Map<string, string>) {
+  return (
+    [...renames.entries()].find(([, after]) => after === value)?.[0] ?? value
+  );
+}
+
+function normalizeRuleReferences(
+  value: Record<string, unknown>,
+  entityRenames: EntityRenameMaps,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...value };
+  const conditionType = stringValue(normalized["conditionType"]);
+  const valueIds = normalized["valueIds"];
+
+  switch (conditionType) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.appointmentTypes,
+      );
+      break;
+    }
+    case "LOCATION": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.locations,
+      );
+      break;
+    }
+    case "PRACTITIONER": {
+      normalized["valueIds"] = normalizeRenamedArray(
+        valueIds,
+        entityRenames.practitioners,
+      );
+      break;
+    }
+  }
+
+  if (Array.isArray(normalized["children"])) {
+    const children: unknown[] = normalized["children"];
+    normalized["children"] = children.map((child) =>
+      child && typeof child === "object"
+        ? normalizeRuleReferences(
+            child as Record<string, unknown>,
+            entityRenames,
+          )
+        : child,
+    );
+  }
+
+  return normalized;
+}
+
+function omitKey(value: Record<string, unknown>, keyToOmit: string) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== keyToOmit),
+  );
+}
+
+function parseConditionTreeNode(value: unknown): ConditionTreeNode | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const parsed = value as Record<string, unknown>;
+  const nodeType = stringValue(parsed["nodeType"]);
+
+  if (nodeType === "CONDITION") {
+    const conditionType = stringValue(parsed["conditionType"]);
+    const operator = stringValue(parsed["operator"]);
+    if (!conditionType || !operator) {
+      return null;
+    }
+
+    const conditionNode: ConditionTreeNode = {
+      conditionType: conditionType as ConditionType,
+      nodeType: "CONDITION",
+      operator: operator as ConditionOperator,
+    };
+
+    const scope = stringValue(parsed["scope"]);
+    if (scope) {
+      conditionNode.scope = scope as Scope;
+    }
+
+    if (Array.isArray(parsed["valueIds"])) {
+      conditionNode.valueIds = parsed["valueIds"].filter(
+        (entry): entry is string => typeof entry === "string",
+      );
+    }
+
+    if (typeof parsed["valueNumber"] === "number") {
+      conditionNode.valueNumber = parsed["valueNumber"];
+    }
+
+    return conditionNode;
+  }
+
+  if (nodeType === "AND" || nodeType === "NOT") {
+    const childValues = Array.isArray(parsed["children"])
+      ? parsed["children"]
+      : [];
+    const parsedChildren = childValues
+      .map((child) => parseConditionTreeNode(child))
+      .filter((child): child is ConditionTreeNode => child !== null);
+
+    return {
+      children: parsedChildren,
+      nodeType,
+    };
+  }
+
+  return null;
+}
+
+function parseDiffValue(value: string): null | Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRuleDiffTree(
+  value: Record<string, unknown>,
+): ConditionTreeNode | null {
+  const childValues = Array.isArray(value["children"]) ? value["children"] : [];
+  const firstChild: unknown = childValues[0];
+  const treeRoot =
+    value["nodeType"] === null || value["nodeType"] === undefined
+      ? firstChild
+      : value;
+
+  return parseConditionTreeNode(treeRoot);
+}
+
+function RuleSetDiffChangeCount({
+  diff,
+}: {
+  diff?: null | RuleSetDiff | undefined;
+}) {
+  if (!diff) {
+    return null;
+  }
+
+  const projectedSections = getProjectedRuleSetDiffSections(diff);
+  const changeCount = projectedSections.flatMap(
+    (projectedSection) => projectedSection.rows,
+  ).length;
+
+  return (
+    <div className="mt-2 flex shrink-0 justify-end">
+      <Badge variant="secondary">{changeCount} Änderungen</Badge>
+    </div>
+  );
+}
+
+function RuleSetDiffSectionView({
+  projectedSection,
+}: {
+  projectedSection: ProjectedRuleSetDiffSection;
+}) {
+  const { rows, section } = projectedSection;
+  const isRuleSection = section.key === "rules";
+  const modifiedRows = rows.filter((row) => row.kind === "modified");
+  const singleValueRows = rows.filter((row) => row.kind !== "modified");
+  return (
+    <div className="w-max overflow-hidden rounded-lg border">
+      <div className="border-b bg-muted/40 px-3 py-2">
+        <div className="text-sm font-medium">{section.title}</div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="w-max">
+          {modifiedRows.length > 0 && (
+            <table className="w-auto table-auto border-collapse text-left text-xs">
+              <tbody>
+                {modifiedRows.map((row) => (
+                  <tr className="border-b" key={row.id}>
+                    <td className="border-l px-3 py-2">
+                      <Badge variant="secondary">Geändert</Badge>
+                    </td>
+                    {isRuleSection ? (
+                      <td className="px-0 py-0">
+                        <div className="flex">
+                          <div className="bg-red-50/60 px-3 py-2 text-red-950">
+                            <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                              {row.before}
+                            </pre>
+                          </div>
+                          <div className="border-l bg-emerald-50/60 px-3 py-2 text-emerald-950">
+                            <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                              {row.after}
+                            </pre>
+                          </div>
+                        </div>
+                      </td>
+                    ) : (
+                      <>
+                        <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
+                          {row.path}
+                        </td>
+                        <td className="border-l bg-red-50/60 px-3 py-2 text-red-950">
+                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                            {row.before}
+                          </pre>
+                        </td>
+                        <td className="border-l bg-emerald-50/60 px-3 py-2 text-emerald-950">
+                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                            {row.after}
+                          </pre>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {singleValueRows.length > 0 && (
+            <table className="w-auto table-auto border-collapse text-left text-xs">
+              <tbody>
+                {singleValueRows.map((row) => (
+                  <tr className="border-b last:border-b-0" key={row.id}>
+                    <td
+                      className={
+                        row.kind === "added"
+                          ? "bg-emerald-50/60 px-3 py-2 font-medium text-emerald-950"
+                          : "bg-red-50/60 px-3 py-2 font-medium text-red-950"
+                      }
+                    >
+                      {row.path}
+                    </td>
+                    <td className="border-l px-3 py-2">
+                      <Badge
+                        className={
+                          row.kind === "added"
+                            ? "bg-emerald-100 text-emerald-900"
+                            : "bg-red-100 text-red-900"
+                        }
+                        variant="outline"
+                      >
+                        {row.kind === "added" ? "Hinzugefügt" : "Entfernt"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
+  if (diff === null) {
+    return null;
+  }
+
+  if (!diff) {
+    return (
+      <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+        Änderungen werden geladen...
+      </div>
+    );
+  }
+
+  const projectedSections = getProjectedRuleSetDiffSections(diff);
+
+  return (
+    <div className="w-max">
+      {projectedSections.length === 0 ? (
+        <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          Keine sichtbaren Änderungen zum übergeordneten Regelset.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {projectedSections.map((projectedSection) => (
+            <RuleSetDiffSectionView
+              key={projectedSection.section.key}
+              projectedSection={projectedSection}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1660,6 +2871,7 @@ function SaveDialogForm({
   onDiscard,
   onSaveAndActivate,
   onSaveOnly,
+  ruleSetDiff,
   setActivationName,
 }: SaveDialogFormProps) {
   const form = useForm({
@@ -1692,12 +2904,13 @@ function SaveDialogForm({
 
   return (
     <form
+      className="flex min-h-0 flex-col"
       onSubmit={(e) => {
         e.preventDefault();
         e.stopPropagation();
       }}
     >
-      <div className="space-y-4">
+      <div className="flex min-h-0 flex-col gap-4">
         <form.Field
           name="name"
           validators={{
@@ -1730,8 +2943,10 @@ function SaveDialogForm({
             </div>
           )}
         </form.Field>
+        <RuleSetDiffView diff={ruleSetDiff} />
       </div>
-      <DialogFooter className="flex gap-2 mt-6">
+      <RuleSetDiffChangeCount diff={ruleSetDiff} />
+      <DialogFooter className="mt-4 flex shrink-0 flex-wrap items-center justify-end gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
             Änderungen verwerfen
@@ -1764,6 +2979,12 @@ function SaveDialogForm({
       </DialogFooter>
     </form>
   );
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value)
+    : "";
 }
 
 // Simulation Controls Component - Extracted from SimulationPanel

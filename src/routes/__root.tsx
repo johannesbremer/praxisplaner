@@ -409,7 +409,7 @@ function RootLayout() {
       if (event.repeat) {
         return;
       }
-      const key = event.key.toLowerCase();
+      const key = event.key;
       const isMod = event.metaKey || event.ctrlKey;
       if (!isMod || event.shiftKey || key !== "y") {
         return;

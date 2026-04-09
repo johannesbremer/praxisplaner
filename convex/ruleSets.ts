@@ -184,6 +184,7 @@ async function deleteVacationsByRuleSet(
  * Delete rule conditions by ruleSetId in batches.
  */
 interface CanonicalRuleConditionNode {
+  __diffKey?: string;
   childOrder: number;
   children: CanonicalRuleConditionNode[];
   conditionType: null | string;
@@ -204,6 +205,16 @@ interface RuleSetCanonicalSnapshot {
   rules: string[];
   vacations: string[];
 }
+
+const canonicalSnapshotSectionTitles = {
+  appointmentTypes: "Terminarten",
+  baseSchedules: "Arbeitszeiten",
+  locations: "Standorte",
+  mfas: "MFAs",
+  practitioners: "Behandler",
+  rules: "Regeln",
+  vacations: "Urlaub",
+} satisfies Record<keyof RuleSetCanonicalSnapshot, string>;
 
 async function buildRuleSetCanonicalSnapshot(
   db: DatabaseReader,
@@ -248,23 +259,20 @@ async function buildRuleSetCanonicalSnapshot(
       .collect(),
   ]);
 
-  const practitionerNameById = new Map(
-    practitioners.map((practitioner) => [practitioner._id, practitioner.name]),
-  );
-  const locationNameById = new Map(
-    locations.map((location) => [location._id, location.name]),
-  );
-  const appointmentTypeNameById = new Map(
-    appointmentTypes.map((appointmentType) => [
-      appointmentType._id,
-      appointmentType.name,
-    ]),
-  );
-  const mfaNameById = new Map(mfas.map((mfa) => [mfa._id, mfa.name]));
+  const practitionerNameByReference = createEntityNameLookup(practitioners);
+  const locationNameByReference = createEntityNameLookup(locations);
+  const appointmentTypeNameByReference =
+    createEntityNameLookup(appointmentTypes);
+  const mfaNameByReference = createEntityNameLookup(mfas);
 
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          practitioner.lineageKey,
+          practitioner._id,
+          "Behandler",
+        ),
         name: practitioner.name,
         tags: toSortedStrings(practitioner.tags ?? []),
       }),
@@ -272,27 +280,47 @@ async function buildRuleSetCanonicalSnapshot(
     .toSorted();
 
   const canonicalLocations = locations
-    .map((location) => JSON.stringify({ name: location.name }))
+    .map((location) =>
+      JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          location.lineageKey,
+          location._id,
+          "Standort",
+        ),
+        name: location.name,
+      }),
+    )
     .toSorted();
 
   const canonicalMfas = mfas
-    .map((mfa) => JSON.stringify({ name: mfa.name }))
+    .map((mfa) =>
+      JSON.stringify({
+        __diffKey: requireStableDiffKey(mfa.lineageKey, mfa._id, "MFA"),
+        name: mfa.name,
+      }),
+    )
     .toSorted();
 
   const canonicalAppointmentTypes = appointmentTypes
     .map((appointmentType) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          appointmentType.lineageKey,
+          appointmentType._id,
+          "Terminart",
+        ),
         allowedPractitioners: toSortedStrings(
           appointmentType.allowedPractitionerIds.map(
-            (id) => practitionerNameById.get(id) ?? id,
+            (id) => practitionerNameByReference.get(id) ?? id,
           ),
         ),
         duration: appointmentType.duration,
         followUpPlan:
           appointmentType.followUpPlan?.map((step) => ({
             appointmentTypeName:
-              appointmentTypeNameById.get(step.appointmentTypeLineageKey) ??
-              step.appointmentTypeLineageKey,
+              appointmentTypeNameByReference.get(
+                step.appointmentTypeLineageKey,
+              ) ?? step.appointmentTypeLineageKey,
             locationMode: step.locationMode,
             note: step.note ?? null,
             offsetUnit: step.offsetUnit,
@@ -310,14 +338,19 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalBaseSchedules = baseSchedules
     .map((baseSchedule) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          baseSchedule.lineageKey,
+          baseSchedule._id,
+          "Arbeitszeit",
+        ),
         breakTimes: normalizeBreakTimes(baseSchedule.breakTimes),
         dayOfWeek: baseSchedule.dayOfWeek,
         endTime: baseSchedule.endTime,
         locationName:
-          locationNameById.get(baseSchedule.locationId) ??
+          locationNameByReference.get(baseSchedule.locationId) ??
           baseSchedule.locationId,
         practitionerName:
-          practitionerNameById.get(baseSchedule.practitionerId) ??
+          practitionerNameByReference.get(baseSchedule.practitionerId) ??
           baseSchedule.practitionerId,
         startTime: baseSchedule.startTime,
       }),
@@ -347,9 +380,10 @@ async function buildRuleSetCanonicalSnapshot(
         serializeRuleConditionTree(
           rootRule,
           childrenByParentId,
-          appointmentTypeNameById,
-          locationNameById,
-          practitionerNameById,
+          appointmentTypeNameByReference,
+          locationNameByReference,
+          practitionerNameByReference,
+          rootRule.copyFromId ?? rootRule._id,
         ),
       ),
     )
@@ -358,15 +392,20 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalVacations = vacations
     .map((vacation) =>
       JSON.stringify({
+        __diffKey: requireStableDiffKey(
+          vacation.lineageKey,
+          vacation._id,
+          "Urlaub",
+        ),
         date: vacation.date,
         portion: vacation.portion,
         staffName:
           vacation.staffType === "practitioner"
             ? vacation.practitionerId
-              ? practitionerNameById.get(vacation.practitionerId)
+              ? practitionerNameByReference.get(vacation.practitionerId)
               : undefined
             : vacation.mfaId
-              ? mfaNameById.get(vacation.mfaId)
+              ? mfaNameByReference.get(vacation.mfaId)
               : undefined,
         staffType: vacation.staffType,
       }),
@@ -382,6 +421,16 @@ async function buildRuleSetCanonicalSnapshot(
     rules: canonicalRules,
     vacations: canonicalVacations,
   };
+}
+
+function createEntityNameLookup(
+  entities: { _id: string; lineageKey?: string; name: string }[],
+) {
+  const entries = entities.flatMap((entity) => [
+    [entity._id, entity.name] as const,
+    ...(entity.lineageKey ? ([[entity.lineageKey, entity.name]] as const) : []),
+  ]);
+  return new Map(entries);
 }
 
 async function deleteRuleConditionsByRuleSet(
@@ -405,6 +454,25 @@ async function deleteRuleConditionsByRuleSet(
   }
 }
 
+function getMultisetDifference(values: string[], comparison: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of comparison) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const difference: string[] = [];
+  for (const value of values) {
+    const remaining = counts.get(value) ?? 0;
+    if (remaining > 0) {
+      counts.set(value, remaining - 1);
+      continue;
+    }
+    difference.push(value);
+  }
+
+  return difference.toSorted();
+}
+
 function normalizeBreakTimes(
   breakTimes: undefined | { end: string; start: string }[],
 ): { end: string; start: string }[] {
@@ -419,9 +487,9 @@ function normalizeBreakTimes(
 
 function normalizeValueIds(
   node: Doc<"ruleConditions">,
-  appointmentTypeNameById: Map<string, string>,
-  locationNameById: Map<string, string>,
-  practitionerNameById: Map<string, string>,
+  appointmentTypeNameByReference: Map<string, string>,
+  locationNameByReference: Map<string, string>,
+  practitionerNameByReference: Map<string, string>,
 ): null | string[] {
   if (!node.valueIds || node.valueIds.length === 0) {
     return null;
@@ -435,17 +503,21 @@ function normalizeValueIds(
     case "CONCURRENT_COUNT":
     case "DAILY_CAPACITY": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, appointmentTypeNameById)),
+        node.valueIds.map((id) =>
+          lookupMapped(id, appointmentTypeNameByReference),
+        ),
       );
     }
     case "LOCATION": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, locationNameById)),
+        node.valueIds.map((id) => lookupMapped(id, locationNameByReference)),
       );
     }
     case "PRACTITIONER": {
       return toSortedStrings(
-        node.valueIds.map((id) => lookupMapped(id, practitionerNameById)),
+        node.valueIds.map((id) =>
+          lookupMapped(id, practitionerNameByReference),
+        ),
       );
     }
     default: {
@@ -454,12 +526,27 @@ function normalizeValueIds(
   }
 }
 
+function requireStableDiffKey(
+  lineageKey: string | undefined,
+  entityId: string,
+  entityType: string,
+) {
+  if (!lineageKey) {
+    throw new Error(
+      `[INVARIANT:DIFF_KEY_MISSING] ${entityType} ${entityId} hat keinen stabilen Diff-Schluessel.`,
+    );
+  }
+
+  return lineageKey;
+}
+
 function serializeRuleConditionTree(
   node: Doc<"ruleConditions">,
   childrenByParentId: Map<Id<"ruleConditions">, Doc<"ruleConditions">[]>,
-  appointmentTypeNameById: Map<string, string>,
-  locationNameById: Map<string, string>,
-  practitionerNameById: Map<string, string>,
+  appointmentTypeNameByReference: Map<string, string>,
+  locationNameByReference: Map<string, string>,
+  practitionerNameByReference: Map<string, string>,
+  diffKey?: string,
 ): CanonicalRuleConditionNode {
   const children = childrenByParentId.get(node._id) ?? [];
   const orderedChildren = [...children].toSorted(
@@ -467,14 +554,15 @@ function serializeRuleConditionTree(
   );
 
   return {
+    ...(diffKey ? { __diffKey: diffKey } : {}),
     childOrder: node.childOrder,
     children: orderedChildren.map((child) =>
       serializeRuleConditionTree(
         child,
         childrenByParentId,
-        appointmentTypeNameById,
-        locationNameById,
-        practitionerNameById,
+        appointmentTypeNameByReference,
+        locationNameByReference,
+        practitionerNameByReference,
       ),
     ),
     conditionType: node.conditionType ?? null,
@@ -484,9 +572,9 @@ function serializeRuleConditionTree(
     scope: node.scope ?? null,
     valueIds: normalizeValueIds(
       node,
-      appointmentTypeNameById,
-      locationNameById,
-      practitionerNameById,
+      appointmentTypeNameByReference,
+      locationNameByReference,
+      practitionerNameByReference,
     ),
     valueNumber: node.valueNumber ?? null,
   };
@@ -499,6 +587,93 @@ function toSortedStrings(values: string[]): string[] {
 // ================================
 // RULE SET MANAGEMENT - SIMPLIFIED COW WORKFLOW
 // ================================
+
+export const getUnsavedRuleSetDiff = query({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (!draftRuleSet) {
+      return null;
+    }
+    if (draftRuleSet.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+    if (draftRuleSet.saved) {
+      return null;
+    }
+    if (!draftRuleSet.parentVersion) {
+      throw new Error("Unsaved rule set has no parent");
+    }
+
+    const parentRuleSet = await ctx.db.get(
+      "ruleSets",
+      draftRuleSet.parentVersion,
+    );
+    if (parentRuleSet?.practiceId !== args.practiceId) {
+      throw new Error("Parent rule set not found");
+    }
+
+    const [draftSnapshot, parentSnapshot] = await Promise.all([
+      buildRuleSetCanonicalSnapshot(ctx.db, draftRuleSet._id),
+      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
+    ]);
+
+    const sectionKeys = Object.keys(
+      canonicalSnapshotSectionTitles,
+    ) as (keyof RuleSetCanonicalSnapshot)[];
+
+    const sections = sectionKeys.map((key) => {
+      const added = getMultisetDifference(
+        draftSnapshot[key],
+        parentSnapshot[key],
+      );
+      const removed = getMultisetDifference(
+        parentSnapshot[key],
+        draftSnapshot[key],
+      );
+
+      return {
+        added,
+        key,
+        removed,
+        title: canonicalSnapshotSectionTitles[key],
+      };
+    });
+
+    const totalAdded = sections.reduce(
+      (sum, section) => sum + section.added.length,
+      0,
+    );
+    const totalRemoved = sections.reduce(
+      (sum, section) => sum + section.removed.length,
+      0,
+    );
+
+    return {
+      draftRuleSet: {
+        _id: draftRuleSet._id,
+        description: draftRuleSet.description,
+        version: draftRuleSet.version,
+      },
+      parentRuleSet: {
+        _id: parentRuleSet._id,
+        description: parentRuleSet.description,
+        version: parentRuleSet.version,
+      },
+      sections,
+      totals: {
+        added: totalAdded,
+        changed: totalAdded + totalRemoved,
+        removed: totalRemoved,
+      },
+    };
+  },
+});
 
 /**
  * Saves an unsaved rule set by setting saved=true and updating the description.
