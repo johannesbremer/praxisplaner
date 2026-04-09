@@ -46,7 +46,10 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
-import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
+import {
+  RESERVED_UNSAVED_DESCRIPTION,
+  validateRuleSetDescriptionSync,
+} from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -1308,7 +1311,13 @@ function LogicView() {
       : "skip",
   ) as RuleSetDiff | undefined;
   React.useEffect(() => {
-    if (!raw.ruleSet || resolvedRuleSetIdFromUrl || unsavedRuleSet) {
+    if (
+      !raw.ruleSet ||
+      raw.ruleSet === RESERVED_UNSAVED_DESCRIPTION ||
+      !ruleSetsQuery ||
+      resolvedRuleSetIdFromUrl ||
+      unsavedRuleSet
+    ) {
       return;
     }
 
@@ -1317,6 +1326,7 @@ function LogicView() {
     activeRuleSet?._id,
     pushUrl,
     raw.ruleSet,
+    ruleSetsQuery,
     resolvedRuleSetIdFromUrl,
     unsavedRuleSet,
   ]);
