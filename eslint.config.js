@@ -220,4 +220,11 @@ export default tseslint.config(
       "unicorn/filename-case": "off",
     },
   },
+  {
+    // TanStack Router ignores helper files prefixed with "-"
+    files: ["src/routes/**/-*.{ts,tsx}"],
+    rules: {
+      "unicorn/filename-case": "off",
+    },
+  },
 );

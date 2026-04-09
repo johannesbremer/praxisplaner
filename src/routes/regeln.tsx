@@ -68,8 +68,8 @@ import {
   RuleSetDiffView,
   SaveDialogForm,
   UNSAVED_RULE_SET_DESCRIPTION,
-} from "./regeln/rule-set-diff";
-import { SimulationControls } from "./regeln/simulation-controls";
+} from "./regeln/-rule-set-diff";
+import { SimulationControls } from "./regeln/-simulation-controls";
 
 type SimulatedContext = SchedulingSimulatedContext;
 
