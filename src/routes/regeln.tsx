@@ -1908,7 +1908,6 @@ function LogicView() {
 
   const handleOpenDiscardDialog = () => {
     setDiscardTargetRuleSetId(pendingRuleSetId ?? activeRuleSet?._id);
-    setIsSaveDialogOpen(false);
     setIsDiscardDialogOpen(true);
   };
 
@@ -1917,6 +1916,11 @@ function LogicView() {
       const draftToDelete = unsavedRuleSet;
       const targetRuleSetId =
         discardTargetRuleSetId ?? pendingRuleSetId ?? activeRuleSet?._id;
+      const wasSaveDialogOpen = isSaveDialogOpen;
+
+      setIsSaveDialogOpen(false);
+      setIsDiscardDialogOpen(false);
+      setActivationName("");
 
       void (async () => {
         try {
@@ -1933,9 +1937,6 @@ function LogicView() {
 
           setPendingRuleSetId(undefined);
           setDiscardTargetRuleSetId(undefined);
-          setIsDiscardDialogOpen(false);
-          setIsSaveDialogOpen(false);
-          setActivationName("");
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
           if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
@@ -1943,6 +1944,9 @@ function LogicView() {
           }
           setUnsavedRuleSetId(draftToDelete._id);
           setDraftRevisionOverride(draftToDelete.draftRevision);
+          if (wasSaveDialogOpen) {
+            setIsSaveDialogOpen(true);
+          }
           pushUrl({ ruleSetId: draftToDelete._id });
 
           captureError(error, {
@@ -2375,12 +2379,12 @@ function LogicView() {
       >
         <DialogContent className="flex max-h-[calc(100vh-2rem)] !w-auto min-w-[min(32rem,calc(100vw-2rem))] !max-w-[calc(100vw-2rem)] flex-col overflow-auto">
           <DialogHeader>
-            <DialogTitle>Regelset speichern</DialogTitle>
+            <DialogTitle>Änderungen speichern</DialogTitle>
             <VisuallyHidden>
               <DialogDescription>
                 {pendingRuleSetId
                   ? "Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zu einem anderen Regelset wechseln?"
-                  : "Geben Sie einen eindeutigen Namen für dieses Regelset ein."}
+                  : "Geben Sie einen eindeutigen Namen für diese Änderungen ein."}
               </DialogDescription>
             </VisuallyHidden>
           </DialogHeader>
@@ -2391,7 +2395,7 @@ function LogicView() {
                 ?.filter((rs) => rs.saved)
                 .map((rs) => rs.description) ?? []
             }
-            onDiscard={pendingRuleSetId ? handleOpenDiscardDialog : null}
+            onDiscard={pendingRuleSetId ? handleDiscardChanges : null}
             onSaveAndActivate={handleSaveAndActivate}
             onSaveOnly={handleSaveOnly}
             ruleSetDiff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
