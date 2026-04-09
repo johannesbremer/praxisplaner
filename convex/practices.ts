@@ -107,13 +107,18 @@ export const initializeDefaultPractice = mutation({
   args: {},
   handler: async (ctx) => {
     const userId = await ensureAuthenticatedUserId(ctx);
-    const existingMembership = await ctx.db
+    const existingMemberships = await ctx.db
       .query("practiceMembers")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .first();
+      .collect();
 
-    if (existingMembership) {
-      return existingMembership.practiceId;
+    for (const membership of existingMemberships) {
+      const practice = await ctx.db.get("practices", membership.practiceId);
+      if (practice) {
+        return membership.practiceId;
+      }
+
+      await ctx.db.delete("practiceMembers", membership._id);
     }
 
     const existingPractices = await ctx.db.query("practices").collect();
