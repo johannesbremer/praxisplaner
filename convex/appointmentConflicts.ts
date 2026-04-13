@@ -61,6 +61,7 @@ export async function findConflictingAppointment(
     excludeAppointmentIds?: Id<"appointments">[];
     practiceId: Id<"practices">;
     scope: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
   },
 ): Promise<Doc<"appointments"> | null> {
   const windowStart = Temporal.ZonedDateTime.from(args.candidate.start);
@@ -96,6 +97,7 @@ export async function findConflictingAppointment(
   const effectiveAppointments = getEffectiveAppointmentsForScope(
     rawAppointments,
     args.scope,
+    args.simulationRuleSetId,
   );
 
   return (

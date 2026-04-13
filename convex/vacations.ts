@@ -1,8 +1,11 @@
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
+import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { findConflictingAppointment } from "./appointmentConflicts";
 import {
@@ -36,6 +39,25 @@ const vacationCoverageReassignmentValidator = v.object({
   appointmentId: v.id("appointments"),
   targetPractitionerId: v.id("practitioners"),
 });
+
+function appointmentOverlapsVacationRanges(
+  appointment: Pick<Doc<"appointments">, "end" | "start">,
+  vacationRanges: { endMinutes: number; startMinutes: number }[],
+) {
+  const start = Temporal.ZonedDateTime.from(appointment.start).withTimeZone(
+    "Europe/Berlin",
+  );
+  const end = Temporal.ZonedDateTime.from(appointment.end).withTimeZone(
+    "Europe/Berlin",
+  );
+  const startMinutes = start.hour * 60 + start.minute;
+  const endMinutes = end.hour * 60 + end.minute;
+
+  return vacationRanges.some(
+    (range) =>
+      startMinutes < range.endMinutes && endMinutes > range.startMinutes,
+  );
+}
 
 async function assertStaffExists(
   ctx: MutationCtx,
@@ -98,6 +120,18 @@ async function deleteCoverageSimulationAppointmentsForVacation(
   for (const simulationAppointment of simulationAppointments) {
     await ctx.db.delete("appointments", simulationAppointment._id);
   }
+}
+
+async function getPatientDateOfBirthForAppointment(
+  ctx: MutationCtx,
+  appointment: Doc<"appointments">,
+) {
+  if (!appointment.patientId) {
+    return;
+  }
+
+  const patient = await ctx.db.get("patients", appointment.patientId);
+  return patient?.dateOfBirth;
 }
 
 function getVacationStaffId(vacation: Doc<"vacations">) {
@@ -521,6 +555,32 @@ export const createVacationWithCoverageAdjustments = mutation({
       vacationLineageKey,
     });
 
+    const selectedVacationPractitionerId =
+      await resolvePractitionerIdForRuleSet(ctx.db, {
+        practiceId: args.practiceId,
+        practitionerId: args.practitionerId,
+        ruleSetId,
+      });
+
+    const [baseSchedules, vacations] = await Promise.all([
+      ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
+      ctx.db
+        .query("vacations")
+        .withIndex("by_ruleSetId_date", (q) =>
+          q.eq("ruleSetId", ruleSetId).eq("date", args.date),
+        )
+        .collect(),
+    ]);
+    const vacationRanges = getPractitionerVacationRangesForDate(
+      Temporal.PlainDate.from(args.date),
+      selectedVacationPractitionerId,
+      baseSchedules,
+      vacations,
+    );
+
     const now = BigInt(Date.now());
     for (const reassignment of args.reassignments) {
       const appointment = await ctx.db.get(
@@ -542,6 +602,17 @@ export const createVacationWithCoverageAdjustments = mutation({
       if (appointment.practitionerId !== activePractitionerId) {
         throw new Error(
           "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
+        );
+      }
+      if (
+        Temporal.ZonedDateTime.from(appointment.start)
+          .withTimeZone("Europe/Berlin")
+          .toPlainDate()
+          .toString() !== args.date ||
+        !appointmentOverlapsVacationRanges(appointment, vacationRanges)
+      ) {
+        throw new Error(
+          "Mindestens ein Termin ist nicht vom angefragten Urlaub betroffen. Bitte Vorschläge neu laden.",
         );
       }
       if (appointment.seriesId !== undefined) {
@@ -596,7 +667,7 @@ export const createVacationWithCoverageAdjustments = mutation({
         );
       }
 
-      const selectedPractitionerId = await resolvePractitionerIdForRuleSet(
+      const targetPractitionerIdInDraft = await resolvePractitionerIdForRuleSet(
         ctx.db,
         {
           practiceId: args.practiceId,
@@ -615,6 +686,44 @@ export const createVacationWithCoverageAdjustments = mutation({
         practiceId: args.practiceId,
         targetRuleSetId: ruleSetId,
       });
+      const patientDateOfBirth = await getPatientDateOfBirthForAppointment(
+        ctx,
+        appointment,
+      );
+      const schedulingResult = await ctx.runQuery(
+        internal.scheduling.getSlotsForDayInternal,
+        {
+          date: Temporal.ZonedDateTime.from(appointment.start)
+            .withTimeZone("Europe/Berlin")
+            .toPlainDate()
+            .toString(),
+          excludedAppointmentIds: [appointment._id],
+          practiceId: args.practiceId,
+          ruleSetId,
+          simulatedContext: {
+            appointmentTypeId: selectedAppointmentTypeId,
+            locationId: selectedLocationId,
+            patient: {
+              ...(patientDateOfBirth
+                ? { dateOfBirth: patientDateOfBirth }
+                : {}),
+              isNew: false,
+            },
+          },
+        },
+      );
+      const matchingSlot = schedulingResult.slots.find(
+        (slot) =>
+          slot.status === "AVAILABLE" &&
+          slot.practitionerId === targetPractitionerIdInDraft &&
+          slot.startTime === appointment.start,
+      );
+
+      if (!matchingSlot) {
+        throw new Error(
+          "Mindestens ein Verschiebevorschlag ist nicht mehr gueltig. Bitte Vorschläge neu laden.",
+        );
+      }
 
       await ctx.db.insert("appointments", {
         appointmentTypeId: selectedAppointmentTypeId,
@@ -626,7 +735,7 @@ export const createVacationWithCoverageAdjustments = mutation({
         locationId: selectedLocationId,
         ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
         practiceId: args.practiceId,
-        practitionerId: selectedPractitionerId,
+        practitionerId: targetPractitionerIdInDraft,
         reassignmentSourceVacationLineageKey: vacationLineageKey,
         replacesAppointmentId: appointment._id,
         simulationRuleSetId: ruleSetId,

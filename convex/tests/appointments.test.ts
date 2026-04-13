@@ -702,4 +702,79 @@ describe("appointments update safety", () => {
       }),
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
   });
+
+  test("simulation conflicts are scoped to the current draft rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_scope";
+    const userId = await createUser(t, authId, "sim-scope@example.com");
+    const authed = t.withIdentity({
+      email: "sim-scope@example.com",
+      subject: authId,
+    });
+
+    const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const draftRuleSetA = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft A",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const draftRuleSetB = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft B",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 3,
+      });
+
+      return { draftRuleSetA, draftRuleSetB };
+    });
+
+    const window = makeSlotWindow(6);
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: draftRuleSetA,
+      start: window.start,
+      title: "Draft A Simulation",
+      userId,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: draftRuleSetB,
+        start: window.start,
+        title: "Draft B Simulation",
+        userId,
+      }),
+    ).resolves.toBeDefined();
+  });
 });

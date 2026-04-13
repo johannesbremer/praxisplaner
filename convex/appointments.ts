@@ -550,6 +550,7 @@ export async function createAppointmentFromTrustedSource(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     title: string;
     userId?: Id<"users">;
@@ -641,6 +642,9 @@ export async function createAppointmentFromTrustedSource(
       start: args.start,
     },
     practiceId: args.practiceId,
+    ...(isSimulation === true && args.simulationRuleSetId
+      ? { simulationRuleSetId: args.simulationRuleSetId }
+      : {}),
     scope: getAppointmentBookingScope(isSimulation),
     ...(replacesAppointmentId && {
       excludeAppointmentIds: [replacesAppointmentId],
@@ -757,6 +761,9 @@ export const updateAppointment = mutation({
     const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
     const resolvedIsSimulation =
       filteredUpdateData.isSimulation ?? existingAppointment.isSimulation;
+    const resolvedSimulationRuleSetId =
+      filteredUpdateData.simulationRuleSetId ??
+      existingAppointment.simulationRuleSetId;
 
     const appointmentType = await ctx.db.get(
       "appointmentTypes",
@@ -796,6 +803,9 @@ export const updateAppointment = mutation({
         },
         excludeAppointmentIds: [existingAppointment._id],
         practiceId: existingAppointment.practiceId,
+        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+          ? { simulationRuleSetId: resolvedSimulationRuleSetId }
+          : {}),
         scope: getAppointmentBookingScope(resolvedIsSimulation),
       });
 
