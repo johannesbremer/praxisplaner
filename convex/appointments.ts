@@ -53,6 +53,7 @@ const appointmentResultValidator = v.object({
   patientId: v.optional(v.id("patients")),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
+  reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
   seriesStepId: v.optional(v.string()),

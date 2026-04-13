@@ -475,6 +475,7 @@ export default defineSchema({
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerId: v.optional(v.id("practitioners")),
+    reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
     seriesStepId: v.optional(v.string()),
@@ -493,6 +494,10 @@ export default defineSchema({
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_simulationRuleSetId_reassignmentSourceVacationLineageKey", [
+      "simulationRuleSetId",
+      "reassignmentSourceVacationLineageKey",
+    ])
     .index("by_simulationRuleSetId", ["simulationRuleSetId"])
     .index("by_appointmentTypeId", ["appointmentTypeId"])
     .index("by_seriesId", ["seriesId"])

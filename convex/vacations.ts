@@ -77,6 +77,29 @@ async function assertStaffExists(
   };
 }
 
+async function deleteCoverageSimulationAppointmentsForVacation(
+  ctx: MutationCtx,
+  args: {
+    ruleSetId: Id<"ruleSets">;
+    vacationLineageKey: Id<"vacations">;
+  },
+) {
+  const simulationAppointments = await ctx.db
+    .query("appointments")
+    .withIndex(
+      "by_simulationRuleSetId_reassignmentSourceVacationLineageKey",
+      (q) =>
+        q
+          .eq("simulationRuleSetId", args.ruleSetId)
+          .eq("reassignmentSourceVacationLineageKey", args.vacationLineageKey),
+    )
+    .collect();
+
+  for (const simulationAppointment of simulationAppointments) {
+    await ctx.db.delete("appointments", simulationAppointment._id);
+  }
+}
+
 function getVacationStaffId(vacation: Doc<"vacations">) {
   return vacation.staffType === "practitioner"
     ? vacation.practitionerId
@@ -475,6 +498,29 @@ export const createVacationWithCoverageAdjustments = mutation({
       ruleSetId: practice.currentActiveRuleSetId,
     });
 
+    const vacationResult = await createVacationInDraft(ctx, {
+      date: args.date,
+      expectedDraftRevision: args.expectedDraftRevision,
+      portion: args.portion,
+      practiceId: args.practiceId,
+      practitionerId: args.practitionerId,
+      resolvedRuleSetId: ruleSetId,
+      selectedRuleSetId: ruleSetId,
+      staffType: "practitioner",
+    });
+    const vacation = vacationResult.entityId
+      ? await ctx.db.get("vacations", vacationResult.entityId)
+      : null;
+    if (!vacation) {
+      throw new Error("Urlaub konnte nicht angelegt werden.");
+    }
+    const vacationLineageKey = requireVacationLineageKey(vacation);
+
+    await deleteCoverageSimulationAppointmentsForVacation(ctx, {
+      ruleSetId,
+      vacationLineageKey,
+    });
+
     const now = BigInt(Date.now());
     for (const reassignment of args.reassignments) {
       const appointment = await ctx.db.get(
@@ -570,36 +616,6 @@ export const createVacationWithCoverageAdjustments = mutation({
         targetRuleSetId: ruleSetId,
       });
 
-      const existingSimulation = await ctx.db
-        .query("appointments")
-        .withIndex("by_replacesAppointmentId", (q) =>
-          q.eq("replacesAppointmentId", appointment._id),
-        )
-        .collect();
-      const matchingSimulation = existingSimulation.find(
-        (entry) =>
-          entry.isSimulation === true &&
-          entry.simulationRuleSetId === ruleSetId,
-      );
-
-      if (matchingSimulation) {
-        await ctx.db.patch("appointments", matchingSimulation._id, {
-          appointmentTypeId: selectedAppointmentTypeId,
-          end: appointment.end,
-          lastModified: now,
-          locationId: selectedLocationId,
-          ...(appointment.patientId
-            ? { patientId: appointment.patientId }
-            : {}),
-          practitionerId: selectedPractitionerId,
-          simulationRuleSetId: ruleSetId,
-          start: appointment.start,
-          title: appointment.title,
-          ...(appointment.userId ? { userId: appointment.userId } : {}),
-        });
-        continue;
-      }
-
       await ctx.db.insert("appointments", {
         appointmentTypeId: selectedAppointmentTypeId,
         appointmentTypeTitle: appointment.appointmentTypeTitle,
@@ -611,6 +627,7 @@ export const createVacationWithCoverageAdjustments = mutation({
         ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
         practiceId: args.practiceId,
         practitionerId: selectedPractitionerId,
+        reassignmentSourceVacationLineageKey: vacationLineageKey,
         replacesAppointmentId: appointment._id,
         simulationRuleSetId: ruleSetId,
         start: appointment.start,
@@ -619,16 +636,7 @@ export const createVacationWithCoverageAdjustments = mutation({
       });
     }
 
-    return await createVacationInDraft(ctx, {
-      date: args.date,
-      expectedDraftRevision: args.expectedDraftRevision,
-      portion: args.portion,
-      practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
-      resolvedRuleSetId: ruleSetId,
-      selectedRuleSetId: ruleSetId,
-      staffType: "practitioner",
-    });
+    return vacationResult;
   },
   returns: draftMutationResultValidator,
 });
@@ -711,7 +719,11 @@ export const deleteVacation = mutation({
     const entityId = existing?._id;
 
     if (existing) {
-      requireVacationLineageKey(existing);
+      const vacationLineageKey = requireVacationLineageKey(existing);
+      await deleteCoverageSimulationAppointmentsForVacation(ctx, {
+        ruleSetId,
+        vacationLineageKey,
+      });
       await ctx.db.delete("vacations", existing._id);
     }
 

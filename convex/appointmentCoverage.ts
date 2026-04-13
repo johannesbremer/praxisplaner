@@ -265,35 +265,48 @@ async function previewPractitionerCoverageForAppointment(
 
   const candidates = await Promise.all(
     matchingSlots.map(async (slot) => {
-      const activePractitionerId = await resolvePractitionerIdInRuleSet(
-        ctx.db,
-        {
+      let activePractitionerId: Id<"practitioners"> | undefined;
+
+      try {
+        activePractitionerId = await resolvePractitionerIdInRuleSet(ctx.db, {
           practiceId: args.practiceId,
           practitionerId: slot.practitionerId,
           targetRuleSetId: args.activeRuleSetId,
-        },
-      );
+        });
+      } catch {
+        activePractitionerId = undefined;
+      }
 
       return {
         activePractitionerId,
-        lastSeenAt: latestSeenByPractitioner.get(activePractitionerId) ?? null,
+        lastSeenAt: activePractitionerId
+          ? (latestSeenByPractitioner.get(activePractitionerId) ?? null)
+          : null,
         name: slot.practitionerName,
       };
     }),
   );
 
-  const bestCandidate = candidates.toSorted((left, right) => {
-    if (left.lastSeenAt && right.lastSeenAt) {
-      return right.lastSeenAt.localeCompare(left.lastSeenAt);
-    }
-    if (left.lastSeenAt) {
-      return -1;
-    }
-    if (right.lastSeenAt) {
-      return 1;
-    }
-    return left.name.localeCompare(right.name, "de");
-  })[0];
+  const bestCandidate = candidates
+    .filter(
+      (
+        candidate,
+      ): candidate is typeof candidate & {
+        activePractitionerId: Id<"practitioners">;
+      } => candidate.activePractitionerId !== undefined,
+    )
+    .toSorted((left, right) => {
+      if (left.lastSeenAt && right.lastSeenAt) {
+        return right.lastSeenAt.localeCompare(left.lastSeenAt);
+      }
+      if (left.lastSeenAt) {
+        return -1;
+      }
+      if (right.lastSeenAt) {
+        return 1;
+      }
+      return left.name.localeCompare(right.name, "de");
+    })[0];
 
   if (!bestCandidate) {
     return {

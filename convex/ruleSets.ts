@@ -160,6 +160,20 @@ async function deleteSimulationAppointmentsByRuleSet(
   }
 }
 
+async function hasPendingSimulationAppointmentsForRuleSet(
+  db: DatabaseReader,
+  ruleSetId: Id<"ruleSets">,
+): Promise<boolean> {
+  const simulationAppointments = await db
+    .query("appointments")
+    .withIndex("by_simulationRuleSetId", (q) =>
+      q.eq("simulationRuleSetId", ruleSetId),
+    )
+    .take(1);
+
+  return simulationAppointments.length > 0;
+}
+
 /**
  * Delete locations by ruleSetId in batches.
  */
@@ -1219,6 +1233,14 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
       return {
         deleted: false,
         reason: "parent_missing" as const,
+      };
+    }
+
+    if (await hasPendingSimulationAppointmentsForRuleSet(ctx.db, ruleSet._id)) {
+      return {
+        deleted: false,
+        parentRuleSetId: parentRuleSet._id,
+        reason: "has_changes" as const,
       };
     }
 
