@@ -37,7 +37,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@radix-ui/react-visually-hidden": "^1.2.4",
-    "@tanstack/devtools": "^0.11.1",
+    "@tanstack/devtools": "^0.11.2",
     "@tanstack/devtools-event-bus": "^0.4.1",
     "@tanstack/devtools-event-client": "^0.4.3",
     "@tanstack/react-form": "^1.28.6",
