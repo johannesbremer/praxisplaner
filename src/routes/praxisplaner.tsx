@@ -129,12 +129,15 @@ function PraxisPlanerComponent() {
   // Query practices to get practiceId for patient mutations
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
   const currentPractice = practicesQuery?.[0];
+  const isPracticesLoading = practicesQuery === undefined;
 
   // Query active rule set for the practice
   const activeRuleSet = useQuery(
     api.ruleSets.getActiveRuleSet,
     currentPractice ? { practiceId: currentPractice._id } : "skip",
   );
+  const isActiveRuleSetLoading =
+    currentPractice !== undefined && activeRuleSet === undefined;
   // Query locations to map standortParam to locationId
   const locationsData = useQuery(
     api.entities.getLocationsFromActive,
@@ -1003,12 +1006,112 @@ function PraxisPlanerComponent() {
     );
   }
 
+  const calendarContent =
+    isPracticesLoading || isActiveRuleSetLoading ? (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        Kalender wird geladen.
+      </div>
+    ) : currentPractice ? (
+      activeRuleSet ? (
+        <SidebarProvider className="flex h-full w-full">
+          <PraxisCalendar
+            onDateChange={handleDateChange}
+            onLocationResolved={handleLocationResolved}
+            patient={currentPatient ?? undefined}
+            practiceId={currentPractice._id}
+            ruleSetId={activeRuleSet._id}
+            selectedLocationId={selectedLocation?._id}
+            showGdtAlert={hasGdtConnectionIssue}
+            simulationDate={selectedDate}
+          />
+        </SidebarProvider>
+      ) : (
+        <div className="flex h-full items-center justify-center p-6">
+          <Card className="max-w-md">
+            <CardHeader>
+              <CardTitle>Kein aktives Regelset</CardTitle>
+              <CardDescription>
+                Der Kalender ist erst verfügbar, wenn fuer diese Praxis ein
+                aktives Regelset vorhanden ist.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      )
+    ) : (
+      <div className="flex h-full items-center justify-center p-6">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Praxis nicht gefunden</CardTitle>
+            <CardDescription>
+              Der Praxisplaner kann erst geladen werden, wenn eine Praxis
+              eingerichtet ist.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+
+  const vacationContent =
+    isPracticesLoading || isActiveRuleSetLoading ? (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        Urlaubsdaten werden geladen.
+      </div>
+    ) : currentPractice ? (
+      activeRuleSet ? (
+        <VacationScheduler
+          editable={false}
+          onDateChange={handleDateChange}
+          practiceId={currentPractice._id}
+          ruleSetReplayTarget={{
+            kind: "saved-parent",
+            parentRuleSetId: activeRuleSet._id,
+          }}
+          selectedDate={selectedDate}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center p-6 text-muted-foreground">
+          <Card className="max-w-md">
+            <CardHeader>
+              <CardTitle>Kein aktives Regelset</CardTitle>
+              <CardDescription>
+                Urlaub kann erst geplant werden, wenn ein aktives Regelset
+                vorhanden ist.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      )
+    ) : (
+      <div className="flex h-full items-center justify-center p-6">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Praxis nicht gefunden</CardTitle>
+            <CardDescription>
+              Urlaub kann erst geplant werden, wenn eine Praxis eingerichtet
+              ist.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+
   const settingsContent = (
     <div className="container mx-auto max-w-4xl p-6 space-y-8 bg-background text-foreground">
       <div className="flex flex-col">
         <h1 className="text-3xl font-bold tracking-tight mb-6">
           Praxis GDT File Processor
         </h1>
+
+        {!isPracticesLoading && !currentPractice && (
+          <Alert className="mb-4">
+            <AlertTitle>Keine Praxis konfiguriert</AlertTitle>
+            <AlertDescription>
+              GDT-Dateien werden erkannt, aber derzeit nicht verarbeitet, weil
+              noch keine Praxis eingerichtet ist.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {!isFsaSupported && (
           <Alert className="mb-4" variant="destructive">
@@ -1166,24 +1269,7 @@ function PraxisPlanerComponent() {
 
         <div className="flex-1 overflow-hidden">
           <TabsContent className="h-full" value={CALENDAR_TAB}>
-            {currentPractice && activeRuleSet ? (
-              <SidebarProvider className="flex h-full w-full">
-                <PraxisCalendar
-                  onDateChange={handleDateChange}
-                  onLocationResolved={handleLocationResolved}
-                  patient={currentPatient ?? undefined}
-                  practiceId={currentPractice._id}
-                  ruleSetId={activeRuleSet._id}
-                  selectedLocationId={selectedLocation?._id}
-                  showGdtAlert={hasGdtConnectionIssue}
-                  simulationDate={selectedDate}
-                />
-              </SidebarProvider>
-            ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                Kalender wird geladen.
-              </div>
-            )}
+            {calendarContent}
           </TabsContent>
 
           <TabsContent className="h-full overflow-auto" value={SETTINGS_TAB}>
@@ -1194,22 +1280,7 @@ function PraxisPlanerComponent() {
             className="h-full overflow-auto p-6"
             value={VACATION_TAB}
           >
-            {currentPractice && activeRuleSet ? (
-              <VacationScheduler
-                editable={false}
-                onDateChange={handleDateChange}
-                practiceId={currentPractice._id}
-                ruleSetReplayTarget={{
-                  kind: "saved-parent",
-                  parentRuleSetId: activeRuleSet._id,
-                }}
-                selectedDate={selectedDate}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                Urlaubsdaten werden geladen.
-              </div>
-            )}
+            {vacationContent}
           </TabsContent>
         </div>
       </Tabs>
