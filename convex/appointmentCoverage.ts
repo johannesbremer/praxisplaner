@@ -322,7 +322,20 @@ async function resolvePractitionerIdInRuleSet(
 ): Promise<Id<"practitioners">> {
   const practitioner = await db.get("practitioners", args.practitionerId);
   if (!practitioner) {
-    throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
+    const mappedPractitioner = await db
+      .query("practitioners")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.targetRuleSetId)
+          .eq("lineageKey", args.practitionerId),
+      )
+      .first();
+
+    if (mappedPractitioner?.practiceId !== args.practiceId) {
+      throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
+    }
+
+    return mappedPractitioner._id;
   }
   if (practitioner.practiceId !== args.practiceId) {
     throw new Error("Behandler gehört nicht zu dieser Praxis.");
