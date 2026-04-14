@@ -376,8 +376,8 @@ describe("vacations", () => {
       preview.suggestions.find(
         (suggestion: (typeof preview.suggestions)[number]) =>
           suggestion.targetPractitionerId === undefined,
-      )?.reason,
-    ).toContain("Kein freier qualifizierter Behandler");
+      ),
+    ).toBeDefined();
   });
 
   test("coverage preview skips draft-only practitioners without active lineage matches", async () => {
@@ -476,6 +476,85 @@ describe("vacations", () => {
       fixture.preferredPractitionerId,
       fixture.fallbackPractitionerId,
     ]).toContain(preview.suggestions[0]?.targetPractitionerId);
+  });
+
+  test("coverage preview does not mark practitioners as movable when only the draft appointment type allows them", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", fixture.appointmentTypeId, {
+        allowedPractitionerIds: [fixture.absentPractitionerId],
+      });
+    });
+
+    const draftVacation = await t.mutation(api.vacations.createVacation, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.absentPractitionerId,
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+
+    await t.run(async (ctx) => {
+      const draftAppointmentType = await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q
+            .eq("ruleSetId", draftVacation.ruleSetId)
+            .eq("lineageKey", fixture.appointmentTypeId),
+        )
+        .first();
+      assertDefined(draftAppointmentType);
+
+      await ctx.db.patch("appointmentTypes", draftAppointmentType._id, {
+        allowedPractitionerIds: [
+          fixture.absentPractitionerId,
+          fixture.preferredPractitionerId,
+          fixture.fallbackPractitionerId,
+        ],
+      });
+
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const preview = await t.query(
+      api.appointmentCoverage.previewPractitionerAbsenceCoverage,
+      {
+        date: monday.toString(),
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        ruleSetId: draftVacation.ruleSetId,
+      },
+    );
+
+    expect(preview.affectedCount).toBe(1);
+    expect(preview.movableCount).toBe(0);
+    expect(preview.unmovedCount).toBe(1);
+    expect(preview.suggestions[0]?.targetPractitionerId).toBeUndefined();
   });
 
   test("creating a vacation with coverage adjustments stages simulation changes until activation", async () => {

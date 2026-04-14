@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -63,6 +63,8 @@ const appointmentResultValidator = v.object({
   title: v.string(),
   userId: v.optional(v.id("users")),
 });
+
+export type AppointmentResult = Infer<typeof appointmentResultValidator>;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });

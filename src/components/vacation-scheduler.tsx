@@ -8,12 +8,20 @@ import {
   Stethoscope,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type { CoverageSuggestion } from "@/convex/appointmentCoverage";
+import type { AppointmentResult } from "@/convex/appointments";
 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -48,29 +56,18 @@ import {
 } from "../utils/public-holidays";
 import { formatDateFull } from "../utils/time-calculations";
 
-interface AppointmentConflict {
-  end: string;
-  id: string;
-  locationId?: Id<"locations">;
-  patientId?: Id<"patients">;
-  start: string;
-  title: string;
-  userId?: Id<"users">;
-}
+type AppointmentConflict = Pick<
+  AppointmentResult,
+  "end" | "locationId" | "patientId" | "start" | "title" | "userId"
+> & {
+  id: AppointmentResult["_id"];
+};
 
 interface ConflictDialogState {
   date: Temporal.PlainDate;
   mode: "create" | "inspect";
   portion: VacationPortion;
   staff: StaffRow;
-}
-
-interface CoverageSuggestion {
-  appointmentId: Id<"appointments">;
-  reason?: string;
-  start: string;
-  targetPractitionerId?: Id<"practitioners">;
-  targetPractitionerName?: string;
 }
 
 interface CreateMfaResult extends DraftMutationResult {
@@ -416,68 +413,74 @@ export function VacationScheduler({
     [locations],
   );
 
-  const getAppointmentConflicts = (
-    staff: StaffRow,
-    date: Temporal.PlainDate,
-    portion: VacationPortion,
-  ): AppointmentConflict[] => {
-    if (staff.kind !== "practitioner" || !appointments || !baseSchedules) {
-      return [];
-    }
+  const getAppointmentConflicts = useCallback(
+    (
+      staff: StaffRow,
+      date: Temporal.PlainDate,
+      portion: VacationPortion,
+    ): AppointmentConflict[] => {
+      if (staff.kind !== "practitioner" || !appointments || !baseSchedules) {
+        return [];
+      }
 
-    const vacationRanges = getPractitionerVacationRangesForDate(
-      date,
-      staff.id,
-      baseSchedules,
-      [
-        {
-          date: date.toString(),
-          portion,
-          practitionerId: staff.id,
-          staffType: "practitioner",
-        },
-      ],
-    );
+      const vacationRanges = getPractitionerVacationRangesForDate(
+        date,
+        staff.id,
+        baseSchedules,
+        [
+          {
+            date: date.toString(),
+            portion,
+            practitionerId: staff.id,
+            staffType: "practitioner",
+          },
+        ],
+      );
 
-    if (vacationRanges.length === 0) {
-      return [];
-    }
+      if (vacationRanges.length === 0) {
+        return [];
+      }
 
-    return scopedAppointments
-      .filter(
-        (appointment) =>
-          appointment.practitionerId === staff.id &&
-          Temporal.PlainDate.compare(
-            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-            date,
-          ) === 0,
-      )
-      .filter((appointment) => {
-        const start = Temporal.ZonedDateTime.from(
-          appointment.start,
-        ).toPlainTime();
-        const end = Temporal.ZonedDateTime.from(appointment.end).toPlainTime();
-        const startMinutes = start.hour * 60 + start.minute;
-        const endMinutes = end.hour * 60 + end.minute;
+      return scopedAppointments
+        .filter(
+          (appointment) =>
+            appointment.practitionerId === staff.id &&
+            Temporal.PlainDate.compare(
+              Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+              date,
+            ) === 0,
+        )
+        .filter((appointment) => {
+          const start = Temporal.ZonedDateTime.from(
+            appointment.start,
+          ).toPlainTime();
+          const end = Temporal.ZonedDateTime.from(
+            appointment.end,
+          ).toPlainTime();
+          const startMinutes = start.hour * 60 + start.minute;
+          const endMinutes = end.hour * 60 + end.minute;
 
-        return vacationRanges.some(
-          (range) =>
-            startMinutes < range.endMinutes && endMinutes > range.startMinutes,
-        );
-      })
-      .map((appointment) => ({
-        end: appointment.end,
-        id: appointment._id,
-        locationId: appointment.locationId,
-        ...(appointment.patientId === undefined
-          ? {}
-          : { patientId: appointment.patientId }),
-        start: appointment.start,
-        title: appointment.title,
-        ...(appointment.userId ? { userId: appointment.userId } : {}),
-      }))
-      .toSorted((left, right) => left.start.localeCompare(right.start));
-  };
+          return vacationRanges.some(
+            (range) =>
+              startMinutes < range.endMinutes &&
+              endMinutes > range.startMinutes,
+          );
+        })
+        .map((appointment) => ({
+          end: appointment.end,
+          id: appointment._id,
+          locationId: appointment.locationId,
+          ...(appointment.patientId === undefined
+            ? {}
+            : { patientId: appointment.patientId }),
+          start: appointment.start,
+          title: appointment.title,
+          ...(appointment.userId ? { userId: appointment.userId } : {}),
+        }))
+        .toSorted((left, right) => left.start.localeCompare(right.start));
+    },
+    [appointments, baseSchedules, scopedAppointments],
+  );
 
   const getAvailablePortionsForDay = (
     staff: StaffRow,
@@ -806,13 +809,17 @@ export function VacationScheduler({
     return true;
   };
 
-  const dialogConflicts = conflictDialog
-    ? getAppointmentConflicts(
-        conflictDialog.staff,
-        conflictDialog.date,
-        conflictDialog.portion,
-      )
-    : [];
+  const dialogConflicts = useMemo(
+    () =>
+      conflictDialog
+        ? getAppointmentConflicts(
+            conflictDialog.staff,
+            conflictDialog.date,
+            conflictDialog.portion,
+          )
+        : [],
+    [conflictDialog, getAppointmentConflicts],
+  );
   const coveragePreview = useQuery(
     api.appointmentCoverage.previewPractitionerAbsenceCoverage,
     editable &&
@@ -837,12 +844,129 @@ export function VacationScheduler({
   const coverageSuggestionByAppointmentId = useMemo(
     () =>
       new Map<string, CoverageSuggestion>(
-        ((coveragePreview?.suggestions ?? []) as CoverageSuggestion[]).map(
-          (suggestion) => [suggestion.appointmentId, suggestion],
-        ),
+        (coveragePreview?.suggestions ?? []).map((suggestion) => [
+          suggestion.appointmentId,
+          suggestion,
+        ]),
       ),
     [coveragePreview],
   );
+  const dialogConflictEntries = useMemo(
+    () =>
+      dialogConflicts.map((conflict) => ({
+        conflict,
+        coverageSuggestion: coverageSuggestionByAppointmentId.get(conflict.id),
+      })),
+    [coverageSuggestionByAppointmentId, dialogConflicts],
+  );
+  const movableConflictEntries = useMemo(
+    () =>
+      dialogConflictEntries.filter(
+        (entry) =>
+          entry.coverageSuggestion?.targetPractitionerName !== undefined,
+      ),
+    [dialogConflictEntries],
+  );
+  const unresolvedConflictEntries = useMemo(
+    () =>
+      dialogConflictEntries.filter(
+        (entry) =>
+          entry.coverageSuggestion?.targetPractitionerName === undefined,
+      ),
+    [dialogConflictEntries],
+  );
+  const showCoverageAccordion =
+    editable &&
+    conflictDialog?.mode === "create" &&
+    conflictDialog.staff.kind === "practitioner";
+  const coverageAccordionValue = useMemo<string[]>(
+    () =>
+      unresolvedConflictEntries.length > 0 && coveragePreview !== undefined
+        ? ["not-movable"]
+        : [],
+    [coveragePreview, unresolvedConflictEntries.length],
+  );
+
+  const renderConflictEntry = ({
+    conflict,
+    coverageSuggestion,
+  }: (typeof dialogConflictEntries)[number]) => {
+    const start = Temporal.ZonedDateTime.from(conflict.start);
+    const end = Temporal.ZonedDateTime.from(conflict.end);
+    const patient = conflict.patientId
+      ? patientDetails?.[conflict.patientId]
+      : undefined;
+    const user = conflict.userId ? userDetails?.[conflict.userId] : undefined;
+    const patientDisplayName = patient
+      ? [patient.firstName, patient.lastName].filter(Boolean).join(" ")
+      : user
+        ? [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+          user.email
+        : undefined;
+
+    return (
+      <div className="p-3" key={conflict.id}>
+        <div className="font-medium">{conflict.title}</div>
+        {patientDisplayName && (
+          <div className="mt-1 text-sm font-medium">{patientDisplayName}</div>
+        )}
+        <div className="mt-1 text-sm text-muted-foreground">
+          {start.toLocaleString("de-DE", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}{" "}
+          -{" "}
+          {end.toLocaleString("de-DE", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}{" "}
+          Uhr
+        </div>
+        {conflict.locationId && (
+          <div className="text-sm text-muted-foreground">
+            Standort:{" "}
+            {locationNameById.get(conflict.locationId) ?? conflict.locationId}
+          </div>
+        )}
+        {patient?.dateOfBirth && (
+          <div className="text-sm text-muted-foreground">
+            Geburtsdatum: {formatGermanDate(patient.dateOfBirth)}
+          </div>
+        )}
+        {user?.email && (
+          <div className="text-sm text-muted-foreground">
+            E-Mail: {user.email}
+          </div>
+        )}
+        {patient?.patientId !== undefined && (
+          <Button
+            className="mt-2 w-full gap-1.5"
+            onClick={() => {
+              dispatchCustomEvent("praxisplaner:openInPvs", {
+                patientId: patient.patientId,
+              });
+            }}
+            size="sm"
+            variant="outline"
+          >
+            Im PVS öffnen
+          </Button>
+        )}
+        {editable &&
+          conflictDialog?.mode === "create" &&
+          conflictDialog.staff.kind === "practitioner" &&
+          coverageSuggestion?.targetPractitionerName && (
+            <div className="mt-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+              Wird verschoben zu{" "}
+              <span className="font-medium">
+                {coverageSuggestion.targetPractitionerName}
+              </span>
+              .
+            </div>
+          )}
+      </div>
+    );
+  };
 
   const renderCell = (staff: StaffRow, date: Temporal.PlainDate) => {
     const displayedPortion = getDisplayedPortionForCell(staff, date);
@@ -1196,108 +1320,79 @@ export function VacationScheduler({
               )}
 
               <ScrollArea className="max-h-80 rounded-md border">
-                <div className="divide-y">
-                  {dialogConflicts.length === 0 && (
-                    <div className="p-3 text-sm text-muted-foreground">
-                      Keine bestehenden Termine in diesem Zeitraum.
-                    </div>
-                  )}
-                  {dialogConflicts.map((conflict) => {
-                    const start = Temporal.ZonedDateTime.from(conflict.start);
-                    const end = Temporal.ZonedDateTime.from(conflict.end);
-                    const patient = conflict.patientId
-                      ? patientDetails?.[conflict.patientId]
-                      : undefined;
-                    const user = conflict.userId
-                      ? userDetails?.[conflict.userId]
-                      : undefined;
-                    const patientDisplayName = patient
-                      ? [patient.firstName, patient.lastName]
-                          .filter(Boolean)
-                          .join(" ")
-                      : user
-                        ? [user.firstName, user.lastName]
-                            .filter(Boolean)
-                            .join(" ") || user.email
-                        : undefined;
-                    const coverageSuggestion =
-                      coverageSuggestionByAppointmentId.get(conflict.id);
-                    return (
-                      <div className="p-3" key={conflict.id}>
-                        <div className="font-medium">{conflict.title}</div>
-                        {patientDisplayName && (
-                          <div className="mt-1 text-sm font-medium">
-                            {patientDisplayName}
-                          </div>
-                        )}
-                        <div className="mt-1 text-sm text-muted-foreground">
-                          {start.toLocaleString("de-DE", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          -{" "}
-                          {end.toLocaleString("de-DE", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          Uhr
+                {showCoverageAccordion ? (
+                  <Accordion
+                    className="px-3"
+                    type="multiple"
+                    value={coverageAccordionValue}
+                  >
+                    <AccordionItem value="not-movable">
+                      <AccordionTrigger>
+                        <div className="flex items-center gap-2">
+                          <span>Nicht verschiebbare Termine</span>
+                          <span className="text-muted-foreground">
+                            ({unresolvedConflictEntries.length})
+                          </span>
                         </div>
-                        {conflict.locationId && (
-                          <div className="text-sm text-muted-foreground">
-                            Standort:{" "}
-                            {locationNameById.get(conflict.locationId) ??
-                              conflict.locationId}
-                          </div>
-                        )}
-                        {patient?.dateOfBirth && (
-                          <div className="text-sm text-muted-foreground">
-                            Geburtsdatum:{" "}
-                            {formatGermanDate(patient.dateOfBirth)}
-                          </div>
-                        )}
-                        {user?.email && (
-                          <div className="text-sm text-muted-foreground">
-                            E-Mail: {user.email}
-                          </div>
-                        )}
-                        {patient?.patientId !== undefined && (
-                          <Button
-                            className="mt-2 w-full gap-1.5"
-                            onClick={() => {
-                              dispatchCustomEvent("praxisplaner:openInPvs", {
-                                patientId: patient.patientId,
-                              });
-                            }}
-                            size="sm"
-                            variant="outline"
-                          >
-                            Im PVS öffnen
-                          </Button>
-                        )}
-                        {editable &&
-                          conflictDialog.mode === "create" &&
-                          conflictDialog.staff.kind === "practitioner" &&
-                          coverageSuggestion?.targetPractitionerName && (
-                            <div className="mt-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
-                              Wird verschoben zu{" "}
-                              <span className="font-medium">
-                                {coverageSuggestion.targetPractitionerName}
-                              </span>
-                              .
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="divide-y rounded-md border">
+                          {coveragePreview === undefined ? (
+                            <div className="p-3 text-sm text-muted-foreground">
+                              Verschiebevorschläge werden berechnet.
                             </div>
-                          )}
-                        {editable &&
-                          conflictDialog.mode === "create" &&
-                          conflictDialog.staff.kind === "practitioner" &&
-                          coverageSuggestion?.reason && (
-                            <div className="mt-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                              {coverageSuggestion.reason}
+                          ) : unresolvedConflictEntries.length === 0 ? (
+                            <div className="p-3 text-sm text-muted-foreground">
+                              Alle betroffenen Termine können verschoben werden.
                             </div>
+                          ) : (
+                            unresolvedConflictEntries.map((entry) =>
+                              renderConflictEntry(entry),
+                            )
                           )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="movable">
+                      <AccordionTrigger>
+                        <div className="flex items-center gap-2">
+                          <span>Verschiebbare Termine</span>
+                          <span className="text-muted-foreground">
+                            ({movableConflictEntries.length})
+                          </span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="divide-y rounded-md border">
+                          {coveragePreview === undefined ? (
+                            <div className="p-3 text-sm text-muted-foreground">
+                              Verschiebbare Termine werden geladen.
+                            </div>
+                          ) : movableConflictEntries.length === 0 ? (
+                            <div className="p-3 text-sm text-muted-foreground">
+                              Keine automatisch verschiebbaren Termine gefunden.
+                            </div>
+                          ) : (
+                            movableConflictEntries.map((entry) =>
+                              renderConflictEntry(entry),
+                            )
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                ) : (
+                  <div className="divide-y">
+                    {dialogConflicts.length === 0 && (
+                      <div className="p-3 text-sm text-muted-foreground">
+                        Keine bestehenden Termine in diesem Zeitraum.
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+                    {dialogConflictEntries.map((entry) =>
+                      renderConflictEntry(entry),
+                    )}
+                  </div>
+                )}
               </ScrollArea>
 
               <DialogFooter>
@@ -1354,19 +1449,20 @@ export function VacationScheduler({
                               portion: conflictDialog.portion,
                               practiceId,
                               practitionerId: conflictDialog.staff.lineageKey,
-                              reassignments: (
-                                coveragePreview.suggestions as CoverageSuggestion[]
-                              ).flatMap((suggestion) =>
-                                suggestion.targetPractitionerId
-                                  ? [
-                                      {
-                                        appointmentId: suggestion.appointmentId,
-                                        targetPractitionerId:
-                                          suggestion.targetPractitionerId,
-                                      },
-                                    ]
-                                  : [],
-                              ),
+                              reassignments:
+                                coveragePreview.suggestions.flatMap(
+                                  (suggestion) =>
+                                    suggestion.targetPractitionerId
+                                      ? [
+                                          {
+                                            appointmentId:
+                                              suggestion.appointmentId,
+                                            targetPractitionerId:
+                                              suggestion.targetPractitionerId,
+                                          },
+                                        ]
+                                      : [],
+                                ),
                               selectedRuleSetId: ruleSetIdFromReplayTarget(
                                 ruleSetReplayTargetRef.current,
                               ),

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -18,11 +18,12 @@ const vacationPortionValidator = v.union(
 
 const coverageSuggestionValidator = v.object({
   appointmentId: v.id("appointments"),
-  reason: v.optional(v.string()),
   start: v.string(),
   targetPractitionerId: v.optional(v.id("practitioners")),
   targetPractitionerName: v.optional(v.string()),
 });
+
+export type CoverageSuggestion = Infer<typeof coverageSuggestionValidator>;
 
 export async function resolveAppointmentTypeIdForRuleSet(
   db: DatabaseReader,
@@ -181,7 +182,6 @@ async function previewPractitionerCoverageForAppointment(
   },
 ): Promise<{
   appointmentId: Id<"appointments">;
-  reason?: string;
   start: string;
   targetPractitionerId?: Id<"practitioners">;
   targetPractitionerName?: string;
@@ -189,7 +189,6 @@ async function previewPractitionerCoverageForAppointment(
   if (!args.appointment.practitionerId) {
     return {
       appointmentId: args.appointment._id,
-      reason: "Termin hat keinen zugewiesenen Behandler.",
       start: args.appointment.start,
     };
   }
@@ -197,9 +196,18 @@ async function previewPractitionerCoverageForAppointment(
   if (args.appointment.seriesId !== undefined) {
     return {
       appointmentId: args.appointment._id,
-      reason: "Kettentermine werden derzeit nicht automatisch verschoben.",
       start: args.appointment.start,
     };
+  }
+
+  const activeAppointmentType = await ctx.db.get(
+    "appointmentTypes",
+    args.appointment.appointmentTypeId,
+  );
+  if (!activeAppointmentType) {
+    throw new Error(
+      `Terminart ${args.appointment.appointmentTypeId} nicht gefunden.`,
+    );
   }
 
   const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
@@ -252,8 +260,6 @@ async function previewPractitionerCoverageForAppointment(
   if (matchingSlots.length === 0) {
     return {
       appointmentId: args.appointment._id,
-      reason:
-        "Kein freier qualifizierter Behandler am selben Standort zur selben Zeit gefunden.",
       start: args.appointment.start,
     };
   }
@@ -279,6 +285,11 @@ async function previewPractitionerCoverageForAppointment(
 
       return {
         activePractitionerId,
+        isAllowedInActiveRuleSet:
+          activePractitionerId !== undefined &&
+          activeAppointmentType.allowedPractitionerIds.includes(
+            activePractitionerId,
+          ),
         lastSeenAt: activePractitionerId
           ? (latestSeenByPractitioner.get(activePractitionerId) ?? null)
           : null,
@@ -293,7 +304,10 @@ async function previewPractitionerCoverageForAppointment(
         candidate,
       ): candidate is typeof candidate & {
         activePractitionerId: Id<"practitioners">;
-      } => candidate.activePractitionerId !== undefined,
+        isAllowedInActiveRuleSet: true;
+      } =>
+        candidate.activePractitionerId !== undefined &&
+        candidate.isAllowedInActiveRuleSet,
     )
     .toSorted((left, right) => {
       if (left.lastSeenAt && right.lastSeenAt) {
@@ -311,8 +325,6 @@ async function previewPractitionerCoverageForAppointment(
   if (!bestCandidate) {
     return {
       appointmentId: args.appointment._id,
-      reason:
-        "Kein freier qualifizierter Behandler am selben Standort zur selben Zeit gefunden.",
       start: args.appointment.start,
     };
   }
