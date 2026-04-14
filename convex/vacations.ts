@@ -140,6 +140,50 @@ function getVacationStaffId(vacation: Doc<"vacations">) {
     : vacation.mfaId;
 }
 
+async function replaceVacationsInDraft(
+  ctx: MutationCtx,
+  args: {
+    date: string;
+    practiceId: Id<"practices">;
+    replacingVacationLineageKeys: Id<"vacations">[];
+    ruleSetId: Id<"ruleSets">;
+    staffType: "mfa" | "practitioner";
+  },
+) {
+  if (args.replacingVacationLineageKeys.length === 0) {
+    return;
+  }
+
+  for (const lineageKey of args.replacingVacationLineageKeys) {
+    const existingVacation = await ctx.db
+      .query("vacations")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", lineageKey),
+      )
+      .first();
+
+    if (!existingVacation) {
+      continue;
+    }
+
+    if (
+      existingVacation.practiceId !== args.practiceId ||
+      existingVacation.date !== args.date ||
+      existingVacation.staffType !== args.staffType
+    ) {
+      throw new Error(
+        "Der zu ersetzende Urlaub passt nicht mehr zum aktuellen Bearbeitungskontext.",
+      );
+    }
+
+    await deleteCoverageSimulationAppointmentsForVacation(ctx, {
+      ruleSetId: args.ruleSetId,
+      vacationLineageKey: requireVacationLineageKey(existingVacation),
+    });
+    await ctx.db.delete("vacations", existingVacation._id);
+  }
+}
+
 async function resolveMfaIdInRuleSet(
   ctx: MutationCtx,
   mfaId: Id<"mfas">,
@@ -509,6 +553,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
     reassignments: v.array(vacationCoverageReassignmentValidator),
+    replacingVacationLineageKeys: v.optional(v.array(v.id("vacations"))),
     selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -525,16 +570,31 @@ export const createVacationWithCoverageAdjustments = mutation({
       args.expectedDraftRevision,
       args.selectedRuleSetId,
     );
+    const replacingVacationLineageKeys = [
+      ...(args.replacingVacationLineageKeys ?? []),
+    ];
+    const retainedLineageKey =
+      replacingVacationLineageKeys.length === 1
+        ? replacingVacationLineageKeys[0]
+        : undefined;
 
     const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
       ruleSetId: practice.currentActiveRuleSetId,
     });
+    await replaceVacationsInDraft(ctx, {
+      date: args.date,
+      practiceId: args.practiceId,
+      replacingVacationLineageKeys,
+      ruleSetId,
+      staffType: "practitioner",
+    });
 
     const vacationResult = await createVacationInDraft(ctx, {
       date: args.date,
       expectedDraftRevision: args.expectedDraftRevision,
+      ...(retainedLineageKey ? { lineageKey: retainedLineageKey } : {}),
       portion: args.portion,
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
@@ -582,7 +642,15 @@ export const createVacationWithCoverageAdjustments = mutation({
     );
 
     const now = BigInt(Date.now());
+    const seenAppointmentIds = new Set<Id<"appointments">>();
     for (const reassignment of args.reassignments) {
+      if (seenAppointmentIds.has(reassignment.appointmentId)) {
+        throw new Error(
+          "Jeder betroffene Termin darf nur einmal verschoben werden.",
+        );
+      }
+      seenAppointmentIds.add(reassignment.appointmentId);
+
       const appointment = await ctx.db.get(
         "appointments",
         reassignment.appointmentId,
@@ -724,13 +792,28 @@ export const createVacationWithCoverageAdjustments = mutation({
           "Mindestens ein Verschiebevorschlag ist nicht mehr gueltig. Bitte Vorschläge neu laden.",
         );
       }
+      const appointmentsReplacingCurrent = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", appointment._id),
+        )
+        .collect();
+      const existingSimulationAppointments =
+        appointmentsReplacingCurrent.filter(
+          (candidate) =>
+            candidate.isSimulation === true &&
+            candidate.simulationRuleSetId === ruleSetId,
+        );
+      const [existingSimulationAppointment, ...duplicateSimulations] =
+        existingSimulationAppointments;
+      for (const duplicateSimulation of duplicateSimulations) {
+        await ctx.db.delete("appointments", duplicateSimulation._id);
+      }
 
-      await ctx.db.insert("appointments", {
+      const nextAppointmentData = {
         appointmentTypeId: selectedAppointmentTypeId,
         appointmentTypeTitle: appointment.appointmentTypeTitle,
-        createdAt: now,
         end: appointment.end,
-        isSimulation: true,
         lastModified: now,
         locationId: selectedLocationId,
         ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
@@ -742,7 +825,20 @@ export const createVacationWithCoverageAdjustments = mutation({
         start: appointment.start,
         title: appointment.title,
         ...(appointment.userId ? { userId: appointment.userId } : {}),
-      });
+      };
+
+      if (existingSimulationAppointment) {
+        await ctx.db.patch("appointments", existingSimulationAppointment._id, {
+          ...nextAppointmentData,
+          createdAt: existingSimulationAppointment.createdAt,
+        });
+      } else {
+        await ctx.db.insert("appointments", {
+          ...nextAppointmentData,
+          createdAt: now,
+          isSimulation: true,
+        });
+      }
     }
 
     return vacationResult;

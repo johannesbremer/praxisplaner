@@ -67,6 +67,7 @@ interface ConflictDialogState {
   date: Temporal.PlainDate;
   mode: "create" | "inspect";
   portion: VacationPortion;
+  replacingSnapshots: VacationReplaySnapshot[];
   staff: StaffRow;
 }
 
@@ -763,6 +764,11 @@ export function VacationScheduler({
           date,
           mode: "inspect",
           portion: displayedPortion,
+          replacingSnapshots: getActiveVacationSnapshotsForCellFromRows(
+            vacationsRef.current,
+            staff,
+            date,
+          ),
           staff,
         });
         return;
@@ -773,6 +779,7 @@ export function VacationScheduler({
           date,
           mode: "create",
           portion,
+          replacingSnapshots: [],
           staff,
         });
         return;
@@ -804,6 +811,11 @@ export function VacationScheduler({
       date,
       mode: "inspect",
       portion,
+      replacingSnapshots: getActiveVacationSnapshotsForCellFromRows(
+        vacationsRef.current,
+        staff,
+        date,
+      ),
       staff,
     });
     return true;
@@ -820,17 +832,25 @@ export function VacationScheduler({
         : [],
     [conflictDialog, getAppointmentConflicts],
   );
+  const replacingVacationLineageKeys = useMemo(
+    () =>
+      conflictDialog?.replacingSnapshots.map(
+        (snapshot) => snapshot.lineageKey,
+      ) ?? [],
+    [conflictDialog],
+  );
   const coveragePreview = useQuery(
     api.appointmentCoverage.previewPractitionerAbsenceCoverage,
-    editable &&
-      conflictDialog?.mode === "create" &&
-      conflictDialog.staff.kind === "practitioner"
+    editable && conflictDialog?.staff.kind === "practitioner"
       ? {
           date: conflictDialog.date.toString(),
           portion: conflictDialog.portion,
           practiceId,
           practitionerId: conflictDialog.staff.id,
           ruleSetId,
+          ...(replacingVacationLineageKeys.length > 0
+            ? { replacingVacationLineageKeys }
+            : {}),
         }
       : "skip",
   );
@@ -876,9 +896,7 @@ export function VacationScheduler({
     [dialogConflictEntries],
   );
   const showCoverageAccordion =
-    editable &&
-    conflictDialog?.mode === "create" &&
-    conflictDialog.staff.kind === "practitioner";
+    editable && conflictDialog?.staff.kind === "practitioner";
   const coverageAccordionValue = useMemo<string[]>(
     () =>
       unresolvedConflictEntries.length > 0 && coveragePreview !== undefined
@@ -953,8 +971,7 @@ export function VacationScheduler({
           </Button>
         )}
         {editable &&
-          conflictDialog?.mode === "create" &&
-          conflictDialog.staff.kind === "practitioner" &&
+          conflictDialog?.staff.kind === "practitioner" &&
           coverageSuggestion?.targetPractitionerName && (
             <div className="mt-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
               Wird verschoben zu{" "}
@@ -1271,15 +1288,12 @@ export function VacationScheduler({
               </DialogHeader>
 
               <div className="rounded-lg border p-3 text-sm font-medium">
-                {coveragePreview &&
-                conflictDialog.staff.kind === "practitioner" &&
-                conflictDialog.mode === "create"
+                {coveragePreview && conflictDialog.staff.kind === "practitioner"
                   ? `${coveragePreview.movableCount} von ${coveragePreview.affectedCount} Terminen können automatisch verschoben werden`
                   : `${dialogConflicts.length} Konflikte`}
               </div>
 
               {editable &&
-                conflictDialog.mode === "create" &&
                 conflictDialog.staff.kind === "practitioner" &&
                 coveragePreview === undefined && (
                   <div className="rounded-lg border p-3 text-sm text-muted-foreground">
@@ -1466,6 +1480,9 @@ export function VacationScheduler({
                               selectedRuleSetId: ruleSetIdFromReplayTarget(
                                 ruleSetReplayTargetRef.current,
                               ),
+                              ...(replacingVacationLineageKeys.length > 0
+                                ? { replacingVacationLineageKeys }
+                                : {}),
                             }).then((result) => {
                               handleDraftMutationResult(result);
                             })
@@ -1503,13 +1520,54 @@ export function VacationScheduler({
                 )}
                 {editable && conflictDialog.mode === "inspect" && (
                   <Button
+                    disabled={
+                      conflictDialog.staff.kind === "practitioner" &&
+                      coveragePreview === undefined
+                    }
                     onClick={() => {
-                      void commitVacationChange(
-                        conflictDialog.staff,
-                        conflictDialog.date,
-                        [conflictDialog.portion],
-                        "Urlaub geändert",
-                      )
+                      const applyChange =
+                        conflictDialog.staff.kind === "practitioner" &&
+                        coveragePreview
+                          ? createVacationWithCoverageAdjustments({
+                              date: conflictDialog.date.toString(),
+                              expectedDraftRevision:
+                                ruleSetReplayTargetRef.current.kind === "draft"
+                                  ? ruleSetReplayTargetRef.current.draftRevision
+                                  : null,
+                              portion: conflictDialog.portion,
+                              practiceId,
+                              practitionerId: conflictDialog.staff.lineageKey,
+                              reassignments:
+                                coveragePreview.suggestions.flatMap(
+                                  (suggestion) =>
+                                    suggestion.targetPractitionerId
+                                      ? [
+                                          {
+                                            appointmentId:
+                                              suggestion.appointmentId,
+                                            targetPractitionerId:
+                                              suggestion.targetPractitionerId,
+                                          },
+                                        ]
+                                      : [],
+                                ),
+                              selectedRuleSetId: ruleSetIdFromReplayTarget(
+                                ruleSetReplayTargetRef.current,
+                              ),
+                              ...(replacingVacationLineageKeys.length > 0
+                                ? { replacingVacationLineageKeys }
+                                : {}),
+                            }).then((result) => {
+                              handleDraftMutationResult(result);
+                            })
+                          : commitVacationChange(
+                              conflictDialog.staff,
+                              conflictDialog.date,
+                              [conflictDialog.portion],
+                              "Urlaub geändert",
+                            );
+
+                      void applyChange
                         .then(() => {
                           setConflictDialog(null);
                         })
@@ -1523,7 +1581,12 @@ export function VacationScheduler({
                         });
                     }}
                   >
-                    Urlaub ändern
+                    {coveragePreview &&
+                    conflictDialog.staff.kind === "practitioner"
+                      ? coveragePreview.movableCount > 0
+                        ? `Urlaub ändern und ${coveragePreview.movableCount} Termine verschieben`
+                        : "Urlaub mit Restkonflikten ändern"
+                      : "Urlaub ändern"}
                   </Button>
                 )}
               </DialogFooter>

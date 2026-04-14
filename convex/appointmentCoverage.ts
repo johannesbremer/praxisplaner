@@ -7,6 +7,7 @@ import type { DatabaseReader, QueryCtx } from "./_generated/server";
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
+import { getEffectiveAppointmentsForScope } from "./appointmentConflicts";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -392,6 +393,7 @@ export const previewPractitionerAbsenceCoverage = query({
     portion: vacationPortionValidator,
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    replacingVacationLineageKeys: v.optional(v.array(v.id("vacations"))),
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -433,13 +435,21 @@ export const previewPractitionerAbsenceCoverage = query({
         q.eq("ruleSetId", args.ruleSetId).eq("date", args.date),
       )
       .collect();
+    const replacingVacationLineageKeys = new Set(
+      args.replacingVacationLineageKeys,
+    );
 
     const vacationRanges = getPractitionerVacationRangesForDate(
       Temporal.PlainDate.from(args.date),
       selectedPractitionerId,
       baseSchedules,
       [
-        ...vacations,
+        ...vacations.filter(
+          (vacation) =>
+            !replacingVacationLineageKeys.has(
+              vacation.lineageKey ?? vacation._id,
+            ),
+        ),
         {
           date: args.date,
           portion: args.portion,
@@ -481,8 +491,23 @@ export const previewPractitionerAbsenceCoverage = query({
           .lt("start", dayEnd),
       )
       .collect();
+    const effectiveAppointments = getEffectiveAppointmentsForScope(
+      appointments.filter(
+        (appointment) =>
+          !(
+            appointment.isSimulation === true &&
+            appointment.simulationRuleSetId === args.ruleSetId &&
+            appointment.reassignmentSourceVacationLineageKey &&
+            replacingVacationLineageKeys.has(
+              appointment.reassignmentSourceVacationLineageKey,
+            )
+          ),
+      ),
+      "simulation",
+      args.ruleSetId,
+    );
 
-    const affectedAppointments = appointments
+    const affectedAppointments = effectiveAppointments
       .filter(
         (appointment) =>
           appointment.cancelledAt === undefined &&
