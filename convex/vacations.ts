@@ -689,52 +689,6 @@ export const createVacationWithCoverageAdjustments = mutation({
         );
       }
 
-      const targetPractitioner = await ctx.db.get(
-        "practitioners",
-        reassignment.targetPractitionerId,
-      );
-      if (
-        targetPractitioner?.practiceId !== args.practiceId ||
-        targetPractitioner.ruleSetId !== practice.currentActiveRuleSetId
-      ) {
-        throw new Error("Ziel-Behandler konnte nicht validiert werden.");
-      }
-
-      const appointmentType = await ctx.db.get(
-        "appointmentTypes",
-        appointment.appointmentTypeId,
-      );
-      if (!appointmentType) {
-        throw new Error("Terminart des Termins konnte nicht geladen werden.");
-      }
-      if (
-        !appointmentType.allowedPractitionerIds.includes(
-          reassignment.targetPractitionerId,
-        )
-      ) {
-        throw new Error(
-          "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
-        );
-      }
-
-      const conflictingAppointment = await findConflictingAppointment(ctx.db, {
-        candidate: {
-          end: appointment.end,
-          locationId: appointment.locationId,
-          practitionerId: reassignment.targetPractitionerId,
-          start: appointment.start,
-        },
-        excludeAppointmentIds: [appointment._id],
-        practiceId: args.practiceId,
-        scope: "real",
-      });
-
-      if (conflictingAppointment) {
-        throw new Error(
-          "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
-        );
-      }
-
       const targetPractitionerIdInDraft = await resolvePractitionerIdForRuleSet(
         ctx.db,
         {
@@ -743,12 +697,73 @@ export const createVacationWithCoverageAdjustments = mutation({
           ruleSetId,
         },
       );
+      const targetPractitioner = await ctx.db.get(
+        "practitioners",
+        targetPractitionerIdInDraft,
+      );
+      if (
+        targetPractitioner?.practiceId !== args.practiceId ||
+        targetPractitioner.ruleSetId !== ruleSetId
+      ) {
+        throw new Error("Ziel-Behandler konnte nicht validiert werden.");
+      }
+
       const selectedAppointmentTypeId =
         await resolveAppointmentTypeIdForRuleSet(ctx.db, {
           appointmentTypeId: appointment.appointmentTypeId,
           practiceId: args.practiceId,
           targetRuleSetId: ruleSetId,
         });
+      const selectedAppointmentType = await ctx.db.get(
+        "appointmentTypes",
+        selectedAppointmentTypeId,
+      );
+      if (!selectedAppointmentType) {
+        throw new Error("Terminart des Termins konnte nicht geladen werden.");
+      }
+      if (
+        !selectedAppointmentType.allowedPractitionerIds.includes(
+          targetPractitionerIdInDraft,
+        )
+      ) {
+        throw new Error(
+          "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
+        );
+      }
+
+      let activeTargetPractitionerId: Id<"practitioners"> | undefined;
+      try {
+        activeTargetPractitionerId = await resolvePractitionerIdForRuleSet(
+          ctx.db,
+          {
+            practiceId: args.practiceId,
+            practitionerId: targetPractitionerIdInDraft,
+            ruleSetId: practice.currentActiveRuleSetId,
+          },
+        );
+      } catch {
+        activeTargetPractitionerId = undefined;
+      }
+
+      const conflictingAppointment = activeTargetPractitionerId
+        ? await findConflictingAppointment(ctx.db, {
+            candidate: {
+              end: appointment.end,
+              locationId: appointment.locationId,
+              practitionerId: activeTargetPractitionerId,
+              start: appointment.start,
+            },
+            excludeAppointmentIds: [appointment._id],
+            practiceId: args.practiceId,
+            scope: "real",
+          })
+        : null;
+
+      if (conflictingAppointment) {
+        throw new Error(
+          "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
+        );
+      }
       const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
         locationId: appointment.locationId,
         practiceId: args.practiceId,

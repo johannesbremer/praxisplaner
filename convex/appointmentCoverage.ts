@@ -201,16 +201,6 @@ async function previewPractitionerCoverageForAppointment(
     };
   }
 
-  const activeAppointmentType = await ctx.db.get(
-    "appointmentTypes",
-    args.appointment.appointmentTypeId,
-  );
-  if (!activeAppointmentType) {
-    throw new Error(
-      `Terminart ${args.appointment.appointmentTypeId} nicht gefunden.`,
-    );
-  }
-
   const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
     ctx.db,
     {
@@ -219,6 +209,13 @@ async function previewPractitionerCoverageForAppointment(
       targetRuleSetId: args.ruleSetId,
     },
   );
+  const selectedAppointmentType = await ctx.db.get(
+    "appointmentTypes",
+    selectedAppointmentTypeId,
+  );
+  if (!selectedAppointmentType) {
+    throw new Error(`Terminart ${selectedAppointmentTypeId} nicht gefunden.`);
+  }
   const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
     locationId: args.appointment.locationId,
     practiceId: args.practiceId,
@@ -286,15 +283,15 @@ async function previewPractitionerCoverageForAppointment(
 
       return {
         activePractitionerId,
-        isAllowedInActiveRuleSet:
-          activePractitionerId !== undefined &&
-          activeAppointmentType.allowedPractitionerIds.includes(
-            activePractitionerId,
+        isAllowedInSelectedRuleSet:
+          selectedAppointmentType.allowedPractitionerIds.includes(
+            slot.practitionerId,
           ),
         lastSeenAt: activePractitionerId
           ? (latestSeenByPractitioner.get(activePractitionerId) ?? null)
           : null,
         name: slot.practitionerName,
+        selectedPractitionerId: slot.practitionerId,
       };
     }),
   );
@@ -304,11 +301,9 @@ async function previewPractitionerCoverageForAppointment(
       (
         candidate,
       ): candidate is typeof candidate & {
-        activePractitionerId: Id<"practitioners">;
-        isAllowedInActiveRuleSet: true;
-      } =>
-        candidate.activePractitionerId !== undefined &&
-        candidate.isAllowedInActiveRuleSet,
+        isAllowedInSelectedRuleSet: true;
+        selectedPractitionerId: Id<"practitioners">;
+      } => candidate.isAllowedInSelectedRuleSet,
     )
     .toSorted((left, right) => {
       if (left.lastSeenAt && right.lastSeenAt) {
@@ -333,7 +328,7 @@ async function previewPractitionerCoverageForAppointment(
   return {
     appointmentId: args.appointment._id,
     start: args.appointment.start,
-    targetPractitionerId: bestCandidate.activePractitionerId,
+    targetPractitionerId: bestCandidate.selectedPractitionerId,
     targetPractitionerName: bestCandidate.name,
   };
 }
