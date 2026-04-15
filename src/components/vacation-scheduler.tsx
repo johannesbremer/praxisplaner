@@ -232,6 +232,9 @@ export function VacationScheduler({
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mfas ?? []);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const autoScrolledMonthRef = useRef<null | string>(null);
+  const today = useMemo(() => Temporal.Now.plainDateISO("Europe/Berlin"), []);
 
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -1076,6 +1079,57 @@ export function VacationScheduler({
     !baseSchedules ||
     !locations;
 
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (
+      Temporal.PlainDate.compare(today, monthDate) < 0 ||
+      Temporal.PlainDate.compare(today, monthEndExclusive) >= 0
+    ) {
+      return;
+    }
+
+    const monthKey = monthDate.toString();
+    if (autoScrolledMonthRef.current === monthKey) {
+      return;
+    }
+
+    const scrollArea = scrollAreaRef.current;
+    const viewport = scrollArea?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    const staffColumn = scrollArea?.querySelector<HTMLElement>(
+      '[data-vacation-staff-column="true"]',
+    );
+    const todayColumn = scrollArea?.querySelector<HTMLElement>(
+      '[data-vacation-today-column="true"]',
+    );
+
+    if (!viewport || !staffColumn || !todayColumn) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      const maxScrollLeft = Math.max(
+        0,
+        viewport.scrollWidth - viewport.clientWidth,
+      );
+      const targetScrollLeft = Math.min(
+        maxScrollLeft,
+        Math.max(0, todayColumn.offsetLeft - staffColumn.offsetWidth),
+      );
+
+      viewport.scrollLeft = targetScrollLeft;
+      autoScrolledMonthRef.current = monthKey;
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [isLoading, monthDate, monthEndExclusive, today]);
+
   return (
     <Card>
       <CardHeader className="gap-4">
@@ -1117,12 +1171,15 @@ export function VacationScheduler({
             Urlaubsdaten werden geladen.
           </div>
         ) : (
-          <ScrollArea className="w-full rounded-md border">
+          <ScrollArea className="w-full rounded-md border" ref={scrollAreaRef}>
             <div className="min-w-max">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 z-20 min-w-24 border-b bg-background px-2 py-3 text-left sm:min-w-32">
+                    <th
+                      className="sticky left-0 z-20 min-w-24 border-b bg-background px-2 py-3 text-left sm:min-w-32"
+                      data-vacation-staff-column="true"
+                    >
                       Mitarbeiter
                     </th>
                     {days.map((date) => {
@@ -1137,6 +1194,11 @@ export function VacationScheduler({
                             holidayName ? "min-w-28" : "min-w-16",
                             weekend && "bg-muted/60",
                           )}
+                          data-vacation-today-column={
+                            Temporal.PlainDate.compare(date, today) === 0
+                              ? "true"
+                              : undefined
+                          }
                           key={date.toString()}
                         >
                           <div className="font-medium">{date.day}</div>
