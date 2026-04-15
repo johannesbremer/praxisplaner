@@ -730,6 +730,11 @@ export const createVacationWithCoverageAdjustments = mutation({
           "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
         );
       }
+      const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
+        locationId: appointment.locationId,
+        practiceId: args.practiceId,
+        targetRuleSetId: ruleSetId,
+      });
 
       let activeTargetPractitionerId: Id<"practitioners"> | undefined;
       try {
@@ -744,12 +749,22 @@ export const createVacationWithCoverageAdjustments = mutation({
       } catch {
         activeTargetPractitionerId = undefined;
       }
+      let activeTargetLocationId: Id<"locations">;
+      try {
+        activeTargetLocationId = await resolveLocationIdForRuleSet(ctx.db, {
+          locationId: selectedLocationId,
+          practiceId: args.practiceId,
+          targetRuleSetId: practice.currentActiveRuleSetId,
+        });
+      } catch {
+        activeTargetLocationId = appointment.locationId;
+      }
 
       const conflictingAppointment = activeTargetPractitionerId
         ? await findConflictingAppointment(ctx.db, {
             candidate: {
               end: appointment.end,
-              locationId: appointment.locationId,
+              locationId: activeTargetLocationId,
               practitionerId: activeTargetPractitionerId,
               start: appointment.start,
             },
@@ -764,11 +779,6 @@ export const createVacationWithCoverageAdjustments = mutation({
           "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
         );
       }
-      const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-        locationId: appointment.locationId,
-        practiceId: args.practiceId,
-        targetRuleSetId: ruleSetId,
-      });
       const patientDateOfBirth = await getPatientDateOfBirthForAppointment(
         ctx,
         appointment,
@@ -846,12 +856,14 @@ export const createVacationWithCoverageAdjustments = mutation({
         await ctx.db.patch("appointments", existingSimulationAppointment._id, {
           ...nextAppointmentData,
           createdAt: existingSimulationAppointment.createdAt,
+          simulationValidatedAt: now,
         });
       } else {
         await ctx.db.insert("appointments", {
           ...nextAppointmentData,
           createdAt: now,
           isSimulation: true,
+          simulationValidatedAt: now,
         });
       }
     }

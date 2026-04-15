@@ -19,9 +19,14 @@ const vacationPortionValidator = v.union(
 
 const coverageSuggestionValidator = v.object({
   appointmentId: v.id("appointments"),
+  end: v.string(),
+  locationId: v.id("locations"),
+  patientId: v.optional(v.id("patients")),
   start: v.string(),
   targetPractitionerId: v.optional(v.id("practitioners")),
   targetPractitionerName: v.optional(v.string()),
+  title: v.string(),
+  userId: v.optional(v.id("users")),
 });
 
 export type CoverageSuggestion = Infer<typeof coverageSuggestionValidator>;
@@ -183,22 +188,33 @@ async function previewPractitionerCoverageForAppointment(
   },
 ): Promise<{
   appointmentId: Id<"appointments">;
+  end: string;
+  locationId: Id<"locations">;
+  patientId?: Id<"patients">;
   start: string;
   targetPractitionerId?: Id<"practitioners">;
   targetPractitionerName?: string;
+  title: string;
+  userId?: Id<"users">;
 }> {
+  const suggestionBase = {
+    appointmentId: args.appointment._id,
+    end: args.appointment.end,
+    locationId: args.appointment.locationId,
+    ...(args.appointment.patientId
+      ? { patientId: args.appointment.patientId }
+      : {}),
+    start: args.appointment.start,
+    title: args.appointment.title,
+    ...(args.appointment.userId ? { userId: args.appointment.userId } : {}),
+  };
+
   if (!args.appointment.practitionerId) {
-    return {
-      appointmentId: args.appointment._id,
-      start: args.appointment.start,
-    };
+    return suggestionBase;
   }
 
   if (args.appointment.seriesId !== undefined) {
-    return {
-      appointmentId: args.appointment._id,
-      start: args.appointment.start,
-    };
+    return suggestionBase;
   }
 
   const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
@@ -256,10 +272,7 @@ async function previewPractitionerCoverageForAppointment(
   );
 
   if (matchingSlots.length === 0) {
-    return {
-      appointmentId: args.appointment._id,
-      start: args.appointment.start,
-    };
+    return suggestionBase;
   }
 
   const latestSeenByPractitioner = await getLatestSeenPractitionerDates(
@@ -319,15 +332,11 @@ async function previewPractitionerCoverageForAppointment(
     })[0];
 
   if (!bestCandidate) {
-    return {
-      appointmentId: args.appointment._id,
-      start: args.appointment.start,
-    };
+    return suggestionBase;
   }
 
   return {
-    appointmentId: args.appointment._id,
-    start: args.appointment.start,
+    ...suggestionBase,
     targetPractitionerId: bestCandidate.selectedPractitionerId,
     targetPractitionerName: bestCandidate.name,
   };

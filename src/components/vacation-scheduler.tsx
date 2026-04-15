@@ -71,6 +71,11 @@ interface ConflictDialogState {
   staff: StaffRow;
 }
 
+interface ConflictEntry {
+  conflict: AppointmentConflict;
+  coverageSuggestion: CoverageSuggestion | undefined;
+}
+
 interface CreateMfaResult extends DraftMutationResult {
   entityId: Id<"mfas">;
 }
@@ -874,7 +879,7 @@ export function VacationScheduler({
       ),
     [coveragePreview],
   );
-  const dialogConflictEntries = useMemo(
+  const dialogConflictEntries = useMemo<ConflictEntry[]>(
     () =>
       dialogConflicts.map((conflict) => ({
         conflict,
@@ -882,24 +887,47 @@ export function VacationScheduler({
       })),
     [coverageSuggestionByAppointmentId, dialogConflicts],
   );
+  const showCoverageAccordion =
+    editable && conflictDialog?.staff.kind === "practitioner";
+  const coveragePreviewEntries = useMemo<ConflictEntry[]>(
+    () =>
+      (coveragePreview?.suggestions ?? []).map((suggestion) => ({
+        conflict: {
+          end: suggestion.end,
+          id: suggestion.appointmentId,
+          locationId: suggestion.locationId,
+          ...(suggestion.patientId === undefined
+            ? {}
+            : { patientId: suggestion.patientId }),
+          start: suggestion.start,
+          title: suggestion.title,
+          ...(suggestion.userId ? { userId: suggestion.userId } : {}),
+        },
+        coverageSuggestion: suggestion,
+      })),
+    [coveragePreview],
+  );
+  const coverageDialogEntries = useMemo(
+    () =>
+      showCoverageAccordion ? coveragePreviewEntries : dialogConflictEntries,
+    [dialogConflictEntries, coveragePreviewEntries, showCoverageAccordion],
+  );
   const movableConflictEntries = useMemo(
     () =>
-      dialogConflictEntries.filter(
+      coverageDialogEntries.filter(
         (entry) =>
           entry.coverageSuggestion?.targetPractitionerName !== undefined,
       ),
-    [dialogConflictEntries],
+    [coverageDialogEntries],
   );
   const unresolvedConflictEntries = useMemo(
     () =>
-      dialogConflictEntries.filter(
+      coverageDialogEntries.filter(
         (entry) =>
           entry.coverageSuggestion?.targetPractitionerName === undefined,
       ),
-    [dialogConflictEntries],
+    [coverageDialogEntries],
   );
-  const showCoverageAccordion =
-    editable && conflictDialog?.staff.kind === "practitioner";
   const coverageAccordionValue = useMemo<string[]>(
     () =>
       unresolvedConflictEntries.length > 0 && coveragePreview !== undefined
@@ -911,7 +939,7 @@ export function VacationScheduler({
   const renderConflictEntry = ({
     conflict,
     coverageSuggestion,
-  }: (typeof dialogConflictEntries)[number]) => {
+  }: ConflictEntry) => {
     const start = Temporal.ZonedDateTime.from(conflict.start);
     const end = Temporal.ZonedDateTime.from(conflict.end);
     const patient = conflict.patientId

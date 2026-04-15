@@ -59,6 +59,7 @@ const appointmentResultValidator = v.object({
   seriesStepId: v.optional(v.string()),
   seriesStepIndex: v.optional(v.int64()),
   simulationRuleSetId: v.optional(v.id("ruleSets")),
+  simulationValidatedAt: v.optional(v.int64()),
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
@@ -669,6 +670,9 @@ export async function createAppointmentFromTrustedSource(
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
     }),
+    ...(isSimulation === true && {
+      simulationValidatedAt: now,
+    }),
   };
   return await ctx.db.insert("appointments", insertData);
 }
@@ -997,6 +1001,9 @@ export const updateAppointment = mutation({
 
     await ctx.db.patch("appointments", id, {
       ...filteredUpdateData,
+      ...(resolvedIsSimulation === true
+        ? { simulationValidatedAt: BigInt(Date.now()) }
+        : {}),
       lastModified: BigInt(Date.now()),
     });
 

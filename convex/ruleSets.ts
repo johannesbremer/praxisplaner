@@ -106,7 +106,11 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       continue;
     }
 
-    if (replacedAppointment.lastModified > simulationAppointment.createdAt) {
+    const simulationValidatedAt =
+      simulationAppointment.simulationValidatedAt ??
+      simulationAppointment.createdAt;
+
+    if (replacedAppointment.lastModified > simulationValidatedAt) {
       throw new Error(
         "Ein vorgemerkter Termin wurde nach der Simulation geändert. Bitte Vorschläge neu berechnen.",
       );

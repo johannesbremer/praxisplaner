@@ -481,6 +481,7 @@ export default defineSchema({
     seriesStepId: v.optional(v.string()),
     seriesStepIndex: v.optional(v.int64()),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
+    simulationValidatedAt: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
 
     // Metadata
