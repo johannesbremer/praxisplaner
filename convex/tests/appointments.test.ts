@@ -777,4 +777,67 @@ describe("appointments update safety", () => {
       }),
     ).resolves.toBeDefined();
   });
+
+  test("activating a saved ruleset clears non-replacement simulation appointments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_cleanup";
+    const userId = await createUser(t, authId, "sim-cleanup@example.com");
+    const authed = t.withIdentity({
+      email: "sim-cleanup@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(7).start,
+      title: "Draft preview only",
+      userId,
+    });
+
+    await authed.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Simulation cleanup",
+      practiceId: baseData.practiceId,
+      setAsActive: true,
+    });
+
+    const remainingSimulations = await t.run(async (ctx) =>
+      ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", unsavedRuleSetId),
+        )
+        .collect(),
+    );
+
+    expect(remainingSimulations).toHaveLength(0);
+  });
 });

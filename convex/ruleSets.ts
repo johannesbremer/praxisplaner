@@ -8,6 +8,11 @@ import { v } from "convex/values";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
+import { findConflictingAppointment } from "./appointmentConflicts";
+import {
+  resolveLocationIdForRuleSet,
+  resolvePractitionerIdForRuleSet,
+} from "./appointmentCoverage";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -73,6 +78,12 @@ async function applyPendingSimulationAppointmentsForRuleSet(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
 ) {
+  const activatedRuleSet = await db.get("ruleSets", ruleSetId);
+  if (!activatedRuleSet) {
+    throw new Error(`Regelset ${ruleSetId} nicht gefunden.`);
+  }
+  const practice = await db.get("practices", activatedRuleSet.practiceId);
+  const currentLiveRuleSetId = practice?.currentActiveRuleSetId;
   const simulationAppointments = await db
     .query("appointments")
     .withIndex("by_simulationRuleSetId", (q) =>
@@ -82,6 +93,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
 
   for (const simulationAppointment of simulationAppointments) {
     if (!simulationAppointment.replacesAppointmentId) {
+      await db.delete("appointments", simulationAppointment._id);
       continue;
     }
 
@@ -92,6 +104,51 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     if (!replacedAppointment) {
       await db.delete("appointments", simulationAppointment._id);
       continue;
+    }
+
+    if (replacedAppointment.lastModified > simulationAppointment.createdAt) {
+      throw new Error(
+        "Ein vorgemerkter Termin wurde nach der Simulation geändert. Bitte Vorschläge neu berechnen.",
+      );
+    }
+
+    const currentLiveLocationId =
+      currentLiveRuleSetId && currentLiveRuleSetId !== ruleSetId
+        ? await resolveLocationIdForRuleSet(db, {
+            locationId: simulationAppointment.locationId,
+            practiceId: simulationAppointment.practiceId,
+            targetRuleSetId: currentLiveRuleSetId,
+          })
+        : simulationAppointment.locationId;
+    const currentLivePractitionerId =
+      simulationAppointment.practitionerId &&
+      currentLiveRuleSetId &&
+      currentLiveRuleSetId !== ruleSetId
+        ? await resolvePractitionerIdForRuleSet(db, {
+            practiceId: simulationAppointment.practiceId,
+            practitionerId: simulationAppointment.practitionerId,
+            ruleSetId: currentLiveRuleSetId,
+          })
+        : simulationAppointment.practitionerId;
+
+    const conflictingAppointment = await findConflictingAppointment(db, {
+      candidate: {
+        end: simulationAppointment.end,
+        locationId: currentLiveLocationId,
+        ...(currentLivePractitionerId
+          ? { practitionerId: currentLivePractitionerId }
+          : {}),
+        start: simulationAppointment.start,
+      },
+      excludeAppointmentIds: [replacedAppointment._id],
+      practiceId: simulationAppointment.practiceId,
+      scope: "real",
+    });
+
+    if (conflictingAppointment) {
+      throw new Error(
+        "Ein vorgemerkter Termin kollidiert inzwischen mit einem echten Termin. Bitte Vorschläge neu berechnen.",
+      );
     }
 
     await db.patch("appointments", replacedAppointment._id, {
@@ -930,13 +987,13 @@ export const saveUnsavedRuleSet = mutation({
 
     // Optionally set as active
     if (args.setAsActive) {
-      await ctx.db.patch("practices", args.practiceId, {
-        currentActiveRuleSetId: unsavedRuleSet._id,
-      });
       await applyPendingSimulationAppointmentsForRuleSet(
         ctx.db,
         unsavedRuleSet._id,
       );
+      await ctx.db.patch("practices", args.practiceId, {
+        currentActiveRuleSetId: unsavedRuleSet._id,
+      });
     }
 
     return unsavedRuleSet._id;
@@ -1079,11 +1136,10 @@ export const setActiveRuleSet = mutation({
       throw new Error("Cannot set an unsaved rule set as active");
     }
 
-    // Update the practice
+    await applyPendingSimulationAppointmentsForRuleSet(ctx.db, args.ruleSetId);
     await ctx.db.patch("practices", args.practiceId, {
       currentActiveRuleSetId: args.ruleSetId,
     });
-    await applyPendingSimulationAppointmentsForRuleSet(ctx.db, args.ruleSetId);
   },
 });
 

@@ -763,6 +763,170 @@ describe("vacations", () => {
     expect(remainingSimulations).toHaveLength(0);
   });
 
+  test("activating an older saved ruleset rejects stale staged coverage replacements", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const draftResult = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerId: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaubsplanung spaeter",
+      practiceId: fixture.practiceId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointments", appointmentId, {
+        lastModified: BigInt(Date.now() + 1),
+        title: "Live angepasst",
+      });
+    });
+
+    await expect(
+      t.mutation(api.ruleSets.setActiveRuleSet, {
+        practiceId: fixture.practiceId,
+        ruleSetId: savedRuleSetId,
+      }),
+    ).rejects.toThrow("nach der Simulation geändert");
+
+    const practice = await t.run(async (ctx) =>
+      ctx.db.get("practices", fixture.practiceId),
+    );
+    expect(practice?.currentActiveRuleSetId).toBe(fixture.ruleSetId);
+
+    const unchangedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+    expect(unchangedAppointment?.title).toBe("Live angepasst");
+    expect(draftResult.ruleSetId).toBe(savedRuleSetId);
+  });
+
+  test("activating an older saved ruleset rejects staged coverage collisions with new live appointments", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const draftResult = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerId: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaubsplanung Kollision",
+      practiceId: fixture.practiceId,
+    });
+
+    await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      await ctx.db.insert("appointments", {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: BigInt(Date.now() + 1),
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: BigInt(Date.now() + 1),
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.preferredPractitionerId,
+        start,
+        title: "Neue Live-Kollision",
+      });
+    });
+
+    await expect(
+      t.mutation(api.ruleSets.setActiveRuleSet, {
+        practiceId: fixture.practiceId,
+        ruleSetId: savedRuleSetId,
+      }),
+    ).rejects.toThrow("kollidiert");
+
+    const practice = await t.run(async (ctx) =>
+      ctx.db.get("practices", fixture.practiceId),
+    );
+    expect(practice?.currentActiveRuleSetId).toBe(fixture.ruleSetId);
+    expect(draftResult.ruleSetId).toBe(savedRuleSetId);
+  });
+
   test("coverage preview ignores appointments already replaced in the same draft", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
