@@ -13,6 +13,11 @@ import {
   resolveLocationIdForRuleSet,
   resolvePractitionerIdForRuleSet,
 } from "./appointmentCoverage";
+import {
+  resolvePractitionerLineageKey,
+  resolveStoredAppointmentReferencesForWrite,
+} from "./appointmentReferences";
+import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -118,6 +123,9 @@ async function deleteCoverageSimulationAppointmentsForVacation(
     .collect();
 
   for (const simulationAppointment of simulationAppointments) {
+    if (!isActivationBoundSimulation(simulationAppointment)) {
+      continue;
+    }
     await ctx.db.delete("appointments", simulationAppointment._id);
   }
 }
@@ -583,6 +591,10 @@ export const createVacationWithCoverageAdjustments = mutation({
       practitionerId: args.practitionerId,
       ruleSetId: practice.currentActiveRuleSetId,
     });
+    const activePractitionerLineageKey = await resolvePractitionerLineageKey(
+      ctx.db,
+      activePractitionerId,
+    );
     await replaceVacationsInDraft(ctx, {
       date: args.date,
       practiceId: args.practiceId,
@@ -667,7 +679,7 @@ export const createVacationWithCoverageAdjustments = mutation({
       ) {
         throw new Error("Nur echte, aktive Termine können verschoben werden.");
       }
-      if (appointment.practitionerId !== activePractitionerId) {
+      if (appointment.practitionerLineageKey !== activePractitionerLineageKey) {
         throw new Error(
           "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
         );
@@ -710,7 +722,7 @@ export const createVacationWithCoverageAdjustments = mutation({
 
       const selectedAppointmentTypeId =
         await resolveAppointmentTypeIdForRuleSet(ctx.db, {
-          appointmentTypeId: appointment.appointmentTypeId,
+          appointmentTypeId: appointment.appointmentTypeLineageKey,
           practiceId: args.practiceId,
           targetRuleSetId: ruleSetId,
         });
@@ -731,41 +743,22 @@ export const createVacationWithCoverageAdjustments = mutation({
         );
       }
       const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-        locationId: appointment.locationId,
+        locationId: appointment.locationLineageKey,
         practiceId: args.practiceId,
         targetRuleSetId: ruleSetId,
       });
 
-      let activeTargetPractitionerId: Id<"practitioners"> | undefined;
-      try {
-        activeTargetPractitionerId = await resolvePractitionerIdForRuleSet(
-          ctx.db,
-          {
-            practiceId: args.practiceId,
-            practitionerId: targetPractitionerIdInDraft,
-            ruleSetId: practice.currentActiveRuleSetId,
-          },
-        );
-      } catch {
-        activeTargetPractitionerId = undefined;
-      }
-      let activeTargetLocationId: Id<"locations">;
-      try {
-        activeTargetLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-          locationId: selectedLocationId,
-          practiceId: args.practiceId,
-          targetRuleSetId: practice.currentActiveRuleSetId,
-        });
-      } catch {
-        activeTargetLocationId = appointment.locationId;
-      }
+      const targetPractitionerLineageKey = await resolvePractitionerLineageKey(
+        ctx.db,
+        targetPractitionerIdInDraft,
+      );
 
-      const conflictingAppointment = activeTargetPractitionerId
+      const conflictingAppointment = targetPractitionerLineageKey
         ? await findConflictingAppointment(ctx.db, {
             candidate: {
               end: appointment.end,
-              locationId: activeTargetLocationId,
-              practitionerId: activeTargetPractitionerId,
+              locationLineageKey: appointment.locationLineageKey,
+              practitionerLineageKey: targetPractitionerLineageKey,
               start: appointment.start,
             },
             excludeAppointmentIds: [appointment._id],
@@ -827,25 +820,45 @@ export const createVacationWithCoverageAdjustments = mutation({
         appointmentsReplacingCurrent.filter(
           (candidate) =>
             candidate.isSimulation === true &&
-            candidate.simulationRuleSetId === ruleSetId,
+            candidate.simulationRuleSetId === ruleSetId &&
+            isActivationBoundSimulation(candidate),
         );
+      const conflictingDraftSimulation = appointmentsReplacingCurrent.find(
+        (candidate) =>
+          candidate.isSimulation === true &&
+          candidate.simulationRuleSetId === ruleSetId &&
+          !isActivationBoundSimulation(candidate),
+      );
+      if (conflictingDraftSimulation) {
+        throw new Error(
+          "Mindestens ein Termin wurde in der Simulation bereits manuell angepasst. Bitte Urlaubsvorschläge neu laden.",
+        );
+      }
       const [existingSimulationAppointment, ...duplicateSimulations] =
         existingSimulationAppointments;
       for (const duplicateSimulation of duplicateSimulations) {
         await ctx.db.delete("appointments", duplicateSimulation._id);
       }
 
+      const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+        ctx.db,
+        {
+          appointmentTypeId: selectedAppointmentTypeId,
+          locationId: selectedLocationId,
+          practitionerId: targetPractitionerIdInDraft,
+        },
+      );
+
       const nextAppointmentData = {
-        appointmentTypeId: selectedAppointmentTypeId,
+        ...storedReferences,
         appointmentTypeTitle: appointment.appointmentTypeTitle,
         end: appointment.end,
         lastModified: now,
-        locationId: selectedLocationId,
         ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
         practiceId: args.practiceId,
-        practitionerId: targetPractitionerIdInDraft,
         reassignmentSourceVacationLineageKey: vacationLineageKey,
         replacesAppointmentId: appointment._id,
+        simulationKind: "activation-reassignment" as const,
         simulationRuleSetId: ruleSetId,
         start: appointment.start,
         title: appointment.title,

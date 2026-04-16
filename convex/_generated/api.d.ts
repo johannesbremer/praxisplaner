@@ -10,7 +10,9 @@
 
 import type * as appointmentConflicts from "../appointmentConflicts.js";
 import type * as appointmentCoverage from "../appointmentCoverage.js";
+import type * as appointmentReferences from "../appointmentReferences.js";
 import type * as appointmentSeries from "../appointmentSeries.js";
+import type * as appointmentSimulation from "../appointmentSimulation.js";
 import type * as appointments from "../appointments.js";
 import type * as auth from "../auth.js";
 import type * as bookingSessions from "../bookingSessions.js";
@@ -46,7 +48,9 @@ import type {
 declare const fullApi: ApiFromModules<{
   appointmentConflicts: typeof appointmentConflicts;
   appointmentCoverage: typeof appointmentCoverage;
+  appointmentReferences: typeof appointmentReferences;
   appointmentSeries: typeof appointmentSeries;
+  appointmentSimulation: typeof appointmentSimulation;
   appointments: typeof appointments;
   auth: typeof auth;
   bookingSessions: typeof bookingSessions;

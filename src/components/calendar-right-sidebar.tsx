@@ -24,7 +24,8 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
-import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { AppointmentResult } from "../../convex/appointments";
 import type { PatientInfo } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
@@ -36,8 +37,9 @@ import {
 } from "../utils/frontend-errors";
 
 // Appointment type for the sidebar list
-export type SidebarAppointment = Doc<"appointments">;
-type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
+export type SidebarAppointment = AppointmentResult;
+type BookingPersonalData =
+  import("../../convex/_generated/dataModel").Doc<"bookingNewConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;

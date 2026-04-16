@@ -8,6 +8,7 @@ import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForScope } from "./appointmentConflicts";
+import { resolvePractitionerLineageKey } from "./appointmentReferences";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -129,15 +130,15 @@ async function getLatestSeenPractitionerDates(
     for (const item of items) {
       if (
         item.cancelledAt !== undefined ||
-        !item.practitionerId ||
+        !item.practitionerLineageKey ||
         item.start >= appointment.start
       ) {
         continue;
       }
 
-      const previous = history.get(item.practitionerId);
+      const previous = history.get(item.practitionerLineageKey);
       if (!previous || previous < item.start) {
-        history.set(item.practitionerId, item.start);
+        history.set(item.practitionerLineageKey, item.start);
       }
     }
   };
@@ -197,10 +198,16 @@ async function previewPractitionerCoverageForAppointment(
   title: string;
   userId?: Id<"users">;
 }> {
+  const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
+    locationId: args.appointment.locationLineageKey,
+    practiceId: args.practiceId,
+    targetRuleSetId: args.ruleSetId,
+  });
+
   const suggestionBase = {
     appointmentId: args.appointment._id,
     end: args.appointment.end,
-    locationId: args.appointment.locationId,
+    locationId: selectedLocationId,
     ...(args.appointment.patientId
       ? { patientId: args.appointment.patientId }
       : {}),
@@ -209,7 +216,7 @@ async function previewPractitionerCoverageForAppointment(
     ...(args.appointment.userId ? { userId: args.appointment.userId } : {}),
   };
 
-  if (!args.appointment.practitionerId) {
+  if (!args.appointment.practitionerLineageKey) {
     return suggestionBase;
   }
 
@@ -220,7 +227,7 @@ async function previewPractitionerCoverageForAppointment(
   const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
     ctx.db,
     {
-      appointmentTypeId: args.appointment.appointmentTypeId,
+      appointmentTypeId: args.appointment.appointmentTypeLineageKey,
       practiceId: args.practiceId,
       targetRuleSetId: args.ruleSetId,
     },
@@ -232,12 +239,6 @@ async function previewPractitionerCoverageForAppointment(
   if (!selectedAppointmentType) {
     throw new Error(`Terminart ${selectedAppointmentTypeId} nicht gefunden.`);
   }
-  const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-    locationId: args.appointment.locationId,
-    practiceId: args.practiceId,
-    targetRuleSetId: args.ruleSetId,
-  });
-
   const day = Temporal.ZonedDateTime.from(args.appointment.start)
     .withTimeZone("Europe/Berlin")
     .toPlainDate();
@@ -428,6 +429,10 @@ export const previewPractitionerAbsenceCoverage = query({
       practitionerId: args.practitionerId,
       ruleSetId: activeRuleSetId,
     });
+    const activePractitionerLineageKey = await resolvePractitionerLineageKey(
+      ctx.db,
+      activePractitionerId,
+    );
 
     const baseSchedules = await ctx.db
       .query("baseSchedules")
@@ -516,7 +521,7 @@ export const previewPractitionerAbsenceCoverage = query({
         (appointment) =>
           appointment.cancelledAt === undefined &&
           appointment.isSimulation !== true &&
-          appointment.practitionerId === activePractitionerId,
+          appointment.practitionerLineageKey === activePractitionerLineageKey,
       )
       .filter((appointment) => {
         const start = Temporal.ZonedDateTime.from(appointment.start);

@@ -216,6 +216,30 @@ async function ensureProvisionedUser(
   });
 }
 
+async function insertStoredAppointment(
+  ctx: MutationCtx,
+  value: Omit<
+    Doc<"appointments">,
+    | "_creationTime"
+    | "_id"
+    | "appointmentTypeLineageKey"
+    | "locationLineageKey"
+    | "practitionerLineageKey"
+  > & {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
+  },
+) {
+  const { appointmentTypeId, locationId, practitionerId, ...rest } = value;
+  return await ctx.db.insert("appointments", {
+    ...rest,
+    appointmentTypeLineageKey: appointmentTypeId,
+    locationLineageKey: locationId,
+    practitionerLineageKey: practitionerId,
+  });
+}
+
 async function insertWithLineage<TableName extends LineageTable>(
   ctx: MutationCtx,
   table: TableName,
@@ -255,7 +279,7 @@ describe("vacations", () => {
         })
         .toString();
 
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -271,7 +295,7 @@ describe("vacations", () => {
         title: "Alter Termin",
       });
 
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -304,7 +328,7 @@ describe("vacations", () => {
         fixture.preferredPractitionerId,
         fixture.fallbackPractitionerId,
       ]) {
-        await ctx.db.insert("appointments", {
+        await insertStoredAppointment(ctx, {
           appointmentTypeId: fixture.appointmentTypeId,
           appointmentTypeTitle: "Kontrolle",
           createdAt: now,
@@ -320,7 +344,7 @@ describe("vacations", () => {
         });
       }
 
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -336,7 +360,7 @@ describe("vacations", () => {
         title: "Soll verschoben werden",
       });
 
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -440,7 +464,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -524,7 +548,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -579,7 +603,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -670,7 +694,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -728,7 +752,7 @@ describe("vacations", () => {
       startDate: monday.toString(),
     });
 
-    expect(unchangedAppointment?.practitionerId).toBe(
+    expect(unchangedAppointment?.practitionerLineageKey).toBe(
       fixture.absentPractitionerId,
     );
     expect(
@@ -748,6 +772,9 @@ describe("vacations", () => {
     const activatedAppointment = await t.run(async (ctx) =>
       ctx.db.get("appointments", appointmentId),
     );
+    const activatedTargetPractitioner = await t.run(async (ctx) =>
+      ctx.db.get("practitioners", draftPreferredPractitionerId),
+    );
     const remainingSimulations = await t.run(async (ctx) =>
       ctx.db
         .query("appointments")
@@ -757,8 +784,8 @@ describe("vacations", () => {
         .collect(),
     );
 
-    expect(activatedAppointment?.practitionerId).toBe(
-      draftPreferredPractitionerId,
+    expect(activatedAppointment?.practitionerLineageKey).toBe(
+      activatedTargetPractitioner?.lineageKey ?? draftPreferredPractitionerId,
     );
     expect(remainingSimulations).toHaveLength(0);
   });
@@ -776,7 +803,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -840,6 +867,106 @@ describe("vacations", () => {
     expect(draftResult.ruleSetId).toBe(savedRuleSetId);
   });
 
+  test("manually changing an auto-reassigned simulation downgrades it to draft-only", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const draftResult = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerId: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    const [simulationAppointment, draftFallbackPractitionerId] = await t.run(
+      async (ctx) => {
+        const draftAppointments = await ctx.db
+          .query("appointments")
+          .withIndex("by_simulationRuleSetId", (q) =>
+            q.eq("simulationRuleSetId", draftResult.ruleSetId),
+          )
+          .collect();
+        const draftSimulationAppointment = draftAppointments.find(
+          (appointment) => appointment.replacesAppointmentId === appointmentId,
+        );
+        assertDefined(draftSimulationAppointment);
+
+        const draftFallbackPractitioner = await ctx.db
+          .query("practitioners")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q
+              .eq("ruleSetId", draftResult.ruleSetId)
+              .eq("lineageKey", fixture.fallbackPractitionerId),
+          )
+          .first();
+        assertDefined(draftFallbackPractitioner);
+
+        return [draftSimulationAppointment, draftFallbackPractitioner._id];
+      },
+    );
+
+    await t.mutation(api.appointments.updateAppointment, {
+      id: simulationAppointment._id,
+      practitionerId: draftFallbackPractitionerId,
+    });
+
+    const downgradedSimulation = await t.run(async (ctx) =>
+      ctx.db.get("appointments", simulationAppointment._id),
+    );
+    expect(downgradedSimulation?.simulationKind).toBe("draft");
+    expect(downgradedSimulation?.reassignmentSourceVacationLineageKey).toBe(
+      undefined,
+    );
+
+    await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaub mit manueller Simulation",
+      practiceId: fixture.practiceId,
+      setAsActive: true,
+    });
+
+    const activatedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+    expect(activatedAppointment?.practitionerLineageKey).toBe(
+      fixture.absentPractitionerId,
+    );
+  });
+
   test("activating an older saved ruleset rejects staged coverage collisions with new live appointments", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
@@ -853,7 +980,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -898,7 +1025,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      await ctx.db.insert("appointments", {
+      await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: BigInt(Date.now() + 1),
@@ -940,7 +1067,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1003,7 +1130,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1049,7 +1176,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1153,7 +1280,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1215,7 +1342,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1273,7 +1400,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1347,7 +1474,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,
@@ -1368,7 +1495,7 @@ describe("vacations", () => {
           timeZone: "Europe/Berlin",
         })
         .toString();
-      return await ctx.db.insert("appointments", {
+      return await insertStoredAppointment(ctx, {
         appointmentTypeId: fixture.appointmentTypeId,
         appointmentTypeTitle: "Kontrolle",
         createdAt: now,

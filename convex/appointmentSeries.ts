@@ -10,6 +10,7 @@ import {
   type AppointmentBookingScope,
   findConflictingAppointment,
 } from "./appointmentConflicts";
+import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferences";
 import {
   type FollowUpStep,
   requireAppointmentTypeByLineageKey,
@@ -199,8 +200,8 @@ export async function createAppointmentSeries(
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
-        locationId: step.locationId,
-        practitionerId: step.practitionerId,
+        locationLineageKey: step.locationId,
+        practitionerLineageKey: step.practitionerId,
         start: step.start,
       },
       practiceId: args.practiceId,
@@ -218,17 +219,24 @@ export async function createAppointmentSeries(
       );
     }
 
+    const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+      ctx.db,
+      {
+        appointmentTypeId: step.appointmentTypeId,
+        locationId: step.locationId,
+        practitionerId: step.practitionerId,
+      },
+    );
+
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeId: step.appointmentTypeId,
+      ...storedReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
       createdAt: now,
       end: step.end,
       ...(scope === "simulation" && { isSimulation: true }),
       lastModified: now,
-      locationId: step.locationId,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
-      practitionerId: step.practitionerId,
       ...(index === 0 &&
         args.rootReplacesAppointmentId && {
           replacesAppointmentId: args.rootReplacesAppointmentId,
@@ -1108,8 +1116,8 @@ async function validateRootCandidate(
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      locationId: args.locationId,
-      practitionerId: args.practitionerId,
+      locationLineageKey: args.locationId,
+      practitionerLineageKey: args.practitionerId,
       start: args.start,
     },
     ...(args.excludedAppointmentIds && {

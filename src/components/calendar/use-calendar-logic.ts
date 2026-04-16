@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { AppointmentResult } from "../../../convex/appointments";
 import type { Appointment, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
@@ -214,7 +215,7 @@ export function useCalendarLogic({
   );
 
   const appointmentDocMap = useMemo(() => {
-    const map = new Map<Id<"appointments">, Doc<"appointments">>();
+    const map = new Map<Id<"appointments">, AppointmentResult>();
     if (!appointmentsData) {
       return map;
     }
@@ -577,7 +578,7 @@ export function useCalendarLogic({
             start: optimisticArgs.start,
           });
 
-          const newAppointment: Doc<"appointments"> = {
+          const newAppointment: AppointmentResult = {
             _creationTime: now,
             _id: tempId,
             appointmentTypeId: optimisticArgs.appointmentTypeId,
@@ -957,7 +958,7 @@ export function useCalendarLogic({
       };
 
       const matchesState = (
-        appointment: Doc<"appointments">,
+        appointment: AppointmentResult,
         expected: typeof beforeState,
       ) =>
         appointment.start === expected.start &&
@@ -1692,7 +1693,7 @@ export function useCalendarLogic({
     if (!appointmentsData) {
       return [];
     }
-    return appointmentsData.filter((appointment: Doc<"appointments">) => {
+    return appointmentsData.filter((appointment: AppointmentResult) => {
       const appointmentDate = safeParseISOToPlainDate(appointment.start);
       if (!appointmentDate) {
         console.warn(`Invalid appointment start date: ${appointment.start}`);
@@ -1757,7 +1758,7 @@ export function useCalendarLogic({
   // Map to Appointment type
   const combinedDerivedAppointments = useMemo(() => {
     return locationFilteredAppointments
-      .map((appointment: Doc<"appointments">, index): Appointment | null => {
+      .map((appointment: AppointmentResult, index): Appointment | null => {
         const startZoned = safeParseISOToZoned(appointment.start);
         const endZoned = safeParseISOToZoned(appointment.end);
 

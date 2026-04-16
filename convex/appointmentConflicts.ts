@@ -16,20 +16,20 @@ type DatabaseLike =
 export function appointmentOverlapsCandidate(
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationId" | "practitionerId" | "start"
+    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
   candidate: {
     end: string;
-    locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
+    locationLineageKey: Id<"locations">;
+    practitionerLineageKey?: Id<"practitioners">;
     start: string;
   },
 ): boolean {
-  if (appointment.locationId !== candidate.locationId) {
+  if (appointment.locationLineageKey !== candidate.locationLineageKey) {
     return false;
   }
 
-  if (appointment.practitionerId !== candidate.practitionerId) {
+  if (appointment.practitionerLineageKey !== candidate.practitionerLineageKey) {
     return false;
   }
 
@@ -54,8 +54,8 @@ export async function findConflictingAppointment(
   args: {
     candidate: {
       end: string;
-      locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
+      locationLineageKey: Id<"locations">;
+      practitionerLineageKey?: Id<"practitioners">;
       start: string;
     };
     excludeAppointmentIds?: Id<"appointments">[];

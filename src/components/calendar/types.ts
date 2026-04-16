@@ -1,6 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { AppointmentResult } from "../../../convex/appointments";
 import type {
   PatientInfo,
   SchedulingRuleSetId,
@@ -18,15 +19,15 @@ export interface Appointment {
   patientName?: string; // Patient name for display
   replacesAppointmentId?: Id<"appointments"> | null;
   resource?: {
-    appointmentTypeId?: Doc<"appointments">["appointmentTypeId"];
+    appointmentTypeId?: AppointmentResult["appointmentTypeId"];
     appointmentTypeTitle?: string;
     isSimulation?: boolean;
-    locationId?: Doc<"appointments">["locationId"];
-    patientId?: Doc<"appointments">["patientId"];
-    practitionerId?: Doc<"appointments">["practitionerId"];
-    seriesId?: Doc<"appointments">["seriesId"];
+    locationId?: AppointmentResult["locationId"];
+    patientId?: AppointmentResult["patientId"];
+    practitionerId?: AppointmentResult["practitionerId"];
+    seriesId?: AppointmentResult["seriesId"];
     title?: string;
-    userId?: Doc<"appointments">["userId"];
+    userId?: AppointmentResult["userId"];
   };
   startTime: string;
   title: string;

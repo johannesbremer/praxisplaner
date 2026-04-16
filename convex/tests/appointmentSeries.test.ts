@@ -383,14 +383,14 @@ describe("appointment series", () => {
     await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       await ctx.db.insert("appointments", {
-        appointmentTypeId: targetAppointmentTypeId,
+        appointmentTypeLineageKey: targetAppointmentTypeId,
         appointmentTypeTitle: "Blocker",
         createdAt: now,
         end: blockedFollowUpEnd,
         lastModified: now,
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         start: blockedFollowUpStart,
         title: "Blockiert",
       });

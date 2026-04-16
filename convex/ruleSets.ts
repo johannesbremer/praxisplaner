@@ -9,10 +9,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { internalMutation, mutation, query } from "./_generated/server";
 import { findConflictingAppointment } from "./appointmentConflicts";
-import {
-  resolveLocationIdForRuleSet,
-  resolvePractitionerIdForRuleSet,
-} from "./appointmentCoverage";
+import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -82,8 +79,6 @@ async function applyPendingSimulationAppointmentsForRuleSet(
   if (!activatedRuleSet) {
     throw new Error(`Regelset ${ruleSetId} nicht gefunden.`);
   }
-  const practice = await db.get("practices", activatedRuleSet.practiceId);
-  const currentLiveRuleSetId = practice?.currentActiveRuleSetId;
   const simulationAppointments = await db
     .query("appointments")
     .withIndex("by_simulationRuleSetId", (q) =>
@@ -92,6 +87,11 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     .collect();
 
   for (const simulationAppointment of simulationAppointments) {
+    if (!isActivationBoundSimulation(simulationAppointment)) {
+      await db.delete("appointments", simulationAppointment._id);
+      continue;
+    }
+
     if (!simulationAppointment.replacesAppointmentId) {
       await db.delete("appointments", simulationAppointment._id);
       continue;
@@ -116,31 +116,15 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       );
     }
 
-    const currentLiveLocationId =
-      currentLiveRuleSetId && currentLiveRuleSetId !== ruleSetId
-        ? await resolveLocationIdForRuleSet(db, {
-            locationId: simulationAppointment.locationId,
-            practiceId: simulationAppointment.practiceId,
-            targetRuleSetId: currentLiveRuleSetId,
-          })
-        : simulationAppointment.locationId;
-    const currentLivePractitionerId =
-      simulationAppointment.practitionerId &&
-      currentLiveRuleSetId &&
-      currentLiveRuleSetId !== ruleSetId
-        ? await resolvePractitionerIdForRuleSet(db, {
-            practiceId: simulationAppointment.practiceId,
-            practitionerId: simulationAppointment.practitionerId,
-            ruleSetId: currentLiveRuleSetId,
-          })
-        : simulationAppointment.practitionerId;
-
     const conflictingAppointment = await findConflictingAppointment(db, {
       candidate: {
         end: simulationAppointment.end,
-        locationId: currentLiveLocationId,
-        ...(currentLivePractitionerId
-          ? { practitionerId: currentLivePractitionerId }
+        locationLineageKey: simulationAppointment.locationLineageKey,
+        ...(simulationAppointment.practitionerLineageKey
+          ? {
+              practitionerLineageKey:
+                simulationAppointment.practitionerLineageKey,
+            }
           : {}),
         start: simulationAppointment.start,
       },
@@ -156,15 +140,16 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     }
 
     await db.patch("appointments", replacedAppointment._id, {
-      appointmentTypeId: simulationAppointment.appointmentTypeId,
+      appointmentTypeLineageKey:
+        simulationAppointment.appointmentTypeLineageKey,
       appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
       end: simulationAppointment.end,
       lastModified: BigInt(Date.now()),
-      locationId: simulationAppointment.locationId,
+      locationLineageKey: simulationAppointment.locationLineageKey,
       ...(simulationAppointment.patientId
         ? { patientId: simulationAppointment.patientId }
         : {}),
-      practitionerId: simulationAppointment.practitionerId,
+      practitionerLineageKey: simulationAppointment.practitionerLineageKey,
       start: simulationAppointment.start,
       title: simulationAppointment.title,
       ...(simulationAppointment.userId
@@ -434,12 +419,12 @@ async function buildAppointmentCoverageDiffSection(
         : "Unbekannt";
 
     const beforePractitioner =
-      (replacedAppointment.practitionerId
-        ? practitionerNameById.get(replacedAppointment.practitionerId)
+      (replacedAppointment.practitionerLineageKey
+        ? practitionerNameById.get(replacedAppointment.practitionerLineageKey)
         : undefined) ?? "Unzugewiesen";
     const afterPractitioner =
-      (simulationAppointment.practitionerId
-        ? practitionerNameById.get(simulationAppointment.practitionerId)
+      (simulationAppointment.practitionerLineageKey
+        ? practitionerNameById.get(simulationAppointment.practitionerLineageKey)
         : undefined) ?? "Unzugewiesen";
 
     removed.push(

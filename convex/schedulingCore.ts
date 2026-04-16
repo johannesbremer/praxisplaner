@@ -144,14 +144,14 @@ export function slotOverlapsAppointment(
   >,
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationId" | "practitionerId" | "start"
+    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
 ): boolean {
-  if (slot.locationId !== appointment.locationId) {
+  if (slot.locationId !== appointment.locationLineageKey) {
     return false;
   }
 
-  if (slot.practitionerId !== appointment.practitionerId) {
+  if (slot.practitionerId !== appointment.practitionerLineageKey) {
     return false;
   }
 

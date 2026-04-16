@@ -15,6 +15,12 @@ import {
   findConflictingAppointment,
 } from "./appointmentConflicts";
 import {
+  resolveAppointmentTypeIdForRuleSetByLineage,
+  resolveLocationIdForRuleSetByLineage,
+  resolvePractitionerIdForRuleSetByLineage,
+  resolveStoredAppointmentReferencesForWrite,
+} from "./appointmentReferences";
+import {
   appointmentSeriesArgsValidator,
   appointmentSeriesCreateResultValidator,
   appointmentSeriesPreviewResultValidator,
@@ -22,7 +28,11 @@ import {
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
 } from "./appointmentSeries";
-import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
+import {
+  type AppointmentSimulationKind,
+  appointmentSimulationKindValidator,
+  isActivationBoundSimulation,
+} from "./appointmentSimulation";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -35,6 +45,15 @@ import {
 } from "./userIdentity";
 
 type AppointmentDoc = Doc<"appointments">;
+type AppointmentListItem = AppointmentResult &
+  Pick<
+    AppointmentDoc,
+    | "cancelledAt"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "simulationKind"
+    | "simulationRuleSetId"
+  >;
 type AppointmentScope = "all" | "real" | "simulation";
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
@@ -58,6 +77,7 @@ const appointmentResultValidator = v.object({
   seriesId: v.optional(v.string()),
   seriesStepId: v.optional(v.string()),
   seriesStepIndex: v.optional(v.int64()),
+  simulationKind: v.optional(appointmentSimulationKindValidator),
   simulationRuleSetId: v.optional(v.id("ruleSets")),
   simulationValidatedAt: v.optional(v.int64()),
   start: v.string(),
@@ -141,7 +161,9 @@ function getSeriesStepKey(appointment: AppointmentDoc): string {
   return `index:${Number(appointment.seriesStepIndex ?? 0n)}`;
 }
 
-function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
+function isAppointmentCancelled(
+  appointment: Pick<AppointmentDoc, "cancelledAt">,
+): boolean {
   return appointment.cancelledAt !== undefined;
 }
 
@@ -159,7 +181,9 @@ function isAppointmentInFuture(
   }
 }
 
-function isVisibleAppointment(appointment: AppointmentDoc): boolean {
+function isVisibleAppointment(
+  appointment: Pick<AppointmentDoc, "cancelledAt">,
+): boolean {
   return !isAppointmentCancelled(appointment);
 }
 
@@ -178,48 +202,68 @@ async function resolveAppointmentPatientDateOfBirth(
   return args.fallbackDateOfBirth;
 }
 
+async function resolveAppointmentTypeIdForDisplayRuleSet(
+  db: DatabaseReader,
+  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"appointmentTypes">> {
+  return await resolveAppointmentTypeIdForRuleSetByLineage(db, {
+    lineageKey: appointmentTypeLineageKey,
+    ruleSetId: targetRuleSetId,
+  });
+}
+
+async function resolveLocationIdForDisplayRuleSet(
+  db: DatabaseReader,
+  locationLineageKey: Id<"locations">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"locations">> {
+  return await resolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: locationLineageKey,
+    ruleSetId: targetRuleSetId,
+  });
+}
+
+async function resolvePractitionerIdForDisplayRuleSet(
+  db: DatabaseReader,
+  practitionerLineageKey: Id<"practitioners">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"practitioners">> {
+  return await resolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: practitionerLineageKey,
+    ruleSetId: targetRuleSetId,
+  });
+}
+
 /**
- * Remaps entity IDs in blocked slots from source rule set to target rule set.
- * This is needed when viewing simulation data (from a different rule set) in the
- * context of the active rule set.
+ * Resolves blocked-slot references into the displayed rule set via lineage.
  */
 async function remapBlockedSlotIds(
   ctx: { db: DatabaseReader },
   blockedSlots: BlockedSlotDoc[],
-  sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<BlockedSlotDoc[]> {
-  // If rule sets are the same, no remapping needed
-  if (sourceRuleSetId === targetRuleSetId) {
-    return blockedSlots;
-  }
-
-  // Get entity mappings
-  const locationMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "locations",
+  return await Promise.all(
+    blockedSlots.map(async (slot) => {
+      const remappedSlot: BlockedSlotDoc = {
+        ...slot,
+        locationId: await resolveLocationIdForDisplayRuleSet(
+          ctx.db,
+          slot.locationId,
+          targetRuleSetId,
+        ),
+      };
+      if (slot.practitionerId) {
+        remappedSlot.practitionerId =
+          await resolvePractitionerIdForDisplayRuleSet(
+            ctx.db,
+            slot.practitionerId,
+            targetRuleSetId,
+          );
+      }
+      return remappedSlot;
+    }),
   );
-  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "practitioners",
-  );
-
-  // Remap IDs in blocked slots
-  return blockedSlots.map((slot) => {
-    const remappedSlot: BlockedSlotDoc = {
-      ...slot,
-      locationId: locationMapping.get(slot.locationId) ?? slot.locationId,
-    };
-    if (slot.practitionerId) {
-      remappedSlot.practitionerId =
-        practitionerMapping.get(slot.practitionerId) ?? slot.practitionerId;
-    }
-    return remappedSlot;
-  });
 }
 
 /**
@@ -246,8 +290,8 @@ function combineBlockedSlotsForSimulation(
 }
 
 function combineForSimulationScope(
-  appointments: AppointmentDoc[],
-): AppointmentDoc[] {
+  appointments: AppointmentListItem[],
+): AppointmentListItem[] {
   const simulationAppointments = appointments.filter(
     (appointment) => appointment.isSimulation === true,
   );
@@ -268,6 +312,13 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+function getDisplayRuleSetId(args: {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}) {
+  return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
 function getSimulationScopeRuleSetId(args: {
   activeRuleSetId?: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
@@ -278,51 +329,92 @@ function getSimulationScopeRuleSetId(args: {
 async function remapAppointmentIds(
   ctx: { db: DatabaseReader },
   appointments: AppointmentDoc[],
-  sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
-): Promise<AppointmentDoc[]> {
-  // If rule sets are the same, no remapping needed
-  if (sourceRuleSetId === targetRuleSetId) {
-    return appointments;
-  }
+): Promise<AppointmentListItem[]> {
+  return await Promise.all(
+    appointments.map(async (appointment) => {
+      const remappedAppointment: AppointmentListItem = {
+        ...toAppointmentListItem(appointment),
+        appointmentTypeId: await resolveAppointmentTypeIdForDisplayRuleSet(
+          ctx.db,
+          appointment.appointmentTypeLineageKey,
+          targetRuleSetId,
+        ),
+        locationId: await resolveLocationIdForDisplayRuleSet(
+          ctx.db,
+          appointment.locationLineageKey,
+          targetRuleSetId,
+        ),
+      };
+      if (appointment.practitionerLineageKey) {
+        remappedAppointment.practitionerId =
+          await resolvePractitionerIdForDisplayRuleSet(
+            ctx.db,
+            appointment.practitionerLineageKey,
+            targetRuleSetId,
+          );
+      }
+      return remappedAppointment;
+    }),
+  );
+}
 
-  // Get entity mappings
-  const locationMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "locations",
-  );
-  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "practitioners",
-  );
-  const appointmentTypeMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "appointmentTypes",
-  );
-
-  // Remap IDs in appointments
-  return appointments.map((appointment) => {
-    const remappedAppointment: AppointmentDoc = {
-      ...appointment,
-      appointmentTypeId:
-        appointmentTypeMapping.get(appointment.appointmentTypeId) ??
-        appointment.appointmentTypeId,
-      locationId:
-        locationMapping.get(appointment.locationId) ?? appointment.locationId,
-    };
-    if (appointment.practitionerId) {
-      remappedAppointment.practitionerId =
-        practitionerMapping.get(appointment.practitionerId) ??
-        appointment.practitionerId;
-    }
-    return remappedAppointment;
-  });
+function toAppointmentListItem(
+  appointment: AppointmentDoc,
+): AppointmentListItem {
+  return {
+    _creationTime: appointment._creationTime,
+    _id: appointment._id,
+    appointmentTypeId: appointment.appointmentTypeLineageKey,
+    appointmentTypeTitle: appointment.appointmentTypeTitle,
+    createdAt: appointment.createdAt,
+    end: appointment.end,
+    lastModified: appointment.lastModified,
+    locationId: appointment.locationLineageKey,
+    practiceId: appointment.practiceId,
+    ...(appointment.cancelledAt === undefined
+      ? {}
+      : { cancelledAt: appointment.cancelledAt }),
+    ...(appointment.isSimulation === undefined
+      ? {}
+      : { isSimulation: appointment.isSimulation }),
+    ...(appointment.patientId === undefined
+      ? {}
+      : { patientId: appointment.patientId }),
+    ...(appointment.practitionerLineageKey
+      ? { practitionerId: appointment.practitionerLineageKey }
+      : {}),
+    ...(appointment.reassignmentSourceVacationLineageKey === undefined
+      ? {}
+      : {
+          reassignmentSourceVacationLineageKey:
+            appointment.reassignmentSourceVacationLineageKey,
+        }),
+    ...(appointment.replacesAppointmentId === undefined
+      ? {}
+      : { replacesAppointmentId: appointment.replacesAppointmentId }),
+    ...(appointment.seriesId === undefined
+      ? {}
+      : { seriesId: appointment.seriesId }),
+    ...(appointment.seriesStepId === undefined
+      ? {}
+      : { seriesStepId: appointment.seriesStepId }),
+    ...(appointment.seriesStepIndex === undefined
+      ? {}
+      : { seriesStepIndex: appointment.seriesStepIndex }),
+    ...(appointment.simulationKind === undefined
+      ? {}
+      : { simulationKind: appointment.simulationKind }),
+    ...(appointment.simulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: appointment.simulationRuleSetId }),
+    ...(appointment.simulationValidatedAt === undefined
+      ? {}
+      : { simulationValidatedAt: appointment.simulationValidatedAt }),
+    start: appointment.start,
+    title: appointment.title,
+    ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
+  };
 }
 
 // Query to get all appointments
@@ -345,38 +437,19 @@ export const getAppointments = query({
       .query("appointments")
       .order("asc")
       .collect();
-    let appointments = appointmentDocs.filter(
+    const visibleAppointments = appointmentDocs.filter(
       (appointment) =>
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    const appointments: AppointmentListItem[] = displayRuleSetId
+      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
+      : visibleAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        );
 
-    // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
-    // from active rule set to selected rule set BEFORE combining with simulation data
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      // Only remap real appointments (simulation appointments already have correct IDs)
-      const realAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation !== true,
-      );
-      const simulationAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation === true,
-      );
-
-      const remappedRealAppointments = await remapAppointmentIds(
-        ctx,
-        realAppointments,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
-      );
-
-      appointments = [...remappedRealAppointments, ...simulationAppointments];
-    }
-
-    let resultAppointments: AppointmentDoc[];
+    let resultAppointments: AppointmentListItem[];
 
     if (scope === "simulation") {
       resultAppointments = combineForSimulationScope(
@@ -439,30 +512,13 @@ export const getAppointmentsInRange = query({
         isVisibleAppointment(appointment),
     );
 
-    let appointments = filteredAppointments;
     const scope: AppointmentScope = args.scope ?? "real";
-
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      const realAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation !== true,
-      );
-      const simulationAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation === true,
-      );
-
-      const remappedRealAppointments = await remapAppointmentIds(
-        ctx,
-        realAppointments,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
-      );
-
-      appointments = [...remappedRealAppointments, ...simulationAppointments];
-    }
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    const appointments: AppointmentListItem[] = displayRuleSetId
+      ? await remapAppointmentIds(ctx, filteredAppointments, displayRuleSetId)
+      : filteredAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        );
 
     if (scope === "simulation") {
       return combineForSimulationScope(
@@ -553,6 +609,7 @@ export async function createAppointmentFromTrustedSource(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
+    simulationKind?: AppointmentSimulationKind;
     simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     title: string;
@@ -561,11 +618,16 @@ export async function createAppointmentFromTrustedSource(
 ) {
   const now = BigInt(Date.now());
   const {
+    appointmentTypeId,
     isNewPatient,
     isSimulation,
+    locationId,
     patientDateOfBirth,
     patientId,
+    practiceId,
+    practitionerId,
     replacesAppointmentId,
+    simulationKind,
     userId,
     ...rest
   } = args;
@@ -579,6 +641,12 @@ export async function createAppointmentFromTrustedSource(
   // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
   if (!isSimulation && !patientId && !userId) {
     throw new Error("Either patientId or userId must be provided.");
+  }
+
+  if (simulationKind && isSimulation !== true) {
+    throw new Error(
+      "simulationKind can only be used with simulated appointments.",
+    );
   }
 
   // If a patientId is provided, verify it exists
@@ -599,29 +667,36 @@ export async function createAppointmentFromTrustedSource(
   // Look up the appointment type to get its name at booking time
   const appointmentType = await ctx.db.get(
     "appointmentTypes",
-    args.appointmentTypeId,
+    appointmentTypeId,
   );
   if (!appointmentType) {
-    throw new Error(
-      `Appointment type with ID ${args.appointmentTypeId} not found`,
-    );
+    throw new Error(`Appointment type with ID ${appointmentTypeId} not found`);
   }
 
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId,
+      locationId,
+      ...(practitionerId ? { practitionerId } : {}),
+    },
+  );
+
   if (appointmentType.followUpPlan && appointmentType.followUpPlan.length > 0) {
-    if (!args.practitionerId) {
+    if (!practitionerId) {
       throw new Error(
         "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
       );
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
-      locationId: args.locationId,
+      locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(patientId && { patientId }),
-      practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
-      rootAppointmentTypeId: args.appointmentTypeId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId: appointmentTypeId,
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
@@ -640,11 +715,13 @@ export async function createAppointmentFromTrustedSource(
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end,
-      locationId: args.locationId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
+      locationLineageKey: storedReferences.locationLineageKey,
+      ...(storedReferences.practitionerLineageKey && {
+        practitionerLineageKey: storedReferences.practitionerLineageKey,
+      }),
       start: args.start,
     },
-    practiceId: args.practiceId,
+    practiceId,
     ...(isSimulation === true && args.simulationRuleSetId
       ? { simulationRuleSetId: args.simulationRuleSetId }
       : {}),
@@ -660,17 +737,20 @@ export async function createAppointmentFromTrustedSource(
 
   const insertData = {
     ...rest,
+    ...storedReferences,
     appointmentTypeTitle: appointmentType.name,
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
     lastModified: now,
+    practiceId,
     ...(patientId && { patientId }),
     ...(userId && { userId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
     }),
     ...(isSimulation === true && {
+      simulationKind: simulationKind ?? "draft",
       simulationValidatedAt: now,
     }),
   };
@@ -689,6 +769,7 @@ export const createAppointment = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(appointmentSimulationKindValidator),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.string(),
     title: v.string(),
@@ -719,6 +800,7 @@ export const updateAppointment = mutation({
     patientId: v.optional(v.id("patients")),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(appointmentSimulationKindValidator),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.optional(v.string()),
     title: v.optional(v.string()),
@@ -756,13 +838,82 @@ export const updateAppointment = mutation({
       }
     }
 
+    const appointmentTypeRecord =
+      filteredUpdateData.appointmentTypeId === undefined
+        ? undefined
+        : await ctx.db.get(
+            "appointmentTypes",
+            filteredUpdateData.appointmentTypeId,
+          );
+    const locationRecord =
+      filteredUpdateData.locationId === undefined
+        ? undefined
+        : await ctx.db.get("locations", filteredUpdateData.locationId);
+    const practitionerRecord =
+      filteredUpdateData.practitionerId === undefined
+        ? undefined
+        : await ctx.db.get("practitioners", filteredUpdateData.practitionerId);
+
+    const editingRuleSetId =
+      appointmentTypeRecord?.ruleSetId ??
+      practitionerRecord?.ruleSetId ??
+      locationRecord?.ruleSetId;
+
+    const resolvedStoredReferences =
+      filteredUpdateData.appointmentTypeId !== undefined ||
+      filteredUpdateData.locationId !== undefined ||
+      filteredUpdateData.practitionerId !== undefined
+        ? await (async () => {
+            if (!editingRuleSetId) {
+              throw new Error(
+                "Das Regelset fuer die Terminbearbeitung konnte nicht bestimmt werden.",
+              );
+            }
+            const appointmentTypeIdForWrite =
+              filteredUpdateData.appointmentTypeId ??
+              (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+                lineageKey: existingAppointment.appointmentTypeLineageKey,
+                ruleSetId: editingRuleSetId,
+              }));
+            const locationIdForWrite =
+              filteredUpdateData.locationId ??
+              (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+                lineageKey: existingAppointment.locationLineageKey,
+                ruleSetId: editingRuleSetId,
+              }));
+            const practitionerIdForWrite =
+              filteredUpdateData.practitionerId ??
+              (existingAppointment.practitionerLineageKey
+                ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+                    lineageKey: existingAppointment.practitionerLineageKey,
+                    ruleSetId: editingRuleSetId,
+                  })
+                : undefined);
+
+            return resolveStoredAppointmentReferencesForWrite(ctx.db, {
+              appointmentTypeId: appointmentTypeIdForWrite,
+              locationId: locationIdForWrite,
+              ...(practitionerIdForWrite
+                ? { practitionerId: practitionerIdForWrite }
+                : {}),
+            });
+          })()
+        : {
+            appointmentTypeLineageKey:
+              existingAppointment.appointmentTypeLineageKey,
+            locationLineageKey: existingAppointment.locationLineageKey,
+            ...(existingAppointment.practitionerLineageKey
+              ? {
+                  practitionerLineageKey:
+                    existingAppointment.practitionerLineageKey,
+                }
+              : {}),
+          };
     const resolvedAppointmentTypeId =
-      filteredUpdateData.appointmentTypeId ??
-      existingAppointment.appointmentTypeId;
-    const resolvedLocationId =
-      filteredUpdateData.locationId ?? existingAppointment.locationId;
+      resolvedStoredReferences.appointmentTypeLineageKey;
+    const resolvedLocationId = resolvedStoredReferences.locationLineageKey;
     const resolvedPractitionerId =
-      filteredUpdateData.practitionerId ?? existingAppointment.practitionerId;
+      resolvedStoredReferences.practitionerLineageKey;
     const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
     const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
     const resolvedIsSimulation =
@@ -770,29 +921,70 @@ export const updateAppointment = mutation({
     const resolvedSimulationRuleSetId =
       filteredUpdateData.simulationRuleSetId ??
       existingAppointment.simulationRuleSetId;
-
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
-      resolvedAppointmentTypeId,
-    );
-    if (!appointmentType) {
-      throw new Error(
-        `Appointment type with ID ${resolvedAppointmentTypeId} not found`,
-      );
-    }
+    const shouldDowngradeActivationBinding =
+      resolvedIsSimulation === true &&
+      filteredUpdateData.simulationKind === undefined &&
+      isActivationBoundSimulation(existingAppointment);
+    const resolvedSimulationKind =
+      resolvedIsSimulation === true
+        ? shouldDowngradeActivationBinding
+          ? "draft"
+          : (filteredUpdateData.simulationKind ??
+            existingAppointment.simulationKind ??
+            "draft")
+        : undefined;
 
     if (
-      resolvedPractitionerId &&
-      !appointmentType.allowedPractitionerIds.includes(resolvedPractitionerId)
+      filteredUpdateData.appointmentTypeId !== undefined ||
+      filteredUpdateData.practitionerId !== undefined
     ) {
-      throw new Error(
-        "Der gewählte Behandler ist für diese Terminart nicht freigegeben.",
+      const appointmentTypeRuleSetId =
+        appointmentTypeRecord?.ruleSetId ?? practitionerRecord?.ruleSetId;
+
+      if (!appointmentTypeRuleSetId) {
+        throw new Error("Die Terminart konnte nicht validiert werden.");
+      }
+
+      const appointmentTypeIdForValidation =
+        filteredUpdateData.appointmentTypeId ??
+        (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+          lineageKey: existingAppointment.appointmentTypeLineageKey,
+          ruleSetId: appointmentTypeRuleSetId,
+        }));
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        appointmentTypeIdForValidation,
       );
+      if (!appointmentType) {
+        throw new Error(
+          `Appointment type with ID ${appointmentTypeIdForValidation} not found`,
+        );
+      }
+
+      const practitionerIdForValidation =
+        filteredUpdateData.practitionerId ??
+        (existingAppointment.practitionerLineageKey
+          ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+              lineageKey: existingAppointment.practitionerLineageKey,
+              ruleSetId: appointmentType.ruleSetId,
+            })
+          : undefined);
+
+      if (
+        practitionerIdForValidation &&
+        !appointmentType.allowedPractitionerIds.includes(
+          practitionerIdForValidation,
+        )
+      ) {
+        throw new Error(
+          "Der gewählte Behandler ist für diese Terminart nicht freigegeben.",
+        );
+      }
     }
 
     const hasSchedulingChange =
-      resolvedLocationId !== existingAppointment.locationId ||
-      resolvedPractitionerId !== existingAppointment.practitionerId ||
+      resolvedLocationId !== existingAppointment.locationLineageKey ||
+      resolvedPractitionerId !== existingAppointment.practitionerLineageKey ||
       resolvedStart !== existingAppointment.start ||
       resolvedEnd !== existingAppointment.end ||
       resolvedIsSimulation !== existingAppointment.isSimulation;
@@ -801,9 +993,9 @@ export const updateAppointment = mutation({
       const conflictingAppointment = await findConflictingAppointment(ctx.db, {
         candidate: {
           end: resolvedEnd,
-          locationId: resolvedLocationId,
+          locationLineageKey: resolvedLocationId,
           ...(resolvedPractitionerId
-            ? { practitionerId: resolvedPractitionerId }
+            ? { practitionerLineageKey: resolvedPractitionerId }
             : {}),
           start: resolvedStart,
         },
@@ -836,15 +1028,26 @@ export const updateAppointment = mutation({
         );
       }
 
-      if (
-        filteredUpdateData.appointmentTypeId !== undefined &&
-        filteredUpdateData.appointmentTypeId !==
-          existingAppointment.appointmentTypeId
-      ) {
-        throw appointmentChainError(
-          "CHAIN_REPLAN_FAILED",
-          "Die Terminart eines Kettentermins kann nach der Buchung nicht geändert werden.",
-        );
+      if (filteredUpdateData.appointmentTypeId !== undefined) {
+        const nextSeriesStoredReferences =
+          await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+            appointmentTypeId: filteredUpdateData.appointmentTypeId,
+            locationId:
+              filteredUpdateData.locationId ??
+              existingAppointment.locationLineageKey,
+            ...(filteredUpdateData.practitionerId
+              ? { practitionerId: filteredUpdateData.practitionerId }
+              : {}),
+          });
+        if (
+          nextSeriesStoredReferences.appointmentTypeLineageKey !==
+          existingAppointment.appointmentTypeLineageKey
+        ) {
+          throw appointmentChainError(
+            "CHAIN_REPLAN_FAILED",
+            "Die Terminart eines Kettentermins kann nach der Buchung nicht geändert werden.",
+          );
+        }
       }
 
       const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
@@ -881,7 +1084,13 @@ export const updateAppointment = mutation({
               filteredUpdateData.start,
             ));
       const practitionerId =
-        filteredUpdateData.practitionerId ?? existingAppointment.practitionerId;
+        filteredUpdateData.practitionerId ??
+        (existingAppointment.practitionerLineageKey
+          ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+              lineageKey: existingAppointment.practitionerLineageKey,
+              ruleSetId: seriesRecord.ruleSetIdAtBooking,
+            })
+          : undefined);
 
       if (!practitionerId) {
         throw appointmentChainError(
@@ -893,7 +1102,11 @@ export const updateAppointment = mutation({
       const plannedSteps = await replanAppointmentSeries(ctx, {
         excludedAppointmentIds: seriesAppointmentIds,
         locationId:
-          filteredUpdateData.locationId ?? existingAppointment.locationId,
+          filteredUpdateData.locationId ??
+          (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+            lineageKey: existingAppointment.locationLineageKey,
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          })),
         ...(resolvedPatientDateOfBirth && {
           patientDateOfBirth: resolvedPatientDateOfBirth,
         }),
@@ -928,14 +1141,18 @@ export const updateAppointment = mutation({
             : `Folgetermin: ${step.appointmentTypeTitle}`;
 
         if (matchingAppointment) {
+          const stepStoredReferences =
+            await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+              appointmentTypeId: step.appointmentTypeId,
+              locationId: step.locationId,
+              practitionerId: step.practitionerId,
+            });
           await ctx.db.patch("appointments", matchingAppointment._id, {
-            appointmentTypeId: step.appointmentTypeId,
+            ...stepStoredReferences,
             appointmentTypeTitle: step.appointmentTypeTitle,
             end: step.end,
             lastModified: now,
-            locationId: step.locationId,
             ...(resolvedPatientId && { patientId: resolvedPatientId }),
-            practitionerId: step.practitionerId,
             seriesId,
             seriesStepId: step.stepId,
             seriesStepIndex: BigInt(step.seriesStepIndex),
@@ -947,8 +1164,14 @@ export const updateAppointment = mutation({
           continue;
         }
 
+        const stepStoredReferences =
+          await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+            appointmentTypeId: step.appointmentTypeId,
+            locationId: step.locationId,
+            practitionerId: step.practitionerId,
+          });
         const insertedAppointmentId = await ctx.db.insert("appointments", {
-          appointmentTypeId: step.appointmentTypeId,
+          ...stepStoredReferences,
           appointmentTypeTitle: step.appointmentTypeTitle,
           createdAt: now,
           end: step.end,
@@ -956,10 +1179,8 @@ export const updateAppointment = mutation({
             isSimulation: true,
           }),
           lastModified: now,
-          locationId: step.locationId,
           ...(resolvedPatientId && { patientId: resolvedPatientId }),
           practiceId: existingAppointment.practiceId,
-          practitionerId: step.practitionerId,
           seriesId,
           seriesStepId: step.stepId,
           seriesStepIndex: BigInt(step.seriesStepIndex),
@@ -999,8 +1220,33 @@ export const updateAppointment = mutation({
       return null;
     }
 
+    const persistedUpdateData = Object.fromEntries(
+      Object.entries(filteredUpdateData).filter(
+        ([key]) =>
+          key !== "appointmentTypeId" &&
+          key !== "locationId" &&
+          key !== "practitionerId",
+      ),
+    ) as Omit<
+      typeof filteredUpdateData,
+      "appointmentTypeId" | "locationId" | "practitionerId"
+    >;
+
     await ctx.db.patch("appointments", id, {
-      ...filteredUpdateData,
+      ...persistedUpdateData,
+      appointmentTypeLineageKey: resolvedAppointmentTypeId,
+      locationLineageKey: resolvedLocationId,
+      ...(resolvedPractitionerId
+        ? { practitionerLineageKey: resolvedPractitionerId }
+        : filteredUpdateData.practitionerId === undefined
+          ? {}
+          : { practitionerLineageKey: undefined }),
+      ...(resolvedIsSimulation === true && resolvedSimulationKind
+        ? { simulationKind: resolvedSimulationKind }
+        : {}),
+      ...(shouldDowngradeActivationBinding
+        ? { reassignmentSourceVacationLineageKey: undefined }
+        : {}),
       ...(resolvedIsSimulation === true
         ? { simulationValidatedAt: BigInt(Date.now()) }
         : {}),
@@ -1146,7 +1392,7 @@ export const getBookedAppointmentForCurrentUser = query({
 async function getBookedAppointmentsForUser(
   ctx: QueryCtx,
   args: { refreshNonce?: number },
-): Promise<AppointmentDoc[]> {
+): Promise<AppointmentListItem[]> {
   const userId = await getAuthenticatedUserIdForQuery(ctx);
   if (!userId) {
     return [];
@@ -1165,14 +1411,14 @@ async function getBookedAppointmentsForUser(
       q.eq("userId", userId).gte("start", nowStartLowerBound),
     );
 
-  const appointments: AppointmentDoc[] = [];
+  const appointments: AppointmentListItem[] = [];
   for await (const appointment of appointmentQuery) {
     if (
       appointment.isSimulation !== true &&
       isVisibleAppointment(appointment) &&
       isAppointmentInFuture(appointment, nowEpochMilliseconds)
     ) {
-      appointments.push(appointment);
+      appointments.push(toAppointmentListItem(appointment));
     }
   }
 
@@ -1195,7 +1441,7 @@ export const getAppointmentsForPatient = query({
       return [];
     }
 
-    const appointments: AppointmentDoc[] = [];
+    const appointments: AppointmentListItem[] = [];
 
     // Query by patient ID if provided
     if (args.patientId) {
@@ -1203,7 +1449,11 @@ export const getAppointmentsForPatient = query({
         .query("appointments")
         .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
         .collect();
-      appointments.push(...patientAppointments);
+      appointments.push(
+        ...patientAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        ),
+      );
     }
 
     if (args.userId) {
@@ -1211,7 +1461,11 @@ export const getAppointmentsForPatient = query({
         .query("appointments")
         .withIndex("by_userId", (q) => q.eq("userId", args.userId))
         .collect();
-      appointments.push(...userAppointments);
+      appointments.push(
+        ...userAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        ),
+      );
     }
 
     // Dedupe in case both queries return the same appointment, then sort by start time (ascending)
@@ -1242,10 +1496,15 @@ export const deleteAllSimulatedAppointments = internalMutation({
     );
 
     for (const appointment of simulatedAppointments) {
+      if (isActivationBoundSimulation(appointment)) {
+        continue;
+      }
       await ctx.db.delete("appointments", appointment._id);
     }
 
-    return simulatedAppointments.length;
+    return simulatedAppointments.filter(
+      (appointment) => !isActivationBoundSimulation(appointment),
+    ).length;
   },
   returns: v.number(),
 });
@@ -1274,29 +1533,13 @@ export const getBlockedSlots = query({
       accessiblePracticeIds.has(blockedSlot.practiceId),
     );
 
-    // If both rule set IDs are provided and different, remap entity IDs in REAL blocked slots
-    // from active rule set to selected rule set BEFORE combining with simulation data
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      // Only remap real blocked slots (simulation slots already have correct IDs)
-      const realSlots = blockedSlots.filter(
-        (slot) => slot.isSimulation !== true,
-      );
-      const simulationSlots = blockedSlots.filter(
-        (slot) => slot.isSimulation === true,
-      );
-
-      const remappedRealSlots = await remapBlockedSlotIds(
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    if (displayRuleSetId) {
+      blockedSlots = await remapBlockedSlotIds(
         ctx,
-        realSlots,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
+        blockedSlots,
+        displayRuleSetId,
       );
-
-      blockedSlots = [...remappedRealSlots, ...simulationSlots];
     }
 
     let resultSlots: BlockedSlotDoc[];

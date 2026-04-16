@@ -62,6 +62,7 @@ async function createAppointmentBaseData(t: TestContext) {
       locationId,
       practiceId,
       practitionerId,
+      ruleSetId,
     };
   });
 }
@@ -94,14 +95,14 @@ async function insertAppointment(
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
     return await ctx.db.insert("appointments", {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeLineageKey: args.appointmentTypeId,
       appointmentTypeTitle: "Checkup",
       createdAt: now,
       end: args.window.end,
       lastModified: now,
-      locationId: args.locationId,
+      locationLineageKey: args.locationId,
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      practitionerLineageKey: args.practitionerId,
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
@@ -237,15 +238,15 @@ describe("appointments self-service cancellation", () => {
     await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup (Simulation)",
         createdAt: now,
         end: simulationWindow.end,
         isSimulation: true,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: simulationWindow.start,
         title: "Simulation-Termin",
         userId,
@@ -256,15 +257,15 @@ describe("appointments self-service cancellation", () => {
     const realAppointmentId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       return await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: realWindow.end,
         isSimulation: false,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Online-Termin: Checkup",
         userId,
@@ -589,14 +590,14 @@ describe("appointments self-service cancellation", () => {
     const rootAppointmentId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const appointmentId = await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: rootWindow.end,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 0n,
         start: rootWindow.start,
@@ -605,14 +606,14 @@ describe("appointments self-service cancellation", () => {
       });
 
       await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: followUpEnd,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 1n,
         start: followUpStart,
@@ -839,5 +840,221 @@ describe("appointments update safety", () => {
     );
 
     expect(remainingSimulations).toHaveLength(0);
+  });
+
+  test("clearing simulated data keeps activation-bound vacation reassignments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_clear_keep_reassignments";
+    const userId = await createUser(t, authId, "sim-clear-keep@example.com");
+    const authed = t.withIdentity({
+      email: "sim-clear-keep@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(8).start,
+        title: "Real appointment",
+        userId,
+      },
+    );
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(9).start,
+      title: "Draft preview only",
+      userId,
+    });
+
+    const activationBoundSimulationId = await t.run(async (ctx) => {
+      const vacationId = await ctx.db.insert("vacations", {
+        createdAt: BigInt(Date.now()),
+        date: "2026-01-05",
+        portion: "morning",
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        ruleSetId: unsavedRuleSetId,
+        staffType: "practitioner",
+      });
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: BigInt(Date.now()),
+        end: makeSlotWindow(8).end,
+        isSimulation: true,
+        lastModified: BigInt(Date.now()),
+        locationLineageKey: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        reassignmentSourceVacationLineageKey: vacationId,
+        replacesAppointmentId: realAppointmentId,
+        simulationKind: "activation-reassignment",
+        simulationRuleSetId: unsavedRuleSetId,
+        simulationValidatedAt: BigInt(Date.now()),
+        start: makeSlotWindow(8).start,
+        title: "Auto reassigned",
+        userId,
+      });
+    });
+
+    const clearResult = await authed.mutation(
+      api.appointments.deleteAllSimulatedData,
+      {
+        practiceId: baseData.practiceId,
+      },
+    );
+
+    expect(clearResult.appointmentsDeleted).toBe(1);
+
+    const [remainingActivationBound, remainingDraftOnly] = await t.run(
+      async (ctx) => {
+        const activationBound = await ctx.db.get(
+          "appointments",
+          activationBoundSimulationId,
+        );
+        const draftOnlyAppointments = await ctx.db
+          .query("appointments")
+          .withIndex("by_simulationRuleSetId", (q) =>
+            q.eq("simulationRuleSetId", unsavedRuleSetId),
+          )
+          .collect();
+        return [activationBound, draftOnlyAppointments];
+      },
+    );
+
+    expect(remainingActivationBound?._id).toBe(activationBoundSimulationId);
+    expect(
+      remainingDraftOnly.filter(
+        (appointment) =>
+          appointment.simulationKind !== "activation-reassignment",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("getAppointments remaps appointment references by lineage into the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set B",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const copiedEntityIds = await t.run(async (ctx) => {
+      const locationId = await ctx.db.insert("locations", {
+        lineageKey: baseData.locationId,
+        name: "Main Location Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+
+      const practitionerId = await ctx.db.insert("practitioners", {
+        lineageKey: baseData.practitionerId,
+        name: "Dr. Appointments Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+
+      const now = BigInt(Date.now());
+      const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        lineageKey: baseData.appointmentTypeId,
+        name: "Checkup Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+
+      return { appointmentTypeId, locationId, practitionerId };
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_lineage_display",
+      "lineage-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "lineage-display@example.com",
+      subject: "workos_lineage_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await insertAppointment(t, {
+      appointmentTypeId: copiedEntityIds.appointmentTypeId,
+      locationId: copiedEntityIds.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: copiedEntityIds.practitionerId,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    const appointmentsInDisplayedRuleSet = await authed.query(
+      api.appointments.getAppointments,
+      {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: baseData.ruleSetId,
+      },
+    );
+
+    expect(appointmentsInDisplayedRuleSet).toHaveLength(1);
+    const displayedAppointment = appointmentsInDisplayedRuleSet[0];
+    expect(displayedAppointment?._id).toBe(appointmentId);
+
+    expect(displayedAppointment?.appointmentTypeId).toBe(
+      baseData.appointmentTypeId,
+    );
+    expect(displayedAppointment?.locationId).toBe(baseData.locationId);
+    expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
   });
 });

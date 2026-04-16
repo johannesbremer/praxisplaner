@@ -57,30 +57,30 @@ describe("ruleEngine preloaded day data", () => {
       const end = start.add({ minutes: 30 });
 
       const activeAppointmentId = await ctx.db.insert("appointments", {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: end.toString(),
         isSimulation: false,
         lastModified: now,
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         start: start.toString(),
         title: "Active appointment",
       });
 
       await ctx.db.insert("appointments", {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         cancelledAt: now,
         createdAt: now,
         end: end.add({ minutes: 30 }).toString(),
         isSimulation: false,
         lastModified: now,
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         start: start.add({ minutes: 30 }).toString(),
         title: "Cancelled appointment",
       });

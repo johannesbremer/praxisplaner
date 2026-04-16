@@ -466,20 +466,23 @@ export default defineSchema({
     title: v.string(), // User-provided title for the appointment
 
     // Additional fields
-    appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
+    appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
     cancelledAt: v.optional(v.int64()),
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
-    locationId: v.id("locations"),
+    locationLineageKey: v.id("locations"), // Stable reference across rule set versions
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerId: v.optional(v.id("practitioners")),
+    practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
     reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
     seriesStepId: v.optional(v.string()),
     seriesStepIndex: v.optional(v.int64()),
+    simulationKind: v.optional(
+      v.union(v.literal("draft"), v.literal("activation-reassignment")),
+    ),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     simulationValidatedAt: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
@@ -490,7 +493,7 @@ export default defineSchema({
   })
     .index("by_start", ["start"])
     .index("by_patientId", ["patientId"])
-    .index("by_practitionerId", ["practitionerId"])
+    .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
@@ -500,7 +503,7 @@ export default defineSchema({
       "reassignmentSourceVacationLineageKey",
     ])
     .index("by_simulationRuleSetId", ["simulationRuleSetId"])
-    .index("by_appointmentTypeId", ["appointmentTypeId"])
+    .index("by_appointmentTypeLineageKey", ["appointmentTypeLineageKey"])
     .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
     .index("by_userId_start", ["userId", "start"]),

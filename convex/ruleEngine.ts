@@ -153,7 +153,7 @@ export async function buildPreloadedDayData(
     practiceAppointments.push(parsed);
 
     // Add to location-specific list
-    const locationKey = `location:${apt.locationId}`;
+    const locationKey = `location:${apt.locationLineageKey}`;
     let locationAppointments = parsedAppointmentsByScope.get(locationKey);
     if (!locationAppointments) {
       locationAppointments = [];
@@ -162,8 +162,8 @@ export async function buildPreloadedDayData(
     locationAppointments.push(parsed);
 
     // Add to practitioner-specific list (if practitioner assigned)
-    if (apt.practitionerId) {
-      const practitionerKey = `practitioner:${apt.practitionerId}`;
+    if (apt.practitionerLineageKey) {
+      const practitionerKey = `practitioner:${apt.practitionerLineageKey}`;
       let practitionerAppointments =
         parsedAppointmentsByScope.get(practitionerKey);
       if (!practitionerAppointments) {
@@ -181,7 +181,7 @@ export async function buildPreloadedDayData(
   // Multiple keys per appointment: practice, location, and practitioner scope
   const dailyCapacityCounts = new Map<string, number>();
   for (const apt of appointments) {
-    const typeId = apt.appointmentTypeId;
+    const typeId = apt.appointmentTypeLineageKey;
 
     // Practice-wide count by appointment type
     const practiceTypeKey = `practice:${typeId}`;
@@ -191,15 +191,15 @@ export async function buildPreloadedDayData(
     );
 
     // Location-specific count by appointment type
-    const locationTypeKey = `location:${apt.locationId}:${typeId}`;
+    const locationTypeKey = `location:${apt.locationLineageKey}:${typeId}`;
     dailyCapacityCounts.set(
       locationTypeKey,
       (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
     );
 
     // Practitioner-specific count by appointment type (if practitioner assigned)
-    if (apt.practitionerId) {
-      const practitionerTypeKey = `practitioner:${apt.practitionerId}:${typeId}`;
+    if (apt.practitionerLineageKey) {
+      const practitionerTypeKey = `practitioner:${apt.practitionerLineageKey}:${typeId}`;
       dailyCapacityCounts.set(
         practitionerTypeKey,
         (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
@@ -446,7 +446,7 @@ function evaluateCondition(
         ) {
           // Check appointment type filter if specified
           if (appointmentTypeIds.length > 0) {
-            const aptTypeId = parsed.appointment.appointmentTypeId;
+            const aptTypeId = parsed.appointment.appointmentTypeLineageKey;
             if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
               continue;
             }
