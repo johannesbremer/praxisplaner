@@ -34,7 +34,9 @@ export async function resolveAppointmentTypeIdForRuleSetByLineage(
     return direct._id;
   }
 
-  return effectiveLineageKey;
+  throw new Error(
+    `Terminart mit Lineage-Key ${effectiveLineageKey} im Regelset ${args.ruleSetId} nicht gefunden.`,
+  );
 }
 
 export async function resolveAppointmentTypeLineageKey(
@@ -70,7 +72,9 @@ export async function resolveLocationIdForRuleSetByLineage(
     return direct._id;
   }
 
-  return effectiveLineageKey;
+  throw new Error(
+    `Standort mit Lineage-Key ${effectiveLineageKey} im Regelset ${args.ruleSetId} nicht gefunden.`,
+  );
 }
 
 export async function resolveLocationLineageKey(
@@ -106,7 +110,9 @@ export async function resolvePractitionerIdForRuleSetByLineage(
     return direct._id;
   }
 
-  return effectiveLineageKey;
+  throw new Error(
+    `Behandler mit Lineage-Key ${effectiveLineageKey} im Regelset ${args.ruleSetId} nicht gefunden.`,
+  );
 }
 
 export async function resolvePractitionerLineageKey(

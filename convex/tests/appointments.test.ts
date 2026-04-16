@@ -94,15 +94,29 @@ async function insertAppointment(
 ) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    const location = await ctx.db.get("locations", args.locationId);
+    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+
+    if (!appointmentType || !location || !practitioner) {
+      throw new Error(
+        "Appointment test fixture is missing referenced entities",
+      );
+    }
+
     return await ctx.db.insert("appointments", {
-      appointmentTypeLineageKey: args.appointmentTypeId,
+      appointmentTypeLineageKey:
+        appointmentType.lineageKey ?? appointmentType._id,
       appointmentTypeTitle: "Checkup",
       createdAt: now,
       end: args.window.end,
       lastModified: now,
-      locationLineageKey: args.locationId,
+      locationLineageKey: location.lineageKey ?? location._id,
       practiceId: args.practiceId,
-      practitionerLineageKey: args.practitionerId,
+      practitionerLineageKey: practitioner.lineageKey ?? practitioner._id,
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
@@ -1056,5 +1070,53 @@ describe("appointments update safety", () => {
     );
     expect(displayedAppointment?.locationId).toBe(baseData.locationId);
     expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
+  });
+
+  test("getAppointments fails loudly when the displayed rule set is missing a lineage mapping", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set Missing Mapping",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_missing_display_mapping",
+      "missing-display-mapping@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "missing-display-mapping@example.com",
+      subject: "workos_missing_display_mapping",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: savedRuleSetId,
+      }),
+    ).rejects.toThrow("nicht gefunden");
   });
 });

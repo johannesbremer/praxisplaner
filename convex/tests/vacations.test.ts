@@ -790,6 +790,146 @@ describe("vacations", () => {
     expect(remainingSimulations).toHaveLength(0);
   });
 
+  test("activating staged coverage applies mutually dependent swaps as one batch", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const [appointmentAId, appointmentBId] = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const end = Temporal.ZonedDateTime.from(start)
+        .add({ minutes: 30 })
+        .toString();
+
+      const appointmentA = await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle A",
+        createdAt: now,
+        end,
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin A",
+      });
+      const appointmentB = await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle B",
+        createdAt: now,
+        end,
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.preferredPractitionerId,
+        start,
+        title: "Termin B",
+      });
+
+      return [appointmentA, appointmentB];
+    });
+
+    const draftResult = await t.mutation(api.vacations.createVacation, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.absentPractitionerId,
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(draftResult.entityId);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle A",
+        createdAt: now,
+        end: monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:30"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.preferredPractitionerId,
+        reassignmentSourceVacationLineageKey: draftResult.entityId,
+        replacesAppointmentId: appointmentAId,
+        simulationKind: "activation-reassignment",
+        simulationRuleSetId: draftResult.ruleSetId,
+        simulationValidatedAt: now,
+        start: monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:00"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        title: "Termin A verschoben",
+      });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle B",
+        createdAt: now,
+        end: monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:30"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.absentPractitionerId,
+        reassignmentSourceVacationLineageKey: draftResult.entityId,
+        replacesAppointmentId: appointmentBId,
+        simulationKind: "activation-reassignment",
+        simulationRuleSetId: draftResult.ruleSetId,
+        simulationValidatedAt: now,
+        start: monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:00"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        title: "Termin B verschoben",
+      });
+    });
+
+    await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Batch-Swap Aktivierung",
+      practiceId: fixture.practiceId,
+      setAsActive: true,
+    });
+
+    const [appointmentA, appointmentB] = await t.run(async (ctx) => {
+      const first = await ctx.db.get("appointments", appointmentAId);
+      const second = await ctx.db.get("appointments", appointmentBId);
+      return [first, second];
+    });
+
+    expect(appointmentA?.practitionerLineageKey).toBe(
+      fixture.preferredPractitionerId,
+    );
+    expect(appointmentB?.practitionerLineageKey).toBe(
+      fixture.absentPractitionerId,
+    );
+  });
+
   test("activating an older saved ruleset rejects stale staged coverage replacements", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
