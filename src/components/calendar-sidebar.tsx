@@ -175,6 +175,8 @@ export function CalendarSidebar() {
     }
     return set;
   }, [publicHolidayDates]);
+  const selectableLocations =
+    locationsData?.filter((location) => location.deleted !== true) ?? [];
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
@@ -263,11 +265,11 @@ export function CalendarSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
 
-              {locationsData && locationsData.length > 0 && (
+              {selectableLocations.length > 0 && (
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <LocationSelector
-                      locations={locationsData}
+                      locations={selectableLocations}
                       onLocationSelect={handleLocationSelect}
                       selectedLocationId={selectedLocationId}
                     />

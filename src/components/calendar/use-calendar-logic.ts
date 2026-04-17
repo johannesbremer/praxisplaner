@@ -270,7 +270,11 @@ export function useCalendarLogic({
     ruleSetId
       ? api.entities.getPractitioners
       : api.entities.getPractitionersFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
   const baseSchedulesData = useQuery(
     ruleSetId
@@ -280,7 +284,11 @@ export function useCalendarLogic({
   );
   const locationsData = useQuery(
     ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
 
   // Query appointment types for duration and title lookup
@@ -288,7 +296,11 @@ export function useCalendarLogic({
     ruleSetId
       ? api.entities.getAppointmentTypes
       : api.entities.getAppointmentTypesFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
 
   // Create a map for quick appointment type lookup

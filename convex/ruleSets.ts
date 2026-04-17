@@ -19,6 +19,7 @@ import {
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
 // ================================
@@ -558,11 +559,11 @@ async function buildRuleSetCanonicalSnapshot(
   ruleSetId: Id<"ruleSets">,
 ): Promise<RuleSetCanonicalSnapshot> {
   const [
-    appointmentTypes,
+    appointmentTypesRaw,
     baseSchedules,
-    locations,
+    locationsRaw,
     mfas,
-    practitioners,
+    practitionersRaw,
     rules,
     vacations,
   ] = await Promise.all([
@@ -595,6 +596,15 @@ async function buildRuleSetCanonicalSnapshot(
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect(),
   ]);
+  const appointmentTypes = appointmentTypesRaw.filter(
+    (appointmentType) => !isRuleSetEntityDeleted(appointmentType),
+  );
+  const locations = locationsRaw.filter(
+    (location) => !isRuleSetEntityDeleted(location),
+  );
+  const practitioners = practitionersRaw.filter(
+    (practitioner) => !isRuleSetEntityDeleted(practitioner),
+  );
 
   const practitionerNameByReference = createEntityNameLookup(practitioners);
   const locationNameByReference = createEntityNameLookup(locations);

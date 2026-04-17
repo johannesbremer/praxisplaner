@@ -2,6 +2,8 @@ import type { GenericDatabaseReader } from "convex/server";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+
 export type StoredAppointmentReferences = Pick<
   Doc<"appointments">,
   "appointmentTypeLineageKey" | "locationLineageKey" | "practitionerLineageKey"
@@ -156,6 +158,11 @@ async function requireAppointmentType(
   if (!appointmentType) {
     throw new Error(`Terminart ${appointmentTypeId} nicht gefunden.`);
   }
+  if (isRuleSetEntityDeleted(appointmentType)) {
+    throw new Error(
+      `Terminart ${appointmentTypeId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
+    );
+  }
   return appointmentType;
 }
 
@@ -167,6 +174,11 @@ async function requireLocation(
   if (!location) {
     throw new Error(`Standort ${locationId} nicht gefunden.`);
   }
+  if (isRuleSetEntityDeleted(location)) {
+    throw new Error(
+      `Standort ${locationId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
+    );
+  }
   return location;
 }
 
@@ -177,6 +189,11 @@ async function requirePractitioner(
   const practitioner = await db.get("practitioners", practitionerId);
   if (!practitioner) {
     throw new Error(`Behandler ${practitionerId} nicht gefunden.`);
+  }
+  if (isRuleSetEntityDeleted(practitioner)) {
+    throw new Error(
+      `Behandler ${practitionerId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
+    );
   }
   return practitioner;
 }

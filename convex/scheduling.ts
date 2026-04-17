@@ -23,6 +23,7 @@ import {
   evaluateLoadedRulesHelper,
   preEvaluateDayInvariantRulesHelper,
 } from "./ruleEngine";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   generateCandidateSlotsForDay,
   isSlotStartInFuture,
@@ -252,6 +253,13 @@ async function getSlotsForDayImpl(
   const targetPlainDate = Temporal.PlainDate.from(args.date);
 
   const log: string[] = [`Getting slots for single day: ${args.date}`];
+  requireSchedulableAppointmentType(
+    await ctx.db.get(
+      "appointmentTypes",
+      args.simulatedContext.appointmentTypeId,
+    ),
+    args.simulatedContext.appointmentTypeId,
+  );
   const appointmentScope = args.scope ?? "real";
   const excludedAppointmentIds = new Set(args.excludedAppointmentIds);
 
@@ -679,6 +687,21 @@ async function getSlotsForDayImpl(
   return { log, slots: finalSlots };
 }
 
+function requireSchedulableAppointmentType<T extends { deleted?: boolean }>(
+  appointmentType: null | T | undefined,
+  appointmentTypeId: Id<"appointmentTypes">,
+): T {
+  if (!appointmentType) {
+    throw new Error(`Appointment type with ID ${appointmentTypeId} not found`);
+  }
+  if (isRuleSetEntityDeleted(appointmentType)) {
+    throw new Error(
+      `Appointment type with ID ${appointmentTypeId} was deleted and can no longer be used for new scheduling.`,
+    );
+  }
+  return appointmentType;
+}
+
 export const getSlotsForDay = query({
   args: getSlotsForDayArgs,
   handler: async (
@@ -711,15 +734,10 @@ export const getNextAvailableSlot = query({
       );
     }
 
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
+    const appointmentType = requireSchedulableAppointmentType(
+      await ctx.db.get("appointmentTypes", appointmentTypeId),
       appointmentTypeId,
     );
-    if (!appointmentType) {
-      throw new Error(
-        `Appointment type with ID ${appointmentTypeId} not found`,
-      );
-    }
 
     const allowedPractitionerIds = new Set(
       appointmentType.allowedPractitionerIds,

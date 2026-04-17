@@ -29,6 +29,7 @@ import type * as practiceAccess from "../practiceAccess.js";
 import type * as practices from "../practices.js";
 import type * as publicHolidays from "../publicHolidays.js";
 import type * as ruleEngine from "../ruleEngine.js";
+import type * as ruleSetEntityDeletion from "../ruleSetEntityDeletion.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   practices: typeof practices;
   publicHolidays: typeof publicHolidays;
   ruleEngine: typeof ruleEngine;
+  ruleSetEntityDeletion: typeof ruleSetEntityDeletion;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;

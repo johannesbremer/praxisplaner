@@ -38,6 +38,7 @@ import {
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
@@ -185,6 +186,26 @@ function isVisibleAppointment(
   appointment: Pick<AppointmentDoc, "cancelledAt">,
 ): boolean {
   return !isAppointmentCancelled(appointment);
+}
+
+function requireEntityUsableForNewAppointment<
+  T extends { deleted?: boolean },
+>(params: {
+  entity: null | T | undefined;
+  entityId: string;
+  entityLabel: "Behandler" | "Standort" | "Terminart";
+}): T {
+  if (!params.entity) {
+    throw new Error(
+      `${params.entityLabel} mit ID ${params.entityId} nicht gefunden`,
+    );
+  }
+  if (isRuleSetEntityDeleted(params.entity)) {
+    throw new Error(
+      `${params.entityLabel} mit ID ${params.entityId} wurde gelöscht und kann nicht mehr neu referenziert werden.`,
+    );
+  }
+  return params.entity;
 }
 
 async function resolveAppointmentPatientDateOfBirth(
@@ -680,13 +701,31 @@ export async function createAppointmentFromTrustedSource(
     "appointmentTypes",
     appointmentTypeId,
   );
-  if (!appointmentType) {
-    throw new Error(`Appointment type with ID ${appointmentTypeId} not found`);
+  const activeAppointmentType = requireEntityUsableForNewAppointment({
+    entity: appointmentType,
+    entityId: appointmentTypeId,
+    entityLabel: "Terminart",
+  });
+
+  const location = await ctx.db.get("locations", locationId);
+  requireEntityUsableForNewAppointment({
+    entity: location,
+    entityId: locationId,
+    entityLabel: "Standort",
+  });
+
+  if (practitionerId) {
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
+    requireEntityUsableForNewAppointment({
+      entity: practitioner,
+      entityId: practitionerId,
+      entityLabel: "Behandler",
+    });
   }
 
   const resolvedSimulationRuleSetId =
     isSimulation === true
-      ? (simulationRuleSetId ?? appointmentType.ruleSetId)
+      ? (simulationRuleSetId ?? activeAppointmentType.ruleSetId)
       : undefined;
 
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
@@ -698,7 +737,10 @@ export async function createAppointmentFromTrustedSource(
     },
   );
 
-  if (appointmentType.followUpPlan && appointmentType.followUpPlan.length > 0) {
+  if (
+    activeAppointmentType.followUpPlan &&
+    activeAppointmentType.followUpPlan.length > 0
+  ) {
     if (!practitionerId) {
       throw new Error(
         "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
@@ -717,7 +759,7 @@ export async function createAppointmentFromTrustedSource(
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
       rootTitle: args.title.trim(),
-      ruleSetId: appointmentType.ruleSetId,
+      ruleSetId: activeAppointmentType.ruleSetId,
       scope: getAppointmentBookingScope(isSimulation),
       ...(resolvedSimulationRuleSetId && {
         simulationRuleSetId: resolvedSimulationRuleSetId,
@@ -729,7 +771,10 @@ export async function createAppointmentFromTrustedSource(
     return result.rootAppointmentId;
   }
 
-  const end = calculateEndFromDuration(args.start, appointmentType.duration);
+  const end = calculateEndFromDuration(
+    args.start,
+    activeAppointmentType.duration,
+  );
 
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
@@ -757,7 +802,7 @@ export async function createAppointmentFromTrustedSource(
   const insertData = {
     ...rest,
     ...storedReferences,
-    appointmentTypeTitle: appointmentType.name,
+    appointmentTypeTitle: activeAppointmentType.name,
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
@@ -991,6 +1036,28 @@ async function updateAppointmentByMode(
       ? undefined
       : await ctx.db.get("practitioners", filteredUpdateData.practitionerId);
 
+  if (filteredUpdateData.appointmentTypeId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: appointmentTypeRecord,
+      entityId: filteredUpdateData.appointmentTypeId,
+      entityLabel: "Terminart",
+    });
+  }
+  if (filteredUpdateData.locationId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: locationRecord,
+      entityId: filteredUpdateData.locationId,
+      entityLabel: "Standort",
+    });
+  }
+  if (filteredUpdateData.practitionerId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: practitionerRecord,
+      entityId: filteredUpdateData.practitionerId,
+      entityLabel: "Behandler",
+    });
+  }
+
   const editingRuleSetId =
     appointmentTypeRecord?.ruleSetId ??
     practitionerRecord?.ruleSetId ??
@@ -1077,24 +1144,24 @@ async function updateAppointmentByMode(
       "appointmentTypes",
       appointmentTypeIdForValidation,
     );
-    if (!appointmentType) {
-      throw new Error(
-        `Appointment type with ID ${appointmentTypeIdForValidation} not found`,
-      );
-    }
+    const activeAppointmentType = requireEntityUsableForNewAppointment({
+      entity: appointmentType,
+      entityId: appointmentTypeIdForValidation,
+      entityLabel: "Terminart",
+    });
 
     const practitionerIdForValidation =
       filteredUpdateData.practitionerId ??
       (existingAppointment.practitionerLineageKey
         ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
             lineageKey: existingAppointment.practitionerLineageKey,
-            ruleSetId: appointmentType.ruleSetId,
+            ruleSetId: activeAppointmentType.ruleSetId,
           })
         : undefined);
 
     if (
       practitionerIdForValidation &&
-      !appointmentType.allowedPractitionerIds.includes(
+      !activeAppointmentType.allowedPractitionerIds.includes(
         practitionerIdForValidation,
       )
     ) {

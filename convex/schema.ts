@@ -536,6 +536,7 @@ export default defineSchema({
   appointmentTypes: defineTable({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
     createdAt: v.int64(),
+    deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
     followUpPlan: followUpPlanValidator,
     lastModified: v.int64(),
@@ -888,6 +889,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   locations: defineTable({
+    deleted: v.optional(v.boolean()),
     lineageKey: v.optional(v.id("locations")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("locations")), // Reference to the entity this was copied from
@@ -978,6 +980,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   practitioners: defineTable({
+    deleted: v.optional(v.boolean()),
     lineageKey: v.optional(v.id("practitioners")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("practitioners")), // Reference to the entity this was copied from

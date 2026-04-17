@@ -1329,7 +1329,7 @@ describe("appointments update safety", () => {
     ).resolves.toEqual([]);
   });
 
-  test("getAppointments fails loudly when the displayed rule set is missing a lineage mapping", async () => {
+  test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
 
@@ -1354,13 +1354,46 @@ describe("appointments update safety", () => {
       email: "missing-display-mapping@example.com",
       subject: "workos_missing_display_mapping",
     });
-    await t.run(async (ctx) => {
+    const deletedDisplayEntityIds = await t.run(async (ctx) => {
+      const deletedLocationId = await ctx.db.insert("locations", {
+        deleted: true,
+        lineageKey: baseData.locationId,
+        name: "Deleted Location Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+      const deletedPractitionerId = await ctx.db.insert("practitioners", {
+        deleted: true,
+        lineageKey: baseData.practitionerId,
+        name: "Deleted Practitioner Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+      const now = BigInt(Date.now());
+      const deletedTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [deletedPractitionerId],
+        createdAt: now,
+        deleted: true,
+        duration: 30,
+        lastModified: now,
+        lineageKey: baseData.appointmentTypeId,
+        name: "Deleted Type Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
         userId,
       });
+
+      return {
+        deletedLocationId,
+        deletedPractitionerId,
+        deletedTypeId,
+      };
     });
 
     await insertAppointment(t, {
@@ -1374,6 +1407,12 @@ describe("appointments update safety", () => {
         activeRuleSetId: baseData.ruleSetId,
         selectedRuleSetId: savedRuleSetId,
       }),
-    ).rejects.toThrow("nicht gefunden");
+    ).resolves.toMatchObject([
+      {
+        appointmentTypeId: deletedDisplayEntityIds.deletedTypeId,
+        locationId: deletedDisplayEntityIds.deletedLocationId,
+        practitionerId: deletedDisplayEntityIds.deletedPractitionerId,
+      },
+    ]);
   });
 });

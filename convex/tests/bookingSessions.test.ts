@@ -1467,7 +1467,7 @@ describe("bookingSessions slot selection validation", () => {
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Invalid appointment type");
+    ).rejects.toThrow("Ungültige terminart.");
   });
 
   test("selectNewPatientSlot rejects slots in the past", async () => {
@@ -1584,7 +1584,7 @@ describe("bookingSessions slot selection validation", () => {
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Invalid appointment type");
+    ).rejects.toThrow("Ungültige terminart.");
   });
 
   test("selectExistingPatientSlot rejects slots in the past", async () => {

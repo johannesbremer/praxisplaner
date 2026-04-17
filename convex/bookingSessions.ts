@@ -28,6 +28,7 @@ import {
   type StepTableInsert,
   type StepTableName,
 } from "./bookingSessions.shared";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -113,6 +114,42 @@ function isConfirmationState(
   return (
     state.step === "existing-confirmation" || state.step === "new-confirmation"
   );
+}
+
+function requireSelectableRuleSetEntity<
+  T extends {
+    deleted?: boolean;
+    practiceId?: Id<"practices">;
+    ruleSetId?: Id<"ruleSets">;
+  },
+>(params: {
+  entity: null | T | undefined;
+  entityLabel: "Behandler" | "Standort" | "Terminart";
+  expectedPracticeId?: Id<"practices">;
+  expectedRuleSetId?: Id<"ruleSets">;
+}): T {
+  const { entity, entityLabel, expectedPracticeId, expectedRuleSetId } = params;
+  if (!entity) {
+    throw new Error(`Ungültige ${entityLabel.toLowerCase()}.`);
+  }
+  if (
+    expectedPracticeId !== undefined &&
+    entity.practiceId !== expectedPracticeId
+  ) {
+    throw new Error(`Ungültige ${entityLabel.toLowerCase()}.`);
+  }
+  if (
+    expectedRuleSetId !== undefined &&
+    entity.ruleSetId !== expectedRuleSetId
+  ) {
+    throw new Error(`Ungültige ${entityLabel.toLowerCase()}.`);
+  }
+  if (isRuleSetEntityDeleted(entity)) {
+    throw new Error(
+      `${entityLabel} wurde in diesem Regelset gelöscht und kann nicht mehr neu ausgewählt werden.`,
+    );
+  }
+  return entity;
 }
 
 async function tryHydrateSessionState(
@@ -1461,9 +1498,11 @@ export const selectLocation = mutation({
 
     // Verify location exists and belongs to this practice
     const location = await ctx.db.get("locations", args.locationId);
-    if (location?.practiceId !== session.practiceId) {
-      throw new Error("Invalid location");
-    }
+    requireSelectableRuleSetEntity({
+      entity: location,
+      entityLabel: "Standort",
+      expectedPracticeId: session.practiceId,
+    });
 
     await setSessionStep(ctx, args.sessionId, "patient-status");
 
@@ -1816,13 +1855,11 @@ export const selectNewPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
-    const selectedAppointmentType = await ctx.db.get(
-      "appointmentTypes",
-      args.appointmentTypeId,
-    );
-    if (selectedAppointmentType?.ruleSetId !== session.ruleSetId) {
-      throw new Error("Invalid appointment type");
-    }
+    const selectedAppointmentType = requireSelectableRuleSetEntity({
+      entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
+      entityLabel: "Terminart",
+      expectedRuleSetId: session.ruleSetId,
+    });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId: args.appointmentTypeId,
       locationId: state.locationId,
@@ -1975,9 +2012,12 @@ export const selectDoctor = mutation({
 
     // Verify practitioner exists
     const practitioner = await ctx.db.get("practitioners", args.practitionerId);
-    if (!practitioner) {
-      throw new Error("Practitioner not found");
-    }
+    requireSelectableRuleSetEntity({
+      entity: practitioner,
+      entityLabel: "Behandler",
+      expectedPracticeId: session.practiceId,
+      expectedRuleSetId: session.ruleSetId,
+    });
 
     await setSessionStep(ctx, args.sessionId, "existing-data-input");
 
@@ -2104,13 +2144,11 @@ export const selectExistingPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(args.selectedSlot.startTime);
 
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
-      args.appointmentTypeId,
-    );
-    if (appointmentType?.ruleSetId !== session.ruleSetId) {
-      throw new Error("Invalid appointment type");
-    }
+    const appointmentType = requireSelectableRuleSetEntity({
+      entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
+      entityLabel: "Terminart",
+      expectedRuleSetId: session.ruleSetId,
+    });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId: args.appointmentTypeId,
       locationId: state.locationId,

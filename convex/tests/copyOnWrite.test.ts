@@ -942,15 +942,18 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         practiceId,
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND\]/);
+    ).rejects.toThrow(/gelöscht|deleted|APPOINTMENT_TYPE/);
 
     const remainingAfterFailedDelete = await t.run(async (ctx) => {
-      return await ctx.db
+      const matches = await ctx.db
         .query("appointmentTypes")
         .withIndex("by_ruleSetId_name", (q) =>
           q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
         )
-        .first();
+        .collect();
+      return matches.find(
+        (appointmentType) => appointmentType.deleted !== true,
+      );
     });
 
     expect(remainingAfterFailedDelete?._id).toEqual(secondCreate.entityId);
@@ -964,15 +967,19 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const remainingAfterValidDelete = await t.run(async (ctx) => {
-      return await ctx.db
+      const matches = await ctx.db
         .query("appointmentTypes")
         .withIndex("by_ruleSetId_name", (q) =>
           q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
         )
-        .first();
+        .collect();
+      return matches.find(
+        (appointmentType) => appointmentType._id === secondCreate.entityId,
+      );
     });
 
-    expect(remainingAfterValidDelete).toBeNull();
+    expect(remainingAfterValidDelete?._id).toEqual(secondCreate.entityId);
+    expect(remainingAfterValidDelete?.deleted).toBe(true);
   });
 
   test("should remap rule condition appointment type IDs on delete and recreate", async () => {
@@ -1047,6 +1054,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       practitionerIds: [practitionerId],
       selectedRuleSetId: initialRuleSetId,
     });
+    expect(recreatedType.entityId).toEqual(createdType.entityId);
 
     const ruleConditionNode = await t.run(async (ctx) => {
       return await ctx.db
@@ -1062,7 +1070,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       ruleConditionNode,
       "Expected appointment type condition node",
     );
-    expect(ruleConditionNode.valueIds).toEqual([recreatedType.entityId]);
+    expect(ruleConditionNode.valueIds).toEqual([createdType.entityId]);
   });
 
   test("unsaved rule diff keeps rule appointment type names after delete and recreate", async () => {

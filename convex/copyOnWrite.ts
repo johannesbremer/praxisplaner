@@ -19,6 +19,8 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
@@ -910,6 +912,11 @@ export async function validateAppointmentTypeIdsInRuleSet(
           `This indicates the entity was deleted or the ID is invalid.`,
       );
     }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `appointmentTypes with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
+      );
+    }
 
     if (entity.ruleSetId !== expectedRuleSetId) {
       throw validateEntityInRuleSetError(
@@ -939,6 +946,11 @@ export async function validateLocationIdsInRuleSet(
           `This indicates the entity was deleted or the ID is invalid.`,
       );
     }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `locations with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
+      );
+    }
 
     if (entity.ruleSetId !== expectedRuleSetId) {
       throw validateEntityInRuleSetError(
@@ -966,6 +978,11 @@ export async function validatePractitionerIdsInRuleSet(
       throw new Error(
         `practitioners with ID ${id} not found. ` +
           `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `practitioners with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
       );
     }
 
