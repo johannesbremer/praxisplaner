@@ -7,7 +7,7 @@ import { v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import {
   appointmentOverlapsCandidate,
   findConflictingAppointment,
@@ -496,7 +496,10 @@ async function buildAppointmentCoverageDiffSection(
   const removed: string[] = [];
 
   for (const simulationAppointment of simulationAppointments) {
-    if (!simulationAppointment.replacesAppointmentId) {
+    if (
+      !isActivationBoundSimulation(simulationAppointment) ||
+      !simulationAppointment.replacesAppointmentId
+    ) {
       continue;
     }
 
@@ -1430,48 +1433,5 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
       v.literal("not_unsaved"),
       v.literal("parent_missing"),
     ),
-  }),
-});
-
-/**
- * Backfill draftRevision on rule sets and validate unsaved-draft invariant.
- * Intended for one-time migrations during pre-production refactors.
- */
-export const backfillRuleSetDraftRevisions = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const allRuleSets = await ctx.db.query("ruleSets").collect();
-    let patchedCount = 0;
-
-    const unsavedCountByPractice = new Map<Id<"practices">, number>();
-    for (const ruleSet of allRuleSets) {
-      if (!ruleSet.saved) {
-        unsavedCountByPractice.set(
-          ruleSet.practiceId,
-          (unsavedCountByPractice.get(ruleSet.practiceId) ?? 0) + 1,
-        );
-      }
-      if (typeof ruleSet.draftRevision !== "number") {
-        await ctx.db.patch("ruleSets", ruleSet._id, { draftRevision: 0 });
-        patchedCount += 1;
-      }
-    }
-
-    for (const [practiceId, unsavedCount] of unsavedCountByPractice.entries()) {
-      if (unsavedCount > 1) {
-        throw new Error(
-          `[MIGRATION:UNSAVED_RULE_SET_INVARIANT] Praxis ${practiceId} hat ${unsavedCount} ungespeicherte Regelsets (erwartet maximal 1).`,
-        );
-      }
-    }
-
-    return {
-      patchedCount,
-      ruleSetCount: allRuleSets.length,
-    };
-  },
-  returns: v.object({
-    patchedCount: v.number(),
-    ruleSetCount: v.number(),
   }),
 });

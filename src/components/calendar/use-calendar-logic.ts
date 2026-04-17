@@ -540,6 +540,12 @@ export function useCalendarLogic({
   const updateAppointmentMutation = useMutation(
     api.appointments.updateAppointment,
   );
+  const updateSimulationAppointmentMutation = useMutation(
+    api.appointments.updateSimulationAppointment,
+  );
+  const updateVacationReassignmentAppointmentMutation = useMutation(
+    api.appointments.updateVacationReassignmentAppointment,
+  );
   const deleteAppointmentMutation = useMutation(
     api.appointments.deleteAppointment,
   );
@@ -633,56 +639,91 @@ export function useCalendarLogic({
     ],
   );
 
-  const runUpdateAppointmentInternal = useCallback(
-    async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
-      return await updateAppointmentMutation.withOptimisticUpdate(
-        (localStore, optimisticArgs) => {
-          const existingAppointments = localStore.getQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
-          );
-          if (!existingAppointments) {
-            return;
-          }
+  const applyOptimisticAppointmentUpdate = useCallback(
+    (
+      localStore: Parameters<
+        Parameters<typeof updateAppointmentMutation.withOptimisticUpdate>[0]
+      >[0],
+      optimisticArgs: Parameters<typeof updateAppointmentMutation>[0],
+    ) => {
+      const existingAppointments = localStore.getQuery(
+        api.appointments.getAppointments,
+        appointmentsQueryArgs,
+      );
+      if (!existingAppointments) {
+        return;
+      }
 
-          const now = Date.now();
-          const updatedAppointments = existingAppointments.map(
-            (appointment) => {
-              if (appointment._id !== optimisticArgs.id) {
-                return appointment;
-              }
+      const now = Date.now();
+      const updatedAppointments = existingAppointments.map((appointment) => {
+        if (appointment._id !== optimisticArgs.id) {
+          return appointment;
+        }
 
-              return {
-                ...appointment,
-                ...(optimisticArgs.start !== undefined && {
-                  start: optimisticArgs.start,
-                }),
-                ...(optimisticArgs.end !== undefined && {
-                  end: optimisticArgs.end,
-                }),
-                ...(optimisticArgs.practitionerId !== undefined && {
-                  practitionerId: optimisticArgs.practitionerId,
-                }),
-                ...(optimisticArgs.locationId !== undefined && {
-                  locationId: optimisticArgs.locationId,
-                }),
-                ...(optimisticArgs.title !== undefined && {
-                  title: optimisticArgs.title,
-                }),
-                lastModified: BigInt(now),
-              };
-            },
-          );
+        return {
+          ...appointment,
+          ...(optimisticArgs.start !== undefined && {
+            start: optimisticArgs.start,
+          }),
+          ...(optimisticArgs.end !== undefined && {
+            end: optimisticArgs.end,
+          }),
+          ...(optimisticArgs.practitionerId !== undefined && {
+            practitionerId: optimisticArgs.practitionerId,
+          }),
+          ...(optimisticArgs.locationId !== undefined && {
+            locationId: optimisticArgs.locationId,
+          }),
+          ...(optimisticArgs.title !== undefined && {
+            title: optimisticArgs.title,
+          }),
+          lastModified: BigInt(now),
+        };
+      });
 
-          localStore.setQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
-            updatedAppointments,
-          );
-        },
-      )(args);
+      localStore.setQuery(
+        api.appointments.getAppointments,
+        appointmentsQueryArgs,
+        updatedAppointments,
+      );
     },
     [appointmentsQueryArgs, updateAppointmentMutation],
+  );
+
+  const getAppointmentUpdateMutation = useCallback(
+    (appointment?: AppointmentResult) => {
+      if (
+        appointment?.isSimulation === true &&
+        (appointment.simulationKind === "activation-reassignment" ||
+          appointment.reassignmentSourceVacationLineageKey !== undefined)
+      ) {
+        return updateVacationReassignmentAppointmentMutation;
+      }
+
+      if (appointment?.isSimulation === true) {
+        return updateSimulationAppointmentMutation;
+      }
+
+      return updateAppointmentMutation;
+    },
+    [
+      updateAppointmentMutation,
+      updateSimulationAppointmentMutation,
+      updateVacationReassignmentAppointmentMutation,
+    ],
+  );
+
+  const runUpdateAppointmentInternal = useCallback(
+    async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
+      const mutation = getAppointmentUpdateMutation(
+        appointmentDocMapRef.current.get(args.id),
+      );
+
+      return await mutation.withOptimisticUpdate(
+        applyOptimisticAppointmentUpdate,
+      )(args);
+    },
+    [applyOptimisticAppointmentUpdate, getAppointmentUpdateMutation],
   );
 
   const runDeleteAppointmentInternal = useCallback(
@@ -935,7 +976,7 @@ export function useCalendarLogic({
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
       const before = appointmentDocMapRef.current.get(args.id);
       if (before?.seriesId) {
-        await updateAppointmentMutation(args);
+        await getAppointmentUpdateMutation(before)(args);
         return;
       }
 
@@ -1042,10 +1083,10 @@ export function useCalendarLogic({
       });
     },
     [
+      getAppointmentUpdateMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runUpdateAppointmentInternal,
-      updateAppointmentMutation,
     ],
   );
 

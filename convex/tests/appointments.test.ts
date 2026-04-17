@@ -835,6 +835,139 @@ describe("appointments update safety", () => {
     ).resolves.toBeDefined();
   });
 
+  test("simulated appointments must be updated through the simulation mutation", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_update";
+    const userId = await createUser(t, authId, "sim-update@example.com");
+    const authed = t.withIdentity({
+      email: "sim-update@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: baseData.ruleSetId,
+        start: makeSlotWindow(10).start,
+        title: "Simulation vor Änderung",
+        userId,
+      },
+    );
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: appointmentId,
+        title: "Sollte fehlschlagen",
+      }),
+    ).rejects.toThrow("Echttermin-Bearbeitung");
+
+    await authed.mutation(api.appointments.updateSimulationAppointment, {
+      id: appointmentId,
+      title: "Simulation nach Änderung",
+    });
+
+    const updatedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+
+    expect(updatedAppointment?.title).toBe("Simulation nach Änderung");
+    expect(updatedAppointment?.isSimulation).toBe(true);
+    expect(updatedAppointment?.simulationKind).toBe("draft");
+    expect(updatedAppointment?.simulationRuleSetId).toBe(baseData.ruleSetId);
+  });
+
+  test("unsaved diff ignores manual simulated replacements", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_manual_sim_diff";
+    const userId = await createUser(t, authId, "manual-sim-diff@example.com");
+    const authed = t.withIdentity({
+      email: "manual-sim-diff@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        lineageKey: baseData.appointmentTypeId,
+      });
+      await ctx.db.patch("locations", baseData.locationId, {
+        lineageKey: baseData.locationId,
+      });
+      await ctx.db.patch("practitioners", baseData.practitionerId, {
+        lineageKey: baseData.practitionerId,
+      });
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(11).start,
+        title: "Echter Termin",
+        userId,
+      },
+    );
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(11).start,
+      title: "Manuelle Simulation",
+      userId,
+    });
+
+    const diff = await authed.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: baseData.practiceId,
+      ruleSetId: unsavedRuleSetId,
+    });
+    const coverageSection = diff?.sections.find(
+      (section) => section.key === "appointmentCoverage",
+    );
+
+    expect(coverageSection?.added).toHaveLength(0);
+    expect(coverageSection?.removed).toHaveLength(0);
+  });
+
   test("activating a saved ruleset clears non-replacement simulation appointments", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

@@ -18,6 +18,7 @@
     "gen:routes": "pnpm exec tsr generate",
     "lint": "eslint . --fix",
     "lint:check": "eslint . --max-warnings 0",
+    "seed:preview": "rm -f seed_data.zip && cd seed_data_preview && zip -qr ../seed_data.zip .",
     "start": "vite start",
     "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run"
   },

@@ -675,6 +675,15 @@ async function findSlotForFollowUpStep(
     targetAppointmentType: Doc<"appointmentTypes">;
   },
 ) {
+  if (
+    args.practitionerId &&
+    !args.targetAppointmentType.allowedPractitionerIds.includes(
+      args.practitionerId,
+    )
+  ) {
+    return null;
+  }
+
   const earliestStart = addOffset(
     Temporal.ZonedDateTime.from(args.previousStep.end),
     args.step,

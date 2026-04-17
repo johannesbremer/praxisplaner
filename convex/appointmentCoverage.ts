@@ -284,7 +284,7 @@ async function previewPractitionerCoverageForAppointment(
   const candidates = await Promise.all(
     matchingSlots.map(async (slot) => {
       let selectedPractitionerIdInRuleSet: Id<"practitioners"> | undefined;
-      let activePractitionerId: Id<"practitioners"> | undefined;
+      let activePractitionerLineageKey: Id<"practitioners"> | undefined;
 
       try {
         selectedPractitionerIdInRuleSet = await resolvePractitionerIdInRuleSet(
@@ -300,24 +300,31 @@ async function previewPractitionerCoverageForAppointment(
       }
 
       try {
-        activePractitionerId = await resolvePractitionerIdInRuleSet(ctx.db, {
-          practiceId: args.practiceId,
-          practitionerId: slot.practitionerId,
-          targetRuleSetId: args.activeRuleSetId,
-        });
+        const activePractitionerId = await resolvePractitionerIdInRuleSet(
+          ctx.db,
+          {
+            practiceId: args.practiceId,
+            practitionerId: slot.practitionerId,
+            targetRuleSetId: args.activeRuleSetId,
+          },
+        );
+        activePractitionerLineageKey = await resolvePractitionerLineageKey(
+          ctx.db,
+          activePractitionerId,
+        );
       } catch {
-        activePractitionerId = undefined;
+        activePractitionerLineageKey = undefined;
       }
 
       return {
-        activePractitionerId,
+        activePractitionerLineageKey,
         isAllowedInSelectedRuleSet:
           selectedPractitionerIdInRuleSet !== undefined &&
           selectedAppointmentType.allowedPractitionerIds.includes(
             selectedPractitionerIdInRuleSet,
           ),
-        lastSeenAt: activePractitionerId
-          ? (latestSeenByPractitioner.get(activePractitionerId) ?? null)
+        lastSeenAt: activePractitionerLineageKey
+          ? (latestSeenByPractitioner.get(activePractitionerLineageKey) ?? null)
           : null,
         name: slot.practitionerName,
         selectedPractitionerId: selectedPractitionerIdInRuleSet,
