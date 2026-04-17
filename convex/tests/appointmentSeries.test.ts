@@ -817,6 +817,21 @@ describe("appointment series", () => {
       true,
     );
     expect(
+      appointments.every(
+        (appointment) => appointment.simulationKind === "draft",
+      ),
+    ).toBe(true);
+    expect(
+      appointments.every(
+        (appointment) => appointment.simulationRuleSetId === ruleSetId,
+      ),
+    ).toBe(true);
+    expect(
+      appointments.every(
+        (appointment) => appointment.simulationValidatedAt !== undefined,
+      ),
+    ).toBe(true);
+    expect(
       new Set(appointments.map((appointment) => appointment.seriesId)).size,
     ).toBe(1);
     expect(

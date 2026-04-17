@@ -152,7 +152,9 @@ async function replaceVacationsInDraft(
   ctx: MutationCtx,
   args: {
     date: string;
+    mfaId?: Id<"mfas">;
     practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
     replacingVacationLineageKeys: Id<"vacations">[];
     ruleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
@@ -177,7 +179,10 @@ async function replaceVacationsInDraft(
     if (
       existingVacation.practiceId !== args.practiceId ||
       existingVacation.date !== args.date ||
-      existingVacation.staffType !== args.staffType
+      existingVacation.staffType !== args.staffType ||
+      (args.staffType === "practitioner"
+        ? existingVacation.practitionerId !== args.practitionerId
+        : existingVacation.mfaId !== args.mfaId)
     ) {
       throw new Error(
         "Der zu ersetzende Urlaub passt nicht mehr zum aktuellen Bearbeitungskontext.",
@@ -591,6 +596,12 @@ export const createVacationWithCoverageAdjustments = mutation({
       practitionerId: args.practitionerId,
       ruleSetId: practice.currentActiveRuleSetId,
     });
+    const draftPractitionerId = await resolvePractitionerIdInRuleSet(
+      ctx,
+      args.practitionerId,
+      args.practiceId,
+      ruleSetId,
+    );
     const activePractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
       activePractitionerId,
@@ -598,6 +609,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     await replaceVacationsInDraft(ctx, {
       date: args.date,
       practiceId: args.practiceId,
+      practitionerId: draftPractitionerId,
       replacingVacationLineageKeys,
       ruleSetId,
       staffType: "practitioner",

@@ -75,6 +75,7 @@ export const appointmentSeriesArgsValidator = {
   rootAppointmentTypeId: v.id("appointmentTypes"),
   ruleSetId: v.id("ruleSets"),
   scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+  simulationRuleSetId: v.optional(v.id("ruleSets")),
   start: v.string(),
   userId: v.optional(v.id("users")),
 };
@@ -109,6 +110,7 @@ interface RootSeriesCandidate {
   practiceId: Id<"practices">;
   practitionerId: Id<"practitioners">;
   scope?: AppointmentBookingScope;
+  simulationRuleSetId?: Id<"ruleSets">;
   start: string;
   title?: string;
   userId?: Id<"users">;
@@ -152,6 +154,7 @@ export async function createAppointmentSeries(
     rootTitle: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     userId?: Id<"users">;
   },
@@ -189,6 +192,13 @@ export async function createAppointmentSeries(
     appointmentId: Id<"appointments">;
   })[] = [];
   const scope = args.scope ?? "real";
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
+    ruleSetId: args.ruleSetId,
+    scope,
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
   const patientDateOfBirth = await resolvePatientDateOfBirth(ctx, {
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
@@ -206,6 +216,7 @@ export async function createAppointmentSeries(
       },
       practiceId: args.practiceId,
       scope,
+      ...(simulationRuleSetId && { simulationRuleSetId }),
       ...(index === 0 &&
         args.rootReplacesAppointmentId && {
           excludeAppointmentIds: [args.rootReplacesAppointmentId],
@@ -233,7 +244,12 @@ export async function createAppointmentSeries(
       appointmentTypeTitle: step.appointmentTypeTitle,
       createdAt: now,
       end: step.end,
-      ...(scope === "simulation" && { isSimulation: true }),
+      ...(scope === "simulation" && {
+        isSimulation: true,
+        simulationKind: "draft" as const,
+        ...(simulationRuleSetId && { simulationRuleSetId }),
+        simulationValidatedAt: now,
+      }),
       lastModified: now,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
@@ -320,6 +336,9 @@ export async function planSeriesFromRootCandidate(
     rootDurationMinutes: args.seriesSpecification.rootDurationMinutes,
     ruleSetId: args.seriesSpecification.ruleSetId,
     ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
+    ...(args.rootCandidate.simulationRuleSetId && {
+      simulationRuleSetId: args.rootCandidate.simulationRuleSetId,
+    }),
     start: args.rootCandidate.start,
   });
 
@@ -377,6 +396,9 @@ export async function planSeriesFromRootCandidate(
       requestedAt: args.requestedAt,
       ruleSetId: args.seriesSpecification.ruleSetId,
       ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
+      ...(args.rootCandidate.simulationRuleSetId && {
+        simulationRuleSetId: args.rootCandidate.simulationRuleSetId,
+      }),
       step,
       targetAppointmentType,
       ...(args.rootCandidate.excludedAppointmentIds && {
@@ -438,6 +460,7 @@ export async function previewAppointmentSeries(
     rootAppointmentTypeId: Id<"appointmentTypes">;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     userId?: Id<"users">;
   },
@@ -453,6 +476,7 @@ export async function previewAppointmentSeries(
   const requestedAt = Temporal.Now.instant()
     .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
     .toString();
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId(args);
 
   return await planSeriesFromRootCandidate(ctx, {
     planningState,
@@ -470,6 +494,9 @@ export async function previewAppointmentSeries(
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
       ...(args.scope && { scope: args.scope }),
+      ...(simulationRuleSetId && {
+        simulationRuleSetId,
+      }),
       start: args.start,
       ...(args.userId && { userId: args.userId }),
     },
@@ -510,6 +537,10 @@ export async function replanAppointmentSeries(
     .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
     .toString();
   const planningState = createSeriesPlanningState();
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
+    ruleSetId: args.series.ruleSetIdAtBooking,
+    scope: args.scope,
+  });
   const patientDateOfBirth = await resolvePatientDateOfBirth(ctx, {
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
@@ -530,6 +561,7 @@ export async function replanAppointmentSeries(
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
       scope: args.scope,
+      ...(simulationRuleSetId && { simulationRuleSetId }),
       start: args.start,
       ...(args.userId && { userId: args.userId }),
     },
@@ -638,6 +670,7 @@ async function findSlotForFollowUpStep(
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     step: FollowUpStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
@@ -668,6 +701,9 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
 
     return (
@@ -699,6 +735,9 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
 
     return (
@@ -741,6 +780,9 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
     const matchingSlot = slots.find((slot) => slot.locationId !== undefined);
 
@@ -949,6 +991,7 @@ async function queryAvailableSlotsForDay(
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
   },
 ) {
   const cacheKey = [
@@ -963,6 +1006,7 @@ async function queryAvailableSlotsForDay(
     args.requestedAt,
     args.ruleSetId,
     args.scope ?? "real",
+    args.simulationRuleSetId ?? "",
   ].join("|");
   const cachedSlots = args.planningState.slotCache.get(cacheKey);
   if (cachedSlots) {
@@ -1026,6 +1070,18 @@ async function resolvePatientDateOfBirth(
   return patient?.dateOfBirth;
 }
 
+function resolveSeriesSimulationRuleSetId(args: {
+  ruleSetId: Id<"ruleSets">;
+  scope?: AppointmentBookingScope;
+  simulationRuleSetId?: Id<"ruleSets">;
+}) {
+  if (args.scope !== "simulation") {
+    return;
+  }
+
+  return args.simulationRuleSetId ?? args.ruleSetId;
+}
+
 function validateDurationMinutes(durationMinutes: number): number {
   if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
     throw appointmentSeriesError(
@@ -1052,6 +1108,7 @@ async function validateRootCandidate(
     rootDurationMinutes: number;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
   },
 ): Promise<
@@ -1094,6 +1151,9 @@ async function validateRootCandidate(
     requestedAt: args.requestedAt,
     ruleSetId: args.ruleSetId,
     ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
   });
 
   const selectedRootSlot = rootSlots.find(
@@ -1125,6 +1185,9 @@ async function validateRootCandidate(
     }),
     practiceId: args.practiceId,
     scope: args.scope ?? "real",
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
   });
 
   if (conflictingAppointment) {

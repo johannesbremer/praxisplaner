@@ -312,6 +312,19 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+function filterAppointmentsForScope<T extends AppointmentDoc>(
+  appointments: T[],
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  return appointments.filter((appointment) =>
+    isAppointmentVisibleInScope(appointment, args, scope),
+  );
+}
+
 function getDisplayRuleSetId(args: {
   activeRuleSetId?: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
@@ -324,6 +337,25 @@ function getSimulationScopeRuleSetId(args: {
   selectedRuleSetId?: Id<"ruleSets">;
 }) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
+function isAppointmentVisibleInScope(
+  appointment: Pick<AppointmentDoc, "isSimulation" | "simulationRuleSetId">,
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  if (scope === "real") {
+    return appointment.isSimulation !== true;
+  }
+
+  return (
+    appointment.isSimulation !== true ||
+    appointment.simulationRuleSetId === undefined ||
+    appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
+  );
 }
 
 async function remapAppointmentIds(
@@ -442,39 +474,30 @@ export const getAppointments = query({
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
+    const scopedAppointments = filterAppointmentsForScope(
+      visibleAppointments,
+      args,
+      scope,
+    );
     const displayRuleSetId = getDisplayRuleSetId(args);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
-      : visibleAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
+      : scopedAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
 
     let resultAppointments: AppointmentListItem[];
 
     if (scope === "simulation") {
-      resultAppointments = combineForSimulationScope(
-        appointments.filter(
-          (appointment) =>
-            appointment.isSimulation !== true ||
-            appointment.simulationRuleSetId === undefined ||
-            appointment.simulationRuleSetId ===
-              getSimulationScopeRuleSetId(args),
-        ),
-      );
+      resultAppointments = combineForSimulationScope(appointments);
     } else if (scope === "all") {
-      resultAppointments = appointments
-        .filter(
-          (appointment) =>
-            appointment.isSimulation !== true ||
-            appointment.simulationRuleSetId === undefined ||
-            appointment.simulationRuleSetId ===
-              getSimulationScopeRuleSetId(args),
-        )
-        .toSorted((a, b) => a.start.localeCompare(b.start));
+      resultAppointments = appointments.toSorted((a, b) =>
+        a.start.localeCompare(b.start),
+      );
     } else {
-      resultAppointments = appointments
-        .filter((appointment) => appointment.isSimulation !== true)
-        .toSorted((a, b) => a.start.localeCompare(b.start));
+      resultAppointments = appointments.toSorted((a, b) =>
+        a.start.localeCompare(b.start),
+      );
     }
 
     return resultAppointments;
@@ -511,42 +534,29 @@ export const getAppointmentsInRange = query({
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
-
     const scope: AppointmentScope = args.scope ?? "real";
+    const scopedAppointments = filterAppointmentsForScope(
+      filteredAppointments,
+      args,
+      scope,
+    );
+
     const displayRuleSetId = getDisplayRuleSetId(args);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, filteredAppointments, displayRuleSetId)
-      : filteredAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
+      : scopedAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
 
     if (scope === "simulation") {
-      return combineForSimulationScope(
-        appointments.filter(
-          (appointment) =>
-            appointment.isSimulation !== true ||
-            appointment.simulationRuleSetId === undefined ||
-            appointment.simulationRuleSetId ===
-              getSimulationScopeRuleSetId(args),
-        ),
-      );
+      return combineForSimulationScope(appointments);
     }
 
     if (scope === "all") {
-      return appointments
-        .filter(
-          (appointment) =>
-            appointment.isSimulation !== true ||
-            appointment.simulationRuleSetId === undefined ||
-            appointment.simulationRuleSetId ===
-              getSimulationScopeRuleSetId(args),
-        )
-        .toSorted((a, b) => a.start.localeCompare(b.start));
+      return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
     }
 
-    return appointments
-      .filter((appointment) => appointment.isSimulation !== true)
-      .toSorted((a, b) => a.start.localeCompare(b.start));
+    return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(appointmentResultValidator),
 });
@@ -628,6 +638,7 @@ export async function createAppointmentFromTrustedSource(
     practitionerId,
     replacesAppointmentId,
     simulationKind,
+    simulationRuleSetId,
     userId,
     ...rest
   } = args;
@@ -673,6 +684,11 @@ export async function createAppointmentFromTrustedSource(
     throw new Error(`Appointment type with ID ${appointmentTypeId} not found`);
   }
 
+  const resolvedSimulationRuleSetId =
+    isSimulation === true
+      ? (simulationRuleSetId ?? appointmentType.ruleSetId)
+      : undefined;
+
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
     ctx.db,
     {
@@ -703,6 +719,9 @@ export async function createAppointmentFromTrustedSource(
       rootTitle: args.title.trim(),
       ruleSetId: appointmentType.ruleSetId,
       scope: getAppointmentBookingScope(isSimulation),
+      ...(resolvedSimulationRuleSetId && {
+        simulationRuleSetId: resolvedSimulationRuleSetId,
+      }),
       start: args.start,
       ...(userId && { userId }),
     });
@@ -722,8 +741,8 @@ export async function createAppointmentFromTrustedSource(
       start: args.start,
     },
     practiceId,
-    ...(isSimulation === true && args.simulationRuleSetId
-      ? { simulationRuleSetId: args.simulationRuleSetId }
+    ...(resolvedSimulationRuleSetId
+      ? { simulationRuleSetId: resolvedSimulationRuleSetId }
       : {}),
     scope: getAppointmentBookingScope(isSimulation),
     ...(replacesAppointmentId && {
@@ -751,6 +770,9 @@ export async function createAppointmentFromTrustedSource(
     }),
     ...(isSimulation === true && {
       simulationKind: simulationKind ?? "draft",
+      ...(resolvedSimulationRuleSetId && {
+        simulationRuleSetId: resolvedSimulationRuleSetId,
+      }),
       simulationValidatedAt: now,
     }),
   };

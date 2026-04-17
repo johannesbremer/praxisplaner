@@ -298,6 +298,48 @@ describe("appointments self-service cancellation", () => {
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
   });
 
+  test("createAppointment scopes draft simulations to the appointment type rule set by default", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_scoped_simulation_default";
+    const userId = await createUser(t, authId, "scoped-sim@example.com");
+    const authed = t.withIdentity({
+      email: "scoped-sim@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(4).start,
+        title: "Scoped simulation",
+        userId,
+      },
+    );
+
+    const appointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+
+    expect(appointment?.simulationRuleSetId).toBe(baseData.ruleSetId);
+    expect(appointment?.simulationKind).toBe("draft");
+    expect(appointment?.simulationValidatedAt).toBeDefined();
+  });
+
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
     const t = createTestContext();
     const authed = t.withIdentity({
@@ -1070,6 +1112,88 @@ describe("appointments update safety", () => {
     );
     expect(displayedAppointment?.locationId).toBe(baseData.locationId);
     expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
+  });
+
+  test("getAppointments ignores unrelated draft simulations before remapping the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_foreign_draft_simulation",
+      "foreign-draft-simulation@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "foreign-draft-simulation@example.com",
+      subject: "workos_foreign_draft_simulation",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const foreignRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const foreignLocationId = await ctx.db.insert("locations", {
+        name: "Foreign Location",
+        practiceId: baseData.practiceId,
+        ruleSetId: foreignRuleSetId,
+      });
+      const foreignPractitionerId = await ctx.db.insert("practitioners", {
+        name: "Foreign Practitioner",
+        practiceId: baseData.practiceId,
+        ruleSetId: foreignRuleSetId,
+      });
+      const now = BigInt(Date.now());
+      const foreignAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [foreignPractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Foreign Type",
+        practiceId: baseData.practiceId,
+        ruleSetId: foreignRuleSetId,
+      });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: foreignAppointmentTypeId,
+        appointmentTypeTitle: "Foreign Type",
+        createdAt: now,
+        end: makeSlotWindow(6).end,
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: foreignLocationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: foreignPractitionerId,
+        simulationKind: "draft",
+        simulationRuleSetId: foreignRuleSetId,
+        simulationValidatedAt: now,
+        start: makeSlotWindow(6).start,
+        title: "Foreign draft simulation",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).resolves.toEqual([]);
   });
 
   test("getAppointments fails loudly when the displayed rule set is missing a lineage mapping", async () => {

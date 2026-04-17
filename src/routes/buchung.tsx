@@ -700,9 +700,9 @@ function AuthenticatedBookingFlow() {
     };
 
     const practitionerNamesById = Object.fromEntries(
-      (practitioners ?? []).map((practitioner) => [
-        practitioner._id,
-        practitioner.name,
+      (practitioners ?? []).flatMap((practitioner) => [
+        [practitioner._id, practitioner.name],
+        [practitioner.lineageKey, practitioner.name],
       ]),
     ) as Partial<Record<Id<"practitioners">, string>>;
 

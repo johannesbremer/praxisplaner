@@ -1736,6 +1736,45 @@ describe("vacations", () => {
     expect(replacementsForDay).toHaveLength(2);
   });
 
+  test("replacing a practitioner vacation rejects lineage keys from another practitioner", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+
+    const existingVacation = await t.mutation(api.vacations.createVacation, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.preferredPractitionerId,
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(existingVacation.entityId);
+
+    await expect(
+      t.mutation(api.vacations.createVacationWithCoverageAdjustments, {
+        date: monday.toString(),
+        expectedDraftRevision: existingVacation.draftRevision,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        reassignments: [],
+        replacingVacationLineageKeys: [existingVacation.entityId],
+        selectedRuleSetId: existingVacation.ruleSetId,
+      }),
+    ).rejects.toThrow("Bearbeitungskontext");
+
+    const vacations = await t.query(api.vacations.getVacationsInRange, {
+      endDateExclusive: monday.add({ days: 1 }).toString(),
+      ruleSetId: existingVacation.ruleSetId,
+      startDate: monday.toString(),
+    });
+
+    expect(vacations).toHaveLength(1);
+    expect(vacations[0]?.lineageKey).toBe(existingVacation.entityId);
+  });
+
   test("deleting an MFA cascades that MFA's vacations", async () => {
     const t = createAuthedTestContext();
     await ensureProvisionedUser(t);
