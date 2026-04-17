@@ -930,7 +930,8 @@ export default defineSchema({
     phoneNumber: v.optional(v.string()),
     practiceId: v.id("practices"), // Multi-tenancy support
     recordType: v.union(v.literal("pvs"), v.literal("temporary")),
-    searchableText: v.string(),
+    searchFirstName: v.string(),
+    searchLastName: v.string(),
     street: v.optional(v.string()), // FK 3107 - Street address
 
     // Metadata and tracking fields
@@ -943,9 +944,13 @@ export default defineSchema({
     .index("by_lastModified", ["lastModified"])
     .index("by_createdAt", ["createdAt"])
     .index("by_practiceId", ["practiceId"])
-    .searchIndex("search_by_searchableText", {
+    .searchIndex("search_by_searchFirstName", {
       filterFields: ["practiceId"],
-      searchField: "searchableText",
+      searchField: "searchFirstName",
+    })
+    .searchIndex("search_by_searchLastName", {
+      filterFields: ["practiceId"],
+      searchField: "searchLastName",
     }),
 
   practices: defineTable({

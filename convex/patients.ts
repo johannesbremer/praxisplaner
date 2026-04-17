@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 
+import type { Doc, Id } from "./_generated/dataModel";
+
 import { mutation, query } from "./_generated/server";
-import { buildPatientSearchText } from "./patientSearch";
+import {
+  buildPatientSearchFirstName,
+  buildPatientSearchLastName,
+} from "./patientSearch";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -29,7 +34,6 @@ const patientDocumentValidator = v.object({
   phoneNumber: v.optional(v.string()),
   practiceId: v.id("practices"),
   recordType: patientRecordTypeValidator,
-  searchableText: v.string(),
   sourceGdtFileName: v.optional(v.string()),
   street: v.optional(v.string()),
 });
@@ -84,10 +88,13 @@ export const createOrUpdatePatient = mutation({
         createdAt: now,
         lastModified: now,
         recordType: "pvs",
-        searchableText: buildPatientSearchText({
+        searchFirstName: buildPatientSearchFirstName({
           firstName: args.firstName,
           lastName: args.lastName,
-          patientId: args.patientId,
+        }),
+        searchLastName: buildPatientSearchLastName({
+          firstName: args.firstName,
+          lastName: args.lastName,
         }),
       });
 
@@ -103,12 +110,15 @@ export const createOrUpdatePatient = mutation({
     const updates = {
       lastModified: now,
       recordType: "pvs" as const,
-      searchableText: buildPatientSearchText({
+      searchFirstName: buildPatientSearchFirstName({
         firstName: args.firstName ?? existingPatient.firstName,
         lastName: args.lastName ?? existingPatient.lastName,
         name: existingPatient.name,
-        patientId: args.patientId,
-        phoneNumber: existingPatient.phoneNumber,
+      }),
+      searchLastName: buildPatientSearchLastName({
+        firstName: args.firstName ?? existingPatient.firstName,
+        lastName: args.lastName ?? existingPatient.lastName,
+        name: existingPatient.name,
       }),
       ...(args.firstName && { firstName: args.firstName }),
       ...(args.lastName && { lastName: args.lastName }),
@@ -150,9 +160,11 @@ export const createTemporaryPatient = mutation({
       phoneNumber: args.phoneNumber.trim(),
       practiceId: args.practiceId,
       recordType: "temporary",
-      searchableText: buildPatientSearchText({
+      searchFirstName: buildPatientSearchFirstName({
         name: args.name.trim(),
-        phoneNumber: args.phoneNumber.trim(),
+      }),
+      searchLastName: buildPatientSearchLastName({
+        name: args.name.trim(),
       }),
     });
   },
@@ -338,14 +350,54 @@ export const searchPatients = query({
         .take(20);
     }
 
-    return await ctx.db
-      .query("patients")
-      .withSearchIndex("search_by_searchableText", (q) =>
-        q
-          .search("searchableText", searchTerm)
-          .eq("practiceId", args.practiceId),
-      )
-      .take(20);
+    const [firstNameResults, lastNameResults] = await Promise.all([
+      ctx.db
+        .query("patients")
+        .withSearchIndex("search_by_searchFirstName", (q) =>
+          q
+            .search("searchFirstName", searchTerm)
+            .eq("practiceId", args.practiceId),
+        )
+        .take(20),
+      ctx.db
+        .query("patients")
+        .withSearchIndex("search_by_searchLastName", (q) =>
+          q
+            .search("searchLastName", searchTerm)
+            .eq("practiceId", args.practiceId),
+        )
+        .take(20),
+    ]);
+
+    return mergePatientSearchResults(firstNameResults, lastNameResults);
   },
   returns: v.array(patientDocumentValidator),
 });
+
+function mergePatientSearchResults(
+  firstNameResults: Doc<"patients">[],
+  lastNameResults: Doc<"patients">[],
+) {
+  const lastNameIds = new Set(lastNameResults.map((patient) => patient._id));
+  const mergedPatients = new Map<Id<"patients">, Doc<"patients">>();
+
+  for (const patient of firstNameResults) {
+    if (lastNameIds.has(patient._id)) {
+      mergedPatients.set(patient._id, patient);
+    }
+  }
+
+  for (const patient of firstNameResults) {
+    if (!mergedPatients.has(patient._id)) {
+      mergedPatients.set(patient._id, patient);
+    }
+  }
+
+  for (const patient of lastNameResults) {
+    if (!mergedPatients.has(patient._id)) {
+      mergedPatients.set(patient._id, patient);
+    }
+  }
+
+  return [...mergedPatients.values()].slice(0, 20);
+}

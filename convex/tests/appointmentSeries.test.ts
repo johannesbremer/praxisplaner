@@ -89,7 +89,8 @@ async function createPatient(
       patientId: args.patientId,
       practiceId: args.practiceId,
       recordType: "pvs",
-      searchableText: args.patientId.toString(),
+      searchFirstName: "",
+      searchLastName: "",
     });
   });
 }
