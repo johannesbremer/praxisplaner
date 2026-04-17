@@ -461,6 +461,7 @@ async function getSlotsForDayImpl(
       ctx.db,
       args.practiceId,
       dayStr,
+      ruleSetId,
       practitioners,
     );
 
@@ -915,6 +916,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       ctx.db,
       args.practiceId,
       dayStr,
+      ruleSetId,
       practitioners,
     );
 

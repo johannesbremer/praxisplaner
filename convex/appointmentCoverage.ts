@@ -283,7 +283,21 @@ async function previewPractitionerCoverageForAppointment(
 
   const candidates = await Promise.all(
     matchingSlots.map(async (slot) => {
+      let selectedPractitionerIdInRuleSet: Id<"practitioners"> | undefined;
       let activePractitionerId: Id<"practitioners"> | undefined;
+
+      try {
+        selectedPractitionerIdInRuleSet = await resolvePractitionerIdInRuleSet(
+          ctx.db,
+          {
+            practiceId: args.practiceId,
+            practitionerId: slot.practitionerId,
+            targetRuleSetId: args.ruleSetId,
+          },
+        );
+      } catch {
+        selectedPractitionerIdInRuleSet = undefined;
+      }
 
       try {
         activePractitionerId = await resolvePractitionerIdInRuleSet(ctx.db, {
@@ -298,14 +312,15 @@ async function previewPractitionerCoverageForAppointment(
       return {
         activePractitionerId,
         isAllowedInSelectedRuleSet:
+          selectedPractitionerIdInRuleSet !== undefined &&
           selectedAppointmentType.allowedPractitionerIds.includes(
-            slot.practitionerId,
+            selectedPractitionerIdInRuleSet,
           ),
         lastSeenAt: activePractitionerId
           ? (latestSeenByPractitioner.get(activePractitionerId) ?? null)
           : null,
         name: slot.practitionerName,
-        selectedPractitionerId: slot.practitionerId,
+        selectedPractitionerId: selectedPractitionerIdInRuleSet,
       };
     }),
   );

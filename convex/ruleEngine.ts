@@ -36,10 +36,16 @@ import { internalQuery } from "./_generated/server";
 export interface ParsedAppointment {
   /** Original appointment document */
   appointment: Doc<"appointments">;
+  /** Appointment type id resolved into the evaluated rule set when possible */
+  appointmentTypeId?: Id<"appointmentTypes">;
   /** Start time as epoch milliseconds (for fast comparison) */
   startEpochMs: number;
   /** End time as epoch milliseconds (for fast comparison) */
   endEpochMs: number;
+  /** Location id resolved into the evaluated rule set when possible */
+  locationId?: Id<"locations">;
+  /** Practitioner id resolved into the evaluated rule set when possible */
+  practitionerId?: Id<"practitioners">;
 }
 
 /**
@@ -93,12 +99,14 @@ export interface PreloadedDayData {
  * @param db Database reader
  * @param practiceId Practice to query appointments for
  * @param day Day as ISO date string (YYYY-MM-DD format)
+ * @param ruleSetId Rule set whose entity IDs should be used for lookups
  * @param practitioners Pre-loaded practitioners array (reuse from caller to avoid duplicate query)
  */
 export async function buildPreloadedDayData(
   db: DatabaseReader,
   practiceId: Id<"practices">,
   day: string,
+  ruleSetId: Id<"ruleSets">,
   practitioners: Doc<"practitioners">[],
 ): Promise<PreloadedDayData> {
   // Parse the day and compute day boundaries
@@ -130,6 +138,43 @@ export async function buildPreloadedDayData(
     (appointment) => appointment.cancelledAt === undefined,
   );
 
+  const [ruleSetAppointmentTypes, ruleSetLocations] = await Promise.all([
+    db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+  ]);
+
+  const appointmentTypeIdByLineage = new Map(
+    ruleSetAppointmentTypes
+      .filter((appointmentType) => appointmentType.practiceId === practiceId)
+      .map((appointmentType) => [
+        appointmentType.lineageKey ?? appointmentType._id,
+        appointmentType._id,
+      ]),
+  );
+  const locationIdByLineage = new Map(
+    ruleSetLocations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [location.lineageKey ?? location._id, location._id]),
+  );
+  const practitionerIdByLineage = new Map(
+    practitioners
+      .filter(
+        (practitioner) =>
+          practitioner.practiceId === practiceId &&
+          practitioner.ruleSetId === ruleSetId,
+      )
+      .map((practitioner) => [
+        practitioner.lineageKey ?? practitioner._id,
+        practitioner._id,
+      ]),
+  );
+
   // Build parsed appointments with pre-computed epoch times for fast overlap detection
   // Group by scope for efficient CONCURRENT_COUNT filtering
   const parsedAppointmentsByScope = new Map<string, ParsedAppointment[]>();
@@ -140,12 +185,27 @@ export async function buildPreloadedDayData(
   parsedAppointmentsByScope.set(practiceKey, practiceAppointments);
 
   for (const apt of appointments) {
+    const appointmentTypeId = appointmentTypeIdByLineage.get(
+      apt.appointmentTypeLineageKey,
+    );
+    const locationIdForRuleSet = locationIdByLineage.get(
+      apt.locationLineageKey,
+    );
+    const practitionerIdForRuleSet = apt.practitionerLineageKey
+      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+      : undefined;
+
     // Parse times once per appointment (expensive operation)
     const startZdt = Temporal.ZonedDateTime.from(apt.start);
     const endZdt = Temporal.ZonedDateTime.from(apt.end);
     const parsed: ParsedAppointment = {
       appointment: apt,
+      ...(appointmentTypeId ? { appointmentTypeId } : {}),
       endEpochMs: endZdt.epochMilliseconds,
+      ...(locationIdForRuleSet ? { locationId: locationIdForRuleSet } : {}),
+      ...(practitionerIdForRuleSet
+        ? { practitionerId: practitionerIdForRuleSet }
+        : {}),
       startEpochMs: startZdt.epochMilliseconds,
     };
 
@@ -153,17 +213,19 @@ export async function buildPreloadedDayData(
     practiceAppointments.push(parsed);
 
     // Add to location-specific list
-    const locationKey = `location:${apt.locationLineageKey}`;
-    let locationAppointments = parsedAppointmentsByScope.get(locationKey);
-    if (!locationAppointments) {
-      locationAppointments = [];
-      parsedAppointmentsByScope.set(locationKey, locationAppointments);
+    if (locationIdForRuleSet) {
+      const locationKey = `location:${locationIdForRuleSet}`;
+      let locationAppointments = parsedAppointmentsByScope.get(locationKey);
+      if (!locationAppointments) {
+        locationAppointments = [];
+        parsedAppointmentsByScope.set(locationKey, locationAppointments);
+      }
+      locationAppointments.push(parsed);
     }
-    locationAppointments.push(parsed);
 
     // Add to practitioner-specific list (if practitioner assigned)
-    if (apt.practitionerLineageKey) {
-      const practitionerKey = `practitioner:${apt.practitionerLineageKey}`;
+    if (practitionerIdForRuleSet) {
+      const practitionerKey = `practitioner:${practitionerIdForRuleSet}`;
       let practitionerAppointments =
         parsedAppointmentsByScope.get(practitionerKey);
       if (!practitionerAppointments) {
@@ -181,25 +243,57 @@ export async function buildPreloadedDayData(
   // Multiple keys per appointment: practice, location, and practitioner scope
   const dailyCapacityCounts = new Map<string, number>();
   for (const apt of appointments) {
-    const typeId = apt.appointmentTypeLineageKey;
+    const typeId = appointmentTypeIdByLineage.get(
+      apt.appointmentTypeLineageKey,
+    );
 
-    // Practice-wide count by appointment type
+    dailyCapacityCounts.set(
+      "practice:__all__",
+      (dailyCapacityCounts.get("practice:__all__") ?? 0) + 1,
+    );
+
+    const locationIdForRuleSet = locationIdByLineage.get(
+      apt.locationLineageKey,
+    );
+    if (locationIdForRuleSet) {
+      const locationAllKey = `location:${locationIdForRuleSet}:__all__`;
+      dailyCapacityCounts.set(
+        locationAllKey,
+        (dailyCapacityCounts.get(locationAllKey) ?? 0) + 1,
+      );
+    }
+
+    const practitionerIdForRuleSet = apt.practitionerLineageKey
+      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+      : undefined;
+    if (practitionerIdForRuleSet) {
+      const practitionerAllKey = `practitioner:${practitionerIdForRuleSet}:__all__`;
+      dailyCapacityCounts.set(
+        practitionerAllKey,
+        (dailyCapacityCounts.get(practitionerAllKey) ?? 0) + 1,
+      );
+    }
+
+    if (!typeId) {
+      continue;
+    }
+
     const practiceTypeKey = `practice:${typeId}`;
     dailyCapacityCounts.set(
       practiceTypeKey,
       (dailyCapacityCounts.get(practiceTypeKey) ?? 0) + 1,
     );
 
-    // Location-specific count by appointment type
-    const locationTypeKey = `location:${apt.locationLineageKey}:${typeId}`;
-    dailyCapacityCounts.set(
-      locationTypeKey,
-      (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
-    );
+    if (locationIdForRuleSet) {
+      const locationTypeKey = `location:${locationIdForRuleSet}:${typeId}`;
+      dailyCapacityCounts.set(
+        locationTypeKey,
+        (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
+      );
+    }
 
-    // Practitioner-specific count by appointment type (if practitioner assigned)
-    if (apt.practitionerLineageKey) {
-      const practitionerTypeKey = `practitioner:${apt.practitionerLineageKey}:${typeId}`;
+    if (practitionerIdForRuleSet) {
+      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${typeId}`;
       dailyCapacityCounts.set(
         practitionerTypeKey,
         (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
@@ -217,7 +311,9 @@ export async function buildPreloadedDayData(
 
   // Build practitioners map from passed-in array
   const practitionersMap = new Map<Id<"practitioners">, Doc<"practitioners">>();
-  for (const practitioner of practitioners) {
+  for (const practitioner of practitioners.filter(
+    (candidate) => candidate.ruleSetId === ruleSetId,
+  )) {
     practitionersMap.set(practitioner._id, practitioner);
   }
 
@@ -446,7 +542,7 @@ function evaluateCondition(
         ) {
           // Check appointment type filter if specified
           if (appointmentTypeIds.length > 0) {
-            const aptTypeId = parsed.appointment.appointmentTypeLineageKey;
+            const aptTypeId = parsed.appointmentTypeId;
             if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
               continue;
             }
@@ -483,20 +579,14 @@ function evaluateCondition(
       // If no specific appointment types are specified, we need to count all appointments
       // For this, we'll sum up the counts for all appointment types in the pre-computed map
       if (appointmentTypeIds.length === 0) {
-        // Count all appointments matching the scope
-        // This requires iterating the keys - still O(k) where k is unique appointment types
         const keyPrefix =
           scope === "practice"
-            ? "practice:"
+            ? "practice:__all__"
             : scope === "location"
-              ? `location:${context.locationId}:`
-              : `practitioner:${context.practitionerId}:`;
+              ? `location:${context.locationId}:__all__`
+              : `practitioner:${context.practitionerId}:__all__`;
 
-        for (const [key, count] of preloadedData.dailyCapacityCounts) {
-          if (key.startsWith(keyPrefix)) {
-            totalCount += count;
-          }
-        }
+        totalCount = preloadedData.dailyCapacityCounts.get(keyPrefix) ?? 0;
       } else {
         // Sum up counts for each specified appointment type
         for (const typeId of appointmentTypeIds) {
@@ -814,6 +904,7 @@ export const checkRulesForAppointment = internalQuery({
       ctx.db,
       args.context.practiceId,
       dateStr,
+      args.ruleSetId,
       practitioners,
     );
 

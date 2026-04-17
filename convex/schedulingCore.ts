@@ -10,7 +10,9 @@ export interface CandidateSlot {
   blockedByRuleId?: string;
   duration: number;
   locationId?: string;
+  locationLineageKey?: string;
   practitionerId: string;
+  practitionerLineageKey: string;
   practitionerName?: string;
   reason?: string;
   startTime: string;
@@ -30,7 +32,11 @@ export async function generateCandidateSlotsForDay(
 ): Promise<CandidateSlot[]> {
   const { date: targetPlainDate, locationId, practiceId, ruleSetId } = args;
 
-  const [practitioners, schedules] = await Promise.all([
+  const [locations, practitioners, schedules] = await Promise.all([
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
     db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -49,6 +55,17 @@ export async function generateCandidateSlotsForDay(
       practitioner._id,
       practitioner.name,
     ]),
+  );
+  const practitionerLineageKeyById = new Map(
+    practitionersForPractice.map((practitioner) => [
+      practitioner._id,
+      practitioner.lineageKey ?? practitioner._id,
+    ]),
+  );
+  const locationLineageKeyById = new Map(
+    locations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [location._id, location.lineageKey ?? location._id]),
   );
 
   const dayOfWeek =
@@ -107,7 +124,17 @@ export async function generateCandidateSlotsForDay(
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
           locationId: schedule.locationId,
+          ...(schedule.locationId
+            ? {
+                locationLineageKey:
+                  locationLineageKeyById.get(schedule.locationId) ??
+                  schedule.locationId,
+              }
+            : {}),
           practitionerId: schedule.practitionerId,
+          practitionerLineageKey:
+            practitionerLineageKeyById.get(schedule.practitionerId) ??
+            schedule.practitionerId,
           practitionerName:
             practitionerNameById.get(schedule.practitionerId) ??
             "Unknown Practitioner",
@@ -140,18 +167,25 @@ export function isSlotStartInFuture(
 export function slotOverlapsAppointment(
   slot: Pick<
     CandidateSlot,
-    "duration" | "locationId" | "practitionerId" | "startTime"
+    | "duration"
+    | "locationId"
+    | "locationLineageKey"
+    | "practitionerId"
+    | "practitionerLineageKey"
+    | "startTime"
   >,
   appointment: Pick<
     Doc<"appointments">,
     "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
 ): boolean {
-  if (slot.locationId !== appointment.locationLineageKey) {
+  const slotLocationIdentity = slot.locationLineageKey ?? slot.locationId;
+  if (slotLocationIdentity !== appointment.locationLineageKey) {
     return false;
   }
 
-  if (slot.practitionerId !== appointment.practitionerLineageKey) {
+  const slotPractitionerIdentity = slot.practitionerLineageKey;
+  if (slotPractitionerIdentity !== appointment.practitionerLineageKey) {
     return false;
   }
 

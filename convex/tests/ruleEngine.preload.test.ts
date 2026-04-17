@@ -91,6 +91,7 @@ describe("ruleEngine preloaded day data", () => {
         day: day.toString(),
         practiceId,
         practitionerId,
+        ruleSetId,
       };
     });
 
@@ -107,6 +108,7 @@ describe("ruleEngine preloaded day data", () => {
         ctx.db,
         fixture.practiceId as Id<"practices">,
         fixture.day,
+        fixture.ruleSetId as Id<"ruleSets">,
         [practitioner],
       );
 
@@ -123,5 +125,136 @@ describe("ruleEngine preloaded day data", () => {
     expect(result.dailyCount).toBe(1);
     expect(result.appointmentsByStartTimeSize).toBe(1);
     expect(result.firstAppointmentId).toBe(fixture.activeAppointmentId);
+  });
+
+  test("buildPreloadedDayData keys counts by the evaluated rule set ids", async () => {
+    const t = createTestContext();
+
+    const fixture = await t.run(async (ctx) => {
+      const practiceId = await ctx.db.insert("practices", {
+        name: "Rule Engine Preload Mapping Practice",
+      });
+      const baseRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Base Rule Set",
+        draftRevision: 0,
+        practiceId,
+        saved: true,
+        version: 1,
+      });
+      const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Copied Rule Set",
+        draftRevision: 0,
+        parentVersion: baseRuleSetId,
+        practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      const baseLocationId = await ctx.db.insert("locations", {
+        name: "Base Location",
+        practiceId,
+        ruleSetId: baseRuleSetId,
+      });
+      await ctx.db.insert("locations", {
+        lineageKey: baseLocationId,
+        name: "Copied Location",
+        practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      const basePractitionerId = await ctx.db.insert("practitioners", {
+        name: "Dr. Base",
+        practiceId,
+        ruleSetId: baseRuleSetId,
+      });
+      const copiedPractitionerId = await ctx.db.insert("practitioners", {
+        lineageKey: basePractitionerId,
+        name: "Dr. Copied",
+        practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      const now = BigInt(Date.now());
+      const baseAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [basePractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Checkup",
+        practiceId,
+        ruleSetId: baseRuleSetId,
+      });
+      const copiedAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [copiedPractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        lineageKey: baseAppointmentTypeId,
+        name: "Checkup Copy",
+        practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+
+      const day = Temporal.Now.plainDateISO("Europe/Berlin").add({ days: 2 });
+      const start = day.toZonedDateTime({
+        plainTime: { hour: 10, minute: 0 },
+        timeZone: "Europe/Berlin",
+      });
+      const end = start.add({ minutes: 30 });
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseAppointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: end.toString(),
+        isSimulation: false,
+        lastModified: now,
+        locationLineageKey: baseLocationId,
+        practiceId,
+        practitionerLineageKey: basePractitionerId,
+        start: start.toString(),
+        title: "Mapped appointment",
+      });
+
+      return {
+        copiedAppointmentTypeId,
+        copiedPractitionerId,
+        copiedRuleSetId,
+        day: day.toString(),
+        practiceId,
+      };
+    });
+
+    const result = await t.run(async (ctx) => {
+      const copiedPractitioner = await ctx.db.get(
+        "practitioners",
+        fixture.copiedPractitionerId as Id<"practitioners">,
+      );
+      if (!copiedPractitioner) {
+        throw new Error("Copied practitioner missing");
+      }
+
+      const preloaded = await buildPreloadedDayData(
+        ctx.db,
+        fixture.practiceId as Id<"practices">,
+        fixture.day,
+        fixture.copiedRuleSetId as Id<"ruleSets">,
+        [copiedPractitioner],
+      );
+
+      return {
+        copiedPracticeTypeCount:
+          preloaded.dailyCapacityCounts.get(
+            `practice:${fixture.copiedAppointmentTypeId}`,
+          ) ?? 0,
+        copiedPractitionerScopeCount:
+          preloaded.parsedAppointmentsByScope.get(
+            `practitioner:${fixture.copiedPractitionerId}`,
+          )?.length ?? 0,
+      };
+    });
+
+    expect(result.copiedPracticeTypeCount).toBe(1);
+    expect(result.copiedPractitionerScopeCount).toBe(1);
   });
 });
