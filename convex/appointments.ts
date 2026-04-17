@@ -33,6 +33,7 @@ import {
   appointmentSimulationKindValidator,
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
+import { buildPatientSearchText } from "./patientSearch";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -146,6 +147,10 @@ async function createTemporaryPatientRecord(
     phoneNumber,
     practiceId: args.practiceId,
     recordType: "temporary",
+    searchableText: buildPatientSearchText({
+      name,
+      phoneNumber,
+    }),
   });
 }
 

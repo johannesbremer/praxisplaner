@@ -1,44 +1,49 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { Search, UserRoundCheck } from "lucide-react";
-import {
-  type ChangeEvent,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useDeferredValue, useId, useMemo, useState } from "react";
 
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { PhoneInput } from "@/components/phone-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { api } from "@/convex/_generated/api";
-import { cn } from "@/lib/utils";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import {
   formatPatientOptionLabel,
-  getPatientDocumentName,
   getPatientInfoDisplayName,
   patientDocToInfo,
 } from "../utils/patient-info";
+import { Combobox, type ComboboxOption } from "./combobox";
 
 export type PatientSelectionPanelInitialSelection =
-  | { kind: "draftTemporary"; patient: DraftTemporaryPatient }
+  | {
+      kind: "draftTemporary";
+      patient: Extract<PatientInfo, { recordType: "temporary" }> & {
+        convexPatientId?: undefined;
+      };
+    }
   | { kind: "empty" }
   | { kind: "selected"; patient: PatientInfo; patientId: Id<"patients"> }
   | { kind: "selectedById"; patientId: Id<"patients"> };
 
+interface DraftPatientState {
+  name: string;
+  phoneNumber: string;
+}
+
 type DraftTemporaryPatient = Extract<
-  PatientInfo,
-  { recordType: "temporary" }
-> & {
-  convexPatientId?: undefined;
+  PatientSelectionPanelInitialSelection,
+  { kind: "draftTemporary" }
+>["patient"];
+
+type PatientOption = ComboboxOption & {
+  id: Id<"patients">;
+  patient?: Doc<"patients">;
 };
 
 interface PatientSelectionPanelProps {
@@ -47,7 +52,7 @@ interface PatientSelectionPanelProps {
   practiceId: Id<"practices">;
 }
 
-const EMPTY_DRAFT = {
+const EMPTY_DRAFT: DraftPatientState = {
   name: "",
   phoneNumber: "",
 };
@@ -90,233 +95,174 @@ export function PatientSelectionPanel({
   practiceId,
 }: PatientSelectionPanelProps) {
   const panelId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
   const [draftPatient, setDraftPatient] = useState(() =>
     getInitialDraftPatient(initialSelection),
   );
-  const [isOpen, setIsOpen] = useState(false);
   const [selectedExistingPatientId, setSelectedExistingPatientId] = useState(
     () => getInitialSelectedPatientId(initialSelection),
   );
-  const patientsQuery = useQuery(api.patients.searchPatients, {
+  const [searchValue, setSearchValue] = useState("");
+  const deferredSearchValue = useDeferredValue(searchValue.trim());
+
+  const patients = useQuery(api.patients.searchPatients, {
     practiceId,
-    searchTerm: "",
+    searchTerm: deferredSearchValue,
   });
-  const patients = useMemo(() => patientsQuery ?? [], [patientsQuery]);
+  const selectedPatientDocument = useQuery(
+    api.patients.getPatientById,
+    selectedExistingPatientId === undefined
+      ? "skip"
+      : { id: selectedExistingPatientId },
+  );
 
   const patientOptions = useMemo(
-    () =>
-      patients
-        .toSorted((left, right) =>
-          formatPatientOptionLabel(left).localeCompare(
-            formatPatientOptionLabel(right),
-            "de",
-          ),
-        )
-        .map((existingPatient) => ({
-          id: existingPatient._id,
-          label: formatPatientOptionLabel(existingPatient),
-          name: getPatientDocumentName(existingPatient),
-          patient: existingPatient,
-          searchText: [
-            getPatientDocumentName(existingPatient),
-            existingPatient.firstName,
-            existingPatient.lastName,
-            existingPatient.name,
-            existingPatient.patientId,
-            existingPatient.phoneNumber,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLocaleLowerCase("de"),
-        })),
+    () => (patients ?? []).map((patient) => toPatientOption(patient)),
     [patients],
   );
 
-  useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      if (!panelRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+  const selectedPatientOption = useMemo(() => {
+    if (selectedExistingPatientId === undefined) {
+      return;
+    }
+
+    const matchingQueryOption = patientOptions.find(
+      (option) => option.id === selectedExistingPatientId,
+    );
+    if (matchingQueryOption) {
+      return matchingQueryOption;
+    }
+
+    if (selectedPatientDocument) {
+      return toPatientOption(selectedPatientDocument);
+    }
+
+    const initialSelectedPatient = getInitialSelectedPatient(
+      initialSelection,
+      selectedExistingPatientId,
+    );
+    if (!initialSelectedPatient) {
+      return;
+    }
+
+    return {
+      id: selectedExistingPatientId,
+      label: getPatientInfoDisplayName(initialSelectedPatient),
+      searchText: getPatientInfoDisplayName(initialSelectedPatient),
+      value: selectedExistingPatientId,
     };
-
-    document.addEventListener("mousedown", onPointerDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (selectedExistingPatientId) {
-      const selectedPatient = patientOptions.find(
-        (option) => option.id === selectedExistingPatientId,
-      );
-      if (selectedPatient) {
-        onPatientSelected({
-          id: selectedPatient.id,
-          info: patientDocToInfo(selectedPatient.patient),
-        });
-        return;
-      }
-
-      const initialSelectedPatient = getInitialSelectedPatient(
-        initialSelection,
-        selectedExistingPatientId,
-      );
-      if (initialSelectedPatient) {
-        onPatientSelected({
-          id: selectedExistingPatientId,
-          info: initialSelectedPatient,
-        });
-      }
-
-      return;
-    }
-
-    const name = draftPatient.name.trim();
-    const phoneNumber = draftPatient.phoneNumber.trim();
-
-    if (name.length === 0) {
-      onPatientSelected();
-      return;
-    }
-
-    if (phoneNumber.length === 0) {
-      onPatientSelected();
-      return;
-    }
-
-    onPatientSelected({
-      info: {
-        isNewPatient: false,
-        name,
-        phoneNumber,
-        recordType: "temporary",
-      },
-    });
   }, [
-    draftPatient,
     initialSelection,
-    onPatientSelected,
     patientOptions,
     selectedExistingPatientId,
+    selectedPatientDocument,
   ]);
 
-  const filteredPatients = useMemo(() => {
-    const searchTerm = draftPatient.name.trim().toLocaleLowerCase("de");
-    if (searchTerm.length === 0) {
+  const comboboxOptions = useMemo(() => {
+    if (
+      selectedPatientOption === undefined ||
+      patientOptions.some((option) => option.id === selectedPatientOption.id)
+    ) {
       return patientOptions;
     }
 
-    return patientOptions.filter((option) =>
-      option.searchText.includes(searchTerm),
-    );
-  }, [draftPatient.name, patientOptions]);
+    return [selectedPatientOption, ...patientOptions];
+  }, [patientOptions, selectedPatientOption]);
 
   const showPhoneField =
     selectedExistingPatientId === undefined &&
     draftPatient.name.trim().length > 0;
 
-  const selectExistingPatient = (patientId: Id<"patients">) => {
-    const selectedPatient = patientOptions.find(
-      (option) => option.id === patientId,
+  const handleExistingPatientChange = (value: string | string[]) => {
+    if (Array.isArray(value)) {
+      return;
+    }
+
+    if (value.length === 0) {
+      setSelectedExistingPatientId(undefined);
+      emitDraftPatientSelection(onPatientSelected, draftPatient);
+      return;
+    }
+
+    const selectedPatient = comboboxOptions.find(
+      (option) => option.id === value,
     );
-    if (!selectedPatient) {
+    if (!selectedPatient?.patient) {
       return;
     }
 
     setSelectedExistingPatientId(selectedPatient.id);
-    setDraftPatient({
-      name: selectedPatient.name,
-      phoneNumber: "",
+    setDraftPatient(EMPTY_DRAFT);
+    onPatientSelected({
+      id: selectedPatient.id,
+      info: patientDocToInfo(selectedPatient.patient),
     });
-    setIsOpen(false);
   };
 
-  const handleNameChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextName = event.target.value;
-
-    setSelectedExistingPatientId(undefined);
-    setDraftPatient((current) => ({
+  const handleDraftNameChange = (nextName: string) => {
+    const nextDraftPatient = {
       name: nextName,
       phoneNumber:
-        selectedExistingPatientId === undefined ? current.phoneNumber : "",
-    }));
-    setIsOpen(true);
+        selectedExistingPatientId === undefined ? draftPatient.phoneNumber : "",
+    };
+
+    setSelectedExistingPatientId(undefined);
+    setDraftPatient(nextDraftPatient);
+    emitDraftPatientSelection(onPatientSelected, nextDraftPatient);
+  };
+
+  const handleDraftPhoneNumberChange = (nextPhoneNumber: string) => {
+    const nextDraftPatient = {
+      name: draftPatient.name,
+      phoneNumber: nextPhoneNumber,
+    };
+
+    if (selectedExistingPatientId !== undefined) {
+      setSelectedExistingPatientId(undefined);
+    }
+    setDraftPatient(nextDraftPatient);
+    emitDraftPatientSelection(onPatientSelected, nextDraftPatient);
   };
 
   return (
-    <div className="space-y-4" ref={panelRef}>
+    <div className="space-y-4 rounded-md border p-4">
       <div className="space-y-2">
-        <Label htmlFor={`${panelId}-patient-name`}>Patient</Label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            autoComplete="off"
-            className="pl-9"
-            id={`${panelId}-patient-name`}
-            onChange={handleNameChange}
-            onFocus={() => {
-              setIsOpen(true);
-            }}
-            placeholder="Patient suchen oder neuen Namen eingeben"
-            value={draftPatient.name}
-          />
-          {isOpen && (
-            <div className="absolute inset-x-0 top-[calc(100%+0.375rem)] z-50 rounded-md border bg-popover shadow-md">
-              <div className="max-h-64 overflow-y-auto p-1">
-                {filteredPatients.length > 0 ? (
-                  filteredPatients.map((option) => {
-                    const isSelected = option.id === selectedExistingPatientId;
+        <Label htmlFor={`${panelId}-existing-patient`}>
+          Bestandspatient suchen
+        </Label>
+        <Combobox
+          className="w-full justify-between"
+          emptyMessage="Keine passenden Patienten gefunden."
+          onSearchValueChange={setSearchValue}
+          onValueChange={handleExistingPatientChange}
+          options={comboboxOptions}
+          placeholder="Patient auswählen"
+          searchPlaceholder="Nach Vorname, Nachname oder Patientennummer suchen"
+          searchValue={searchValue}
+          value={selectedExistingPatientId ?? ""}
+        />
+        <p className="text-sm text-muted-foreground">
+          Die Suche findet Vor- und Nachnamen direkt über den Convex-Index.
+        </p>
+      </div>
 
-                    return (
-                      <button
-                        className={cn(
-                          "flex w-full items-start justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm transition-colors",
-                          isSelected
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-accent hover:text-accent-foreground",
-                        )}
-                        key={option.id}
-                        onClick={() => {
-                          selectExistingPatient(option.id);
-                        }}
-                        type="button"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">
-                            {option.name}
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {option.label}
-                          </div>
-                        </div>
-                        {isSelected && (
-                          <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
-                        )}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-2 text-sm text-muted-foreground">
-                    Kein bestehender Patient gefunden. Beim Buchen wird ein
-                    temporärer Patient angelegt.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        {selectedExistingPatientId ? (
-          <p className="text-sm text-muted-foreground">
-            Bestandspatient ausgewählt.
-          </p>
-        ) : draftPatient.name.trim().length > 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Wenn kein Treffer gewählt wird, wird beim Buchen ein temporärer
-            Patient angelegt.
-          </p>
-        ) : null}
+      <Separator />
+
+      <div className="space-y-2">
+        <Label htmlFor={`${panelId}-temporary-patient-name`}>
+          Temporären Patienten erfassen
+        </Label>
+        <Input
+          id={`${panelId}-temporary-patient-name`}
+          onChange={(event) => {
+            handleDraftNameChange(event.target.value);
+          }}
+          placeholder="Name des Patienten"
+          value={draftPatient.name}
+        />
+        <p className="text-sm text-muted-foreground">
+          Wenn Sie keinen Bestandspatienten auswählen, wird beim Buchen ein
+          temporärer Patient angelegt.
+        </p>
       </div>
 
       {showPhoneField && (
@@ -326,12 +272,7 @@ export function PatientSelectionPanel({
           </Label>
           <PhoneInput
             id={`${panelId}-temporary-patient-phone-number`}
-            onChange={(value: string) => {
-              setDraftPatient((current) => ({
-                ...current,
-                phoneNumber: value,
-              }));
-            }}
+            onChange={handleDraftPhoneNumberChange}
             value={draftPatient.phoneNumber}
           />
         </div>
@@ -340,9 +281,31 @@ export function PatientSelectionPanel({
   );
 }
 
+function emitDraftPatientSelection(
+  onPatientSelected: (patient?: PracticePatientSelection) => void,
+  draftPatient: DraftPatientState,
+) {
+  const name = draftPatient.name.trim();
+  const phoneNumber = draftPatient.phoneNumber.trim();
+
+  if (name.length === 0 || phoneNumber.length === 0) {
+    onPatientSelected();
+    return;
+  }
+
+  onPatientSelected({
+    info: {
+      isNewPatient: false,
+      name,
+      phoneNumber,
+      recordType: "temporary",
+    },
+  });
+}
+
 function getInitialDraftPatient(
   initialSelection: PatientSelectionPanelInitialSelection,
-) {
+): DraftPatientState {
   switch (initialSelection.kind) {
     case "draftTemporary": {
       return {
@@ -351,14 +314,9 @@ function getInitialDraftPatient(
       };
     }
     case "empty":
+    case "selected":
     case "selectedById": {
       return EMPTY_DRAFT;
-    }
-    case "selected": {
-      return {
-        name: getPatientInfoDisplayName(initialSelection.patient),
-        phoneNumber: "",
-      };
     }
   }
 }
@@ -370,18 +328,22 @@ function getInitialSelectedPatient(
   return initialSelection.kind === "selected" &&
     initialSelection.patientId === selectedPatientId
     ? initialSelection.patient
-    : undefined;
+    : null;
 }
 
 function getInitialSelectedPatientId(
   initialSelection: PatientSelectionPanelInitialSelection,
 ) {
   switch (initialSelection.kind) {
-    case "draftTemporary":
+    case "draftTemporary": {
+      return;
+    }
     case "empty": {
       return;
     }
-    case "selected":
+    case "selected": {
+      return initialSelection.patientId;
+    }
     case "selectedById": {
       return initialSelection.patientId;
     }
@@ -394,4 +356,24 @@ function isDraftTemporaryPatient(
   return (
     patient?.recordType === "temporary" && patient.convexPatientId === undefined
   );
+}
+
+function toPatientOption(patient: Doc<"patients">): PatientOption {
+  return {
+    id: patient._id,
+    label: formatPatientOptionLabel(patient),
+    patient,
+    searchText: [
+      patient.firstName,
+      patient.lastName,
+      patient.name,
+      patient.patientId?.toString(),
+      patient.phoneNumber,
+    ]
+      .filter(
+        (value): value is string => value !== undefined && value.length > 0,
+      )
+      .join(" "),
+    value: patient._id,
+  };
 }

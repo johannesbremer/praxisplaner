@@ -27,25 +27,35 @@ export interface ComboboxOption {
 interface ComboboxProps {
   "aria-invalid"?: boolean | undefined;
   className?: string;
+  emptyMessage?: string;
   inverted?: boolean;
   multiple?: boolean;
+  onSearchValueChange?: ((value: string) => void) | undefined;
   onValueChange: (value: string | string[]) => void;
   options: ComboboxOption[];
   placeholder?: string;
+  searchPlaceholder?: string;
+  searchValue?: string | undefined;
   value: string | string[];
 }
 
 export function Combobox({
   "aria-invalid": ariaInvalid,
   className,
+  emptyMessage = "Keine Optionen gefunden.",
   inverted = false,
   multiple = false,
+  onSearchValueChange,
   onValueChange,
   options,
   placeholder = "Auswählen...",
+  searchPlaceholder = placeholder,
+  searchValue: controlledSearchValue,
   value,
 }: ComboboxProps) {
+  const [internalSearchValue, setInternalSearchValue] = useState("");
   const [open, setOpen] = useState(false);
+  const searchValue = controlledSearchValue ?? internalSearchValue;
 
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
@@ -59,6 +69,18 @@ export function Combobox({
       onValueChange(currentValue === value ? "" : currentValue);
       setOpen(false);
     }
+
+    if (controlledSearchValue === undefined) {
+      setInternalSearchValue("");
+    }
+    onSearchValueChange?.("");
+  };
+
+  const handleSearchValueChange = (nextValue: string) => {
+    if (controlledSearchValue === undefined) {
+      setInternalSearchValue(nextValue);
+    }
+    onSearchValueChange?.(nextValue);
   };
 
   const handleRemove = (valueToRemove: string, e: React.MouseEvent) => {
@@ -129,9 +151,14 @@ export function Combobox({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[200px] p-0">
         <Command>
-          <CommandInput className="h-9" placeholder={placeholder} />
+          <CommandInput
+            className="h-9"
+            onValueChange={handleSearchValueChange}
+            placeholder={searchPlaceholder}
+            value={searchValue}
+          />
           <CommandList>
-            <CommandEmpty>Keine Optionen gefunden.</CommandEmpty>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem

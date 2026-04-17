@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { buildPatientSearchText } from "./patientSearch";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -28,6 +29,7 @@ const patientDocumentValidator = v.object({
   phoneNumber: v.optional(v.string()),
   practiceId: v.id("practices"),
   recordType: patientRecordTypeValidator,
+  searchableText: v.string(),
   sourceGdtFileName: v.optional(v.string()),
   street: v.optional(v.string()),
 });
@@ -82,6 +84,11 @@ export const createOrUpdatePatient = mutation({
         createdAt: now,
         lastModified: now,
         recordType: "pvs",
+        searchableText: buildPatientSearchText({
+          firstName: args.firstName,
+          lastName: args.lastName,
+          patientId: args.patientId,
+        }),
       });
 
       return {
@@ -96,6 +103,13 @@ export const createOrUpdatePatient = mutation({
     const updates = {
       lastModified: now,
       recordType: "pvs" as const,
+      searchableText: buildPatientSearchText({
+        firstName: args.firstName ?? existingPatient.firstName,
+        lastName: args.lastName ?? existingPatient.lastName,
+        name: existingPatient.name,
+        patientId: args.patientId,
+        phoneNumber: existingPatient.phoneNumber,
+      }),
       ...(args.firstName && { firstName: args.firstName }),
       ...(args.lastName && { lastName: args.lastName }),
       ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
@@ -136,6 +150,10 @@ export const createTemporaryPatient = mutation({
       phoneNumber: args.phoneNumber.trim(),
       practiceId: args.practiceId,
       recordType: "temporary",
+      searchableText: buildPatientSearchText({
+        name: args.name.trim(),
+        phoneNumber: args.phoneNumber.trim(),
+      }),
     });
   },
   returns: v.id("patients"),
@@ -310,30 +328,24 @@ export const searchPatients = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    // Get all patients for the practice
-    const patients = await ctx.db
+    const searchTerm = args.searchTerm.trim();
+
+    if (searchTerm.length === 0) {
+      return await ctx.db
+        .query("patients")
+        .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+        .order("desc")
+        .take(20);
+    }
+
+    return await ctx.db
       .query("patients")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const searchLower = args.searchTerm.toLowerCase();
-
-    // Filter by search term (name matching)
-    return patients.filter((patient) => {
-      const name = patient.name?.toLowerCase() ?? "";
-      const firstName = patient.firstName?.toLowerCase() ?? "";
-      const lastName = patient.lastName?.toLowerCase() ?? "";
-      const phoneNumber = patient.phoneNumber?.toLowerCase() ?? "";
-      const patientId = patient.patientId?.toString() ?? "";
-
-      return (
-        name.includes(searchLower) ||
-        firstName.includes(searchLower) ||
-        lastName.includes(searchLower) ||
-        phoneNumber.includes(searchLower) ||
-        patientId.includes(searchLower)
-      );
-    });
+      .withSearchIndex("search_by_searchableText", (q) =>
+        q
+          .search("searchableText", searchTerm)
+          .eq("practiceId", args.practiceId),
+      )
+      .take(20);
   },
   returns: v.array(patientDocumentValidator),
 });

@@ -125,6 +125,7 @@ async function createCoverageFixture(
       patientId: 1001,
       practiceId,
       recordType: "pvs",
+      searchableText: "Paula Patientin 1001",
     });
 
     return {
