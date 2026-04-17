@@ -2,7 +2,7 @@ import type { Doc } from "../../convex/_generated/dataModel";
 import type { PatientInfo } from "../types";
 
 export function formatPatientOptionLabel(patient: Doc<"patients">): string {
-  const name = [patient.firstName, patient.lastName].filter(Boolean).join(" ");
+  const name = getPatientDocumentName(patient);
 
   const descriptor =
     patient.recordType === "temporary"
@@ -14,6 +14,44 @@ export function formatPatientOptionLabel(patient: Doc<"patients">): string {
   return name.length > 0 ? `${name} · ${descriptor}` : descriptor;
 }
 
+export function getPatientDocumentName(
+  patient: Pick<
+    Doc<"patients">,
+    "firstName" | "lastName" | "name" | "recordType"
+  >,
+): string {
+  if (patient.recordType === "temporary") {
+    return (
+      patient.name?.trim() ??
+      [patient.firstName, patient.lastName].filter(Boolean).join(" ")
+    );
+  }
+
+  return [patient.firstName, patient.lastName].filter(Boolean).join(" ");
+}
+
+export function getPatientInfoDisplayName(patient: PatientInfo): string {
+  if (patient.recordType === "temporary") {
+    return (
+      patient.name.trim() ||
+      [patient.firstName, patient.lastName].filter(Boolean).join(" ")
+    );
+  }
+
+  const parts = [patient.title, patient.firstName, patient.lastName].filter(
+    Boolean,
+  );
+  if (parts.length > 0) {
+    return parts.join(" ");
+  }
+
+  if (patient.patientId !== undefined) {
+    return `Patient ${patient.patientId}`;
+  }
+
+  return patient.email ?? "";
+}
+
 export function patientDocToInfo(patient: Doc<"patients">): PatientInfo {
   if (patient.recordType === "temporary") {
     return {
@@ -22,9 +60,10 @@ export function patientDocToInfo(patient: Doc<"patients">): PatientInfo {
       ...(patient.dateOfBirth !== undefined && {
         dateOfBirth: patient.dateOfBirth,
       }),
-      firstName: patient.firstName ?? "",
       isNewPatient: false,
-      lastName: patient.lastName ?? "",
+      name:
+        patient.name ??
+        [patient.firstName, patient.lastName].filter(Boolean).join(" "),
       phoneNumber: patient.phoneNumber ?? "",
       recordType: "temporary",
       ...(patient.street !== undefined && { street: patient.street }),

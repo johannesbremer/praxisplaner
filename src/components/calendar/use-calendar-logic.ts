@@ -1834,10 +1834,11 @@ export function useCalendarLogic({
         if (appointment.patientId && patientData) {
           const patientInfo = patientData[appointment.patientId];
           if (patientInfo) {
-            const parts = [patientInfo.lastName, patientInfo.firstName].filter(
-              Boolean,
-            );
-            patientName = parts.join(", ");
+            patientName =
+              patientInfo.name ??
+              [patientInfo.lastName, patientInfo.firstName]
+                .filter(Boolean)
+                .join(", ");
           }
         }
 
@@ -3292,7 +3293,17 @@ export function useCalendarLogic({
         // Use pending title from sidebar if available, otherwise fall back to appointment type name
         const title = pendingAppointmentTitle || appointmentTypeTitle;
 
-        if (!patient?.convexPatientId && !patient?.userId) {
+        const hasTemporaryPatientDraft =
+          patient?.recordType === "temporary" &&
+          patient.convexPatientId === undefined &&
+          patient.name.trim().length > 0 &&
+          patient.phoneNumber.trim().length > 0;
+
+        if (
+          !patient?.convexPatientId &&
+          !patient?.userId &&
+          !hasTemporaryPatientDraft
+        ) {
           toast.error(
             "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
           );
@@ -3309,6 +3320,10 @@ export function useCalendarLogic({
           }),
           ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
+          }),
+          ...(hasTemporaryPatientDraft && {
+            temporaryPatientName: patient.name.trim(),
+            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
           }),
           ...(patient.userId && { userId: patient.userId }),
           practiceId,
@@ -3365,7 +3380,17 @@ export function useCalendarLogic({
         const title = pendingAppointmentTitle || appointmentTypeTitle;
 
         // Check if we have a patient - if not, ask for patient selection
-        if (!patient?.convexPatientId && !patient?.userId) {
+        const hasTemporaryPatientDraft =
+          patient?.recordType === "temporary" &&
+          patient.convexPatientId === undefined &&
+          patient.name.trim().length > 0 &&
+          patient.phoneNumber.trim().length > 0;
+
+        if (
+          !patient?.convexPatientId &&
+          !patient?.userId &&
+          !hasTemporaryPatientDraft
+        ) {
           if (onPatientRequired) {
             onPatientRequired({
               appointmentTypeId: selectedAppointmentTypeId,
@@ -3396,6 +3421,10 @@ export function useCalendarLogic({
           }),
           ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
+          }),
+          ...(hasTemporaryPatientDraft && {
+            temporaryPatientName: patient.name.trim(),
+            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
           }),
           ...(patient.userId && { userId: patient.userId }),
           practiceId,

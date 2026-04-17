@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
-import type { PatientInfo } from "../types";
+import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -33,7 +33,11 @@ import {
   invalidStateError,
   resultFromNullable,
 } from "../utils/frontend-errors";
-import { PatientSelectionPanel } from "./patient-selection-panel";
+import { getPatientInfoDisplayName } from "../utils/patient-info";
+import {
+  getPatientSelectionPanelInitialSelection,
+  PatientSelectionPanel,
+} from "./patient-selection-panel";
 
 type CreateTarget =
   | {
@@ -43,6 +47,10 @@ type CreateTarget =
   | {
       recipient: { id: Id<"users">; type: "user" };
       userId: Id<"users">;
+    }
+  | {
+      temporaryPatientName: string;
+      temporaryPatientPhoneNumber: string;
     };
 
 interface StaffAppointmentCreationModalProps {
@@ -58,7 +66,7 @@ interface StaffAppointmentCreationModalProps {
   ) => void;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
   onPatientSelected?:
-    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | ((patient?: PracticePatientSelection) => void)
     | undefined;
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   open: boolean;
@@ -76,6 +84,8 @@ interface StaffAppointmentCreationModalProps {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
+    temporaryPatientName?: string;
+    temporaryPatientPhoneNumber?: string;
     title: string;
     userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;
@@ -102,11 +112,7 @@ export function StaffAppointmentCreationModal({
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
   const [selectedFallbackPatient, setSelectedFallbackPatient] = useState<
-    | undefined
-    | {
-        id: Id<"patients">;
-        info: PatientInfo;
-      }
+    PracticePatientSelection | undefined
   >();
   const [title, setTitle] = useState("");
 
@@ -134,7 +140,9 @@ export function StaffAppointmentCreationModal({
   const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
   const effectiveSelectedPatientId =
-    selectedFallbackPatient?.id ?? selectedPatientId;
+    selectedFallbackPatient && "id" in selectedFallbackPatient
+      ? selectedFallbackPatient.id
+      : selectedPatientId;
 
   // Query for next available slot - only query when modal is open
   const [requestedAt] = useState(() => Temporal.Now.instant().toString());
@@ -165,7 +173,13 @@ export function StaffAppointmentCreationModal({
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPersistedPatient = effectivePatient?.convexPatientId !== undefined;
   const hasUserLinkedPatient = effectivePatient?.userId !== undefined;
-  const hasAnyPatient = hasPersistedPatient || hasUserLinkedPatient;
+  const hasTemporaryPatientDraft =
+    effectivePatient?.recordType === "temporary" &&
+    effectivePatient.convexPatientId === undefined &&
+    effectivePatient.name.trim().length > 0 &&
+    effectivePatient.phoneNumber.trim().length > 0;
+  const hasAnyPatient =
+    hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
     open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
@@ -196,24 +210,7 @@ export function StaffAppointmentCreationModal({
       return "Kein Patient";
     }
 
-    if (hasPersistedPatient) {
-      if (currentPatient.firstName && currentPatient.lastName) {
-        return `${currentPatient.firstName} ${currentPatient.lastName}`;
-      }
-      return `Patient ${currentPatient.patientId ?? ""}`;
-    }
-
-    if (hasUserLinkedPatient) {
-      const parts = [currentPatient.firstName, currentPatient.lastName].filter(
-        Boolean,
-      );
-      if (parts.length > 0) {
-        return parts.join(" ");
-      }
-      return currentPatient.email ?? "Kein Patient";
-    }
-
-    return "Kein Patient";
+    return getPatientInfoDisplayName(currentPatient) || "Kein Patient";
   };
 
   const getCreateTarget = (): CreateTarget | null => {
@@ -230,6 +227,16 @@ export function StaffAppointmentCreationModal({
       return {
         recipient: { id: userId, type: "user" as const },
         userId,
+      };
+    }
+
+    if (
+      effectivePatient?.recordType === "temporary" &&
+      effectivePatient.convexPatientId === undefined
+    ) {
+      return {
+        temporaryPatientName: effectivePatient.name.trim(),
+        temporaryPatientPhoneNumber: effectivePatient.phoneNumber.trim(),
       };
     }
 
@@ -306,20 +313,37 @@ export function StaffAppointmentCreationModal({
               start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
               title,
             }
-          : {
-              appointmentTypeId: selectedAppointmentType._id,
-              isNewPatient,
-              ...(isSimulation && { isSimulation: true }),
-              locationId,
-              ...(effectivePatient?.dateOfBirth && {
-                patientDateOfBirth: effectivePatient.dateOfBirth,
-              }),
-              practiceId,
-              practitionerId: slot.practitionerId,
-              start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
-              title,
-              userId: createTarget.userId,
-            },
+          : "userId" in createTarget
+            ? {
+                appointmentTypeId: selectedAppointmentType._id,
+                isNewPatient,
+                ...(isSimulation && { isSimulation: true }),
+                locationId,
+                ...(effectivePatient?.dateOfBirth && {
+                  patientDateOfBirth: effectivePatient.dateOfBirth,
+                }),
+                practiceId,
+                practitionerId: slot.practitionerId,
+                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                title,
+                userId: createTarget.userId,
+              }
+            : {
+                appointmentTypeId: selectedAppointmentType._id,
+                isNewPatient,
+                ...(isSimulation && { isSimulation: true }),
+                locationId,
+                ...(effectivePatient?.dateOfBirth && {
+                  patientDateOfBirth: effectivePatient.dateOfBirth,
+                }),
+                practiceId,
+                practitionerId: slot.practitionerId,
+                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                temporaryPatientName: createTarget.temporaryPatientName,
+                temporaryPatientPhoneNumber:
+                  createTarget.temporaryPatientPhoneNumber,
+                title,
+              },
       ),
       (error) =>
         frontendErrorFromUnknown(error, {
@@ -339,7 +363,10 @@ export function StaffAppointmentCreationModal({
       )
       .match(
         (appointmentId) => {
-          onAppointmentCreated?.(appointmentId, createTarget.recipient);
+          onAppointmentCreated?.(
+            appointmentId,
+            "recipient" in createTarget ? createTarget.recipient : undefined,
+          );
           toast.success(
             hasFollowUpPlan
               ? "Kettentermine erfolgreich erstellt"
@@ -480,12 +507,16 @@ export function StaffAppointmentCreationModal({
 
                 {!hasAnyPatient && (
                   <PatientSelectionPanel
+                    initialSelection={getPatientSelectionPanelInitialSelection({
+                      patient: effectivePatient,
+                      selectedPatientId: effectiveSelectedPatientId,
+                    })}
+                    key="patient-selection-next"
                     onPatientSelected={(selected) => {
                       setSelectedFallbackPatient(selected);
                       onPatientSelected?.(selected);
                     }}
                     practiceId={practiceId}
-                    selectedPatientId={effectiveSelectedPatientId}
                   />
                 )}
 
@@ -615,12 +646,16 @@ export function StaffAppointmentCreationModal({
 
                 {!hasAnyPatient && (
                   <PatientSelectionPanel
+                    initialSelection={getPatientSelectionPanelInitialSelection({
+                      patient: effectivePatient,
+                      selectedPatientId: effectiveSelectedPatientId,
+                    })}
+                    key="patient-selection-create"
                     onPatientSelected={(selected) => {
                       setSelectedFallbackPatient(selected);
                       onPatientSelected?.(selected);
                     }}
                     practiceId={practiceId}
-                    selectedPatientId={effectiveSelectedPatientId}
                   />
                 )}
 

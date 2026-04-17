@@ -29,10 +29,9 @@ type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
 
 type TemporaryPatientInfo = Partial<BookingPersonalData> &
   Pick<Doc<"patients">, "city" | "dateOfBirth" | "street"> & {
-    convexPatientId: Id<"patients">;
-    firstName: string;
+    convexPatientId?: Id<"patients">;
     isNewPatient: boolean;
-    lastName: string;
+    name: string;
     patientId?: undefined;
     phoneNumber: string;
     recordType: "temporary";
@@ -57,6 +56,15 @@ export type PatientInfo =
   | PvsPatientInfo
   | TemporaryPatientInfo
   | UserPatientInfo;
+
+export type PracticePatientSelection =
+  | {
+      id: Id<"patients">;
+      info: PatientInfo;
+    }
+  | {
+      info: TemporaryPatientInfo;
+    };
 
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";

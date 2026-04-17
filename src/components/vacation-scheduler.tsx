@@ -947,7 +947,8 @@ export function VacationScheduler({
       : undefined;
     const user = conflict.userId ? userDetails?.[conflict.userId] : undefined;
     const patientDisplayName = patient
-      ? [patient.firstName, patient.lastName].filter(Boolean).join(" ")
+      ? (patient.name ??
+        [patient.firstName, patient.lastName].filter(Boolean).join(" "))
       : user
         ? [user.firstName, user.lastName].filter(Boolean).join(" ") ||
           user.email

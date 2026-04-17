@@ -121,6 +121,34 @@ function calculateShiftedEnd(end: string, start: string, nextStart: string) {
     .toString();
 }
 
+async function createTemporaryPatientRecord(
+  ctx: MutationCtx,
+  args: {
+    name: string;
+    phoneNumber: string;
+    practiceId: Id<"practices">;
+  },
+): Promise<Id<"patients">> {
+  const name = args.name.trim();
+  const phoneNumber = args.phoneNumber.trim();
+
+  if (name.length === 0 || phoneNumber.length === 0) {
+    throw new Error(
+      "Temporäre Patienten benötigen einen Namen und eine Telefonnummer.",
+    );
+  }
+
+  const now = BigInt(Date.now());
+  return await ctx.db.insert("patients", {
+    createdAt: now,
+    lastModified: now,
+    name,
+    phoneNumber,
+    practiceId: args.practiceId,
+    recordType: "temporary",
+  });
+}
+
 async function getAppointmentSeriesRecord(
   db: DatabaseReader,
   seriesId: string,
@@ -643,6 +671,8 @@ export async function createAppointmentFromTrustedSource(
     simulationKind?: AppointmentSimulationKind;
     simulationRuleSetId?: Id<"ruleSets">;
     start: string;
+    temporaryPatientName?: string;
+    temporaryPatientPhoneNumber?: string;
     title: string;
     userId?: Id<"users">;
   },
@@ -660,6 +690,8 @@ export async function createAppointmentFromTrustedSource(
     replacesAppointmentId,
     simulationKind,
     simulationRuleSetId,
+    temporaryPatientName,
+    temporaryPatientPhoneNumber,
     userId,
     ...rest
   } = args;
@@ -670,8 +702,33 @@ export async function createAppointmentFromTrustedSource(
     );
   }
 
-  if (!patientId && !userId) {
-    throw new Error("Either patientId or userId must be provided.");
+  const hasTemporaryPatientData =
+    temporaryPatientName !== undefined ||
+    temporaryPatientPhoneNumber !== undefined;
+
+  if ((patientId || userId) && hasTemporaryPatientData) {
+    throw new Error(
+      "Temporäre Patientendaten können nicht zusammen mit patientId oder userId übergeben werden.",
+    );
+  }
+
+  let resolvedPatientId = patientId;
+
+  if (!resolvedPatientId && !userId) {
+    if (
+      temporaryPatientName === undefined ||
+      temporaryPatientPhoneNumber === undefined
+    ) {
+      throw new Error(
+        "Either patientId, userId, or temporary patient data must be provided.",
+      );
+    }
+
+    resolvedPatientId = await createTemporaryPatientRecord(ctx, {
+      name: temporaryPatientName,
+      phoneNumber: temporaryPatientPhoneNumber,
+      practiceId,
+    });
   }
 
   if (simulationKind && isSimulation !== true) {
@@ -681,10 +738,10 @@ export async function createAppointmentFromTrustedSource(
   }
 
   // If a patientId is provided, verify it exists
-  if (patientId) {
-    const patient = await ctx.db.get("patients", patientId);
+  if (resolvedPatientId) {
+    const patient = await ctx.db.get("patients", resolvedPatientId);
     if (!patient) {
-      throw new Error(`Patient with ID ${patientId} not found`);
+      throw new Error(`Patient with ID ${resolvedPatientId} not found`);
     }
   }
 
@@ -750,7 +807,7 @@ export async function createAppointmentFromTrustedSource(
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
-      ...(patientId && { patientId }),
+      ...(resolvedPatientId && { patientId: resolvedPatientId }),
       practiceId,
       practitionerId,
       rootAppointmentTypeId: appointmentTypeId,
@@ -807,7 +864,7 @@ export async function createAppointmentFromTrustedSource(
     isSimulation: isSimulation ?? false,
     lastModified: now,
     practiceId,
-    ...(patientId && { patientId }),
+    ...(resolvedPatientId && { patientId: resolvedPatientId }),
     ...(userId && { userId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
@@ -838,6 +895,8 @@ export const createAppointment = mutation({
     simulationKind: v.optional(appointmentSimulationKindValidator),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.string(),
+    temporaryPatientName: v.optional(v.string()),
+    temporaryPatientPhoneNumber: v.optional(v.string()),
     title: v.string(),
     userId: v.optional(v.id("users")),
   },

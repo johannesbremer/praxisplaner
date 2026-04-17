@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 
 import type { Id } from "../../convex/_generated/dataModel";
 import type { AppointmentResult } from "../../convex/appointments";
-import type { PatientInfo } from "../types";
+import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
 import { formatZonedDateTimeDE } from "../utils/date-utils";
@@ -35,7 +35,11 @@ import {
   type FrontendError,
   missingContextError,
 } from "../utils/frontend-errors";
-import { PatientSelectionPanel } from "./patient-selection-panel";
+import { getPatientInfoDisplayName } from "../utils/patient-info";
+import {
+  getPatientSelectionPanelInitialSelection,
+  PatientSelectionPanel,
+} from "./patient-selection-panel";
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
@@ -44,7 +48,7 @@ type BookingPersonalData =
 
 interface CalendarRightSidebarProps {
   onPatientSelected?:
-    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | ((patient?: PracticePatientSelection) => void)
     | undefined;
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
   patient?: PatientInfo | undefined;
@@ -121,13 +125,7 @@ export function CalendarRightSidebar({
   return sidebarResult.match(
     ({ isMobile, open, openMobile, setOpenMobile }) => {
       const patientDisplayName = patient
-        ? patient.firstName && patient.lastName
-          ? `${patient.title ? `${patient.title} ` : ""}${patient.firstName} ${patient.lastName}`
-          : patient.patientId
-            ? `Patient ${patient.patientId}`
-            : patient.email
-              ? patient.email
-              : "Kein Patient ausgewählt"
+        ? getPatientInfoDisplayName(patient) || "Kein Patient ausgewählt"
         : "Kein Patient ausgewählt";
 
       const handleOpenInPvs = () => {
@@ -317,9 +315,7 @@ function RightSidebarContent({
   showGdtAlert,
 }: {
   handleOpenInPvs: () => void;
-  onPatientSelected:
-    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
-    | undefined;
+  onPatientSelected: ((patient?: PracticePatientSelection) => void) | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
   patient: PatientInfo | undefined;
   patientAppointments: SidebarAppointment[] | undefined;
@@ -350,9 +346,21 @@ function RightSidebarContent({
         {practiceId && onPatientSelected && (
           <div className="mb-4">
             <PatientSelectionPanel
+              initialSelection={getPatientSelectionPanelInitialSelection({
+                patient,
+                selectedPatientId,
+              })}
+              key={
+                selectedPatientId ??
+                (patient?.userId
+                  ? `user:${patient.userId}`
+                  : patient?.recordType === "temporary" &&
+                      patient.convexPatientId === undefined
+                    ? `draft:${patient.name}:${patient.phoneNumber}`
+                    : "empty")
+              }
               onPatientSelected={onPatientSelected}
               practiceId={practiceId}
-              selectedPatientId={selectedPatientId}
             />
           </div>
         )}

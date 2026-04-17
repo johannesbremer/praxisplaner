@@ -340,6 +340,57 @@ describe("appointments self-service cancellation", () => {
     expect(appointment?.simulationValidatedAt).toBeDefined();
   });
 
+  test("createAppointment creates a temporary patient at booking time", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_temporary_patient_booking";
+    const userId = await createUser(t, authId, "temp-booking@example.com");
+    const authed = t.withIdentity({
+      email: "temp-booking@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(6).start,
+        temporaryPatientName: "Alex Beispiel",
+        temporaryPatientPhoneNumber: "+491701234567",
+        title: "Temporärer Termin",
+      },
+    );
+
+    const { appointment, patient } = await t.run(async (ctx) => {
+      const appointment = await ctx.db.get("appointments", appointmentId);
+      const patient = appointment?.patientId
+        ? await ctx.db.get("patients", appointment.patientId)
+        : null;
+
+      return { appointment, patient };
+    });
+
+    expect(appointment?.patientId).toBeDefined();
+    expect(appointment?.userId).toBeUndefined();
+    expect(patient?.name).toBe("Alex Beispiel");
+    expect(patient?.phoneNumber).toBe("+491701234567");
+    expect(patient?.recordType).toBe("temporary");
+    expect(patient?.firstName).toBeUndefined();
+    expect(patient?.lastName).toBeUndefined();
+  });
+
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
     const t = createTestContext();
     const authed = t.withIdentity({

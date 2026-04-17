@@ -7,8 +7,11 @@ import { createContext, useContext } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import type { PatientInfo } from "../types";
-import type { SchedulingSimulatedContext } from "../types";
+import type {
+  PatientInfo,
+  PracticePatientSelection,
+  SchedulingSimulatedContext,
+} from "../types";
 
 import {
   type FrontendError,
@@ -66,7 +69,7 @@ export interface CalendarContextValue {
 
   // Pending appointment title (set by sidebar modal before manual placement)
   onPatientSelected?:
-    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | ((patient?: PracticePatientSelection) => void)
     | undefined;
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   patient?: PatientInfo | undefined;
@@ -84,6 +87,8 @@ export interface CalendarContextValue {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
+    temporaryPatientName?: string;
+    temporaryPatientPhoneNumber?: string;
     title: string;
     userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;

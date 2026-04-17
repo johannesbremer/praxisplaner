@@ -23,6 +23,7 @@ const patientDocumentValidator = v.object({
   firstName: v.optional(v.string()),
   lastModified: v.int64(),
   lastName: v.optional(v.string()),
+  name: v.optional(v.string()),
   patientId: v.optional(v.number()),
   phoneNumber: v.optional(v.string()),
   practiceId: v.id("practices"),
@@ -34,6 +35,7 @@ const patientDocumentValidator = v.object({
 const patientNameLookupValidator = v.object({
   firstName: v.optional(v.string()),
   lastName: v.optional(v.string()),
+  name: v.optional(v.string()),
 });
 
 const patientSidebarDetailsValidator = v.object({
@@ -41,6 +43,7 @@ const patientSidebarDetailsValidator = v.object({
   dateOfBirth: v.optional(v.string()),
   firstName: v.optional(v.string()),
   lastName: v.optional(v.string()),
+  name: v.optional(v.string()),
   patientId: v.optional(v.number()),
   phoneNumber: v.optional(v.string()),
   recordType: patientRecordTypeValidator,
@@ -117,8 +120,7 @@ export const createOrUpdatePatient = mutation({
 
 export const createTemporaryPatient = mutation({
   args: {
-    firstName: v.string(),
-    lastName: v.string(),
+    name: v.string(),
     phoneNumber: v.string(),
     practiceId: v.id("practices"),
   },
@@ -129,9 +131,8 @@ export const createTemporaryPatient = mutation({
     const now = BigInt(Date.now());
     return await ctx.db.insert("patients", {
       createdAt: now,
-      firstName: args.firstName.trim(),
       lastModified: now,
-      lastName: args.lastName.trim(),
+      name: args.name.trim(),
       phoneNumber: args.phoneNumber.trim(),
       practiceId: args.practiceId,
       recordType: "temporary",
@@ -220,19 +221,26 @@ export const getPatientsByIds = query({
     // Filter out nulls and return patient map for easy lookup
     const patientMap: Record<
       string,
-      { firstName?: string; lastName?: string }
+      { firstName?: string; lastName?: string; name?: string }
     > = {};
     for (const patient of patients) {
       if (patient) {
         if (!accessiblePracticeIds.has(patient.practiceId)) {
           continue;
         }
-        const entry: { firstName?: string; lastName?: string } = {};
+        const entry: {
+          firstName?: string;
+          lastName?: string;
+          name?: string;
+        } = {};
         if (patient.firstName !== undefined) {
           entry.firstName = patient.firstName;
         }
         if (patient.lastName !== undefined) {
           entry.lastName = patient.lastName;
+        }
+        if (patient.name !== undefined) {
+          entry.name = patient.name;
         }
         patientMap[patient._id] = entry;
       }
@@ -260,6 +268,7 @@ export const getPatientSidebarDetailsByIds = query({
         dateOfBirth?: string;
         firstName?: string;
         lastName?: string;
+        name?: string;
         patientId?: number;
         phoneNumber?: string;
         recordType: "pvs" | "temporary";
@@ -277,6 +286,7 @@ export const getPatientSidebarDetailsByIds = query({
         ...(patient.dateOfBirth ? { dateOfBirth: patient.dateOfBirth } : {}),
         ...(patient.firstName ? { firstName: patient.firstName } : {}),
         ...(patient.lastName ? { lastName: patient.lastName } : {}),
+        ...(patient.name ? { name: patient.name } : {}),
         ...(patient.patientId === undefined
           ? {}
           : { patientId: patient.patientId }),
@@ -310,9 +320,19 @@ export const searchPatients = query({
 
     // Filter by search term (name matching)
     return patients.filter((patient) => {
+      const name = patient.name?.toLowerCase() ?? "";
       const firstName = patient.firstName?.toLowerCase() ?? "";
       const lastName = patient.lastName?.toLowerCase() ?? "";
-      return firstName.includes(searchLower) || lastName.includes(searchLower);
+      const phoneNumber = patient.phoneNumber?.toLowerCase() ?? "";
+      const patientId = patient.patientId?.toString() ?? "";
+
+      return (
+        name.includes(searchLower) ||
+        firstName.includes(searchLower) ||
+        lastName.includes(searchLower) ||
+        phoneNumber.includes(searchLower) ||
+        patientId.includes(searchLower)
+      );
     });
   },
   returns: v.array(patientDocumentValidator),

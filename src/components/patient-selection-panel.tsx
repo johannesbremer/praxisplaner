@@ -1,53 +1,102 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
-import { UserPlus } from "lucide-react";
-import { type ChangeEvent, useId, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useQuery } from "convex/react";
+import { Search, UserRoundCheck } from "lucide-react";
+import {
+  type ChangeEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { PhoneInput } from "@/components/phone-input";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { api } from "@/convex/_generated/api";
+import { cn } from "@/lib/utils";
 
-import type { PatientInfo } from "../types";
+import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import {
   formatPatientOptionLabel,
+  getPatientDocumentName,
+  getPatientInfoDisplayName,
   patientDocToInfo,
 } from "../utils/patient-info";
-import { Combobox } from "./combobox";
+
+export type PatientSelectionPanelInitialSelection =
+  | { kind: "draftTemporary"; patient: DraftTemporaryPatient }
+  | { kind: "empty" }
+  | { kind: "selected"; patient: PatientInfo; patientId: Id<"patients"> }
+  | { kind: "selectedById"; patientId: Id<"patients"> };
+
+type DraftTemporaryPatient = Extract<
+  PatientInfo,
+  { recordType: "temporary" }
+> & {
+  convexPatientId?: undefined;
+};
 
 interface PatientSelectionPanelProps {
-  onPatientSelected: (patient: {
-    id: Id<"patients">;
-    info: PatientInfo;
-  }) => void;
+  initialSelection: PatientSelectionPanelInitialSelection;
+  onPatientSelected: (patient?: PracticePatientSelection) => void;
   practiceId: Id<"practices">;
-  selectedPatientId: Id<"patients"> | undefined;
 }
 
-const EMPTY_TEMPORARY_PATIENT = {
-  firstName: "",
-  lastName: "",
+const EMPTY_DRAFT = {
+  name: "",
   phoneNumber: "",
 };
 
+export function getPatientSelectionPanelInitialSelection({
+  patient,
+  selectedPatientId,
+}: {
+  patient: PatientInfo | undefined;
+  selectedPatientId: Id<"patients"> | undefined;
+}): PatientSelectionPanelInitialSelection {
+  if (patient && selectedPatientId) {
+    return {
+      kind: "selected",
+      patient,
+      patientId: selectedPatientId,
+    };
+  }
+
+  if (selectedPatientId) {
+    return {
+      kind: "selectedById",
+      patientId: selectedPatientId,
+    };
+  }
+
+  if (isDraftTemporaryPatient(patient)) {
+    return {
+      kind: "draftTemporary",
+      patient,
+    };
+  }
+
+  return { kind: "empty" };
+}
+
 export function PatientSelectionPanel({
+  initialSelection,
   onPatientSelected,
   practiceId,
-  selectedPatientId,
 }: PatientSelectionPanelProps) {
   const panelId = useId();
-  const [temporaryPatient, setTemporaryPatient] = useState(
-    EMPTY_TEMPORARY_PATIENT,
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [draftPatient, setDraftPatient] = useState(() =>
+    getInitialDraftPatient(initialSelection),
   );
-  const createTemporaryPatient = useMutation(
-    api.patients.createTemporaryPatient,
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedExistingPatientId, setSelectedExistingPatientId] = useState(
+    () => getInitialSelectedPatientId(initialSelection),
   );
   const patientsQuery = useQuery(api.patients.searchPatients, {
     practiceId,
@@ -55,7 +104,7 @@ export function PatientSelectionPanel({
   });
   const patients = useMemo(() => patientsQuery ?? [], [patientsQuery]);
 
-  const options = useMemo(
+  const patientOptions = useMemo(
     () =>
       patients
         .toSorted((left, right) =>
@@ -64,163 +113,285 @@ export function PatientSelectionPanel({
             "de",
           ),
         )
-        .map((patient) => ({
-          label: formatPatientOptionLabel(patient),
+        .map((existingPatient) => ({
+          id: existingPatient._id,
+          label: formatPatientOptionLabel(existingPatient),
+          name: getPatientDocumentName(existingPatient),
+          patient: existingPatient,
           searchText: [
-            patient.firstName,
-            patient.lastName,
-            patient.patientId,
-            patient.phoneNumber,
+            getPatientDocumentName(existingPatient),
+            existingPatient.firstName,
+            existingPatient.lastName,
+            existingPatient.name,
+            existingPatient.patientId,
+            existingPatient.phoneNumber,
           ]
             .filter(Boolean)
-            .join(" "),
-          value: patient._id,
+            .join(" ")
+            .toLocaleLowerCase("de"),
         })),
     [patients],
   );
 
-  const canCreateTemporaryPatient =
-    temporaryPatient.firstName.trim().length > 0 &&
-    temporaryPatient.lastName.trim().length > 0 &&
-    temporaryPatient.phoneNumber.trim().length > 0;
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!panelRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
 
-  const handleSelectExistingPatient = (value: string | string[]) => {
-    if (typeof value !== "string" || value.length === 0) {
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedExistingPatientId) {
+      const selectedPatient = patientOptions.find(
+        (option) => option.id === selectedExistingPatientId,
+      );
+      if (selectedPatient) {
+        onPatientSelected({
+          id: selectedPatient.id,
+          info: patientDocToInfo(selectedPatient.patient),
+        });
+        return;
+      }
+
+      const initialSelectedPatient = getInitialSelectedPatient(
+        initialSelection,
+        selectedExistingPatientId,
+      );
+      if (initialSelectedPatient) {
+        onPatientSelected({
+          id: selectedExistingPatientId,
+          info: initialSelectedPatient,
+        });
+      }
+
       return;
     }
 
-    const selectedPatient = patients.find((patient) => patient._id === value);
-    if (!selectedPatient) {
+    const name = draftPatient.name.trim();
+    const phoneNumber = draftPatient.phoneNumber.trim();
+
+    if (name.length === 0) {
+      onPatientSelected();
+      return;
+    }
+
+    if (phoneNumber.length === 0) {
+      onPatientSelected();
       return;
     }
 
     onPatientSelected({
-      id: selectedPatient._id,
-      info: patientDocToInfo(selectedPatient),
+      info: {
+        isNewPatient: false,
+        name,
+        phoneNumber,
+        recordType: "temporary",
+      },
     });
-  };
+  }, [
+    draftPatient,
+    initialSelection,
+    onPatientSelected,
+    patientOptions,
+    selectedExistingPatientId,
+  ]);
 
-  const handleCreateTemporaryPatient = async () => {
-    if (!canCreateTemporaryPatient) {
-      toast.error("Bitte Vorname, Nachname und Telefonnummer eingeben.");
+  const filteredPatients = useMemo(() => {
+    const searchTerm = draftPatient.name.trim().toLocaleLowerCase("de");
+    if (searchTerm.length === 0) {
+      return patientOptions;
+    }
+
+    return patientOptions.filter((option) =>
+      option.searchText.includes(searchTerm),
+    );
+  }, [draftPatient.name, patientOptions]);
+
+  const showPhoneField =
+    selectedExistingPatientId === undefined &&
+    draftPatient.name.trim().length > 0;
+
+  const selectExistingPatient = (patientId: Id<"patients">) => {
+    const selectedPatient = patientOptions.find(
+      (option) => option.id === patientId,
+    );
+    if (!selectedPatient) {
       return;
     }
 
-    try {
-      const createdPatientId = await createTemporaryPatient({
-        firstName: temporaryPatient.firstName.trim(),
-        lastName: temporaryPatient.lastName.trim(),
-        phoneNumber: temporaryPatient.phoneNumber.trim(),
-        practiceId,
-      });
+    setSelectedExistingPatientId(selectedPatient.id);
+    setDraftPatient({
+      name: selectedPatient.name,
+      phoneNumber: "",
+    });
+    setIsOpen(false);
+  };
 
-      onPatientSelected({
-        id: createdPatientId,
-        info: {
-          convexPatientId: createdPatientId,
-          firstName: temporaryPatient.firstName.trim(),
-          isNewPatient: false,
-          lastName: temporaryPatient.lastName.trim(),
-          phoneNumber: temporaryPatient.phoneNumber.trim(),
-          recordType: "temporary",
-        },
-      });
-      setTemporaryPatient(EMPTY_TEMPORARY_PATIENT);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Temporärer Patient konnte nicht angelegt werden.",
-      );
-    }
+  const handleNameChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextName = event.target.value;
+
+    setSelectedExistingPatientId(undefined);
+    setDraftPatient((current) => ({
+      name: nextName,
+      phoneNumber:
+        selectedExistingPatientId === undefined ? current.phoneNumber : "",
+    }));
+    setIsOpen(true);
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-md border p-4">
-      <div className="flex flex-col gap-1">
-        <div className="text-sm font-medium">Patient auswählen</div>
-        <div className="text-sm text-muted-foreground">
-          Vor dem Termin kann ein bestehender Patient gewählt oder ein
-          temporärer Patient angelegt werden.
+    <div className="space-y-4" ref={panelRef}>
+      <div className="space-y-2">
+        <Label htmlFor={`${panelId}-patient-name`}>Patient</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            autoComplete="off"
+            className="pl-9"
+            id={`${panelId}-patient-name`}
+            onChange={handleNameChange}
+            onFocus={() => {
+              setIsOpen(true);
+            }}
+            placeholder="Patient suchen oder neuen Namen eingeben"
+            value={draftPatient.name}
+          />
+          {isOpen && (
+            <div className="absolute inset-x-0 top-[calc(100%+0.375rem)] z-50 rounded-md border bg-popover shadow-md">
+              <div className="max-h-64 overflow-y-auto p-1">
+                {filteredPatients.length > 0 ? (
+                  filteredPatients.map((option) => {
+                    const isSelected = option.id === selectedExistingPatientId;
+
+                    return (
+                      <button
+                        className={cn(
+                          "flex w-full items-start justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm transition-colors",
+                          isSelected
+                            ? "bg-accent text-accent-foreground"
+                            : "hover:bg-accent hover:text-accent-foreground",
+                        )}
+                        key={option.id}
+                        onClick={() => {
+                          selectExistingPatient(option.id);
+                        }}
+                        type="button"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">
+                            {option.name}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {option.label}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
+                        )}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    Kein bestehender Patient gefunden. Beim Buchen wird ein
+                    temporärer Patient angelegt.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+        {selectedExistingPatientId ? (
+          <p className="text-sm text-muted-foreground">
+            Bestandspatient ausgewählt.
+          </p>
+        ) : draftPatient.name.trim().length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Wenn kein Treffer gewählt wird, wird beim Buchen ein temporärer
+            Patient angelegt.
+          </p>
+        ) : null}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={`${panelId}-existing-patient-combobox`}>
-          Bestehender Patient
-        </Label>
-        <Combobox
-          className="w-full justify-between"
-          onValueChange={handleSelectExistingPatient}
-          options={options}
-          placeholder="Patient suchen..."
-          value={selectedPatientId ?? ""}
-        />
-      </div>
-
-      <Separator />
-
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <UserPlus className="size-4 text-muted-foreground" />
-          Temporären Patienten anlegen
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${panelId}-temporary-patient-first-name`}>
-            Vorname
-          </Label>
-          <Input
-            id={`${panelId}-temporary-patient-first-name`}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setTemporaryPatient((current) => ({
-                ...current,
-                firstName: event.target.value,
-              }));
-            }}
-            value={temporaryPatient.firstName}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${panelId}-temporary-patient-last-name`}>
-            Nachname
-          </Label>
-          <Input
-            id={`${panelId}-temporary-patient-last-name`}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setTemporaryPatient((current) => ({
-                ...current,
-                lastName: event.target.value,
-              }));
-            }}
-            value={temporaryPatient.lastName}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
+      {showPhoneField && (
+        <div className="space-y-2">
           <Label htmlFor={`${panelId}-temporary-patient-phone-number`}>
             Telefonnummer
           </Label>
           <PhoneInput
             id={`${panelId}-temporary-patient-phone-number`}
             onChange={(value: string) => {
-              setTemporaryPatient((current) => ({
+              setDraftPatient((current) => ({
                 ...current,
                 phoneNumber: value,
               }));
             }}
-            value={temporaryPatient.phoneNumber}
+            value={draftPatient.phoneNumber}
           />
         </div>
-        <Button
-          disabled={!canCreateTemporaryPatient}
-          onClick={() => {
-            void handleCreateTemporaryPatient();
-          }}
-          type="button"
-          variant="outline"
-        >
-          Temporären Patienten anlegen
-        </Button>
-      </div>
+      )}
     </div>
+  );
+}
+
+function getInitialDraftPatient(
+  initialSelection: PatientSelectionPanelInitialSelection,
+) {
+  switch (initialSelection.kind) {
+    case "draftTemporary": {
+      return {
+        name: initialSelection.patient.name,
+        phoneNumber: initialSelection.patient.phoneNumber,
+      };
+    }
+    case "empty":
+    case "selectedById": {
+      return EMPTY_DRAFT;
+    }
+    case "selected": {
+      return {
+        name: getPatientInfoDisplayName(initialSelection.patient),
+        phoneNumber: "",
+      };
+    }
+  }
+}
+
+function getInitialSelectedPatient(
+  initialSelection: PatientSelectionPanelInitialSelection,
+  selectedPatientId: Id<"patients">,
+) {
+  return initialSelection.kind === "selected" &&
+    initialSelection.patientId === selectedPatientId
+    ? initialSelection.patient
+    : undefined;
+}
+
+function getInitialSelectedPatientId(
+  initialSelection: PatientSelectionPanelInitialSelection,
+) {
+  switch (initialSelection.kind) {
+    case "draftTemporary":
+    case "empty": {
+      return;
+    }
+    case "selected":
+    case "selectedById": {
+      return initialSelection.patientId;
+    }
+  }
+}
+
+function isDraftTemporaryPatient(
+  patient: PatientInfo | undefined,
+): patient is DraftTemporaryPatient {
+  return (
+    patient?.recordType === "temporary" && patient.convexPatientId === undefined
   );
 }

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import type { PatientInfo } from "@/src/types";
+import type { PatientInfo, PracticePatientSelection } from "@/src/types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,8 @@ const TIMEZONE = "Europe/Berlin";
 
 type SelectedPatient =
   | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
-  | { id: Id<"users">; type: "user" };
+  | { id: Id<"users">; type: "user" }
+  | { info: PatientInfo; type: "draftTemporaryPatient" };
 
 // Wrapper component that enhances appointment selection with sidebar opening
 // Must be rendered inside RightSidebarProvider
@@ -160,6 +161,10 @@ export function NewCalendar({
     }
 
     if (selectedPatient?.type === "patient") {
+      return selectedPatient.info;
+    }
+
+    if (selectedPatient?.type === "draftTemporaryPatient") {
       return selectedPatient.info;
     }
 
@@ -284,7 +289,9 @@ export function NewCalendar({
     selectedPatient
       ? selectedPatient.type === "patient"
         ? { patientId: selectedPatient.id }
-        : { userId: selectedPatient.id }
+        : selectedPatient.type === "user"
+          ? { userId: selectedPatient.id }
+          : "skip"
       : activePatient?.convexPatientId
         ? { patientId: activePatient.convexPatientId }
         : activePatient?.userId
@@ -406,11 +413,24 @@ export function NewCalendar({
   );
 
   const handleSelectPracticePatient = useCallback(
-    (selected: { id: Id<"patients">; info: PatientInfo }) => {
+    (selected?: PracticePatientSelection) => {
+      if (!selected) {
+        setSelectedPatient(undefined);
+        return;
+      }
+
+      if ("id" in selected) {
+        setSelectedPatient({
+          id: selected.id,
+          info: selected.info,
+          type: "patient",
+        });
+        return;
+      }
+
       setSelectedPatient({
-        id: selected.id,
         info: selected.info,
-        type: "patient",
+        type: "draftTemporaryPatient",
       });
     },
     [],

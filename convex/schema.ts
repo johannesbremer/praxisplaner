@@ -925,6 +925,7 @@ export default defineSchema({
     dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
     firstName: v.optional(v.string()), // FK 3102
     lastName: v.optional(v.string()), // FK 3101
+    name: v.optional(v.string()), // Temporary patients use a single display name
     patientId: v.optional(v.number()), // FK 3000 - Present for PVS patients
     phoneNumber: v.optional(v.string()),
     practiceId: v.id("practices"), // Multi-tenancy support
