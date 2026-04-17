@@ -551,6 +551,7 @@ describe("appointments self-service cancellation", () => {
         practitionerId: baseData.practitionerId,
         start: window.start,
         title: "Simulationskollision",
+        userId,
       }),
     ).rejects.toThrow("bereits belegt");
   });

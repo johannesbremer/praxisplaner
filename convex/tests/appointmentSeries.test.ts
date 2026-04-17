@@ -88,6 +88,7 @@ async function createPatient(
       lastModified: BigInt(Date.now()),
       patientId: args.patientId,
       practiceId: args.practiceId,
+      recordType: "pvs",
     });
   });
 }
@@ -887,11 +888,16 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
+    const patientId = await createPatient(t, {
+      patientId: 9001,
+      practiceId,
+    });
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
       isSimulation: true,
       locationId,
+      patientId,
       practiceId,
       practitionerId,
       start: rootStart,

@@ -356,6 +356,12 @@ function RightSidebarContent({
                   </p>
                 )}
 
+                {patient.phoneNumber && (
+                  <p className="text-sm text-muted-foreground">
+                    {patient.phoneNumber}
+                  </p>
+                )}
+
                 {/* Address - Street */}
                 {patient.street && <p className="text-sm">{patient.street}</p>}
 
@@ -443,11 +449,11 @@ function RightSidebarContent({
         ) : (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Kein Patient aus dem PVS ausgewählt.
+              Kein Patient ausgewählt.
             </p>
             <p className="text-xs text-muted-foreground">
-              Wählen Sie einen Patienten in Ihrem Praxisverwaltungssystem aus,
-              um dessen Daten hier anzuzeigen.
+              Wählen Sie einen Patienten aus oder legen Sie beim Erstellen eines
+              Termins einen temporären Patienten an.
             </p>
           </div>
         )}

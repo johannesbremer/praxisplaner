@@ -2656,6 +2656,10 @@ export function useCalendarLogic({
         appointmentData.patientId = resource.patientId;
       }
 
+      if (resource.userId !== undefined) {
+        appointmentData.userId = resource.userId;
+      }
+
       if (practitionerId !== undefined) {
         appointmentData.practitionerId = practitionerId;
       }
@@ -3288,18 +3292,25 @@ export function useCalendarLogic({
         // Use pending title from sidebar if available, otherwise fall back to appointment type name
         const title = pendingAppointmentTitle || appointmentTypeTitle;
 
+        if (!patient?.convexPatientId && !patient?.userId) {
+          toast.error(
+            "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
+          );
+          return;
+        }
+
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
           isNewPatient: simulatedContext.patient.isNew,
           isSimulation: true,
           locationId: simulatedContext.locationId,
-          ...(patient?.dateOfBirth && {
+          ...(patient.dateOfBirth && {
             patientDateOfBirth: patient.dateOfBirth,
           }),
-          ...(patient?.convexPatientId && {
+          ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
           }),
-          ...(patient?.userId && { userId: patient.userId }),
+          ...(patient.userId && { userId: patient.userId }),
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,

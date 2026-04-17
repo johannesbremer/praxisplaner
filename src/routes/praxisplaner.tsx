@@ -635,6 +635,7 @@ function PraxisPlanerComponent() {
               convexPatientId: result.convexPatientId,
               isNewPatient: result.isNewPatient,
               patientId: patientData.patientId,
+              recordType: "pvs",
             };
             if (patientData.city) {
               patientInfo.city = patientData.city;

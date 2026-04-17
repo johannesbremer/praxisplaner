@@ -925,8 +925,10 @@ export default defineSchema({
     dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
     firstName: v.optional(v.string()), // FK 3102
     lastName: v.optional(v.string()), // FK 3101
-    patientId: v.number(), // FK 3000 - Required, unique identifier as integer
+    patientId: v.optional(v.number()), // FK 3000 - Present for PVS patients
+    phoneNumber: v.optional(v.string()),
     practiceId: v.id("practices"), // Multi-tenancy support
+    recordType: v.union(v.literal("pvs"), v.literal("temporary")),
     street: v.optional(v.string()), // FK 3107 - Street address
 
     // Metadata and tracking fields
@@ -935,6 +937,7 @@ export default defineSchema({
     sourceGdtFileName: v.optional(v.string()), // Original GDT filename for reference
   })
     .index("by_patientId", ["patientId"])
+    .index("by_practiceId_patientId", ["practiceId", "patientId"])
     .index("by_lastModified", ["lastModified"])
     .index("by_createdAt", ["createdAt"])
     .index("by_practiceId", ["practiceId"]),

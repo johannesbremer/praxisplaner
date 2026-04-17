@@ -255,11 +255,24 @@ export function NewCalendar({
   // Convert selected patient data to PatientInfo format for the sidebar
   const selectedPatientInfo: PatientInfo | undefined = (() => {
     if (selectedPatient?.type === "patient" && selectedPatientData) {
-      const info: PatientInfo = {
-        convexPatientId: selectedPatientData._id,
-        isNewPatient: false,
-        patientId: selectedPatientData.patientId,
-      };
+      const info: PatientInfo =
+        selectedPatientData.recordType === "temporary"
+          ? {
+              convexPatientId: selectedPatientData._id,
+              firstName: selectedPatientData.firstName ?? "",
+              isNewPatient: false,
+              lastName: selectedPatientData.lastName ?? "",
+              phoneNumber: selectedPatientData.phoneNumber ?? "",
+              recordType: "temporary",
+            }
+          : {
+              convexPatientId: selectedPatientData._id,
+              isNewPatient: false,
+              recordType: "pvs",
+              ...(selectedPatientData.patientId !== undefined && {
+                patientId: selectedPatientData.patientId,
+              }),
+            };
       if (selectedPatientData.firstName !== undefined) {
         info.firstName = selectedPatientData.firstName;
       }
@@ -268,6 +281,9 @@ export function NewCalendar({
       }
       if (selectedPatientData.dateOfBirth !== undefined) {
         info.dateOfBirth = selectedPatientData.dateOfBirth;
+      }
+      if (selectedPatientData.phoneNumber !== undefined) {
+        info.phoneNumber = selectedPatientData.phoneNumber;
       }
       if (selectedPatientData.street !== undefined) {
         info.street = selectedPatientData.street;

@@ -9,6 +9,44 @@ import {
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 import { patientUpsertResultValidator } from "./validators";
 
+const patientRecordTypeValidator = v.union(
+  v.literal("pvs"),
+  v.literal("temporary"),
+);
+
+const patientDocumentValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("patients"),
+  city: v.optional(v.string()),
+  createdAt: v.int64(),
+  dateOfBirth: v.optional(v.string()),
+  firstName: v.optional(v.string()),
+  lastModified: v.int64(),
+  lastName: v.optional(v.string()),
+  patientId: v.optional(v.number()),
+  phoneNumber: v.optional(v.string()),
+  practiceId: v.id("practices"),
+  recordType: patientRecordTypeValidator,
+  sourceGdtFileName: v.optional(v.string()),
+  street: v.optional(v.string()),
+});
+
+const patientNameLookupValidator = v.object({
+  firstName: v.optional(v.string()),
+  lastName: v.optional(v.string()),
+});
+
+const patientSidebarDetailsValidator = v.object({
+  city: v.optional(v.string()),
+  dateOfBirth: v.optional(v.string()),
+  firstName: v.optional(v.string()),
+  lastName: v.optional(v.string()),
+  patientId: v.optional(v.number()),
+  phoneNumber: v.optional(v.string()),
+  recordType: patientRecordTypeValidator,
+  street: v.optional(v.string()),
+});
+
 /** Create or update a patient from GDT data */
 export const createOrUpdatePatient = mutation({
   args: {
@@ -29,7 +67,9 @@ export const createOrUpdatePatient = mutation({
     // Check if patient exists
     const existingPatient = await ctx.db
       .query("patients")
-      .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+      .withIndex("by_practiceId_patientId", (q) =>
+        q.eq("practiceId", args.practiceId).eq("patientId", args.patientId),
+      )
       .first();
 
     if (!existingPatient) {
@@ -38,6 +78,7 @@ export const createOrUpdatePatient = mutation({
         ...args,
         createdAt: now,
         lastModified: now,
+        recordType: "pvs",
       });
 
       return {
@@ -51,6 +92,7 @@ export const createOrUpdatePatient = mutation({
     // Update existing patient with non-null fields only using spread pattern
     const updates = {
       lastModified: now,
+      recordType: "pvs" as const,
       ...(args.firstName && { firstName: args.firstName }),
       ...(args.lastName && { lastName: args.lastName }),
       ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
@@ -71,6 +113,31 @@ export const createOrUpdatePatient = mutation({
     };
   },
   returns: patientUpsertResultValidator,
+});
+
+export const createTemporaryPatient = mutation({
+  args: {
+    firstName: v.string(),
+    lastName: v.string(),
+    phoneNumber: v.string(),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+
+    const now = BigInt(Date.now());
+    return await ctx.db.insert("patients", {
+      createdAt: now,
+      firstName: args.firstName.trim(),
+      lastModified: now,
+      lastName: args.lastName.trim(),
+      phoneNumber: args.phoneNumber.trim(),
+      practiceId: args.practiceId,
+      recordType: "temporary",
+    });
+  },
+  returns: v.id("patients"),
 });
 
 /** List patients with flexible ordering options */
@@ -103,7 +170,7 @@ export const listPatients = query({
       accessiblePracticeIds.has(patient.practiceId),
     );
   },
-  returns: v.array(v.any()), // Patient documents from schema
+  returns: v.array(patientDocumentValidator),
 });
 
 /** Get a patient by Convex ID */
@@ -118,7 +185,7 @@ export const getPatientById = query({
     await ensurePracticeAccessForQuery(ctx, patient.practiceId);
     return patient;
   },
-  returns: v.union(v.any(), v.null()), // Patient document or null
+  returns: v.union(patientDocumentValidator, v.null()),
 });
 
 /** Get a patient by patientId */
@@ -136,7 +203,7 @@ export const getPatient = query({
     await ensurePracticeAccessForQuery(ctx, patient.practiceId);
     return patient;
   },
-  returns: v.union(v.any(), v.null()), // Patient document or null
+  returns: v.union(patientDocumentValidator, v.null()),
 });
 
 /** Get multiple patients by their Convex IDs */
@@ -172,13 +239,7 @@ export const getPatientsByIds = query({
     }
     return patientMap;
   },
-  returns: v.record(
-    v.id("patients"),
-    v.object({
-      firstName: v.optional(v.string()),
-      lastName: v.optional(v.string()),
-    }),
-  ),
+  returns: v.record(v.id("patients"), patientNameLookupValidator),
 });
 
 export const getPatientSidebarDetailsByIds = query({
@@ -200,6 +261,8 @@ export const getPatientSidebarDetailsByIds = query({
         firstName?: string;
         lastName?: string;
         patientId?: number;
+        phoneNumber?: string;
+        recordType: "pvs" | "temporary";
         street?: string;
       }
     > = {};
@@ -214,24 +277,18 @@ export const getPatientSidebarDetailsByIds = query({
         ...(patient.dateOfBirth ? { dateOfBirth: patient.dateOfBirth } : {}),
         ...(patient.firstName ? { firstName: patient.firstName } : {}),
         ...(patient.lastName ? { lastName: patient.lastName } : {}),
-        patientId: patient.patientId,
+        ...(patient.patientId === undefined
+          ? {}
+          : { patientId: patient.patientId }),
+        ...(patient.phoneNumber ? { phoneNumber: patient.phoneNumber } : {}),
+        recordType: patient.recordType,
         ...(patient.street ? { street: patient.street } : {}),
       };
     }
 
     return patientMap;
   },
-  returns: v.record(
-    v.id("patients"),
-    v.object({
-      city: v.optional(v.string()),
-      dateOfBirth: v.optional(v.string()),
-      firstName: v.optional(v.string()),
-      lastName: v.optional(v.string()),
-      patientId: v.optional(v.number()),
-      street: v.optional(v.string()),
-    }),
-  ),
+  returns: v.record(v.id("patients"), patientSidebarDetailsValidator),
 });
 
 /** Search patients by name */
@@ -258,20 +315,5 @@ export const searchPatients = query({
       return firstName.includes(searchLower) || lastName.includes(searchLower);
     });
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("patients"),
-      city: v.optional(v.string()),
-      createdAt: v.int64(),
-      dateOfBirth: v.optional(v.string()),
-      firstName: v.optional(v.string()),
-      lastModified: v.int64(),
-      lastName: v.optional(v.string()),
-      patientId: v.number(),
-      practiceId: v.id("practices"),
-      sourceGdtFileName: v.optional(v.string()),
-      street: v.optional(v.string()),
-    }),
-  ),
+  returns: v.array(patientDocumentValidator),
 });

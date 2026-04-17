@@ -16,35 +16,47 @@ export type SchedulingSimulatedContext =
 export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
 type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
 type ConvexApi = typeof import("../convex/_generated/api").api;
+type PvsPatientInfo = Partial<BookingPersonalData> &
+  Pick<Doc<"patients">, "city" | "dateOfBirth" | "patientId" | "street"> & {
+    convexPatientId: Id<"patients">;
+    isNewPatient: boolean;
+    phoneNumber?: string;
+    recordType: "pvs";
+    userId?: undefined;
+  };
+
 type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
+
+type TemporaryPatientInfo = Partial<BookingPersonalData> &
+  Pick<Doc<"patients">, "city" | "dateOfBirth" | "street"> & {
+    convexPatientId: Id<"patients">;
+    firstName: string;
+    isNewPatient: boolean;
+    lastName: string;
+    patientId?: undefined;
+    phoneNumber: string;
+    recordType: "temporary";
+    userId?: undefined;
+  };
+
+type UserPatientInfo = Partial<BookingPersonalData> & {
+  convexPatientId?: undefined;
+  email?: string;
+  isNewPatient?: boolean;
+  patientId?: undefined;
+  recordType?: undefined;
+  userId: Id<"users">;
+};
 
 /**
  * Patient information for calendar and sidebar components.
- * Derives fields from the Convex patients table for e2e type safety,
- * plus additional UI-specific fields.
- * All fields are optional to support partial patient info in the UI.
+ * Stored patients and booking users are modeled separately so creation flows
+ * can rely on concrete IDs instead of broad optional bags.
  */
-export interface PatientInfo
-  extends
-    Partial<
-      Pick<
-        Doc<"patients">,
-        | "city"
-        | "dateOfBirth"
-        | "firstName"
-        | "lastName"
-        | "patientId"
-        | "street"
-      >
-    >,
-    Partial<BookingPersonalData> {
-  /** Convex database ID for linking appointments */
-  convexPatientId?: Id<"patients">;
-  /** Linked user for bookings created via /buchung */
-  userId?: Id<"users">;
-  /** Whether this patient was just created (from GDT import) */
-  isNewPatient?: boolean;
-}
+export type PatientInfo =
+  | PvsPatientInfo
+  | TemporaryPatientInfo
+  | UserPatientInfo;
 
 // Browser permission state
 export type BrowserPermissionState = "denied" | "granted" | "prompt";

@@ -11,6 +11,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
+import { PhoneInput } from "@/components/phone-input";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -68,6 +69,18 @@ interface StaffAppointmentCreationModalProps {
   selectedDate: string;
 }
 
+interface TemporaryPatientDraft {
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+}
+
+const EMPTY_TEMPORARY_PATIENT: TemporaryPatientDraft = {
+  firstName: "",
+  lastName: "",
+  phoneNumber: "",
+};
+
 export function StaffAppointmentCreationModal({
   appointmentTypeId,
   isNewPatient = false,
@@ -84,10 +97,16 @@ export function StaffAppointmentCreationModal({
   selectedDate,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
+  const [temporaryPatient, setTemporaryPatient] = useState(
+    EMPTY_TEMPORARY_PATIENT,
+  );
   const [title, setTitle] = useState("");
 
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
+  );
+  const createTemporaryPatientMutation = useMutation(
+    api.patients.createTemporaryPatient,
   );
 
   // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation
@@ -136,11 +155,14 @@ export function StaffAppointmentCreationModal({
   );
 
   // Determine if we have a patient (from GDT or user-linked booking)
-  const hasPatientFromGdt = patient?.convexPatientId !== undefined;
+  const hasPersistedPatient = patient?.convexPatientId !== undefined;
   const hasUserLinkedPatient = patient?.userId !== undefined;
-  const hasSimulationPatient = isSimulation;
-  const hasAnyPatient =
-    hasPatientFromGdt || hasUserLinkedPatient || hasSimulationPatient;
+  const hasAnyPatient = hasPersistedPatient || hasUserLinkedPatient;
+  const requiresTemporaryPatient = !hasAnyPatient;
+  const isTemporaryPatientComplete =
+    temporaryPatient.firstName.trim().length > 0 &&
+    temporaryPatient.lastName.trim().length > 0 &&
+    temporaryPatient.phoneNumber.trim().length > 0;
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
     open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
@@ -166,7 +188,7 @@ export function StaffAppointmentCreationModal({
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
-    if (hasPatientFromGdt) {
+    if (hasPersistedPatient) {
       if (patient.firstName && patient.lastName) {
         return `${patient.firstName} ${patient.lastName}`;
       }
@@ -181,18 +203,14 @@ export function StaffAppointmentCreationModal({
       return patient.email ?? "Kein Patient";
     }
 
-    if (hasSimulationPatient) {
-      const parts = [patient?.firstName, patient?.lastName].filter(Boolean);
-      if (parts.length > 0) {
-        return parts.join(" ");
-      }
-      return "Simulationspatient";
+    if (isTemporaryPatientComplete) {
+      return `${temporaryPatient.firstName.trim()} ${temporaryPatient.lastName.trim()}`;
     }
 
     return "Kein Patient";
   };
 
-  const getCreateTarget = () => {
+  const getCreateTarget = async () => {
     const patientId = patient?.convexPatientId;
     if (patientId) {
       return {
@@ -209,8 +227,23 @@ export function StaffAppointmentCreationModal({
       };
     }
 
-    if (isSimulation) {
-      return { recipient: undefined };
+    if (requiresTemporaryPatient) {
+      if (!isTemporaryPatientComplete) {
+        toast.error("Bitte erfassen Sie Vorname, Nachname und Telefonnummer.");
+        return null;
+      }
+
+      const temporaryPatientId = await createTemporaryPatientMutation({
+        firstName: temporaryPatient.firstName.trim(),
+        lastName: temporaryPatient.lastName.trim(),
+        phoneNumber: temporaryPatient.phoneNumber.trim(),
+        practiceId,
+      });
+
+      return {
+        patientId: temporaryPatientId,
+        recipient: { id: temporaryPatientId, type: "patient" as const },
+      };
     }
 
     return null;
@@ -218,19 +251,31 @@ export function StaffAppointmentCreationModal({
 
   // Helper function to create appointment with a patient selection
   const createAppointmentWithPatient = async () => {
-    const createTarget = resultFromNullable(
+    const createTarget = await ResultAsync.fromPromise(
       getCreateTarget(),
-      invalidStateError(
-        "Bitte wählen Sie einen Patienten aus.",
-        "StaffAppointmentCreationModal.getCreateTarget",
-      ),
-    ).match(
-      (selectedTarget) => selectedTarget,
-      () => {
-        toast.error("Bitte wählen Sie einen Patienten aus.");
-        return null;
-      },
-    );
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Temporärer Patient konnte nicht erstellt werden.",
+          source: "StaffAppointmentCreationModal.getCreateTarget",
+        }),
+    )
+      .andThen((selectedTarget) =>
+        resultFromNullable(
+          selectedTarget,
+          invalidStateError(
+            "Bitte wählen Sie einen Patienten aus.",
+            "StaffAppointmentCreationModal.getCreateTarget",
+          ),
+        ),
+      )
+      .match(
+        (selectedTarget) => selectedTarget,
+        (error) => {
+          toast.error(error.message);
+          return null;
+        },
+      );
     if (!createTarget) {
       return;
     }
@@ -311,6 +356,7 @@ export function StaffAppointmentCreationModal({
           );
           onOpenChange(false, true);
           setMode(null);
+          setTemporaryPatient(EMPTY_TEMPORARY_PATIENT);
           setTitle("");
           form.reset();
         },
@@ -333,13 +379,13 @@ export function StaffAppointmentCreationModal({
     defaultValues: {},
     onSubmit: async () => {
       if (mode === "next" && nextAvailableSlot) {
-        // Check if we have any patient - if not, show selection modal
-        if (!hasAnyPatient) {
-          toast.error("Bitte wählen Sie einen Patienten aus.");
+        if (requiresTemporaryPatient && !isTemporaryPatientComplete) {
+          toast.error(
+            "Bitte erfassen Sie Vorname, Nachname und Telefonnummer.",
+          );
           return;
         }
 
-        // Create appointment with the selected patient
         await createAppointmentWithPatient();
       }
     },
@@ -348,6 +394,7 @@ export function StaffAppointmentCreationModal({
   const handleClose = (shouldResetAppointmentType = true) => {
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
+    setTemporaryPatient(EMPTY_TEMPORARY_PATIENT);
     setTitle("");
     form.reset();
   };
@@ -375,6 +422,7 @@ export function StaffAppointmentCreationModal({
     !form.state.canSubmit ||
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
+    (requiresTemporaryPatient && !isTemporaryPatientComplete) ||
     (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
   const submitButtonLabel = isNextAvailableSlotLoading
     ? "Termin wird gesucht..."
@@ -445,6 +493,59 @@ export function StaffAppointmentCreationModal({
                     )}
                   </span>
                 </div>
+
+                {requiresTemporaryPatient && (
+                  <div className="grid gap-4 rounded-md border p-4">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium">
+                        Temporärer Patient
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Dieser Termin wird für einen temporären Patienten
+                        angelegt.
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tmp-first-name">Vorname</Label>
+                      <Input
+                        id="tmp-first-name"
+                        onChange={(event) => {
+                          setTemporaryPatient((current) => ({
+                            ...current,
+                            firstName: event.target.value,
+                          }));
+                        }}
+                        value={temporaryPatient.firstName}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tmp-last-name">Nachname</Label>
+                      <Input
+                        id="tmp-last-name"
+                        onChange={(event) => {
+                          setTemporaryPatient((current) => ({
+                            ...current,
+                            lastName: event.target.value,
+                          }));
+                        }}
+                        value={temporaryPatient.lastName}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tmp-phone-number">Telefonnummer</Label>
+                      <PhoneInput
+                        id="tmp-phone-number"
+                        onChange={(value) => {
+                          setTemporaryPatient((current) => ({
+                            ...current,
+                            phoneNumber: value,
+                          }));
+                        }}
+                        value={temporaryPatient.phoneNumber}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {hasFollowUpPlan && (
                   <div className="rounded-md border p-3 space-y-2">
@@ -609,10 +710,16 @@ export function StaffAppointmentCreationModal({
                     Der nächste verfügbare Termin wird gesucht.
                   </div>
                 )}
+                {requiresTemporaryPatient && (
+                  <div className="text-sm text-muted-foreground">
+                    Für manuelle Terminplatzierung muss zuerst ein Patient
+                    angelegt werden.
+                  </div>
+                )}
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim()}
+                  disabled={!title.trim() || requiresTemporaryPatient}
                   onClick={() => {
                     // Pass the title to the calendar for manual placement
                     onPendingTitleChange?.(title.trim());

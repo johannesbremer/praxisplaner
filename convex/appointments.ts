@@ -670,8 +670,7 @@ export async function createAppointmentFromTrustedSource(
     );
   }
 
-  // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
-  if (!isSimulation && !patientId && !userId) {
+  if (!patientId && !userId) {
     throw new Error("Either patientId or userId must be provided.");
   }
 
