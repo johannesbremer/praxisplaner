@@ -65,8 +65,12 @@ export interface CalendarContextValue {
   ) => void;
 
   // Pending appointment title (set by sidebar modal before manual placement)
+  onPatientSelected?:
+    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | undefined;
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   patient?: PatientInfo | undefined;
+  selectedPatientId?: Id<"patients"> | undefined;
 
   // Optimistic mutations
   runCreateAppointment?: (args: {

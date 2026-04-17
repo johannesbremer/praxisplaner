@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 export interface ComboboxOption {
   label: string;
+  searchText?: string;
   value: string;
 }
 
@@ -135,10 +136,15 @@ export function Combobox({
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
+                  keywords={
+                    option.searchText
+                      ? [option.searchText, option.value]
+                      : [option.value]
+                  }
                   onSelect={() => {
                     handleSelect(option.value);
                   }}
-                  value={option.value}
+                  value={option.label}
                 >
                   {option.label}
                   <Check

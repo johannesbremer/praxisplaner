@@ -87,6 +87,7 @@ export function CalendarSidebar() {
     onDateChange,
     onLocationResolved,
     onLocationSelect,
+    onPatientSelected,
     onPendingTitleChange,
     onUpdateSimulatedContext,
     patient,
@@ -96,6 +97,7 @@ export function CalendarSidebar() {
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
+    selectedPatientId,
     simulatedContext,
   } = calendarContext;
 
@@ -322,11 +324,13 @@ export function CalendarSidebar() {
             locationId={creationModalLocationId}
             onOpenChange={handleModalClose}
             onPendingTitleChange={onPendingTitleChange}
+            {...(onPatientSelected && { onPatientSelected })}
             open={showCreationModal}
             patient={patient}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
             selectedDate={selectedDate.toString()}
+            selectedPatientId={selectedPatientId}
             {...(onAppointmentCreated && { onAppointmentCreated })}
             {...(runCreateAppointment && { runCreateAppointment })}
           />

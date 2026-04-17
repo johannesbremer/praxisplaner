@@ -35,6 +35,7 @@ import {
   type FrontendError,
   missingContextError,
 } from "../utils/frontend-errors";
+import { PatientSelectionPanel } from "./patient-selection-panel";
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
@@ -42,10 +43,15 @@ type BookingPersonalData =
   import("../../convex/_generated/dataModel").Doc<"bookingNewConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
+  onPatientSelected?:
+    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | undefined;
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
+  practiceId?: Id<"practices"> | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
+  selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
   showGdtAlert?: boolean | undefined;
 }
@@ -100,10 +106,13 @@ const RightSidebarContext =
 
 // Extracted sidebar content to avoid duplication
 export function CalendarRightSidebar({
+  onPatientSelected,
   onSelectAppointment,
   patient,
   patientAppointments,
+  practiceId,
   selectedAppointmentId,
+  selectedPatientId,
   selectedSeriesId,
   showGdtAlert,
 }: CalendarRightSidebarProps) {
@@ -155,11 +164,14 @@ export function CalendarRightSidebar({
               <div className="flex h-full w-full flex-col">
                 <RightSidebarContent
                   handleOpenInPvs={handleOpenInPvs}
+                  onPatientSelected={onPatientSelected}
                   onSelectAppointment={onSelectAppointment}
                   patient={patient}
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
+                  practiceId={practiceId}
                   selectedAppointmentId={selectedAppointmentId}
+                  selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
                   showGdtAlert={showGdtAlert}
                 />
@@ -196,11 +208,14 @@ export function CalendarRightSidebar({
             <div className="bg-background flex h-full w-full flex-col">
               <RightSidebarContent
                 handleOpenInPvs={handleOpenInPvs}
+                onPatientSelected={onPatientSelected}
                 onSelectAppointment={onSelectAppointment}
                 patient={patient}
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
+                practiceId={practiceId}
                 selectedAppointmentId={selectedAppointmentId}
+                selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
                 showGdtAlert={showGdtAlert}
               />
@@ -290,20 +305,28 @@ export function useRightSidebar(): Result<
 
 function RightSidebarContent({
   handleOpenInPvs,
+  onPatientSelected,
   onSelectAppointment,
   patient,
   patientAppointments,
   patientDisplayName,
+  practiceId,
   selectedAppointmentId,
+  selectedPatientId,
   selectedSeriesId,
   showGdtAlert,
 }: {
   handleOpenInPvs: () => void;
+  onPatientSelected:
+    | ((patient: { id: Id<"patients">; info: PatientInfo }) => void)
+    | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
   patient: PatientInfo | undefined;
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
+  practiceId: Id<"practices"> | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
+  selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
   showGdtAlert: boolean | undefined;
 }) {
@@ -322,6 +345,15 @@ function RightSidebarContent({
                 Keine Verbindung mit dem PVS möglich!
               </AlertDescription>
             </Alert>
+          </div>
+        )}
+        {practiceId && onPatientSelected && (
+          <div className="mb-4">
+            <PatientSelectionPanel
+              onPatientSelected={onPatientSelected}
+              practiceId={practiceId}
+              selectedPatientId={selectedPatientId}
+            />
           </div>
         )}
         {patient ? (

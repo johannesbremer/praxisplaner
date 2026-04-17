@@ -18,6 +18,7 @@ import { api } from "@/convex/_generated/api";
 import type { Appointment, NewCalendarProps } from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
+import { patientDocToInfo } from "../utils/patient-info";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -47,7 +48,7 @@ import { useCalendarLogic } from "./calendar/use-calendar-logic";
 const TIMEZONE = "Europe/Berlin";
 
 type SelectedPatient =
-  | { id: Id<"patients">; type: "patient" }
+  | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
   | { id: Id<"users">; type: "user" };
 
 // Wrapper component that enhances appointment selection with sidebar opening
@@ -142,6 +143,64 @@ export function NewCalendar({
     SelectedPatient | undefined
   >();
 
+  // Query for selected patient data (regular patient)
+  const selectedPatientData = useQuery(
+    api.patients.getPatientById,
+    selectedPatient?.type === "patient" ? { id: selectedPatient.id } : "skip",
+  );
+
+  const selectedUserData = useQuery(
+    api.users.getById,
+    selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
+  );
+
+  const selectedPatientInfo: PatientInfo | undefined = (() => {
+    if (selectedPatient?.type === "patient" && selectedPatientData) {
+      return patientDocToInfo(selectedPatientData);
+    }
+
+    if (selectedPatient?.type === "patient") {
+      return selectedPatient.info;
+    }
+
+    if (selectedPatient?.type === "user" && selectedUserData) {
+      const bookingPersonalData = selectedUserData.bookingPersonalData;
+      const info: PatientInfo = {
+        isNewPatient: false,
+        userId: selectedUserData._id,
+      };
+      if (bookingPersonalData) {
+        Object.assign(info, bookingPersonalData);
+      }
+
+      if (
+        info.firstName === undefined &&
+        selectedUserData.firstName !== undefined
+      ) {
+        info.firstName = selectedUserData.firstName;
+      }
+      if (
+        info.lastName === undefined &&
+        selectedUserData.lastName !== undefined
+      ) {
+        info.lastName = selectedUserData.lastName;
+      }
+      info.email ??= selectedUserData.email;
+
+      return info;
+    }
+
+    return;
+  })();
+  const activePatient =
+    selectedPatient === undefined ? patient : selectedPatientInfo;
+  const activeSelectedPatientId =
+    selectedPatient?.type === "patient"
+      ? selectedPatient.id
+      : selectedPatient === undefined
+        ? patient?.convexPatientId
+        : undefined;
+
   // State for blocking mode
   const [isBlockingModeActive, setIsBlockingModeActive] = useState(false);
   const [blockedSlotModalOpen, setBlockedSlotModalOpen] = useState(false);
@@ -206,7 +265,7 @@ export function NewCalendar({
     onDateChange,
     onLocationResolved,
     onUpdateSimulatedContext,
-    patient,
+    patient: activePatient,
     pendingAppointmentTitle,
     practiceId: propPracticeId,
     ruleSetId,
@@ -226,22 +285,11 @@ export function NewCalendar({
       ? selectedPatient.type === "patient"
         ? { patientId: selectedPatient.id }
         : { userId: selectedPatient.id }
-      : patient?.convexPatientId
-        ? { patientId: patient.convexPatientId }
-        : patient?.userId
-          ? { userId: patient.userId }
+      : activePatient?.convexPatientId
+        ? { patientId: activePatient.convexPatientId }
+        : activePatient?.userId
+          ? { userId: activePatient.userId }
           : "skip",
-  );
-
-  // Query for selected patient data (regular patient)
-  const selectedPatientData = useQuery(
-    api.patients.getPatientById,
-    selectedPatient?.type === "patient" ? { id: selectedPatient.id } : "skip",
-  );
-
-  const selectedUserData = useQuery(
-    api.users.getById,
-    selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
   );
 
   const selectedSeriesId =
@@ -251,79 +299,6 @@ export function NewCalendar({
     patientAppointments?.find(
       (appointment) => appointment._id === selectedAppointmentId,
     )?.seriesId;
-
-  // Convert selected patient data to PatientInfo format for the sidebar
-  const selectedPatientInfo: PatientInfo | undefined = (() => {
-    if (selectedPatient?.type === "patient" && selectedPatientData) {
-      const info: PatientInfo =
-        selectedPatientData.recordType === "temporary"
-          ? {
-              convexPatientId: selectedPatientData._id,
-              firstName: selectedPatientData.firstName ?? "",
-              isNewPatient: false,
-              lastName: selectedPatientData.lastName ?? "",
-              phoneNumber: selectedPatientData.phoneNumber ?? "",
-              recordType: "temporary",
-            }
-          : {
-              convexPatientId: selectedPatientData._id,
-              isNewPatient: false,
-              recordType: "pvs",
-              ...(selectedPatientData.patientId !== undefined && {
-                patientId: selectedPatientData.patientId,
-              }),
-            };
-      if (selectedPatientData.firstName !== undefined) {
-        info.firstName = selectedPatientData.firstName;
-      }
-      if (selectedPatientData.lastName !== undefined) {
-        info.lastName = selectedPatientData.lastName;
-      }
-      if (selectedPatientData.dateOfBirth !== undefined) {
-        info.dateOfBirth = selectedPatientData.dateOfBirth;
-      }
-      if (selectedPatientData.phoneNumber !== undefined) {
-        info.phoneNumber = selectedPatientData.phoneNumber;
-      }
-      if (selectedPatientData.street !== undefined) {
-        info.street = selectedPatientData.street;
-      }
-      if (selectedPatientData.city !== undefined) {
-        info.city = selectedPatientData.city;
-      }
-      return info;
-    }
-
-    if (selectedPatient?.type === "user" && selectedUserData) {
-      const bookingPersonalData = selectedUserData.bookingPersonalData;
-      const info: PatientInfo = {
-        isNewPatient: false,
-        userId: selectedUserData._id,
-      };
-      if (bookingPersonalData) {
-        Object.assign(info, bookingPersonalData);
-      }
-
-      // Fallback to data from users table if no personal booking data exists yet.
-      if (
-        info.firstName === undefined &&
-        selectedUserData.firstName !== undefined
-      ) {
-        info.firstName = selectedUserData.firstName;
-      }
-      if (
-        info.lastName === undefined &&
-        selectedUserData.lastName !== undefined
-      ) {
-        info.lastName = selectedUserData.lastName;
-      }
-      info.email ??= selectedUserData.email;
-
-      return info;
-    }
-
-    return;
-  })();
 
   // Handler for selecting an appointment
   const handleSelectAppointment = useCallback((appointment: Appointment) => {
@@ -430,6 +405,17 @@ export function NewCalendar({
     [clearAppointmentCreationSelection],
   );
 
+  const handleSelectPracticePatient = useCallback(
+    (selected: { id: Id<"patients">; info: PatientInfo }) => {
+      setSelectedPatient({
+        id: selected.id,
+        info: selected.info,
+        type: "patient",
+      });
+    },
+    [],
+  );
+
   const handleCreateAppointment = useCallback(
     async (...args: Parameters<typeof runCreateAppointment>) => {
       return await runCreateAppointment(...args);
@@ -480,15 +466,17 @@ export function NewCalendar({
         onDateChange: handleDateChange,
         onLocationResolved,
         onLocationSelect: handleLocationSelect,
+        onPatientSelected: handleSelectPracticePatient,
         onPendingTitleChange: setPendingAppointmentTitle,
         onUpdateSimulatedContext,
-        patient: selectedPatientInfo ?? patient,
+        patient: activePatient,
         practiceId,
         ruleSetId,
         runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
         selectedDate,
         selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+        selectedPatientId: activeSelectedPatientId,
         showGdtAlert,
         simulatedContext,
       }}
@@ -637,6 +625,7 @@ export function NewCalendar({
               )}
             </div>
             <CalendarRightSidebar
+              onPatientSelected={handleSelectPracticePatient}
               onSelectAppointment={(appointment) => {
                 // Convert from SidebarAppointment (Doc<"appointments">) to Appointment format
                 // and select it
@@ -703,9 +692,11 @@ export function NewCalendar({
                   });
                 }, 50);
               }}
-              patient={selectedPatientInfo ?? patient}
+              patient={activePatient}
               patientAppointments={patientAppointments}
+              practiceId={practiceId}
               selectedAppointmentId={selectedAppointmentId}
+              selectedPatientId={activeSelectedPatientId}
               selectedSeriesId={selectedSeriesId}
               showGdtAlert={showGdtAlert}
             />
