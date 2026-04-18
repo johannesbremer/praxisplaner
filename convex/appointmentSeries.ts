@@ -17,6 +17,7 @@ import {
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
 import { asLocationId, asPractitionerId } from "./identity";
+import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
 
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
@@ -294,8 +295,12 @@ export async function createAppointmentSeries(
     practiceId: args.practiceId,
     rootAppointmentId,
     rootAppointmentTypeId: rootAppointmentType._id,
-    rootAppointmentTypeLineageKey:
-      rootAppointmentType.lineageKey ?? rootAppointmentType._id,
+    rootAppointmentTypeLineageKey: requireLineageKey({
+      entityId: rootAppointmentType._id,
+      entityType: "appointment type",
+      lineageKey: rootAppointmentType.lineageKey,
+      ruleSetId: rootAppointmentType.ruleSetId,
+    }),
     rootDurationMinutes: rootAppointmentType.duration,
     ruleSetIdAtBooking: args.ruleSetId,
     scope,
@@ -348,9 +353,12 @@ export async function planSeriesFromRootCandidate(
 
   const rootStep: PlannedSeriesStep = {
     appointmentTypeId: args.seriesSpecification.rootAppointmentType._id,
-    appointmentTypeLineageKey:
-      args.seriesSpecification.rootAppointmentType.lineageKey ??
-      args.seriesSpecification.rootAppointmentType._id,
+    appointmentTypeLineageKey: requireLineageKey({
+      entityId: args.seriesSpecification.rootAppointmentType._id,
+      entityType: "appointment type",
+      lineageKey: args.seriesSpecification.rootAppointmentType.lineageKey,
+      ruleSetId: args.seriesSpecification.rootAppointmentType.ruleSetId,
+    }),
     appointmentTypeTitle: args.seriesSpecification.rootAppointmentType.name,
     durationMinutes: args.seriesSpecification.rootDurationMinutes,
     end: calculateEndTime(
@@ -420,8 +428,12 @@ export async function planSeriesFromRootCandidate(
 
     const plannedStep: PlannedSeriesStep = {
       appointmentTypeId: targetAppointmentType._id,
-      appointmentTypeLineageKey:
-        targetAppointmentType.lineageKey ?? targetAppointmentType._id,
+      appointmentTypeLineageKey: requireLineageKey({
+        entityId: targetAppointmentType._id,
+        entityType: "appointment type",
+        lineageKey: targetAppointmentType.lineageKey,
+        ruleSetId: targetAppointmentType.ruleSetId,
+      }),
       appointmentTypeTitle: targetAppointmentType.name,
       durationMinutes: targetAppointmentType.duration,
       end: calculateEndTime(

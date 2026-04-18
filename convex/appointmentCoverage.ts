@@ -30,6 +30,7 @@ import {
   type PractitionerId,
   type PractitionerLineageKey,
 } from "./identity";
+import { requireLineageKey } from "./lineage";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -467,7 +468,12 @@ export const previewPractitionerAbsenceCoverage = query({
         ...vacations.filter(
           (vacation) =>
             !replacingVacationLineageKeys.has(
-              vacation.lineageKey ?? vacation._id,
+              requireLineageKey({
+                entityId: vacation._id,
+                entityType: "vacation",
+                lineageKey: vacation.lineageKey,
+                ruleSetId: vacation.ruleSetId,
+              }),
             ),
         ),
         {

@@ -24,6 +24,7 @@ import {
   generateRuleName,
 } from "../lib/rule-name-generator.js";
 import { internalQuery } from "./_generated/server";
+import { requireLineageKey } from "./lineage";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -153,14 +154,27 @@ export async function buildPreloadedDayData(
     ruleSetAppointmentTypes
       .filter((appointmentType) => appointmentType.practiceId === practiceId)
       .map((appointmentType) => [
-        appointmentType.lineageKey ?? appointmentType._id,
+        requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
         appointmentType._id,
       ]),
   );
   const locationIdByLineage = new Map(
     ruleSetLocations
       .filter((location) => location.practiceId === practiceId)
-      .map((location) => [location.lineageKey ?? location._id, location._id]),
+      .map((location) => [
+        requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
+        location._id,
+      ]),
   );
   const practitionerIdByLineage = new Map(
     practitioners
@@ -170,7 +184,12 @@ export async function buildPreloadedDayData(
           practitioner.ruleSetId === ruleSetId,
       )
       .map((practitioner) => [
-        practitioner.lineageKey ?? practitioner._id,
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
         practitioner._id,
       ]),
   );

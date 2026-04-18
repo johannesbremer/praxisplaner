@@ -7,6 +7,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity } from "../lineage";
 import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
 
@@ -244,7 +245,7 @@ async function createAppointmentTypeInOtherRuleSet(
     });
 
     const now = BigInt(Date.now());
-    return await ctx.db.insert("appointmentTypes", {
+    return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
       allowedPractitionerIds: [practitionerId],
       createdAt: now,
       duration: 20,
@@ -275,28 +276,36 @@ async function createBookingEntities(t: TestContext) {
       currentActiveRuleSetId: ruleSetId,
     });
 
-    const locationId = await ctx.db.insert("locations", {
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
       name: "Main Location",
       practiceId,
       ruleSetId,
     });
 
-    const practitionerId = await ctx.db.insert("practitioners", {
-      name: "Dr. Test",
-      practiceId,
-      ruleSetId,
-    });
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name: "Dr. Test",
+        practiceId,
+        ruleSetId,
+      },
+    );
 
     const now = BigInt(Date.now());
-    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-      allowedPractitionerIds: [practitionerId],
-      createdAt: now,
-      duration: 30,
-      lastModified: now,
-      name: "Checkup",
-      practiceId,
-      ruleSetId,
-    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Checkup",
+        practiceId,
+        ruleSetId,
+      },
+    );
 
     return {
       appointmentTypeId,
@@ -1677,7 +1686,8 @@ describe("bookingSessions slot selection validation", () => {
         lineageKey: appointmentTypeId,
       });
 
-      const followUpAppointmentTypeId = await ctx.db.insert(
+      const followUpAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
         "appointmentTypes",
         {
           allowedPractitionerIds: [practitionerId],
@@ -1689,9 +1699,6 @@ describe("bookingSessions slot selection validation", () => {
           ruleSetId,
         },
       );
-      await ctx.db.patch("appointmentTypes", followUpAppointmentTypeId, {
-        lineageKey: followUpAppointmentTypeId,
-      });
 
       await ctx.db.patch("appointmentTypes", appointmentTypeId, {
         followUpPlan: [
@@ -1709,7 +1716,7 @@ describe("bookingSessions slot selection validation", () => {
       });
 
       for (const dayOfWeek of [1, 2, 3, 4, 5]) {
-        await ctx.db.insert("baseSchedules", {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
           locationId,

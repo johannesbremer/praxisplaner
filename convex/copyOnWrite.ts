@@ -19,6 +19,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
 // Type aliases for cleaner code
@@ -34,25 +35,6 @@ export type EntityType =
   | "practitioner"
   | "rule"
   | "rule condition";
-
-function requireLineageKey<T extends string>(params: {
-  entityId: string;
-  entityType:
-    | "appointment type"
-    | "base schedule"
-    | "location"
-    | "practitioner"
-    | "vacation";
-  lineageKey: T | undefined;
-  ruleSetId: Id<"ruleSets">;
-}): T {
-  if (!params.lineageKey) {
-    throw new Error(
-      `[INVARIANT:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} in Regelset ${params.ruleSetId} hat keinen lineageKey.`,
-    );
-  }
-  return params.lineageKey;
-}
 
 // ================================
 // VALIDATION HELPERS
@@ -422,7 +404,12 @@ export async function copyMfas(
   const idMap = new Map<Id<"mfas">, Id<"mfas">>();
 
   for (const source of sourceMfas) {
-    const lineageKey = source.lineageKey ?? source._id;
+    const lineageKey = requireLineageKey({
+      entityId: source._id,
+      entityType: "mfa",
+      lineageKey: source.lineageKey,
+      ruleSetId: source.ruleSetId,
+    });
     const newId = await db.insert("mfas", {
       createdAt: source.createdAt,
       lineageKey,

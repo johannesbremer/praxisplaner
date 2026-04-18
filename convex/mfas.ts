@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 
 import { mutation, query } from "./_generated/server";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
+import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
@@ -41,7 +42,12 @@ async function resolveMfaEntityInRuleSet(
     return mfa;
   }
 
-  const lineageKey = mfa.lineageKey ?? mfa._id;
+  const lineageKey = requireLineageKey({
+    entityId: mfa._id,
+    entityType: "mfa",
+    lineageKey: mfa.lineageKey,
+    ruleSetId: mfa.ruleSetId,
+  });
   const mapped = await ctx.db
     .query("mfas")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -115,16 +121,13 @@ export const create = mutation({
       }
     }
 
-    const entityId = await ctx.db.insert("mfas", {
+    const entityId = await insertSelfLineageEntity(ctx.db, "mfas", {
       createdAt: BigInt(Date.now()),
       ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
       name,
       practiceId: args.practiceId,
       ruleSetId,
     });
-    if (!args.lineageKey) {
-      await ctx.db.patch("mfas", entityId, { lineageKey: entityId });
-    }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };

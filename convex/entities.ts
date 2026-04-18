@@ -66,6 +66,7 @@ import {
   asLocationLineageKey,
   asPractitionerId,
 } from "./identity";
+import { insertSelfLineageEntity } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -811,7 +812,7 @@ export const createAppointmentType = mutation({
     }
 
     // Create the appointment type
-    const entityId = await ctx.db.insert("appointmentTypes", {
+    const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
       allowedPractitionerIds,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
@@ -829,10 +830,6 @@ export const createAppointmentType = mutation({
         fromId: args.lineageKey,
         ruleSetId,
         toId: entityId,
-      });
-    } else {
-      await ctx.db.patch("appointmentTypes", entityId, {
-        lineageKey: entityId,
       });
     }
 
@@ -1130,17 +1127,13 @@ export const createPractitioner = mutation({
     }
 
     // Create the practitioner
-    const entityId = await ctx.db.insert("practitioners", {
+    const entityId = await insertSelfLineageEntity(ctx.db, "practitioners", {
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name: args.name,
       practiceId: args.practiceId,
       ruleSetId,
       ...(args.tags && { tags: args.tags }),
     });
-
-    if (!args.lineageKey) {
-      await ctx.db.patch("practitioners", entityId, { lineageKey: entityId });
-    }
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
@@ -1879,16 +1872,12 @@ export const createLocation = mutation({
     }
 
     // Create the location
-    const entityId = await ctx.db.insert("locations", {
+    const entityId = await insertSelfLineageEntity(ctx.db, "locations", {
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name: args.name,
       practiceId: args.practiceId,
       ruleSetId,
     });
-
-    if (!args.lineageKey) {
-      await ctx.db.patch("locations", entityId, { lineageKey: entityId });
-    }
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
@@ -2167,7 +2156,7 @@ export const createBaseScheduleBatch = mutation({
         }
       }
 
-      const createdId = await ctx.db.insert("baseSchedules", {
+      const createdId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
         ...(schedule.lineageKey && { lineageKey: schedule.lineageKey }),
@@ -2182,9 +2171,6 @@ export const createBaseScheduleBatch = mutation({
       if (schedule.lineageKey) {
         existingScheduleIdsByLineage.set(schedule.lineageKey, createdId);
       } else {
-        await ctx.db.patch("baseSchedules", createdId, {
-          lineageKey: createdId,
-        });
         existingScheduleIdsByLineage.set(createdId, createdId);
       }
 

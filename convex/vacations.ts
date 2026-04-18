@@ -24,6 +24,7 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "./identity";
+import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
@@ -228,7 +229,12 @@ async function resolveMfaIdInRuleSet(
     return mfa._id;
   }
 
-  const lineageKey = mfa.lineageKey ?? mfa._id;
+  const lineageKey = requireLineageKey({
+    entityId: mfa._id,
+    entityType: "mfa",
+    lineageKey: mfa.lineageKey,
+    ruleSetId: mfa.ruleSetId,
+  });
   const mapped = await ctx.db
     .query("mfas")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -269,7 +275,12 @@ async function resolvePractitionerIdInRuleSet(
     return practitioner._id;
   }
 
-  const lineageKey = practitioner.lineageKey ?? practitioner._id;
+  const lineageKey = requireLineageKey({
+    entityId: practitioner._id,
+    entityType: "practitioner",
+    lineageKey: practitioner.lineageKey,
+    ruleSetId: practitioner.ruleSetId,
+  });
   const mapped = await ctx.db
     .query("practitioners")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -416,7 +427,7 @@ export const createVacation = mutation({
         });
       }
     } else {
-      entityId = await ctx.db.insert("vacations", {
+      entityId = await insertSelfLineageEntity(ctx.db, "vacations", {
         createdAt: BigInt(Date.now()),
         date: args.date,
         ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
@@ -429,9 +440,6 @@ export const createVacation = mutation({
         ruleSetId,
         staffType: args.staffType,
       });
-      if (!args.lineageKey) {
-        await ctx.db.patch("vacations", entityId, { lineageKey: entityId });
-      }
     }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
@@ -541,7 +549,7 @@ async function createVacationInDraft(
       });
     }
   } else {
-    entityId = await ctx.db.insert("vacations", {
+    entityId = await insertSelfLineageEntity(ctx.db, "vacations", {
       createdAt: BigInt(Date.now()),
       date: args.date,
       ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
@@ -554,9 +562,6 @@ async function createVacationInDraft(
       ruleSetId,
       staffType: args.staffType,
     });
-    if (!args.lineageKey) {
-      await ctx.db.patch("vacations", entityId, { lineageKey: entityId });
-    }
   }
 
   const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);

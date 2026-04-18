@@ -24,6 +24,7 @@ import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
+import type * as lineage from "../lineage.js";
 import type * as mfas from "../mfas.js";
 import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   "gdt/validation": typeof gdt_validation;
   http: typeof http;
   identity: typeof identity;
+  lineage: typeof lineage;
   mfas: typeof mfas;
   patientSearch: typeof patientSearch;
   patients: typeof patients;

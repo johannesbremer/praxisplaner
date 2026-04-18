@@ -31,6 +31,7 @@ import {
   generateRuleName,
 } from "../../lib/rule-name-generator.js";
 import { api, internal } from "../_generated/api";
+import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -91,12 +92,16 @@ async function createPractitioner(
   tags?: string[],
 ) {
   return await t.run(async (ctx) => {
-    const practitionerId = await ctx.db.insert("practitioners", {
-      name,
-      practiceId,
-      ruleSetId,
-      ...(tags && { tags }),
-    });
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name,
+        practiceId,
+        ruleSetId,
+        ...(tags && { tags }),
+      },
+    );
     return practitionerId;
   });
 }
@@ -111,7 +116,7 @@ async function createLocation(
   name: string,
 ) {
   return await t.run(async (ctx) => {
-    const locationId = await ctx.db.insert("locations", {
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
       name,
       practiceId,
       ruleSetId,
@@ -132,15 +137,19 @@ async function createAppointmentType(
   duration = 30,
 ) {
   return await t.run(async (ctx) => {
-    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-      allowedPractitionerIds: practitionerIds,
-      createdAt: BigInt(Date.now()),
-      duration,
-      lastModified: BigInt(Date.now()),
-      name,
-      practiceId,
-      ruleSetId,
-    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerIds: practitionerIds,
+        createdAt: BigInt(Date.now()),
+        duration,
+        lastModified: BigInt(Date.now()),
+        name,
+        practiceId,
+        ruleSetId,
+      },
+    );
     return appointmentTypeId;
   });
 }
@@ -247,15 +256,29 @@ async function createAppointment(
     }
 
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeLineageKey:
-        appointmentType.lineageKey ?? appointmentType._id,
+      appointmentTypeLineageKey: requireLineageKey({
+        entityId: appointmentType._id,
+        entityType: "appointment type",
+        lineageKey: appointmentType.lineageKey,
+        ruleSetId: appointmentType.ruleSetId,
+      }),
       appointmentTypeTitle: appointmentType.name,
       createdAt: BigInt(Date.now()),
       end: endZoned.toString(),
       lastModified: BigInt(Date.now()),
-      locationLineageKey: location.lineageKey ?? location._id,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
       practiceId,
-      practitionerLineageKey: practitioner.lineageKey ?? practitioner._id,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: practitioner.ruleSetId,
+      }),
       start: startZoned.toString(),
       title: appointmentType.name, // Default title is the appointment type name
     });
@@ -2933,7 +2956,7 @@ async function insertBaseSchedule(
   endTime = "17:00",
 ) {
   return await t.run(async (ctx) => {
-    const scheduleId = await ctx.db.insert("baseSchedules", {
+    const scheduleId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
       breakTimes: [],
       dayOfWeek,
       endTime,
