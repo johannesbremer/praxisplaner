@@ -222,8 +222,8 @@ async function applyPendingSimulationAppointmentsForRuleSet(
         start: simulationAppointment.start,
       },
       excludeAppointmentIds,
+      occupancyView: "live",
       practiceId: simulationAppointment.practiceId,
-      scope: "real",
     });
 
     if (conflictingAppointment) {

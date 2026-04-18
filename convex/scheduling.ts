@@ -15,7 +15,8 @@ import { internal } from "./_generated/api";
 import { internalQuery, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
-  getEffectiveAppointmentsForScope,
+  getEffectiveAppointmentsForOccupancyView,
+  getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
@@ -480,9 +481,9 @@ async function getSlotsForDayImpl(
       `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
     );
 
-    const effectiveAppointments = getEffectiveAppointmentsForScope(
+    const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
       preloadedData.appointments,
-      appointmentScope,
+      getOccupancyViewForBookingScope(appointmentScope),
       ruleSetId,
     );
 

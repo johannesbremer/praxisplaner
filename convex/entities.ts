@@ -24,7 +24,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
 import { mutation, query } from "./_generated/server";
-import { getEffectiveAppointmentsForScope } from "./appointmentConflicts";
+import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
   previewPractitionerCoverageForAppointment,
   resolveAppointmentTypeIdForRuleSet,
@@ -149,9 +149,9 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
       q.eq("practiceId", args.practiceId).gte("start", nowIso),
     )
     .collect();
-  const effectiveAppointments = getEffectiveAppointmentsForScope(
+  const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
     appointments,
-    "simulation",
+    "draftEffective",
     args.ruleSetId,
   );
   const affectedAppointments = effectiveAppointments.filter(

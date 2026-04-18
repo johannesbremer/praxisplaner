@@ -773,9 +773,10 @@ export const createVacationWithCoverageAdjustments = mutation({
               practitionerLineageKey: targetPractitionerLineageKey,
               start: appointment.start,
             },
+            draftRuleSetId: ruleSetId,
             excludeAppointmentIds: [appointment._id],
+            occupancyView: "draftEffective",
             practiceId: args.practiceId,
-            scope: "real",
           })
         : null;
 

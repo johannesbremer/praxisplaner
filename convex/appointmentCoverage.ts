@@ -11,7 +11,7 @@ import type {
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
-import { getEffectiveAppointmentsForScope } from "./appointmentConflicts";
+import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import { resolvePractitionerLineageKey } from "./appointmentReferences";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -530,7 +530,7 @@ export const previewPractitionerAbsenceCoverage = query({
           .lt("start", dayEnd),
       )
       .collect();
-    const effectiveAppointments = getEffectiveAppointmentsForScope(
+    const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
       appointments.filter(
         (appointment) =>
           !(
@@ -542,7 +542,7 @@ export const previewPractitionerAbsenceCoverage = query({
             )
           ),
       ),
-      "simulation",
+      "draftEffective",
       args.ruleSetId,
     );
 

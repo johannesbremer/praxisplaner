@@ -13,6 +13,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
+  getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
@@ -864,9 +865,11 @@ export async function createAppointmentFromTrustedSource(
     },
     practiceId,
     ...(resolvedSimulationRuleSetId
-      ? { simulationRuleSetId: resolvedSimulationRuleSetId }
+      ? { draftRuleSetId: resolvedSimulationRuleSetId }
       : {}),
-    scope: getAppointmentBookingScope(isSimulation),
+    occupancyView: getOccupancyViewForBookingScope(
+      getAppointmentBookingScope(isSimulation),
+    ),
     ...(replacesAppointmentId && {
       excludeAppointmentIds: [replacesAppointmentId],
     }),
@@ -1257,6 +1260,8 @@ async function updateAppointmentByMode(
     resolvedEnd !== existingAppointment.end;
 
   if (hasSchedulingChange) {
+    const appointmentBookingScope =
+      getAppointmentBookingScope(resolvedIsSimulation);
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: resolvedEnd,
@@ -1269,9 +1274,9 @@ async function updateAppointmentByMode(
       excludeAppointmentIds: [existingAppointment._id],
       practiceId: existingAppointment.practiceId,
       ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
-        ? { simulationRuleSetId: resolvedSimulationRuleSetId }
+        ? { draftRuleSetId: resolvedSimulationRuleSetId }
         : {}),
-      scope: getAppointmentBookingScope(resolvedIsSimulation),
+      occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
     });
 
     if (conflictingAppointment) {

@@ -8,6 +8,7 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 export type AppointmentBookingScope = "real" | "simulation";
+export type AppointmentOccupancyView = "draftEffective" | "live";
 
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
@@ -58,10 +59,10 @@ export async function findConflictingAppointment(
       practitionerLineageKey?: Id<"practitioners">;
       start: string;
     };
+    draftRuleSetId?: Id<"ruleSets">;
     excludeAppointmentIds?: Id<"appointments">[];
+    occupancyView: AppointmentOccupancyView;
     practiceId: Id<"practices">;
-    scope: AppointmentBookingScope;
-    simulationRuleSetId?: Id<"ruleSets">;
   },
 ): Promise<Doc<"appointments"> | null> {
   const windowStart = Temporal.ZonedDateTime.from(args.candidate.start);
@@ -94,10 +95,10 @@ export async function findConflictingAppointment(
     .collect();
 
   const excludeAppointmentIds = new Set(args.excludeAppointmentIds);
-  const effectiveAppointments = getEffectiveAppointmentsForScope(
+  const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
     rawAppointments,
-    args.scope,
-    args.simulationRuleSetId,
+    args.occupancyView,
+    args.draftRuleSetId,
   );
 
   return (
@@ -109,16 +110,16 @@ export async function findConflictingAppointment(
   );
 }
 
-export function getEffectiveAppointmentsForScope(
+export function getEffectiveAppointmentsForOccupancyView(
   appointments: Doc<"appointments">[],
-  scope: AppointmentBookingScope,
-  simulationRuleSetId?: Id<"ruleSets">,
+  occupancyView: AppointmentOccupancyView,
+  draftRuleSetId?: Id<"ruleSets">,
 ): Doc<"appointments">[] {
   const visibleAppointments = appointments.filter(
     (appointment) => appointment.cancelledAt === undefined,
   );
 
-  if (scope === "real") {
+  if (occupancyView === "live") {
     return visibleAppointments.filter(
       (appointment) => appointment.isSimulation !== true,
     );
@@ -129,13 +130,13 @@ export function getEffectiveAppointmentsForScope(
       return false;
     }
 
-    if (!simulationRuleSetId) {
+    if (!draftRuleSetId) {
       return true;
     }
 
     return (
       appointment.simulationRuleSetId === undefined ||
-      appointment.simulationRuleSetId === simulationRuleSetId
+      appointment.simulationRuleSetId === draftRuleSetId
     );
   });
   const replacedIds = new Set(
@@ -152,4 +153,10 @@ export function getEffectiveAppointmentsForScope(
   return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
     a.start.localeCompare(b.start),
   );
+}
+
+export function getOccupancyViewForBookingScope(
+  scope: AppointmentBookingScope,
+): AppointmentOccupancyView {
+  return scope === "simulation" ? "draftEffective" : "live";
 }

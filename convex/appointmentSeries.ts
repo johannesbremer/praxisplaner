@@ -9,6 +9,7 @@ import { internal } from "./_generated/api";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
+  getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferences";
 import {
@@ -214,9 +215,9 @@ export async function createAppointmentSeries(
         practitionerLineageKey: step.practitionerId,
         start: step.start,
       },
+      ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
+      occupancyView: getOccupancyViewForBookingScope(scope),
       practiceId: args.practiceId,
-      scope,
-      ...(simulationRuleSetId && { simulationRuleSetId }),
       ...(index === 0 &&
         args.rootReplacesAppointmentId && {
           excludeAppointmentIds: [args.rootReplacesAppointmentId],
@@ -1189,14 +1190,14 @@ async function validateRootCandidate(
       practitionerLineageKey: args.practitionerId,
       start: args.start,
     },
+    ...(args.simulationRuleSetId && {
+      draftRuleSetId: args.simulationRuleSetId,
+    }),
     ...(args.excludedAppointmentIds && {
       excludeAppointmentIds: args.excludedAppointmentIds,
     }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
     practiceId: args.practiceId,
-    scope: args.scope ?? "real",
-    ...(args.simulationRuleSetId && {
-      simulationRuleSetId: args.simulationRuleSetId,
-    }),
   });
 
   if (conflictingAppointment) {
