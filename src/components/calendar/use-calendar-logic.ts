@@ -6,7 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentResult } from "../../../convex/appointments";
-import type { Appointment, NewCalendarProps } from "./types";
+import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
@@ -306,11 +306,17 @@ export function useCalendarLogic({
   const appointmentTypeMap = useMemo(() => {
     const map = new Map<
       Id<"appointmentTypes">,
-      { duration: number; hasFollowUpPlan: boolean; name: string }
+      {
+        allowedPractitionerIds: Id<"practitioners">[];
+        duration: number;
+        hasFollowUpPlan: boolean;
+        name: string;
+      }
     >();
     if (appointmentTypesData) {
       for (const at of appointmentTypesData) {
         map.set(at._id, {
+          allowedPractitionerIds: at.allowedPractitionerIds,
           duration: at.duration,
           hasFollowUpPlan: (at.followUpPlan?.length ?? 0) > 0,
           name: at.name,
@@ -319,6 +325,53 @@ export function useCalendarLogic({
     }
     return map;
   }, [appointmentTypesData]);
+
+  const placementAppointmentTypeId =
+    simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
+  const draggedAppointmentTypeId =
+    draggedAppointment?.resource?.appointmentTypeId;
+
+  const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
+    (
+      appointmentTypeId: Id<"appointmentTypes"> | undefined,
+      practitionerIds: Iterable<Id<"practitioners">>,
+    ) => {
+      if (!appointmentTypeId) {
+        return new Set<Id<"practitioners">>();
+      }
+
+      const allowedPractitionerIds = new Set(
+        appointmentTypeMap.get(appointmentTypeId)?.allowedPractitionerIds,
+      );
+
+      return new Set(
+        [...practitionerIds].filter(
+          (practitionerId) => !allowedPractitionerIds.has(practitionerId),
+        ),
+      );
+    },
+    [appointmentTypeMap],
+  );
+
+  const createBlockedSlotsForColumns = useCallback(
+    (
+      columns: CalendarColumn[],
+      reason: string,
+      predicate: (column: CalendarColumn) => boolean,
+      totalSlots: number,
+    ) => {
+      return columns.flatMap((column) =>
+        predicate(column)
+          ? Array.from({ length: totalSlots }, (_, slot) => ({
+              column: column.id,
+              reason,
+              slot,
+            }))
+          : [],
+      );
+    },
+    [],
+  );
 
   const getAppointmentCreationEnd = useCallback(
     (args: {
@@ -1764,19 +1817,47 @@ export function useCalendarLogic({
     const totalSlots =
       ((businessEndHour - businessStartHour) * 60) / SLOT_DURATION;
 
-    const practitionerColumns = working.map((practitioner) => ({
-      id: practitioner.id,
-      isMuted: mutedPractitionerIds.has(practitioner.id),
-      isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
-        practitioner.id,
-      ),
-      title: practitioner.name,
-    }));
+    const workingPractitionerIdList = working.map(
+      (practitioner) => practitioner.id,
+    );
+    const placementUnsupportedPractitionerIds =
+      getUnsupportedPractitionerIdsForAppointmentType(
+        placementAppointmentTypeId,
+        workingPractitionerIdList,
+      );
+    const dragUnsupportedPractitionerIds =
+      getUnsupportedPractitionerIdsForAppointmentType(
+        draggedAppointmentTypeId,
+        workingPractitionerIdList,
+      );
 
-    const specialColumns =
+    const practitionerColumns: CalendarColumn[] = working.map(
+      (practitioner) => ({
+        id: practitioner.id,
+        isAppointmentTypeUnavailable: placementUnsupportedPractitionerIds.has(
+          practitioner.id,
+        ),
+        isDragDisabled: dragUnsupportedPractitionerIds.has(practitioner.id),
+        isMuted:
+          mutedPractitionerIds.has(practitioner.id) ||
+          placementUnsupportedPractitionerIds.has(practitioner.id) ||
+          dragUnsupportedPractitionerIds.has(practitioner.id),
+        isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
+          practitioner.id,
+        ),
+        title: practitioner.name,
+      }),
+    );
+
+    const specialColumns: CalendarColumn[] =
       working.length > 0
         ? [
-            { id: "ekg", isMuted: false, isUnavailable: false, title: "EKG" },
+            {
+              id: "ekg",
+              isMuted: false,
+              isUnavailable: false,
+              title: "EKG",
+            },
             {
               id: "labor",
               isMuted: false,
@@ -1800,6 +1881,9 @@ export function useCalendarLogic({
     baseSchedulesData,
     currentDayOfWeek,
     appointmentsData,
+    draggedAppointmentTypeId,
+    getUnsupportedPractitionerIdsForAppointmentType,
+    placementAppointmentTypeId,
     simulatedContext,
     selectedLocationId,
     selectedDate,
@@ -2367,22 +2451,39 @@ export function useCalendarLogic({
   ]);
 
   const unavailablePractitionerBlockedSlots = useMemo(() => {
-    return columns.flatMap((column) =>
-      column.isUnavailable
-        ? Array.from({ length: totalSlots }, (_, slot) => ({
-            column: column.id,
-            reason: "Behandler gelöscht",
-            slot,
-          }))
-        : [],
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler gelöscht",
+      (column) => column.isUnavailable === true,
+      totalSlots,
     );
-  }, [columns, totalSlots]);
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
+
+  const appointmentTypeUnavailableBlockedSlots = useMemo(() => {
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler nicht für Terminart freigegeben",
+      (column) => column.isAppointmentTypeUnavailable === true,
+      totalSlots,
+    );
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
+
+  const dragDisabledPractitionerBlockedSlots = useMemo(() => {
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler nicht für Terminart freigegeben",
+      (column) => column.isDragDisabled === true,
+      totalSlots,
+    );
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
 
   // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
   const allBlockedSlots = useMemo(() => {
     const combined = [
       ...blockedSlots,
       ...breakSlots,
+      ...appointmentTypeUnavailableBlockedSlots,
+      ...dragDisabledPractitionerBlockedSlots,
       ...manualBlockedSlots,
       ...unavailablePractitionerBlockedSlots,
       ...vacationBlockedSlots,
@@ -2406,7 +2507,9 @@ export function useCalendarLogic({
     return [...uniqueSlots.values()];
   }, [
     blockedSlots,
+    appointmentTypeUnavailableBlockedSlots,
     breakSlots,
+    dragDisabledPractitionerBlockedSlots,
     manualBlockedSlots,
     totalSlots,
     unavailablePractitionerBlockedSlots,

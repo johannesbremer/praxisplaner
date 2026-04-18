@@ -33,6 +33,15 @@ export interface Appointment {
   title: string;
 }
 
+export interface CalendarColumn {
+  id: string;
+  isAppointmentTypeUnavailable?: boolean;
+  isDragDisabled?: boolean;
+  isMuted?: boolean;
+  isUnavailable?: boolean;
+  title: string;
+}
+
 /**
  * Data required to create an appointment.
  * Used when patient selection is deferred (e.g., when creating via grid click without a patient selected).

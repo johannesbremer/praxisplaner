@@ -173,6 +173,27 @@ describe("CalendarGrid", () => {
       expect(mockHandlers.onAddAppointment).toHaveBeenCalled();
     });
 
+    test("does not call onAddAppointment for appointment-type-unavailable columns", () => {
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          columns={[
+            {
+              id: "practitioner-1",
+              isAppointmentTypeUnavailable: true,
+              isMuted: true,
+              title: "Dr. Smith",
+            },
+          ]}
+        />,
+      );
+
+      const slot = container.querySelector(".group");
+      assertElement(slot);
+      fireEvent.click(slot);
+      expect(mockHandlers.onAddAppointment).not.toHaveBeenCalled();
+    });
+
     test("shows plus icon on hover", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
@@ -235,6 +256,41 @@ describe("CalendarGrid", () => {
 
       await waitFor(() => {
         expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
+    });
+
+    test("does not allow dropping an appointment onto a drag-disabled column", async () => {
+      const draggedApt = mockAppointments[0];
+      if (!draggedApt) {
+        return;
+      }
+
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          columns={[
+            { id: "practitioner-1", title: "Dr. Smith" },
+            {
+              id: "practitioner-2",
+              isDragDisabled: true,
+              isMuted: true,
+              title: "Dr. Jones",
+            },
+          ]}
+          draggedAppointment={draggedApt}
+        />,
+      );
+
+      const columns = container.querySelectorAll(".relative.min-h-full");
+      const blockedColumn = columns[1];
+      assertElement(blockedColumn);
+
+      fireEvent.dragOver(blockedColumn);
+      fireEvent.drop(blockedColumn);
+
+      await waitFor(() => {
+        expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
+        expect(mockHandlers.onDrop).not.toHaveBeenCalled();
       });
     });
 
