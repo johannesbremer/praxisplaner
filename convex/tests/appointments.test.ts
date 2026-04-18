@@ -1363,31 +1363,39 @@ describe("appointments update safety", () => {
     });
 
     const copiedEntityIds = await t.run(async (ctx) => {
-      const locationId = await ctx.db.insert("locations", {
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         lineageKey: baseData.locationId,
         name: "Main Location Copy",
         practiceId: baseData.practiceId,
         ruleSetId: savedRuleSetId,
       });
 
-      const practitionerId = await ctx.db.insert("practitioners", {
-        lineageKey: baseData.practitionerId,
-        name: "Dr. Appointments Copy",
-        practiceId: baseData.practiceId,
-        ruleSetId: savedRuleSetId,
-      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Dr. Appointments Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
 
       const now = BigInt(Date.now());
-      const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
-        createdAt: now,
-        duration: 30,
-        lastModified: now,
-        lineageKey: baseData.appointmentTypeId,
-        name: "Checkup Copy",
-        practiceId: baseData.practiceId,
-        ruleSetId: savedRuleSetId,
-      });
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Checkup Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
 
       return { appointmentTypeId, locationId, practitionerId };
     });
@@ -1558,32 +1566,44 @@ describe("appointments update safety", () => {
       subject: "workos_missing_display_mapping",
     });
     const deletedDisplayEntityIds = await t.run(async (ctx) => {
-      const deletedLocationId = await ctx.db.insert("locations", {
-        deleted: true,
-        lineageKey: baseData.locationId,
-        name: "Deleted Location Copy",
-        practiceId: baseData.practiceId,
-        ruleSetId: savedRuleSetId,
-      });
-      const deletedPractitionerId = await ctx.db.insert("practitioners", {
-        deleted: true,
-        lineageKey: baseData.practitionerId,
-        name: "Deleted Practitioner Copy",
-        practiceId: baseData.practiceId,
-        ruleSetId: savedRuleSetId,
-      });
+      const deletedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Location Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const deletedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          deleted: true,
+          lineageKey: baseData.practitionerId,
+          name: "Deleted Practitioner Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
       const now = BigInt(Date.now());
-      const deletedTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [deletedPractitionerId],
-        createdAt: now,
-        deleted: true,
-        duration: 30,
-        lastModified: now,
-        lineageKey: baseData.appointmentTypeId,
-        name: "Deleted Type Copy",
-        practiceId: baseData.practiceId,
-        ruleSetId: savedRuleSetId,
-      });
+      const deletedTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [deletedPractitionerId],
+          createdAt: now,
+          deleted: true,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Deleted Type Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
 
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),

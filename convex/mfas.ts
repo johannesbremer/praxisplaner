@@ -2,9 +2,11 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import type { MfaId } from "./identity";
 
 import { mutation, query } from "./_generated/server";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
+import { asMfaId, asMfaLineageKey } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
@@ -27,7 +29,7 @@ const draftMutationResultValidator = v.object({
 
 async function resolveMfaEntityInRuleSet(
   ctx: MutationCtx,
-  mfaId: Id<"mfas">,
+  mfaId: MfaId,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
 ): Promise<Doc<"mfas">> {
@@ -51,7 +53,9 @@ async function resolveMfaEntityInRuleSet(
   const mapped = await ctx.db
     .query("mfas")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+      q
+        .eq("ruleSetId", ruleSetId)
+        .eq("lineageKey", asMfaLineageKey(lineageKey)),
     )
     .first();
 
@@ -110,10 +114,11 @@ export const create = mutation({
     }
 
     if (args.lineageKey) {
+      const lineageKey = asMfaLineageKey(args.lineageKey);
       const existingByLineage = await ctx.db
         .query("mfas")
         .withIndex("by_ruleSetId_lineageKey", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
         )
         .first();
       if (existingByLineage) {
@@ -155,7 +160,7 @@ export const remove = mutation({
 
     const mfa = await resolveMfaEntityInRuleSet(
       ctx,
-      args.mfaId,
+      asMfaId(args.mfaId),
       args.practiceId,
       ruleSetId,
     );

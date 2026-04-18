@@ -1,6 +1,8 @@
 import type { GenericDatabaseReader } from "convex/server";
 
 import { convexTest } from "convex-test";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { DataModel } from "../_generated/dataModel";
@@ -60,6 +62,59 @@ async function collectMissingLineageKeys(
 
 function createTestContext() {
   return convexTest(schema, modules);
+}
+
+const SELF_LINEAGE_INSERT_PATTERN =
+  /\b(?:ctx\.)?db\.insert\("(?<table>appointmentTypes|baseSchedules|locations|mfas|practitioners|vacations)"/g;
+
+const ALLOWED_DIRECT_SELF_LINEAGE_INSERT_FILES = new Set([
+  "convex/lineage.ts",
+  "convex/tests/appointmentSeries.test.ts",
+  "convex/tests/lineage.test.ts",
+  "convex/tests/vacations.test.ts",
+]);
+
+async function collectTypeScriptFiles(rootDir: string): Promise<string[]> {
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  const nestedFiles = await Promise.all(
+    entries.map(async (entry) => {
+      const absolutePath = path.join(rootDir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "_generated") {
+          return [];
+        }
+        return await collectTypeScriptFiles(absolutePath);
+      }
+      if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".tsx")) {
+        return [];
+      }
+      return [absolutePath];
+    }),
+  );
+  return nestedFiles.flat();
+}
+
+async function collectUnexpectedDirectSelfLineageInserts() {
+  const repoRoot = process.cwd();
+  const files = await collectTypeScriptFiles(path.join(repoRoot, "convex"));
+  const violations: string[] = [];
+
+  for (const filePath of files) {
+    const relativePath = path.relative(repoRoot, filePath);
+    const content = await readFile(filePath, "utf8");
+
+    for (const match of content.matchAll(SELF_LINEAGE_INSERT_PATTERN)) {
+      if (ALLOWED_DIRECT_SELF_LINEAGE_INSERT_FILES.has(relativePath)) {
+        continue;
+      }
+      const beforeMatch = content.slice(0, match.index);
+      const lineNumber = beforeMatch.split("\n").length;
+      const tableName = match.groups?.["table"] ?? "unknown";
+      violations.push(`${relativePath}:${lineNumber} inserts ${tableName}`);
+    }
+  }
+
+  return violations;
 }
 
 describe("lineage invariants", () => {
@@ -167,5 +222,11 @@ describe("lineage invariants", () => {
 
     expect(missing.locations).toHaveLength(1);
     expect(missing.locations[0]).toMatch(/;locations$/);
+  });
+
+  test("self-lineage writes go through the shared insert helper", async () => {
+    const violations = await collectUnexpectedDirectSelfLineageInserts();
+
+    expect(violations).toEqual([]);
   });
 });

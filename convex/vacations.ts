@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import type { MfaId } from "./identity";
 
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
@@ -22,6 +23,8 @@ import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
+  asMfaId,
+  asMfaLineageKey,
   asPractitionerLineageKey,
 } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
@@ -103,7 +106,7 @@ async function assertStaffExists(
   return {
     mfaId: await resolveMfaIdInRuleSet(
       ctx,
-      args.mfaId,
+      asMfaId(args.mfaId),
       args.practiceId,
       args.ruleSetId,
     ),
@@ -205,28 +208,28 @@ async function replaceVacationsInDraft(
 
 async function resolveMfaIdInRuleSet(
   ctx: MutationCtx,
-  mfaId: Id<"mfas">,
+  mfaId: MfaId,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
-): Promise<Id<"mfas">> {
+): Promise<MfaId> {
   const mfa = await ctx.db.get("mfas", mfaId);
   if (!mfa) {
     const mapped = await ctx.db
       .query("mfas")
       .withIndex("by_ruleSetId_lineageKey", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("lineageKey", mfaId),
+        q.eq("ruleSetId", ruleSetId).eq("lineageKey", asMfaLineageKey(mfaId)),
       )
       .first();
     if (mapped?.practiceId !== practiceId) {
       throw new Error("MFA nicht gefunden.");
     }
-    return mapped._id;
+    return asMfaId(mapped._id);
   }
   if (mfa.practiceId !== practiceId) {
     throw new Error("MFA gehört nicht zu dieser Praxis.");
   }
   if (mfa.ruleSetId === ruleSetId) {
-    return mfa._id;
+    return asMfaId(mfa._id);
   }
 
   const lineageKey = requireLineageKey({
@@ -238,7 +241,9 @@ async function resolveMfaIdInRuleSet(
   const mapped = await ctx.db
     .query("mfas")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+      q
+        .eq("ruleSetId", ruleSetId)
+        .eq("lineageKey", asMfaLineageKey(lineageKey)),
     )
     .first();
 
@@ -246,7 +251,7 @@ async function resolveMfaIdInRuleSet(
     throw new Error("MFA konnte im aktuellen Regelset nicht aufgelöst werden.");
   }
 
-  return mapped._id;
+  return asMfaId(mapped._id);
 }
 
 async function resolvePractitionerIdInRuleSet(

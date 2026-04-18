@@ -10,6 +10,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
@@ -51,12 +52,14 @@ async function insertWithLineage<TableName extends LineageTable>(
   value: Omit<Doc<TableName>, "_creationTime" | "_id" | "lineageKey">,
   lineageKey?: Id<TableName>,
 ): Promise<Id<TableName>> {
-  const insertValue = (lineageKey ? { ...value, lineageKey } : value) as never;
-  const id = await ctx.db.insert(table, insertValue);
-  if (!lineageKey) {
-    await ctx.db.patch(table, id, { lineageKey: id } as never);
-  }
-  return id;
+  return (await insertSelfLineageEntity(
+    ctx.db,
+    table as never,
+    {
+      ...value,
+      ...(lineageKey ? { lineageKey } : {}),
+    } as never,
+  )) as Id<TableName>;
 }
 
 async function setupBaseScheduleEntities(

@@ -3328,28 +3328,40 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     const copiedIds = await t.run(async (ctx) => {
-      const copiedPractitionerId = await ctx.db.insert("practitioners", {
-        lineageKey: basePractitionerId,
-        name: "Dr. Copied",
-        practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
-      const copiedLocationId = await ctx.db.insert("locations", {
-        lineageKey: baseLocationId,
-        name: "Copied Office",
-        practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
-      const copiedAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [copiedPractitionerId],
-        createdAt: BigInt(Date.now()),
-        duration: 30,
-        lastModified: BigInt(Date.now()),
-        lineageKey: baseAppointmentTypeId,
-        name: "Checkup Copy",
-        practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
+      const copiedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: basePractitionerId,
+          name: "Dr. Copied",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseLocationId,
+          name: "Copied Office",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [copiedPractitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          lastModified: BigInt(Date.now()),
+          lineageKey: baseAppointmentTypeId,
+          name: "Checkup Copy",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
       return {
         copiedAppointmentTypeId,
         copiedLocationId,

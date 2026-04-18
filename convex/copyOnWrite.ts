@@ -19,6 +19,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { asMfaId, asMfaLineageKey, type MfaId } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
@@ -395,13 +396,13 @@ export async function copyMfas(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-): Promise<Map<Id<"mfas">, Id<"mfas">>> {
+): Promise<Map<MfaId, MfaId>> {
   const sourceMfas = await db
     .query("mfas")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
     .collect();
 
-  const idMap = new Map<Id<"mfas">, Id<"mfas">>();
+  const idMap = new Map<MfaId, MfaId>();
 
   for (const source of sourceMfas) {
     const lineageKey = requireLineageKey({
@@ -410,16 +411,18 @@ export async function copyMfas(
       lineageKey: source.lineageKey,
       ruleSetId: source.ruleSetId,
     });
-    const newId = await insertSelfLineageEntity(db, "mfas", {
-      createdAt: source.createdAt,
-      lineageKey,
-      name: source.name,
-      parentId: source._id,
-      practiceId,
-      ruleSetId: targetRuleSetId,
-    });
+    const newId = asMfaId(
+      await insertSelfLineageEntity(db, "mfas", {
+        createdAt: source.createdAt,
+        lineageKey: asMfaLineageKey(lineageKey),
+        name: source.name,
+        parentId: source._id,
+        practiceId,
+        ruleSetId: targetRuleSetId,
+      }),
+    );
 
-    idMap.set(source._id, newId);
+    idMap.set(asMfaId(source._id), newId);
   }
 
   return idMap;
@@ -526,7 +529,7 @@ export async function copyVacations(
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  mfaIdMap: Map<Id<"mfas">, Id<"mfas">>,
+  mfaIdMap: Map<MfaId, MfaId>,
 ): Promise<void> {
   const sourceVacations = await db
     .query("vacations")
@@ -535,7 +538,7 @@ export async function copyVacations(
 
   for (const source of sourceVacations) {
     let practitionerId: Id<"practitioners"> | undefined;
-    let mfaId: Id<"mfas"> | undefined;
+    let mfaId: MfaId | undefined;
 
     if (source.staffType === "practitioner") {
       if (!source.practitionerId) {
@@ -555,7 +558,7 @@ export async function copyVacations(
           `Failed to copy vacation ${source._id}: missing mfaId.`,
         );
       }
-      mfaId = mfaIdMap.get(source.mfaId);
+      mfaId = mfaIdMap.get(asMfaId(source.mfaId));
       if (!mfaId) {
         throw new Error(
           `Failed to copy vacation ${source._id}: MFA ${source.mfaId} not found in mapping.`,

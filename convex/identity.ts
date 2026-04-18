@@ -7,7 +7,6 @@ export type AppointmentTypeLineageKey = LineageKey<"appointmentTypes">;
 export type BaseScheduleId = EntityId<"baseSchedules">;
 
 export type BaseScheduleLineageKey = LineageKey<"baseSchedules">;
-
 export type EntityId<TableName extends TableNames> = Brand<
   Id<TableName>,
   `${TableName}:entity`
@@ -16,8 +15,11 @@ export type LineageKey<TableName extends LineageTableName> = Brand<
   Id<TableName>,
   `${TableName}:lineage`
 >;
+
 export type LocationId = EntityId<"locations">;
 export type LocationLineageKey = LineageKey<"locations">;
+export type MfaId = EntityId<"mfas">;
+export type MfaLineageKey = LineageKey<"mfas">;
 export type PractitionerId = EntityId<"practitioners">;
 export type PractitionerLineageKey = LineageKey<"practitioners">;
 export type VacationLineageKey = LineageKey<"vacations">;
@@ -27,6 +29,7 @@ type LineageTableName = Extract<
   | "appointmentTypes"
   | "baseSchedules"
   | "locations"
+  | "mfas"
   | "practitioners"
   | "vacations"
 >;
@@ -70,6 +73,14 @@ export function asLocationId(id: Id<"locations">): LocationId {
 }
 
 export function asLocationLineageKey(id: Id<"locations">): LocationLineageKey {
+  return asLineageKey(id);
+}
+
+export function asMfaId(id: Id<"mfas">): MfaId {
+  return asEntityId(id);
+}
+
+export function asMfaLineageKey(id: Id<"mfas">): MfaLineageKey {
   return asLineageKey(id);
 }
 
