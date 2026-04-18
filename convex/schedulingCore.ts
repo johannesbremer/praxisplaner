@@ -13,6 +13,7 @@ import {
   type PractitionerId,
   type PractitionerLineageKey,
 } from "./identity";
+import { requireLineageKey } from "./lineage";
 
 export const SCHEDULING_TIMEZONE = "Europe/Berlin";
 
@@ -70,9 +71,14 @@ export async function generateCandidateSlotsForDay(
   const practitionerLineageKeyById = new Map(
     practitionersForPractice.map((practitioner) => [
       asPractitionerId(practitioner._id),
-      practitioner.lineageKey
-        ? asPractitionerLineageKey(practitioner.lineageKey)
-        : asPractitionerLineageKey(practitioner._id),
+      asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
     ]),
   );
   const locationLineageKeyById = new Map(
@@ -80,9 +86,14 @@ export async function generateCandidateSlotsForDay(
       .filter((location) => location.practiceId === practiceId)
       .map((location) => [
         asLocationId(location._id),
-        location.lineageKey
-          ? asLocationLineageKey(location.lineageKey)
-          : asLocationLineageKey(location._id),
+        asLocationLineageKey(
+          requireLineageKey({
+            entityId: location._id,
+            entityType: "location",
+            lineageKey: location.lineageKey,
+            ruleSetId: location.ruleSetId,
+          }),
+        ),
       ]),
   );
 

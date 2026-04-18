@@ -593,6 +593,55 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
   });
 
+  test("should reject legacy rule payloads that rely on implicit scope or DAY_OF_WEEK valueIds", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Strict Rule Payload Practice",
+    });
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+
+    await expect(
+      t.mutation(api.entities.createRule, {
+        conditionTree: {
+          children: [
+            {
+              conditionType: "CONCURRENT_COUNT",
+              nodeType: "CONDITION",
+              operator: "GREATER_THAN_OR_EQUAL",
+              valueIds: [],
+              valueNumber: 1,
+            },
+            {
+              conditionType: "DAY_OF_WEEK",
+              nodeType: "CONDITION",
+              operator: "IS",
+              valueIds: ["MONDAY"],
+            },
+          ],
+          nodeType: "AND",
+        },
+        expectedDraftRevision: null,
+        name: "Legacy Rule Payload",
+        practiceId,
+        selectedRuleSetId: practice.currentActiveRuleSetId,
+      }),
+    ).rejects.toThrow(
+      "Ungueltiger Regelbaum: Child 0: CONCURRENT_COUNT condition must define scope explicitly; Child 1: DAY_OF_WEEK condition must use valueNumber",
+    );
+  });
+
   test("should delete base schedules after a discarded draft when expected revision is reset", async () => {
     const t = createAuthedTestContext();
 
@@ -1114,7 +1163,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "DAY_OF_WEEK",
             nodeType: "CONDITION",
             operator: "IS",
-            valueIds: ["1"],
+            valueNumber: 1,
           },
         ],
         nodeType: "AND",

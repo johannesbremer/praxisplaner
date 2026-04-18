@@ -78,6 +78,7 @@ import {
   conditionTreeNodeValidator,
   getTypedChildren,
   isLogicalNode,
+  validateConditionTree,
 } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -3098,7 +3099,10 @@ async function remapConditionTreeEntityIds(
           );
         }
         remappedIds.push(targetEntity._id);
+        continue;
       }
+
+      remappedIds.push(rawId);
     }
 
     return {
@@ -3287,6 +3291,10 @@ export const createRule = mutation({
       args.conditionTree,
       ruleSetId,
     );
+    const validationErrors = validateConditionTree(remappedConditionTree);
+    if (validationErrors.length > 0) {
+      throw new Error(`Ungueltiger Regelbaum: ${validationErrors.join("; ")}`);
+    }
 
     const now = BigInt(Date.now());
     const canonicalCopyFromId = args.copyFromId

@@ -584,7 +584,12 @@ function evaluateCondition(
         return false;
       }
 
-      const scope = condition.scope ?? "practitioner"; // Default to practitioner for backward compatibility
+      const scope = condition.scope;
+      if (!scope) {
+        throw new Error(
+          "DAILY_CAPACITY condition is missing required scope. Data corruption?",
+        );
+      }
       const appointmentTypeIds = valueIds ?? [];
 
       // Use pre-computed daily capacity counts - O(k) where k is number of appointment types to sum
@@ -645,30 +650,14 @@ function evaluateCondition(
       const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
       const dayOfWeek = appointmentZoned.dayOfWeek; // ISO: 1=Monday, 7=Sunday
 
-      // Handle both old format (valueIds with day names) and new format (valueNumber)
-      let targetDayOfWeek: number | undefined = valueNumber;
-
-      // Backward compatibility: if valueNumber is undefined but valueIds has a day name, convert it
-      // Using ISO 8601 format: 1=Monday, 7=Sunday
-      if (targetDayOfWeek === undefined && valueIds && valueIds.length > 0) {
-        const dayName = valueIds[0];
-        const dayMap: Record<string, number> = {
-          FRIDAY: 5,
-          MONDAY: 1,
-          SATURDAY: 6,
-          SUNDAY: 7, // ISO 8601: Sunday is 7, not 0
-          THURSDAY: 4,
-          TUESDAY: 2,
-          WEDNESDAY: 3,
-        };
-        targetDayOfWeek = dayName ? dayMap[dayName] : undefined;
-      }
+      const targetDayOfWeek = valueNumber;
 
       if (targetDayOfWeek === undefined) {
-        return false;
+        throw new Error(
+          "DAY_OF_WEEK condition is missing required valueNumber. Data corruption?",
+        );
       }
 
-      // Handle both EQUALS (new format) and IS (old format) operators
       if (operator === "IS" || operator === "EQUALS") {
         return dayOfWeek === targetDayOfWeek;
       } else if (operator === "IS_NOT") {
@@ -1300,6 +1289,21 @@ export function validateConditionTree(
       (!node.valueIds || node.valueIds.length === 0)
     ) {
       errors.push("CONDITION node must have either valueNumber or valueIds");
+    }
+    if (
+      (node.conditionType === "CONCURRENT_COUNT" ||
+        node.conditionType === "DAILY_CAPACITY") &&
+      node.scope === undefined
+    ) {
+      errors.push(
+        `${node.conditionType} condition must define scope explicitly`,
+      );
+    }
+    if (
+      node.conditionType === "DAY_OF_WEEK" &&
+      node.valueNumber === undefined
+    ) {
+      errors.push("DAY_OF_WEEK condition must use valueNumber");
     }
   } else if (isLogicalNode(node)) {
     // Validate logical operator - children array is guaranteed by type guard

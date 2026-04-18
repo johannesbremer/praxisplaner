@@ -16,6 +16,7 @@ import {
   type PractitionerId,
   type PractitionerLineageKey,
 } from "./identity";
+import { requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
 export interface OccupancyReferenceLineageKeys {
@@ -37,11 +38,16 @@ export async function resolveAppointmentTypeIdForRuleSetByLineage(
   },
 ): Promise<AppointmentTypeId> {
   const direct = await db.get("appointmentTypes", args.lineageKey);
-  const effectiveLineageKey = direct?.lineageKey
-    ? asAppointmentTypeLineageKey(direct.lineageKey)
-    : direct?._id
-      ? asAppointmentTypeLineageKey(direct._id)
-      : args.lineageKey;
+  const effectiveLineageKey = direct
+    ? asAppointmentTypeLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "appointment type",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
   const entity = await db
     .query("appointmentTypes")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -67,9 +73,14 @@ export async function resolveAppointmentTypeLineageKey(
   appointmentTypeId: AppointmentTypeId,
 ): Promise<AppointmentTypeLineageKey> {
   const appointmentType = await requireAppointmentType(db, appointmentTypeId);
-  return appointmentType.lineageKey
-    ? asAppointmentTypeLineageKey(appointmentType.lineageKey)
-    : asAppointmentTypeLineageKey(appointmentType._id);
+  return asAppointmentTypeLineageKey(
+    requireLineageKey({
+      entityId: appointmentType._id,
+      entityType: "appointment type",
+      lineageKey: appointmentType.lineageKey,
+      ruleSetId: appointmentType.ruleSetId,
+    }),
+  );
 }
 
 export async function resolveLocationIdForRuleSetByLineage(
@@ -80,11 +91,16 @@ export async function resolveLocationIdForRuleSetByLineage(
   },
 ): Promise<LocationId> {
   const direct = await db.get("locations", args.lineageKey);
-  const effectiveLineageKey = direct?.lineageKey
-    ? asLocationLineageKey(direct.lineageKey)
-    : direct?._id
-      ? asLocationLineageKey(direct._id)
-      : args.lineageKey;
+  const effectiveLineageKey = direct
+    ? asLocationLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "location",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
   const entity = await db
     .query("locations")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -110,9 +126,14 @@ export async function resolveLocationLineageKey(
   locationId: LocationId,
 ): Promise<LocationLineageKey> {
   const location = await requireLocation(db, locationId);
-  return location.lineageKey
-    ? asLocationLineageKey(location.lineageKey)
-    : asLocationLineageKey(location._id);
+  return asLocationLineageKey(
+    requireLineageKey({
+      entityId: location._id,
+      entityType: "location",
+      lineageKey: location.lineageKey,
+      ruleSetId: location.ruleSetId,
+    }),
+  );
 }
 
 export async function resolveOccupancyReferenceLineageKeys(
@@ -143,11 +164,16 @@ export async function resolvePractitionerIdForRuleSetByLineage(
   },
 ): Promise<PractitionerId> {
   const direct = await db.get("practitioners", args.lineageKey);
-  const effectiveLineageKey = direct?.lineageKey
-    ? asPractitionerLineageKey(direct.lineageKey)
-    : direct?._id
-      ? asPractitionerLineageKey(direct._id)
-      : args.lineageKey;
+  const effectiveLineageKey = direct
+    ? asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "practitioner",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
   const entity = await db
     .query("practitioners")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -173,9 +199,14 @@ export async function resolvePractitionerLineageKey(
   practitionerId: PractitionerId,
 ): Promise<PractitionerLineageKey> {
   const practitioner = await requirePractitioner(db, practitionerId);
-  return practitioner.lineageKey
-    ? asPractitionerLineageKey(practitioner.lineageKey)
-    : asPractitionerLineageKey(practitioner._id);
+  return asPractitionerLineageKey(
+    requireLineageKey({
+      entityId: practitioner._id,
+      entityType: "practitioner",
+      lineageKey: practitioner.lineageKey,
+      ruleSetId: practitioner.ruleSetId,
+    }),
+  );
 }
 
 export async function resolveStoredAppointmentReferencesForWrite(

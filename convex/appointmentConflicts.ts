@@ -132,10 +132,7 @@ export function getEffectiveAppointmentsForOccupancyView(
       return true;
     }
 
-    return (
-      appointment.simulationRuleSetId === undefined ||
-      appointment.simulationRuleSetId === draftRuleSetId
-    );
+    return appointment.simulationRuleSetId === draftRuleSetId;
   });
   const replacedIds = new Set(
     simulationAppointments

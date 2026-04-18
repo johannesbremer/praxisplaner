@@ -431,7 +431,6 @@ function isAppointmentVisibleInScope(
 
   return (
     appointment.isSimulation !== true ||
-    appointment.simulationRuleSetId === undefined ||
     appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
   );
 }
