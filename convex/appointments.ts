@@ -17,6 +17,7 @@ import {
 } from "./appointmentConflicts";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
+  resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerIdForRuleSetByLineage,
   resolveStoredAppointmentReferencesForWrite,
@@ -1301,18 +1302,13 @@ async function updateAppointmentByMode(
     }
 
     if (filteredUpdateData.appointmentTypeId !== undefined) {
-      const nextSeriesStoredReferences =
-        await resolveStoredAppointmentReferencesForWrite(ctx.db, {
-          appointmentTypeId: filteredUpdateData.appointmentTypeId,
-          locationId:
-            filteredUpdateData.locationId ??
-            existingAppointment.locationLineageKey,
-          ...(filteredUpdateData.practitionerId
-            ? { practitionerId: filteredUpdateData.practitionerId }
-            : {}),
-        });
+      const nextAppointmentTypeLineageKey =
+        await resolveAppointmentTypeLineageKey(
+          ctx.db,
+          filteredUpdateData.appointmentTypeId,
+        );
       if (
-        nextSeriesStoredReferences.appointmentTypeLineageKey !==
+        nextAppointmentTypeLineageKey !==
         existingAppointment.appointmentTypeLineageKey
       ) {
         throw appointmentChainError(

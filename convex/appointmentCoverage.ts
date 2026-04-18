@@ -12,7 +12,10 @@ import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
-import { resolvePractitionerLineageKey } from "./appointmentReferences";
+import {
+  resolveLocationIdForRuleSetByLineage,
+  resolvePractitionerLineageKey,
+} from "./appointmentReferences";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -83,30 +86,20 @@ export async function resolveLocationIdForRuleSet(
     targetRuleSetId: Id<"ruleSets">;
   },
 ): Promise<Id<"locations">> {
-  const location = await db.get("locations", args.locationId);
+  const resolvedLocationId = await resolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: args.locationId,
+    ruleSetId: args.targetRuleSetId,
+  });
+  const location = await db.get("locations", resolvedLocationId);
   if (!location) {
-    throw new Error(`Standort ${args.locationId} nicht gefunden.`);
+    throw new Error(
+      `Standort ${args.locationId} konnte im Ziel-Regelset nicht geladen werden.`,
+    );
   }
   if (location.practiceId !== args.practiceId) {
     throw new Error("Standort gehört nicht zu dieser Praxis.");
   }
-  if (location.ruleSetId === args.targetRuleSetId) {
-    return location._id;
-  }
-
-  const lineageKey = location.lineageKey ?? location._id;
-  const mappedLocation = await db
-    .query("locations")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
-    )
-    .first();
-
-  if (mappedLocation?.practiceId !== args.practiceId) {
-    throw new Error("Standort konnte im Ziel-Regelset nicht aufgelöst werden.");
-  }
-
-  return mappedLocation._id;
+  return resolvedLocationId;
 }
 
 export async function resolvePractitionerIdForRuleSet(

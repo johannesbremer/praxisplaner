@@ -620,6 +620,130 @@ describe("vacations", () => {
     ).toBe(copiedPreferredPractitionerId);
   });
 
+  test("coverage preview resolves copied rule set locations from stored lineage even when the source row is gone", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const { copiedLocationId, copiedRuleSetId } = await t.run(async (ctx) => {
+      const movableStart = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+
+      await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(movableStart)
+          .add({ minutes: 30 })
+          .toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start: movableStart,
+        title: "Soll verschoben werden",
+      });
+
+      const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Coverage Rule Set Copy",
+        draftRevision: 0,
+        parentVersion: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      const copiedLocationId = await ctx.db.insert("locations", {
+        lineageKey: fixture.locationId,
+        name: "Praxis Kopie",
+        practiceId: fixture.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      const copiedAbsentPractitionerId = await ctx.db.insert("practitioners", {
+        lineageKey: fixture.absentPractitionerId,
+        name: "Dr. Urlaub",
+        practiceId: fixture.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      const copiedPreferredPractitionerId = await ctx.db.insert(
+        "practitioners",
+        {
+          lineageKey: fixture.preferredPractitionerId,
+          name: "Dr. Zuletzt Gesehen",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedFallbackPractitionerId = await ctx.db.insert(
+        "practitioners",
+        {
+          lineageKey: fixture.fallbackPractitionerId,
+          name: "Dr. Frei",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+
+      for (const practitionerId of [
+        copiedAbsentPractitionerId,
+        copiedPreferredPractitionerId,
+        copiedFallbackPractitionerId,
+      ]) {
+        await ctx.db.insert("baseSchedules", {
+          dayOfWeek: 1,
+          endTime: "16:00",
+          locationId: copiedLocationId,
+          practiceId: fixture.practiceId,
+          practitionerId,
+          ruleSetId: copiedRuleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [
+          copiedAbsentPractitionerId,
+          copiedPreferredPractitionerId,
+          copiedFallbackPractitionerId,
+        ],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [],
+        lastModified: now,
+        lineageKey: fixture.appointmentTypeId,
+        name: "Kontrolle",
+        practiceId: fixture.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+
+      await ctx.db.delete("locations", fixture.locationId);
+
+      return { copiedLocationId, copiedRuleSetId };
+    });
+
+    const preview = await t.query(
+      api.appointmentCoverage.previewPractitionerAbsenceCoverage,
+      {
+        date: monday.toString(),
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        ruleSetId: copiedRuleSetId,
+      },
+    );
+
+    expect(preview.affectedCount).toBe(1);
+    expect(preview.movableCount).toBe(1);
+    expect(preview.suggestions[0]?.locationId).toBe(copiedLocationId);
+  });
+
   test("coverage preview can return draft-only practitioners from the selected rule set", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);

@@ -4,13 +4,13 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
-export type StoredAppointmentReferences = Pick<
-  Doc<"appointments">,
-  "appointmentTypeLineageKey" | "locationLineageKey" | "practitionerLineageKey"
->;
 export type OccupancyReferenceLineageKeys = Pick<
   StoredAppointmentReferences,
   "locationLineageKey" | "practitionerLineageKey"
+>;
+export type StoredAppointmentReferences = Pick<
+  Doc<"appointments">,
+  "appointmentTypeLineageKey" | "locationLineageKey" | "practitionerLineageKey"
 >;
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
@@ -91,6 +91,26 @@ export async function resolveLocationLineageKey(
   return location.lineageKey ?? location._id;
 }
 
+export async function resolveOccupancyReferenceLineageKeys(
+  db: DatabaseReader,
+  args: {
+    locationId: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+  },
+): Promise<OccupancyReferenceLineageKeys> {
+  return {
+    locationLineageKey: await resolveLocationLineageKey(db, args.locationId),
+    ...(args.practitionerId
+      ? {
+          practitionerLineageKey: await resolvePractitionerLineageKey(
+            db,
+            args.practitionerId,
+          ),
+        }
+      : {}),
+  };
+}
+
 export async function resolvePractitionerIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {
@@ -144,28 +164,8 @@ export async function resolveStoredAppointmentReferencesForWrite(
     ),
     ...(await resolveOccupancyReferenceLineageKeys(db, {
       locationId: args.locationId,
-      practitionerId: args.practitionerId,
+      ...(args.practitionerId ? { practitionerId: args.practitionerId } : {}),
     })),
-  };
-}
-
-export async function resolveOccupancyReferenceLineageKeys(
-  db: DatabaseReader,
-  args: {
-    locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
-  },
-): Promise<OccupancyReferenceLineageKeys> {
-  return {
-    locationLineageKey: await resolveLocationLineageKey(db, args.locationId),
-    ...(args.practitionerId
-      ? {
-          practitionerLineageKey: await resolvePractitionerLineageKey(
-            db,
-            args.practitionerId,
-          ),
-        }
-      : {}),
   };
 }
 

@@ -3,7 +3,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { SchedulingResultSlot } from "./scheduling";
+import type { InternalSchedulingResultSlot } from "./scheduling";
 
 import { internal } from "./_generated/api";
 import {
@@ -131,7 +131,7 @@ interface SeriesPlanningResult {
 interface SeriesPlanningState {
   baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
   eligibleWeekdays: Map<string, number[]>;
-  slotCache: Map<string, SchedulingResultSlot[]>;
+  slotCache: Map<string, InternalSchedulingResultSlot[]>;
 }
 
 interface SeriesSpecification {
@@ -715,11 +715,7 @@ async function findSlotForFollowUpStep(
     });
 
     return (
-      slots.find(
-        (slot) =>
-          slot.startTime === earliestStart.toString() &&
-          slot.locationId !== undefined,
-      ) ?? null
+      slots.find((slot) => slot.startTime === earliestStart.toString()) ?? null
     );
   }
 
@@ -751,9 +747,8 @@ async function findSlotForFollowUpStep(
     return (
       slots.find(
         (slot) =>
-          slot.locationId !== undefined &&
           Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >=
-            earliestStart.epochMilliseconds,
+          earliestStart.epochMilliseconds,
       ) ?? null
     );
   }
@@ -792,7 +787,7 @@ async function findSlotForFollowUpStep(
         simulationRuleSetId: args.simulationRuleSetId,
       }),
     });
-    const matchingSlot = slots.find((slot) => slot.locationId !== undefined);
+    const matchingSlot = slots[0] ?? null;
 
     if (matchingSlot) {
       return matchingSlot;
@@ -1021,7 +1016,7 @@ async function queryAvailableSlotsForDay(
     return cachedSlots;
   }
 
-  const result: { log: string[]; slots: SchedulingResultSlot[] } =
+  const result: { log: string[]; slots: InternalSchedulingResultSlot[] } =
     await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
       date: args.date,
       ...(args.excludedAppointmentIds && {

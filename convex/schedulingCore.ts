@@ -6,13 +6,13 @@ import type { DatabaseReader } from "./_generated/server";
 export const SCHEDULING_TIMEZONE = "Europe/Berlin";
 
 export interface CandidateSlot {
-  blockedByBlockedSlotId?: string;
-  blockedByRuleId?: string;
+  blockedByBlockedSlotId?: Id<"blockedSlots">;
+  blockedByRuleId?: Id<"ruleConditions">;
   duration: number;
-  locationId?: string;
-  locationLineageKey?: string;
-  practitionerId: string;
-  practitionerLineageKey: string;
+  locationId: Id<"locations">;
+  locationLineageKey: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
   practitionerName?: string;
   reason?: string;
   startTime: string;
@@ -124,13 +124,9 @@ export async function generateCandidateSlotsForDay(
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
           locationId: schedule.locationId,
-          ...(schedule.locationId
-            ? {
-                locationLineageKey:
-                  locationLineageKeyById.get(schedule.locationId) ??
-                  schedule.locationId,
-              }
-            : {}),
+          locationLineageKey:
+            locationLineageKeyById.get(schedule.locationId) ??
+            schedule.locationId,
           practitionerId: schedule.practitionerId,
           practitionerLineageKey:
             practitionerLineageKeyById.get(schedule.practitionerId) ??
@@ -167,25 +163,18 @@ export function isSlotStartInFuture(
 export function slotOverlapsAppointment(
   slot: Pick<
     CandidateSlot,
-    | "duration"
-    | "locationId"
-    | "locationLineageKey"
-    | "practitionerId"
-    | "practitionerLineageKey"
-    | "startTime"
+    "duration" | "locationLineageKey" | "practitionerLineageKey" | "startTime"
   >,
   appointment: Pick<
     Doc<"appointments">,
     "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
 ): boolean {
-  const slotLocationIdentity = slot.locationLineageKey ?? slot.locationId;
-  if (slotLocationIdentity !== appointment.locationLineageKey) {
+  if (slot.locationLineageKey !== appointment.locationLineageKey) {
     return false;
   }
 
-  const slotPractitionerIdentity = slot.practitionerLineageKey;
-  if (slotPractitionerIdentity !== appointment.practitionerLineageKey) {
+  if (slot.practitionerLineageKey !== appointment.practitionerLineageKey) {
     return false;
   }
 
