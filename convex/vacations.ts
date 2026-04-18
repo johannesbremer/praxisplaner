@@ -25,6 +25,7 @@ import {
   asLocationLineageKey,
   asMfaId,
   asMfaLineageKey,
+  asPractitionerId,
   asPractitionerLineageKey,
 } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
@@ -606,20 +607,15 @@ export const createVacationWithCoverageAdjustments = mutation({
         ? replacingVacationLineageKeys[0]
         : undefined;
 
-    const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
-      practiceId: args.practiceId,
-      practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
-      ruleSetId: practice.currentActiveRuleSetId,
-    });
     const draftPractitionerId = await resolvePractitionerIdInRuleSet(
       ctx,
       args.practitionerId,
       args.practiceId,
       ruleSetId,
     );
-    const activePractitionerLineageKey = await resolvePractitionerLineageKey(
+    const absentPractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
-      activePractitionerId,
+      asPractitionerId(draftPractitionerId),
     );
     await replaceVacationsInDraft(ctx, {
       date: args.date,
@@ -654,13 +650,6 @@ export const createVacationWithCoverageAdjustments = mutation({
       vacationLineageKey,
     });
 
-    const selectedVacationPractitionerId =
-      await resolvePractitionerIdForRuleSet(ctx.db, {
-        practiceId: args.practiceId,
-        practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
-        ruleSetId,
-      });
-
     const [baseSchedules, vacations] = await Promise.all([
       ctx.db
         .query("baseSchedules")
@@ -675,7 +664,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     ]);
     const vacationRanges = getPractitionerVacationRangesForDate(
       Temporal.PlainDate.from(args.date),
-      selectedVacationPractitionerId,
+      draftPractitionerId,
       baseSchedules,
       vacations,
     );
@@ -706,7 +695,7 @@ export const createVacationWithCoverageAdjustments = mutation({
       ) {
         throw new Error("Nur echte, aktive Termine können verschoben werden.");
       }
-      if (appointment.practitionerLineageKey !== activePractitionerLineageKey) {
+      if (appointment.practitionerLineageKey !== absentPractitionerLineageKey) {
         throw new Error(
           "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
         );

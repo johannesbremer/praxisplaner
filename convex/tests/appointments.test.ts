@@ -1638,4 +1638,147 @@ describe("appointments update safety", () => {
       },
     ]);
   });
+
+  test("getAppointments skips appointments that cannot be remapped into the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set Without Mappings",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_unmappable_display_appointment",
+      "unmappable-display-appointment@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "unmappable-display-appointment@example.com",
+      subject: "workos_unmappable_display_appointment",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: savedRuleSetId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  test("getBlockedSlots applies scope before display remapping", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const foreignRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_blocked_slot_scope",
+      "blocked-slot-scope@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "blocked-slot-scope@example.com",
+      subject: "workos_blocked_slot_scope",
+    });
+
+    const realWindow = makeSlotWindow(4);
+    const simulationWindow = makeSlotWindow(5);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const foreignLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          name: "Foreign Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+      const foreignPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Foreign Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+
+      const now = BigInt(Date.now());
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: realWindow.end,
+        lastModified: now,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: realWindow.start,
+        title: "Real blocked slot",
+      });
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: simulationWindow.end,
+        isSimulation: true,
+        lastModified: now,
+        locationId: foreignLocationId,
+        practiceId: baseData.practiceId,
+        practitionerId: foreignPractitionerId,
+        start: simulationWindow.start,
+        title: "Foreign simulation blocked slot",
+      });
+    });
+
+    await expect(
+      authed.query(api.appointments.getBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        scope: "real",
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: baseData.locationId,
+        practitionerId: baseData.practitionerId,
+        title: "Real blocked slot",
+      },
+    ]);
+  });
 });

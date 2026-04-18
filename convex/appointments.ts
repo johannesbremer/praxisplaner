@@ -312,27 +312,36 @@ async function remapBlockedSlotIds(
   blockedSlots: BlockedSlotDoc[],
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<BlockedSlotDoc[]> {
-  return await Promise.all(
+  const remappedSlots = await Promise.all(
     blockedSlots.map(async (slot) => {
-      const remappedSlot: BlockedSlotDoc = {
-        ...slot,
-        locationId: await resolveLocationIdForDisplayRuleSet(
-          ctx.db,
-          slot.locationId,
-          targetRuleSetId,
-        ),
-      };
-      if (slot.practitionerId) {
-        remappedSlot.practitionerId =
-          await resolvePractitionerIdForDisplayRuleSet(
+      try {
+        const remappedSlot: BlockedSlotDoc = {
+          ...slot,
+          locationId: await resolveLocationIdForDisplayRuleSet(
             ctx.db,
-            slot.practitionerId,
+            slot.locationId,
             targetRuleSetId,
-          );
+          ),
+        };
+        if (slot.practitionerId) {
+          remappedSlot.practitionerId =
+            await resolvePractitionerIdForDisplayRuleSet(
+              ctx.db,
+              slot.practitionerId,
+              targetRuleSetId,
+            );
+        }
+        return remappedSlot;
+      } catch (error) {
+        if (isMissingDisplayLineageMappingError(error)) {
+          return null;
+        }
+        throw error;
       }
-      return remappedSlot;
     }),
   );
+
+  return remappedSlots.filter((slot): slot is BlockedSlotDoc => slot !== null);
 }
 
 /**
@@ -427,36 +436,55 @@ function isAppointmentVisibleInScope(
   );
 }
 
+function isMissingDisplayLineageMappingError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("im Regelset") &&
+    error.message.includes("nicht gefunden")
+  );
+}
+
 async function remapAppointmentIds(
   ctx: { db: DatabaseReader },
   appointments: AppointmentDoc[],
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<AppointmentListItem[]> {
-  return await Promise.all(
+  const remappedAppointments = await Promise.all(
     appointments.map(async (appointment) => {
-      const remappedAppointment: AppointmentListItem = {
-        ...toAppointmentListItem(appointment),
-        appointmentTypeId: await resolveAppointmentTypeIdForDisplayRuleSet(
-          ctx.db,
-          appointment.appointmentTypeLineageKey,
-          targetRuleSetId,
-        ),
-        locationId: await resolveLocationIdForDisplayRuleSet(
-          ctx.db,
-          appointment.locationLineageKey,
-          targetRuleSetId,
-        ),
-      };
-      if (appointment.practitionerLineageKey) {
-        remappedAppointment.practitionerId =
-          await resolvePractitionerIdForDisplayRuleSet(
+      try {
+        const remappedAppointment: AppointmentListItem = {
+          ...toAppointmentListItem(appointment),
+          appointmentTypeId: await resolveAppointmentTypeIdForDisplayRuleSet(
             ctx.db,
-            appointment.practitionerLineageKey,
+            appointment.appointmentTypeLineageKey,
             targetRuleSetId,
-          );
+          ),
+          locationId: await resolveLocationIdForDisplayRuleSet(
+            ctx.db,
+            appointment.locationLineageKey,
+            targetRuleSetId,
+          ),
+        };
+        if (appointment.practitionerLineageKey) {
+          remappedAppointment.practitionerId =
+            await resolvePractitionerIdForDisplayRuleSet(
+              ctx.db,
+              appointment.practitionerLineageKey,
+              targetRuleSetId,
+            );
+        }
+        return remappedAppointment;
+      } catch (error) {
+        if (isMissingDisplayLineageMappingError(error)) {
+          return null;
+        }
+        throw error;
       }
-      return remappedAppointment;
     }),
+  );
+
+  return remappedAppointments.filter(
+    (appointment): appointment is AppointmentListItem => appointment !== null,
   );
 }
 
@@ -1848,15 +1876,6 @@ export const getBlockedSlots = query({
       accessiblePracticeIds.has(blockedSlot.practiceId),
     );
 
-    const displayRuleSetId = getDisplayRuleSetId(args);
-    if (displayRuleSetId) {
-      blockedSlots = await remapBlockedSlotIds(
-        ctx,
-        blockedSlots,
-        displayRuleSetId,
-      );
-    }
-
     let resultSlots: BlockedSlotDoc[];
 
     if (scope === "simulation") {
@@ -1867,6 +1886,15 @@ export const getBlockedSlots = query({
       );
     } else {
       resultSlots = blockedSlots;
+    }
+
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    if (displayRuleSetId) {
+      resultSlots = await remapBlockedSlotIds(
+        ctx,
+        resultSlots,
+        displayRuleSetId,
+      );
     }
 
     return resultSlots;

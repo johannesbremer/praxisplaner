@@ -32,6 +32,7 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const vacationPortionValidator = v.union(
@@ -243,23 +244,28 @@ async function previewPractitionerCoverageForAppointment(
     return suggestionBase;
   }
 
-  const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
-    ctx.db,
-    {
-      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-        args.appointment.appointmentTypeLineageKey,
-      ),
-      practiceId: args.practiceId,
-      targetRuleSetId: args.ruleSetId,
-    },
-  );
-  const selectedAppointmentType = await ctx.db.get(
-    "appointmentTypes",
-    selectedAppointmentTypeId,
-  );
-  if (!selectedAppointmentType) {
-    throw new Error(`Terminart ${selectedAppointmentTypeId} nicht gefunden.`);
+  const selectedAppointmentType = await ctx.db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q
+        .eq("ruleSetId", args.ruleSetId)
+        .eq(
+          "lineageKey",
+          asAppointmentTypeLineageKey(
+            args.appointment.appointmentTypeLineageKey,
+          ),
+        ),
+    )
+    .first();
+  if (
+    selectedAppointmentType?.practiceId !== args.practiceId ||
+    isRuleSetEntityDeleted(selectedAppointmentType)
+  ) {
+    return suggestionBase;
   }
+  const selectedAppointmentTypeId = asAppointmentTypeId(
+    selectedAppointmentType._id,
+  );
   const day = Temporal.ZonedDateTime.from(args.appointment.start)
     .withTimeZone("Europe/Berlin")
     .toPlainDate();
@@ -436,14 +442,9 @@ export const previewPractitionerAbsenceCoverage = query({
         ruleSetId: args.ruleSetId,
       },
     );
-    const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
-      practiceId: args.practiceId,
-      practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
-      ruleSetId: activeRuleSetId,
-    });
-    const activePractitionerLineageKey = await resolvePractitionerLineageKey(
+    const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
-      activePractitionerId,
+      selectedPractitionerId,
     );
 
     const baseSchedules = await ctx.db
@@ -538,7 +539,7 @@ export const previewPractitionerAbsenceCoverage = query({
         (appointment) =>
           appointment.cancelledAt === undefined &&
           appointment.isSimulation !== true &&
-          appointment.practitionerLineageKey === activePractitionerLineageKey,
+          appointment.practitionerLineageKey === selectedPractitionerLineageKey,
       )
       .filter((appointment) => {
         const start = Temporal.ZonedDateTime.from(appointment.start);

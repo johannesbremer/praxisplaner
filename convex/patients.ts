@@ -224,18 +224,17 @@ export const getPatientById = query({
 
 /** Get a patient by patientId */
 export const getPatient = query({
-  args: { patientId: v.number() },
+  args: { patientId: v.number(), practiceId: v.id("practices") },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const patient = await ctx.db
       .query("patients")
-      .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+      .withIndex("by_practiceId_patientId", (q) =>
+        q.eq("practiceId", args.practiceId).eq("patientId", args.patientId),
+      )
       .first();
-    if (!patient) {
-      return null;
-    }
-    await ensurePracticeAccessForQuery(ctx, patient.practiceId);
-    return patient;
+    return patient ?? null;
   },
   returns: v.union(patientDocumentValidator, v.null()),
 });

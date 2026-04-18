@@ -897,7 +897,7 @@ export function VacationScheduler({
           date: conflictDialog.date.toString(),
           portion: conflictDialog.portion,
           practiceId,
-          practitionerId: conflictDialog.staff.id,
+          practitionerId: conflictDialog.staff.lineageKey,
           ruleSetId,
           ...(replacingVacationLineageKeys.length > 0
             ? { replacingVacationLineageKeys }
@@ -971,13 +971,19 @@ export function VacationScheduler({
       ),
     [coverageDialogEntries],
   );
-  const coverageAccordionValue = useMemo<string[]>(
-    () =>
-      unresolvedConflictEntries.length > 0 && coveragePreview !== undefined
-        ? ["not-movable"]
-        : [],
-    [coveragePreview, unresolvedConflictEntries.length],
-  );
+  const coverageAccordionResetKey = conflictDialog
+    ? [
+        conflictDialog.staff.kind,
+        conflictDialog.staff.lineageKey,
+        conflictDialog.date.toString(),
+        conflictDialog.portion,
+        replacingVacationLineageKeys.join(","),
+      ].join(":")
+    : null;
+  const defaultCoverageAccordionValue =
+    unresolvedConflictEntries.length > 0 && coveragePreview !== undefined
+      ? ["not-movable"]
+      : [];
 
   const renderConflictEntry = ({
     conflict,
@@ -1471,8 +1477,9 @@ export function VacationScheduler({
                 {showCoverageAccordion ? (
                   <Accordion
                     className="px-3"
+                    defaultValue={defaultCoverageAccordionValue}
+                    key={coverageAccordionResetKey ?? "coverage-preview"}
                     type="multiple"
-                    value={coverageAccordionValue}
                   >
                     <AccordionItem value="not-movable">
                       <AccordionTrigger>

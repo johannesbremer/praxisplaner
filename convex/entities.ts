@@ -161,15 +161,67 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     "draftEffective",
     args.ruleSetId,
   );
-  const affectedAppointments = effectiveAppointments.filter(
-    (appointment) =>
-      appointment.isSimulation !== true &&
-      appointment.practitionerLineageKey === args.practitionerLineageKey,
-  );
+  const affectedAppointmentsBySourceId = new Map<
+    Id<"appointments">,
+    Doc<"appointments">
+  >();
+
+  for (const appointment of effectiveAppointments) {
+    if (appointment.practitionerLineageKey !== args.practitionerLineageKey) {
+      continue;
+    }
+
+    if (appointment.isSimulation !== true) {
+      affectedAppointmentsBySourceId.set(appointment._id, appointment);
+      continue;
+    }
+
+    if (
+      !isActivationBoundSimulation(appointment) ||
+      !appointment.replacesAppointmentId
+    ) {
+      continue;
+    }
+
+    const sourceAppointment = await ctx.db.get(
+      "appointments",
+      appointment.replacesAppointmentId,
+    );
+    if (
+      sourceAppointment?.practiceId !== args.practiceId ||
+      sourceAppointment.isSimulation === true ||
+      sourceAppointment.cancelledAt !== undefined
+    ) {
+      continue;
+    }
+
+    affectedAppointmentsBySourceId.set(
+      sourceAppointment._id,
+      sourceAppointment,
+    );
+  }
+
+  const affectedAppointments = [...affectedAppointmentsBySourceId.values()];
   const createdSimulationIds: Id<"appointments">[] = [];
   const now = BigInt(Date.now());
 
   for (const appointment of affectedAppointments) {
+    const appointmentsReplacingCurrent = await ctx.db
+      .query("appointments")
+      .withIndex("by_replacesAppointmentId", (q) =>
+        q.eq("replacesAppointmentId", appointment._id),
+      )
+      .collect();
+    for (const existingSimulation of appointmentsReplacingCurrent) {
+      if (
+        existingSimulation.isSimulation === true &&
+        existingSimulation.simulationRuleSetId === args.ruleSetId &&
+        isActivationBoundSimulation(existingSimulation)
+      ) {
+        await ctx.db.delete("appointments", existingSimulation._id);
+      }
+    }
+
     const suggestion = await previewPractitionerCoverageForAppointment(ctx, {
       activeRuleSetId: practice.currentActiveRuleSetId,
       appointment,
