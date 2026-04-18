@@ -11,7 +11,7 @@ import {
   findConflictingAppointment,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
-import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferences";
+import { resolveOccupancyReferenceLineageKeys } from "./appointmentReferences";
 import {
   type FollowUpStep,
   requireAppointmentTypeByLineageKey,
@@ -208,11 +208,17 @@ export async function createAppointmentSeries(
   });
 
   for (const [index, step] of preview.steps.entries()) {
+    const occupancyReferences = await resolveOccupancyReferenceLineageKeys(
+      ctx.db,
+      {
+        locationId: step.locationId,
+        practitionerId: step.practitionerId,
+      },
+    );
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
-        locationLineageKey: step.locationId,
-        practitionerLineageKey: step.practitionerId,
+        ...occupancyReferences,
         start: step.start,
       },
       ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
@@ -231,17 +237,9 @@ export async function createAppointmentSeries(
       );
     }
 
-    const storedReferences = await resolveStoredAppointmentReferencesForWrite(
-      ctx.db,
-      {
-        appointmentTypeId: step.appointmentTypeId,
-        locationId: step.locationId,
-        practitionerId: step.practitionerId,
-      },
-    );
-
     const appointmentId = await ctx.db.insert("appointments", {
-      ...storedReferences,
+      appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+      ...occupancyReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
       createdAt: now,
       end: step.end,
@@ -1186,8 +1184,10 @@ async function validateRootCandidate(
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      locationLineageKey: args.locationId,
-      practitionerLineageKey: args.practitionerId,
+      ...(await resolveOccupancyReferenceLineageKeys(ctx.db, {
+        locationId: args.locationId,
+        practitionerId: args.practitionerId,
+      })),
       start: args.start,
     },
     ...(args.simulationRuleSetId && {

@@ -8,6 +8,10 @@ export type StoredAppointmentReferences = Pick<
   Doc<"appointments">,
   "appointmentTypeLineageKey" | "locationLineageKey" | "practitionerLineageKey"
 >;
+export type OccupancyReferenceLineageKeys = Pick<
+  StoredAppointmentReferences,
+  "locationLineageKey" | "practitionerLineageKey"
+>;
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
@@ -138,6 +142,21 @@ export async function resolveStoredAppointmentReferencesForWrite(
       db,
       args.appointmentTypeId,
     ),
+    ...(await resolveOccupancyReferenceLineageKeys(db, {
+      locationId: args.locationId,
+      practitionerId: args.practitionerId,
+    })),
+  };
+}
+
+export async function resolveOccupancyReferenceLineageKeys(
+  db: DatabaseReader,
+  args: {
+    locationId: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+  },
+): Promise<OccupancyReferenceLineageKeys> {
+  return {
     locationLineageKey: await resolveLocationLineageKey(db, args.locationId),
     ...(args.practitionerId
       ? {

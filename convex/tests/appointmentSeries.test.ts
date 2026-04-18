@@ -835,6 +835,206 @@ describe("appointment series", () => {
     expect(preview.failureMessage).toContain("Kein verfügbarer Kettentermin");
   });
 
+  test("copied draft series booking still blocks occupied root slots by lineage", async () => {
+    const t = createAuthedTestContext();
+    const {
+      locationId: activeLocationId,
+      practiceId,
+      practitionerId: activePractitionerId,
+      ruleSetId: activeRuleSetId,
+    } = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_copied_draft_series_user",
+      "copied-draft-series@example.com",
+    );
+
+    const {
+      draftLocationId,
+      draftPractitionerId,
+      draftRootAppointmentTypeId,
+      draftRuleSetId,
+      rootAppointmentTypeLineageKey,
+    } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [activePractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId: activeRuleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [activePractitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId: activeRuleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Copied Draft",
+        draftRevision: 0,
+        parentVersion: activeRuleSetId,
+        practiceId,
+        saved: false,
+        version: 2,
+      });
+
+      const draftLocationId = await ctx.db.insert("locations", {
+        lineageKey: activeLocationId,
+        name: "Main Location Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+      const draftPractitionerId = await ctx.db.insert("practitioners", {
+        lineageKey: activePractitionerId,
+        name: "Dr. Chain Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertWithLineage(ctx, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationId: draftLocationId,
+          practiceId,
+          practitionerId: draftPractitionerId,
+          ruleSetId: draftRuleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [draftPractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        lineageKey: targetAppointmentTypeId,
+        name: "Kontrolle Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+
+      const draftRootAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [draftPractitionerId],
+          createdAt: now,
+          duration: 30,
+          followUpPlan: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              locationMode: "inherit",
+              offsetUnit: "days",
+              offsetValue: 2,
+              practitionerMode: "inherit",
+              required: true,
+              searchMode: "first_available_on_or_after",
+              stepId: "step-1",
+            },
+          ],
+          lastModified: now,
+          lineageKey: rootAppointmentTypeId,
+          name: "Ersttermin Copy",
+          practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+      );
+
+      return {
+        draftLocationId,
+        draftPractitionerId,
+        draftRootAppointmentTypeId,
+        draftRuleSetId,
+        rootAppointmentTypeLineageKey: rootAppointmentTypeId,
+      };
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+        appointmentTypeTitle: "Bestehender Termin",
+        createdAt: now,
+        end: rootEnd,
+        lastModified: now,
+        locationLineageKey: activeLocationId,
+        practiceId,
+        practitionerLineageKey: activePractitionerId,
+        start: rootStart,
+        title: "Bereits gebucht",
+        userId,
+      });
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId: draftLocationId,
+      practiceId,
+      practitionerId: draftPractitionerId,
+      rootAppointmentTypeId: draftRootAppointmentTypeId,
+      ruleSetId: draftRuleSetId,
+      scope: "simulation",
+      simulationRuleSetId: draftRuleSetId,
+      start: rootStart,
+      userId,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("root");
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId: draftLocationId,
+        practiceId,
+        practitionerId: draftPractitionerId,
+        rootAppointmentTypeId: draftRootAppointmentTypeId,
+        rootTitle: "Draft chain",
+        ruleSetId: draftRuleSetId,
+        scope: "simulation",
+        simulationRuleSetId: draftRuleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow("Der ausgewählte Starttermin ist nicht mehr verfügbar");
+  });
+
   test("createAppointment routes simulation bookings with follow-up plans through the same series path", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
