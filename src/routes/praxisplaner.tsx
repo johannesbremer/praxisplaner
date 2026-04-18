@@ -1,7 +1,11 @@
 // src/routes/praxisplaner.tsx
 
 import { useConvexMutation } from "@convex-dev/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useHydrated,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Palmtree, Settings } from "lucide-react";
@@ -152,8 +156,9 @@ function PraxisPlanerComponent() {
     return locationsData.find((loc) => loc.name === standortParam);
   }, [standortParam, locationsData]);
 
-  const isFsaSupported = "showDirectoryPicker" in globalThis;
-  const isSecureContext = globalThis.isSecureContext;
+  const isHydrated = useHydrated();
+  const isFsaSupported = isHydrated && "showDirectoryPicker" in globalThis;
+  const isSecureContext = isHydrated && globalThis.isSecureContext;
   let environmentGdtError: null | string = null;
   if (isFsaSupported) {
     if (!isSecureContext) {
@@ -171,9 +176,8 @@ function PraxisPlanerComponent() {
   const [gdtLog, setGdtLog] = useState<string[]>([]);
   const [gdtError, setGdtError] = useState<null | string>(null);
   const gdtFileObserverRef = useRef<null | SafeFileSystemObserver>(null);
-  const [isLoadingHandle, setIsLoadingHandle] = useState(
-    () => isFsaSupported && isSecureContext,
-  );
+  const [hasLoadedPersistedHandle, setHasLoadedPersistedHandle] =
+    useState(false);
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
@@ -391,7 +395,7 @@ function PraxisPlanerComponent() {
         addGdtLog(
           "Skipping persistence recovery - user selection in progress.",
         );
-        setIsLoadingHandle(false);
+        setHasLoadedPersistedHandle(true);
         return;
       }
 
@@ -452,18 +456,23 @@ function PraxisPlanerComponent() {
           `Error loading handle: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      setIsLoadingHandle(false);
+      setHasLoadedPersistedHandle(true);
     };
-    if (isFsaSupported && isSecureContext) {
+    if (isHydrated && isFsaSupported && isSecureContext) {
       void loadPersistedHandle();
     }
   }, [
+    isHydrated,
     isFsaSupported,
     isSecureContext,
     addGdtLog,
     verifyAndSetPermission,
     captureError,
   ]);
+
+  const isLoadingHandle =
+    !isHydrated ||
+    (isFsaSupported && isSecureContext && !hasLoadedPersistedHandle);
 
   const selectGdtDirectory = async () => {
     if (!isFsaSupported || !isSecureContext) {
