@@ -14,9 +14,15 @@ import {
 import { resolveOccupancyReferenceLineageKeys } from "./appointmentReferences";
 import {
   type FollowUpStep,
+  normalizeFollowUpPlan,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
-import { asLocationId, asPractitionerId } from "./identity";
+import {
+  type AppointmentTypeLineageKey,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asPractitionerId,
+} from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
 
@@ -85,7 +91,7 @@ export const appointmentSeriesArgsValidator = {
 
 export interface PlannedSeriesStep {
   appointmentTypeId: Id<"appointmentTypes">;
-  appointmentTypeLineageKey: Id<"appointmentTypes">;
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
   durationMinutes: number;
   end: string;
@@ -353,12 +359,14 @@ export async function planSeriesFromRootCandidate(
 
   const rootStep: PlannedSeriesStep = {
     appointmentTypeId: args.seriesSpecification.rootAppointmentType._id,
-    appointmentTypeLineageKey: requireLineageKey({
-      entityId: args.seriesSpecification.rootAppointmentType._id,
-      entityType: "appointment type",
-      lineageKey: args.seriesSpecification.rootAppointmentType.lineageKey,
-      ruleSetId: args.seriesSpecification.rootAppointmentType.ruleSetId,
-    }),
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      requireLineageKey({
+        entityId: args.seriesSpecification.rootAppointmentType._id,
+        entityType: "appointment type",
+        lineageKey: args.seriesSpecification.rootAppointmentType.lineageKey,
+        ruleSetId: args.seriesSpecification.rootAppointmentType.ruleSetId,
+      }),
+    ),
     appointmentTypeTitle: args.seriesSpecification.rootAppointmentType.name,
     durationMinutes: args.seriesSpecification.rootDurationMinutes,
     end: calculateEndTime(
@@ -428,12 +436,14 @@ export async function planSeriesFromRootCandidate(
 
     const plannedStep: PlannedSeriesStep = {
       appointmentTypeId: targetAppointmentType._id,
-      appointmentTypeLineageKey: requireLineageKey({
-        entityId: targetAppointmentType._id,
-        entityType: "appointment type",
-        lineageKey: targetAppointmentType.lineageKey,
-        ruleSetId: targetAppointmentType.ruleSetId,
-      }),
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        requireLineageKey({
+          entityId: targetAppointmentType._id,
+          entityType: "appointment type",
+          lineageKey: targetAppointmentType.lineageKey,
+          ruleSetId: targetAppointmentType.ruleSetId,
+        }),
+      ),
       appointmentTypeTitle: targetAppointmentType.name,
       durationMinutes: targetAppointmentType.duration,
       end: calculateEndTime(
@@ -975,21 +985,9 @@ async function loadRootAppointmentType(
 }
 
 function normalizeFollowUpPlanSnapshot(
-  followUpPlan: FollowUpStep[],
+  followUpPlan: Doc<"appointmentTypes">["followUpPlan"] | FollowUpStep[],
 ): FollowUpStep[] {
-  return followUpPlan.map((step) => ({
-    ...step,
-    locationMode: "inherit",
-    practitionerMode: "inherit",
-    searchMode:
-      step.offsetUnit === "minutes"
-        ? step.offsetValue === 0
-          ? "exact_after_previous"
-          : "same_day"
-        : "first_available_on_or_after",
-    stepId: step.stepId.trim(),
-    ...(step.note?.trim() ? { note: step.note.trim() } : {}),
-  }));
+  return normalizeFollowUpPlan(followUpPlan) ?? [];
 }
 
 async function queryAvailableSlotsForDay(

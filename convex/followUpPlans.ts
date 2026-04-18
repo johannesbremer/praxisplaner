@@ -7,6 +7,9 @@ import type { Infer } from "convex/values";
 import { ConvexError, v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { AppointmentTypeLineageKey } from "./identity";
+
+import { asAppointmentTypeLineageKey } from "./identity";
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
@@ -48,13 +51,22 @@ export const followUpStepValidator = v.object({
 
 export const followUpPlanValidator = v.optional(v.array(followUpStepValidator));
 
-export type FollowUpPlan = Infer<typeof followUpPlanValidator>;
-export type FollowUpStep = Infer<typeof followUpStepValidator>;
+export type FollowUpPlan = FollowUpStep[] | undefined;
+export interface FollowUpStep extends Omit<
+  RawFollowUpStep,
+  "appointmentTypeLineageKey"
+> {
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+}
+
+type RawFollowUpPlan = Infer<typeof followUpPlanValidator>;
+
+type RawFollowUpStep = Infer<typeof followUpStepValidator>;
 
 export async function getAppointmentTypeByLineageKey(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
-  lineageKey: Id<"appointmentTypes">,
+  lineageKey: AppointmentTypeLineageKey,
 ): Promise<Doc<"appointmentTypes"> | null> {
   return await db
     .query("appointmentTypes")
@@ -65,7 +77,7 @@ export async function getAppointmentTypeByLineageKey(
 }
 
 export function normalizeFollowUpPlan(
-  followUpPlan: FollowUpPlan,
+  followUpPlan: FollowUpPlan | RawFollowUpPlan,
 ): FollowUpPlan | undefined {
   if (!followUpPlan || followUpPlan.length === 0) {
     return undefined;
@@ -73,6 +85,9 @@ export function normalizeFollowUpPlan(
 
   return followUpPlan.map((step) => ({
     ...step,
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      step.appointmentTypeLineageKey,
+    ),
     ...(step.note?.trim() ? { note: step.note.trim() } : {}),
     required: step.required,
     searchMode: getCanonicalSearchMode(step),
@@ -82,7 +97,7 @@ export function normalizeFollowUpPlan(
 export async function requireAppointmentTypeByLineageKey(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
-  lineageKey: Id<"appointmentTypes">,
+  lineageKey: AppointmentTypeLineageKey,
 ): Promise<Doc<"appointmentTypes">> {
   const appointmentType = await getAppointmentTypeByLineageKey(
     db,
@@ -100,8 +115,8 @@ export async function requireAppointmentTypeByLineageKey(
 export async function validateFollowUpPlan(
   db: DatabaseReader | DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
-  followUpPlan: FollowUpPlan,
-  currentAppointmentTypeLineageKey?: Id<"appointmentTypes">,
+  followUpPlan: FollowUpPlan | RawFollowUpPlan,
+  currentAppointmentTypeLineageKey?: AppointmentTypeLineageKey,
 ): Promise<FollowUpPlan | undefined> {
   const normalizedPlan = normalizeFollowUpPlan(followUpPlan);
 
@@ -157,7 +172,7 @@ export async function validateFollowUpPlan(
 }
 
 function buildMissingAppointmentTypeError(
-  lineageKey: Id<"appointmentTypes">,
+  lineageKey: AppointmentTypeLineageKey,
   ruleSetId: Id<"ruleSets">,
 ): Error {
   return followUpPlanError(

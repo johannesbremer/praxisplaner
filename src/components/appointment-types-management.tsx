@@ -603,6 +603,8 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
+          const appointmentTypeLineageKey =
+            createResult.entityId as NonNullable<AppointmentType["lineageKey"]>;
           upsertAppointmentTypeRef({
             _creationTime: 0,
             _id: createResult.entityId,
@@ -611,14 +613,12 @@ export function AppointmentTypesManagement({
             duration: value.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
             lastModified: 0n,
-            lineageKey: createResult.entityId,
+            lineageKey: appointmentTypeLineageKey,
             name: trimmedName,
             practiceId,
             ruleSetId: createResult.ruleSetId,
           });
           const { entityId } = createResult;
-
-          const appointmentTypeLineageKey = entityId;
 
           registerLineageCreateHistoryAction({
             entitiesRef: appointmentTypesRef,

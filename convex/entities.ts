@@ -62,6 +62,7 @@ import {
   validateFollowUpPlan,
 } from "./followUpPlans";
 import {
+  type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerId,
@@ -293,7 +294,7 @@ function missingLineageKeyError(params: {
 
 function requireAppointmentTypeLineageKey(
   entity: Pick<Doc<"appointmentTypes">, "_id" | "lineageKey" | "ruleSetId">,
-): Id<"appointmentTypes"> {
+): AppointmentTypeLineageKey {
   if (!entity.lineageKey) {
     throw missingLineageKeyError({
       entityId: entity._id,
@@ -301,7 +302,7 @@ function requireAppointmentTypeLineageKey(
       ruleSetId: entity.ruleSetId,
     });
   }
-  return entity.lineageKey;
+  return asAppointmentTypeLineageKey(entity.lineageKey);
 }
 
 function requireBaseScheduleLineageKey(
@@ -753,7 +754,9 @@ export const createAppointmentType = mutation({
       ctx.db,
       ruleSetId,
       args.followUpPlan,
-      args.lineageKey,
+      args.lineageKey
+        ? asAppointmentTypeLineageKey(args.lineageKey)
+        : undefined,
     );
 
     // Check for name uniqueness within the rule set
@@ -1549,7 +1552,7 @@ export const restorePractitionerWithDependencies = mutation({
       .first();
     const restoredPractitionerId =
       existingByLineage?._id ??
-      (await ctx.db.insert("practitioners", {
+      (await insertSelfLineageEntity(ctx.db, "practitioners", {
         lineageKey: args.snapshot.practitioner.lineageKey,
         name: args.snapshot.practitioner.name,
         practiceId: args.practiceId,
@@ -1602,7 +1605,7 @@ export const restorePractitionerWithDependencies = mutation({
         continue;
       }
 
-      await ctx.db.insert("baseSchedules", {
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
@@ -1692,7 +1695,7 @@ export const restorePractitionerWithDependencies = mutation({
           continue;
         }
 
-        await ctx.db.insert("appointmentTypes", {
+        await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
           allowedPractitionerIds: restoredAllowedPractitionerIds,
           createdAt: now,
           duration: patchDuration,
@@ -2542,7 +2545,7 @@ export const updateBaseScheduleSet = mutation({
         continue;
       }
 
-      const createdId = await ctx.db.insert("baseSchedules", {
+      const createdId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
         ...(desired.breakTimes ? { breakTimes: desired.breakTimes } : {}),
         dayOfWeek: desired.dayOfWeek,
         endTime: desired.endTime,
@@ -2551,9 +2554,6 @@ export const updateBaseScheduleSet = mutation({
         practitionerId: desired.practitionerId,
         ruleSetId,
         startTime: desired.startTime,
-      });
-      await ctx.db.patch("baseSchedules", createdId, {
-        lineageKey: createdId,
       });
       const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
         db: ctx.db,
@@ -2839,7 +2839,7 @@ export const replaceBaseScheduleSet = mutation({
         );
       }
 
-      const createdId = await ctx.db.insert("baseSchedules", {
+      const createdId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
         lineageKey: schedule.lineageKey,

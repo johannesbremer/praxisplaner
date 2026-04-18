@@ -19,7 +19,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
-import { requireLineageKey } from "./lineage";
+import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
 // Type aliases for cleaner code
@@ -326,7 +326,7 @@ export async function copyAppointmentTypes(
       allowedPractitionerIds.push(newId);
     }
 
-    const newId = await db.insert("appointmentTypes", {
+    const newId = await insertSelfLineageEntity(db, "appointmentTypes", {
       allowedPractitionerIds,
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
@@ -367,7 +367,7 @@ export async function copyPractitioners(
   const idMap = new Map<Id<"practitioners">, Id<"practitioners">>();
 
   for (const source of sourcePractitioners) {
-    const newId = await db.insert("practitioners", {
+    const newId = await insertSelfLineageEntity(db, "practitioners", {
       lineageKey: requireLineageKey({
         entityId: source._id,
         entityType: "practitioner",
@@ -410,7 +410,7 @@ export async function copyMfas(
       lineageKey: source.lineageKey,
       ruleSetId: source.ruleSetId,
     });
-    const newId = await db.insert("mfas", {
+    const newId = await insertSelfLineageEntity(db, "mfas", {
       createdAt: source.createdAt,
       lineageKey,
       name: source.name,
@@ -442,7 +442,7 @@ export async function copyLocations(
   const idMap = new Map<Id<"locations">, Id<"locations">>();
 
   for (const source of sourceLocations) {
-    const newId = await db.insert("locations", {
+    const newId = await insertSelfLineageEntity(db, "locations", {
       lineageKey: requireLineageKey({
         entityId: source._id,
         entityType: "location",
@@ -497,7 +497,7 @@ export async function copyBaseSchedules(
       );
     }
 
-    await db.insert("baseSchedules", {
+    await insertSelfLineageEntity(db, "baseSchedules", {
       dayOfWeek: source.dayOfWeek,
       endTime: source.endTime,
       lineageKey: requireLineageKey({
@@ -563,7 +563,7 @@ export async function copyVacations(
       }
     }
 
-    await db.insert("vacations", {
+    await insertSelfLineageEntity(db, "vacations", {
       createdAt: source.createdAt,
       date: source.date,
       lineageKey: requireLineageKey({

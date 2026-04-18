@@ -15,6 +15,7 @@ import {
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
+import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -619,11 +620,16 @@ async function buildRuleSetCanonicalSnapshot(
     (practitioner) => !isRuleSetEntityDeleted(practitioner),
   );
 
-  const practitionerNameByReference = createEntityNameLookup(practitioners);
-  const locationNameByReference = createEntityNameLookup(locations);
-  const appointmentTypeNameByReference =
-    createEntityNameLookup(appointmentTypes);
-  const mfaNameByReference = createEntityNameLookup(mfas);
+  const practitionerNameByReference = createEntityNameLookup(
+    practitioners,
+    "practitioner",
+  );
+  const locationNameByReference = createEntityNameLookup(locations, "location");
+  const appointmentTypeNameByReference = createEntityNameLookup(
+    appointmentTypes,
+    "appointment type",
+  );
+  const mfaNameByReference = createEntityNameLookup(mfas, "mfa");
 
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
@@ -785,12 +791,26 @@ async function buildRuleSetCanonicalSnapshot(
 }
 
 function createEntityNameLookup(
-  entities: { _id: string; lineageKey?: string; name: string }[],
+  entities: {
+    _id: string;
+    lineageKey?: string;
+    name: string;
+    ruleSetId: Id<"ruleSets">;
+  }[],
+  entityType: "appointment type" | "location" | "mfa" | "practitioner",
 ) {
-  const entries = entities.flatMap((entity) => [
-    [entity._id, entity.name] as const,
-    ...(entity.lineageKey ? ([[entity.lineageKey, entity.name]] as const) : []),
-  ]);
+  const entries = entities.flatMap((entity) => {
+    const lineageKey = requireLineageKey({
+      entityId: entity._id,
+      entityType,
+      lineageKey: entity.lineageKey,
+      ruleSetId: entity.ruleSetId,
+    });
+    return [
+      [entity._id, entity.name] as const,
+      [lineageKey, entity.name] as const,
+    ];
+  });
   return new Map(entries);
 }
 
