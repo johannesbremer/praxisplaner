@@ -152,7 +152,18 @@ function PraxisPlanerComponent() {
     return locationsData.find((loc) => loc.name === standortParam);
   }, [standortParam, locationsData]);
 
-  const [isFsaSupported, setIsFsaSupported] = useState<boolean | null>(null);
+  const isFsaSupported = "showDirectoryPicker" in globalThis;
+  const isSecureContext = globalThis.isSecureContext;
+  let environmentGdtError: null | string = null;
+  if (isFsaSupported) {
+    if (!isSecureContext) {
+      environmentGdtError =
+        "File System Access API requires a secure context (HTTPS or localhost).";
+    }
+  } else {
+    environmentGdtError =
+      "File System Access API (showDirectoryPicker) is not supported by your browser.";
+  }
   const [gdtDirectoryHandle, setGdtDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
   const [gdtDirPermission, setGdtDirPermission] =
@@ -160,7 +171,9 @@ function PraxisPlanerComponent() {
   const [gdtLog, setGdtLog] = useState<string[]>([]);
   const [gdtError, setGdtError] = useState<null | string>(null);
   const gdtFileObserverRef = useRef<null | SafeFileSystemObserver>(null);
-  const [isLoadingHandle, setIsLoadingHandle] = useState(true);
+  const [isLoadingHandle, setIsLoadingHandle] = useState(
+    () => isFsaSupported && isSecureContext,
+  );
   const isUserSelectingRef = useRef(false);
 
   // Tab management state
@@ -168,9 +181,7 @@ function PraxisPlanerComponent() {
     const result = dateParam ? parseDateDE(dateParam) : null;
     return result?.ok ? result.value : getToday();
   }, [dateParam]);
-  const [activeTab, setActiveTab] = useState<string>(() =>
-    tabFromSearch(tabParam),
-  );
+  const activeTab = tabFromSearch(tabParam);
 
   // Current patient from GDT
   const [currentPatient, setCurrentPatient] = useState<null | PatientInfo>(
@@ -179,9 +190,7 @@ function PraxisPlanerComponent() {
 
   // Check if GDT connection has issues for showing alert
   const hasGdtConnectionIssue =
-    !isFsaSupported ||
-    !globalThis.isSecureContext ||
-    gdtDirPermission !== "granted";
+    !isFsaSupported || !isSecureContext || gdtDirPermission !== "granted";
 
   // Note: GDT preferences, file processing, and permission logging
   // will now be handled via IndexDB instead of Convex
@@ -209,13 +218,6 @@ function PraxisPlanerComponent() {
     },
     [addGdtLog],
   );
-
-  useEffect(() => {
-    setActiveTab((current) => {
-      const nextTab = tabFromSearch(tabParam);
-      return current === nextTab ? current : nextTab;
-    });
-  }, [tabParam]);
 
   // Helper to push URL state
   const pushParams = useCallback(
@@ -254,26 +256,6 @@ function PraxisPlanerComponent() {
   );
 
   // We sync to URL on interactions (tab/date handlers). No effect needed.
-
-  useEffect(() => {
-    const supported = "showDirectoryPicker" in globalThis;
-    setIsFsaSupported(supported);
-    if (!supported) {
-      setGdtError(
-        "File System Access API (showDirectoryPicker) is not supported by your browser.",
-      );
-      setIsLoadingHandle(false);
-      return;
-    }
-    if (!globalThis.isSecureContext) {
-      setGdtError(
-        "File System Access API requires a secure context (HTTPS or localhost).",
-      );
-      setIsFsaSupported(false);
-      setIsLoadingHandle(false);
-      return;
-    }
-  }, []);
 
   const verifyAndSetPermission = useCallback(
     async (
@@ -403,10 +385,6 @@ function PraxisPlanerComponent() {
   );
 
   useEffect(() => {
-    if (isFsaSupported === false) {
-      setIsLoadingHandle(false);
-      return;
-    }
     const loadPersistedHandle = async () => {
       // Skip if user is actively selecting a directory to avoid race condition
       if (isUserSelectingRef.current) {
@@ -476,18 +454,22 @@ function PraxisPlanerComponent() {
       }
       setIsLoadingHandle(false);
     };
-    if (isFsaSupported && globalThis.isSecureContext) {
+    if (isFsaSupported && isSecureContext) {
       void loadPersistedHandle();
     }
-  }, [isFsaSupported, addGdtLog, verifyAndSetPermission, captureError]);
+  }, [
+    isFsaSupported,
+    isSecureContext,
+    addGdtLog,
+    verifyAndSetPermission,
+    captureError,
+  ]);
 
   const selectGdtDirectory = async () => {
-    if (!isFsaSupported || !globalThis.isSecureContext) {
-      setGdtError(
-        isFsaSupported ? "Secure context required." : "FSA not supported.",
-      );
+    if (!isFsaSupported || !isSecureContext) {
+      setGdtError(environmentGdtError);
       addGdtLog(
-        `❌ ${isFsaSupported ? "Secure context required." : "FSA not supported."}`,
+        `❌ ${environmentGdtError ?? "File System Access API is unavailable."}`,
       );
       return;
     }
@@ -754,22 +736,21 @@ function PraxisPlanerComponent() {
 
   useEffect(() => {
     if (gdtDirectoryHandle && gdtDirPermission === "granted") {
-      addGdtLog(
-        `🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`,
-      );
-
-      // Check if FileSystemObserver is supported
-      if (!isFileSystemObserverSupported()) {
-        addGdtLog(
-          "❌ FileSystemObserver API not supported. Falling back to error state.",
-        );
-        setGdtDirPermission("error");
-        return;
-      }
-
       let isObserverActive = true;
 
       const setupObserver = async () => {
+        addGdtLog(
+          `🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`,
+        );
+
+        if (!isFileSystemObserverSupported()) {
+          addGdtLog(
+            "❌ FileSystemObserver API not supported. Falling back to error state.",
+          );
+          setGdtDirPermission("error");
+          return;
+        }
+
         try {
           // Create FileSystemObserver with callback using typed wrapper
           const observer = new SafeFileSystemObserver(async (records) => {
@@ -984,9 +965,11 @@ function PraxisPlanerComponent() {
         gdtFileObserverRef.current.disconnect();
         gdtFileObserverRef.current = null;
         if (gdtDirectoryHandle) {
-          addGdtLog(
-            `🛑 FileSystemObserver not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
-          );
+          queueMicrotask(() => {
+            addGdtLog(
+              `🛑 FileSystemObserver not started/stopped for "${gdtDirectoryHandle.name}" (permission: ${gdtDirPermission || "none"}).`,
+            );
+          });
         }
       }
       return;
@@ -999,7 +982,7 @@ function PraxisPlanerComponent() {
     captureError,
   ]);
 
-  if (isLoadingHandle || isFsaSupported === null) {
+  if (isLoadingHandle) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <p className="text-lg">Initializing...</p>
@@ -1118,18 +1101,20 @@ function PraxisPlanerComponent() {
           <Alert className="mb-4" variant="destructive">
             <AlertTitle>API Not Supported</AlertTitle>
             <AlertDescription>
-              {gdtError || "FSA not supported."}
+              {gdtError || environmentGdtError || "FSA not supported."}
             </AlertDescription>
           </Alert>
         )}
-        {isFsaSupported && !globalThis.isSecureContext && (
+        {isFsaSupported && !isSecureContext && (
           <Alert className="mb-4" variant="destructive">
             <AlertTitle>Secure Context Required</AlertTitle>
-            <AlertDescription>HTTPS or localhost needed.</AlertDescription>
+            <AlertDescription>
+              {gdtError || environmentGdtError || "HTTPS or localhost needed."}
+            </AlertDescription>
           </Alert>
         )}
 
-        {isFsaSupported && globalThis.isSecureContext && (
+        {isFsaSupported && isSecureContext && (
           <>
             <div className="flex flex-wrap gap-3 mb-6">
               <Button
@@ -1237,8 +1222,7 @@ function PraxisPlanerComponent() {
       <Tabs
         className="h-full flex flex-col"
         onValueChange={(val) => {
-          setActiveTab(val);
-          pushParams(selectedDate, val);
+          pushParams(selectedDate, val, standortParam);
         }}
         value={activeTab}
       >

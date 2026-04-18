@@ -975,6 +975,20 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_date", ["ruleSetId", "date"])
+    .index("by_ruleSetId_date_staffType_portion_mfaId", [
+      "ruleSetId",
+      "date",
+      "staffType",
+      "portion",
+      "mfaId",
+    ])
+    .index("by_ruleSetId_date_staffType_portion_practitionerId", [
+      "ruleSetId",
+      "date",
+      "staffType",
+      "portion",
+      "practitionerId",
+    ])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"])
     .index("by_ruleSetId_practitionerId", ["ruleSetId", "practitionerId"])
     .index("by_ruleSetId_mfaId", ["ruleSetId", "mfaId"]),
@@ -1154,6 +1168,7 @@ export default defineSchema({
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_ruleSetId_conditionType", ["ruleSetId", "conditionType"])
     .index("by_ruleSetId_isRoot", ["ruleSetId", "isRoot"]) // Get all rules (roots) for a rule set
     .index("by_ruleSetId_isRoot_enabled", ["ruleSetId", "isRoot", "enabled"]) // Get enabled rules
     .index("by_parentConditionId", ["parentConditionId"]) // Get children of a node

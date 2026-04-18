@@ -346,9 +346,11 @@ async function getSlotsForDayImpl(
   const allBlockedSlots = await ctx.db
     .query("blockedSlots")
     .withIndex("by_practiceId_start", (q) =>
-      q.eq("practiceId", args.practiceId).gte("start", dayStart),
+      q
+        .eq("practiceId", args.practiceId)
+        .gte("start", dayStart)
+        .lt("start", dayEnd),
     )
-    .filter((q) => q.lt(q.field("start"), dayEnd))
     .collect();
 
   const blockedSlotsForDay =

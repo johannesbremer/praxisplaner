@@ -314,9 +314,11 @@ export const getVacationsInRange = query({
     const vacations = await ctx.db
       .query("vacations")
       .withIndex("by_ruleSetId_date", (q) =>
-        q.eq("ruleSetId", args.ruleSetId).gte("date", args.startDate),
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .gte("date", args.startDate)
+          .lt("date", args.endDateExclusive),
       )
-      .filter((q) => q.lt(q.field("date"), args.endDateExclusive))
       .collect();
 
     return vacations.map((vacation) => ({
@@ -325,6 +327,51 @@ export const getVacationsInRange = query({
     }));
   },
 });
+
+async function findExistingVacationForDateAndStaff(
+  db: MutationCtx["db"],
+  args:
+    | {
+        date: string;
+        mfaId: Id<"mfas">;
+        portion: Doc<"vacations">["portion"];
+        ruleSetId: Id<"ruleSets">;
+        staffType: "mfa";
+      }
+    | {
+        date: string;
+        portion: Doc<"vacations">["portion"];
+        practitionerId: Id<"practitioners">;
+        ruleSetId: Id<"ruleSets">;
+        staffType: "practitioner";
+      },
+) {
+  if (args.staffType === "practitioner") {
+    return await db
+      .query("vacations")
+      .withIndex("by_ruleSetId_date_staffType_portion_practitionerId", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("date", args.date)
+          .eq("staffType", args.staffType)
+          .eq("portion", args.portion)
+          .eq("practitionerId", args.practitionerId),
+      )
+      .first();
+  }
+
+  return await db
+    .query("vacations")
+    .withIndex("by_ruleSetId_date_staffType_portion_mfaId", (q) =>
+      q
+        .eq("ruleSetId", args.ruleSetId)
+        .eq("date", args.date)
+        .eq("staffType", args.staffType)
+        .eq("portion", args.portion)
+        .eq("mfaId", args.mfaId),
+    )
+    .first();
+}
 
 function requireVacationLineageKey(vacation: Doc<"vacations">) {
   if (!vacation.lineageKey) {
@@ -398,21 +445,22 @@ export const createVacation = mutation({
       };
     }
 
-    const existing = await ctx.db
-      .query("vacations")
-      .withIndex("by_ruleSetId_date", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("date", args.date),
-      )
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("staffType"), args.staffType),
-          q.eq(q.field("portion"), args.portion),
-          args.staffType === "practitioner"
-            ? q.eq(q.field("practitionerId"), resolved.practitionerId)
-            : q.eq(q.field("mfaId"), resolved.mfaId),
-        ),
-      )
-      .first();
+    const existing =
+      "practitionerId" in resolved
+        ? await findExistingVacationForDateAndStaff(ctx.db, {
+            date: args.date,
+            portion: args.portion,
+            practitionerId: resolved.practitionerId,
+            ruleSetId,
+            staffType: "practitioner",
+          })
+        : await findExistingVacationForDateAndStaff(ctx.db, {
+            date: args.date,
+            mfaId: resolved.mfaId,
+            portion: args.portion,
+            ruleSetId,
+            staffType: "mfa",
+          });
 
     let entityId: Id<"vacations">;
     if (existing) {
@@ -520,21 +568,22 @@ async function createVacationInDraft(
     };
   }
 
-  const existing = await ctx.db
-    .query("vacations")
-    .withIndex("by_ruleSetId_date", (q) =>
-      q.eq("ruleSetId", ruleSetId).eq("date", args.date),
-    )
-    .filter((q) =>
-      q.and(
-        q.eq(q.field("staffType"), args.staffType),
-        q.eq(q.field("portion"), args.portion),
-        args.staffType === "practitioner"
-          ? q.eq(q.field("practitionerId"), resolved.practitionerId)
-          : q.eq(q.field("mfaId"), resolved.mfaId),
-      ),
-    )
-    .first();
+  const existing =
+    "practitionerId" in resolved
+      ? await findExistingVacationForDateAndStaff(ctx.db, {
+          date: args.date,
+          portion: args.portion,
+          practitionerId: resolved.practitionerId,
+          ruleSetId,
+          staffType: "practitioner",
+        })
+      : await findExistingVacationForDateAndStaff(ctx.db, {
+          date: args.date,
+          mfaId: resolved.mfaId,
+          portion: args.portion,
+          ruleSetId,
+          staffType: "mfa",
+        });
 
   let entityId: Id<"vacations">;
   if (existing) {
@@ -955,21 +1004,21 @@ export const deleteVacation = mutation({
       existingByLineage ??
       (args.lineageKey
         ? null
-        : await ctx.db
-            .query("vacations")
-            .withIndex("by_ruleSetId_date", (q) =>
-              q.eq("ruleSetId", ruleSetId).eq("date", args.date),
-            )
-            .filter((q) =>
-              q.and(
-                q.eq(q.field("staffType"), args.staffType),
-                q.eq(q.field("portion"), args.portion),
-                args.staffType === "practitioner"
-                  ? q.eq(q.field("practitionerId"), resolved.practitionerId)
-                  : q.eq(q.field("mfaId"), resolved.mfaId),
-              ),
-            )
-            .first());
+        : "practitionerId" in resolved
+          ? await findExistingVacationForDateAndStaff(ctx.db, {
+              date: args.date,
+              portion: args.portion,
+              practitionerId: resolved.practitionerId,
+              ruleSetId,
+              staffType: "practitioner",
+            })
+          : await findExistingVacationForDateAndStaff(ctx.db, {
+              date: args.date,
+              mfaId: resolved.mfaId,
+              portion: args.portion,
+              ruleSetId,
+              staffType: "mfa",
+            }));
 
     if (
       existingByLineage &&

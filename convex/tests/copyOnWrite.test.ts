@@ -1111,10 +1111,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const ruleConditionNode = await t.run(async (ctx) => {
       return await ctx.db
         .query("ruleConditions")
-        .withIndex("by_ruleSetId", (q) =>
-          q.eq("ruleSetId", recreatedType.ruleSetId),
+        .withIndex("by_ruleSetId_conditionType", (q) =>
+          q
+            .eq("ruleSetId", recreatedType.ruleSetId)
+            .eq("conditionType", "APPOINTMENT_TYPE"),
         )
-        .filter((q) => q.eq(q.field("conditionType"), "APPOINTMENT_TYPE"))
         .first();
     });
 

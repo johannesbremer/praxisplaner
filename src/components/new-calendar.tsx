@@ -111,20 +111,6 @@ export function NewCalendar({
   // Ref for scrolling to appointments
   const calendarScrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const clearAppointmentCreationSelection = useCallback(() => {
-    setSelectedAppointmentTypeId(undefined);
-    setPendingAppointmentTitle(undefined);
-
-    if (simulatedContext && onUpdateSimulatedContext) {
-      const { locationId, patient, requestedAt } = simulatedContext;
-      onUpdateSimulatedContext({
-        ...(locationId && { locationId }),
-        patient,
-        ...(requestedAt && { requestedAt }),
-      });
-    }
-  }, [onUpdateSimulatedContext, simulatedContext]);
-
   // State for appointment type selection - must be defined before useCalendarLogic
   const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
     Id<"appointmentTypes"> | undefined
@@ -143,6 +129,20 @@ export function NewCalendar({
   const [selectedPatient, setSelectedPatient] = useState<
     SelectedPatient | undefined
   >();
+
+  const clearAppointmentCreationSelection = useCallback(() => {
+    setSelectedAppointmentTypeId(undefined);
+    setPendingAppointmentTitle(undefined);
+
+    if (simulatedContext && onUpdateSimulatedContext) {
+      const { locationId, patient, requestedAt } = simulatedContext;
+      onUpdateSimulatedContext({
+        ...(locationId && { locationId }),
+        patient,
+        ...(requestedAt && { requestedAt }),
+      });
+    }
+  }, [onUpdateSimulatedContext, simulatedContext]);
 
   // Query for selected patient data (regular patient)
   const selectedPatientData = useQuery(
@@ -372,33 +372,32 @@ export function NewCalendar({
     [blockedSlotsData, handleEditBlockedSlotInternal],
   );
 
-  const handleAppointmentTypeSelect = useCallback(
-    (appointmentTypeId?: Id<"appointmentTypes">) => {
-      setSelectedAppointmentTypeId(appointmentTypeId);
+  const handleAppointmentTypeSelect = (
+    appointmentTypeId?: Id<"appointmentTypes">,
+  ) => {
+    setSelectedAppointmentTypeId(appointmentTypeId);
 
-      // Update simulatedContext immediately when appointment type is selected
-      // This will trigger blocked slots to show right away when the modal opens
-      if (simulatedContext && onUpdateSimulatedContext) {
-        if (appointmentTypeId) {
-          // Add appointment type to context - this triggers blocked slots query
-          const newContext = {
-            ...simulatedContext,
-            appointmentTypeId,
-          };
-          onUpdateSimulatedContext(newContext);
-        } else if (simulatedContext.appointmentTypeId !== undefined) {
-          // Remove appointment type from context - this clears blocked slots
-          const { locationId, patient, requestedAt } = simulatedContext;
-          onUpdateSimulatedContext({
-            ...(locationId && { locationId }),
-            patient,
-            ...(requestedAt && { requestedAt }),
-          });
-        }
+    // Update simulatedContext immediately when appointment type is selected
+    // This will trigger blocked slots to show right away when the modal opens
+    if (simulatedContext && onUpdateSimulatedContext) {
+      if (appointmentTypeId) {
+        // Add appointment type to context - this triggers blocked slots query
+        const newContext = {
+          ...simulatedContext,
+          appointmentTypeId,
+        };
+        onUpdateSimulatedContext(newContext);
+      } else if (simulatedContext.appointmentTypeId !== undefined) {
+        // Remove appointment type from context - this clears blocked slots
+        const { locationId, patient, requestedAt } = simulatedContext;
+        onUpdateSimulatedContext({
+          ...(locationId && { locationId }),
+          patient,
+          ...(requestedAt && { requestedAt }),
+        });
       }
-    },
-    [simulatedContext, onUpdateSimulatedContext],
-  );
+    }
+  };
 
   // Handler for selecting an appointment by ID (used after creation)
   const handleAppointmentSelection = useCallback(

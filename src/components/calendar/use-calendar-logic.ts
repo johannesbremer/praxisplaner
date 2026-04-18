@@ -136,19 +136,11 @@ export function useCalendarLogic({
     lastRenderRef.current = now;
   });
 
-  // Local state for selected location - sync with external prop changes during render
-  const [selectedLocationId, setSelectedLocationId] = useState(
+  const [internalSelectedLocationId, setInternalSelectedLocationId] = useState(
     externalSelectedLocationId,
   );
-
-  useEffect(() => {
-    if (
-      externalSelectedLocationId &&
-      externalSelectedLocationId !== selectedLocationId
-    ) {
-      setSelectedLocationId(externalSelectedLocationId);
-    }
-  }, [externalSelectedLocationId, selectedLocationId]);
+  const selectedLocationId =
+    externalSelectedLocationId ?? internalSelectedLocationId;
 
   // Get active rule set for entity ID remapping
   const activeRuleSetData = useQuery(
@@ -157,6 +149,7 @@ export function useCalendarLogic({
   );
 
   const appointmentScope = simulatedContext ? "simulation" : "real";
+  const activeRuleSetId = activeRuleSetData?._id;
   const appointmentsQueryArgs = useMemo(() => {
     const args: {
       activeRuleSetId?: Id<"ruleSets">;
@@ -165,14 +158,14 @@ export function useCalendarLogic({
     } = {
       scope: appointmentScope as "all" | "real" | "simulation",
     };
-    if (activeRuleSetData?._id) {
-      args.activeRuleSetId = activeRuleSetData._id;
+    if (activeRuleSetId) {
+      args.activeRuleSetId = activeRuleSetId;
     }
     if (ruleSetId) {
       args.selectedRuleSetId = ruleSetId;
     }
     return args;
-  }, [appointmentScope, activeRuleSetData?._id, ruleSetId]);
+  }, [activeRuleSetId, appointmentScope, ruleSetId]);
 
   // Query data
   const appointmentsData = useQuery(
@@ -181,22 +174,7 @@ export function useCalendarLogic({
   );
 
   // Query blocked slots directly with rule set IDs for entity remapping
-  const blockedSlotsQueryArgs = useMemo(() => {
-    const args: {
-      activeRuleSetId?: Id<"ruleSets">;
-      scope: "all" | "real" | "simulation";
-      selectedRuleSetId?: Id<"ruleSets">;
-    } = {
-      scope: appointmentScope as "all" | "real" | "simulation",
-    };
-    if (activeRuleSetData?._id) {
-      args.activeRuleSetId = activeRuleSetData._id;
-    }
-    if (ruleSetId) {
-      args.selectedRuleSetId = ruleSetId;
-    }
-    return args;
-  }, [appointmentScope, activeRuleSetData?._id, ruleSetId]);
+  const blockedSlotsQueryArgs = appointmentsQueryArgs;
 
   const blockedSlotsData = useQuery(
     api.appointments.getBlockedSlots,
@@ -1510,7 +1488,7 @@ export function useCalendarLogic({
       hasResolvedLocationRef.current = true;
       // Use a microtask to avoid setState during render
       queueMicrotask(() => {
-        setSelectedLocationId(match._id);
+        setInternalSelectedLocationId(match._id);
         if (onLocationResolved) {
           onLocationResolved(match._id, match.name);
         }
@@ -2670,6 +2648,8 @@ export function useCalendarLogic({
    * );
    * ```
    */
+  const patientDateOfBirth = patient?.dateOfBirth;
+  const patientIsNewPatient = patient?.isNewPatient;
   const convertRealAppointmentToSimulation = useCallback(
     async (
       appointment: Appointment,
@@ -2829,11 +2809,11 @@ export function useCalendarLogic({
 
       const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
         appointmentTypeId,
-        isNewPatient: patient?.isNewPatient ?? simulatedContext.patient.isNew,
+        isNewPatient: patientIsNewPatient ?? simulatedContext.patient.isNew,
         isSimulation: true,
         locationId,
-        ...(patient?.dateOfBirth && {
-          patientDateOfBirth: patient.dateOfBirth,
+        ...(patientDateOfBirth && {
+          patientDateOfBirth,
         }),
         practiceId,
         replacesAppointmentId: originalAppointmentId,
@@ -2917,8 +2897,8 @@ export function useCalendarLogic({
         );
     },
     [
-      patient?.dateOfBirth,
-      patient?.isNewPatient,
+      patientDateOfBirth,
+      patientIsNewPatient,
       practiceId,
       simulatedContext,
       runCreateAppointment,
@@ -3937,7 +3917,7 @@ export function useCalendarLogic({
 
       onUpdateSimulatedContext(newContext);
     } else {
-      setSelectedLocationId(locationId);
+      setInternalSelectedLocationId(locationId);
     }
   };
 
