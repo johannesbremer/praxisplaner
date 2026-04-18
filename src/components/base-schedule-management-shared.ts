@@ -2,11 +2,14 @@ import { err, ok, Result } from "neverthrow";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
+import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
+
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import { invalidStateError } from "../utils/frontend-errors";
 
@@ -53,21 +56,25 @@ export interface ExtendedSchedule extends Omit<
   _isGroup?: boolean;
 }
 
-export type LocationMatchEntity = Pick<Doc<"locations">, "_id" | "name"> & {
-  lineageKey: Id<"locations">;
-};
+export type LocationMatchEntity = FrontendLineageEntity<
+  "locations",
+  Pick<Doc<"locations">, "_id" | "name"> & { lineageKey?: Id<"locations"> }
+>;
 
-export type MaterializedSchedule = Doc<"baseSchedules"> & {
-  _creationTime: number;
-  lineageKey: Id<"baseSchedules">;
-};
+export type MaterializedSchedule = FrontendLineageEntity<
+  "baseSchedules",
+  Doc<"baseSchedules"> & {
+    _creationTime: number;
+    lineageKey?: Id<"baseSchedules">;
+  }
+>;
 
-export type PractitionerMatchEntity = Pick<
-  Doc<"practitioners">,
-  "_id" | "name"
-> & {
-  lineageKey: Id<"practitioners">;
-};
+export type PractitionerMatchEntity = FrontendLineageEntity<
+  "practitioners",
+  Pick<Doc<"practitioners">, "_id" | "name"> & {
+    lineageKey?: Id<"practitioners">;
+  }
+>;
 export interface SchedulePayload {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
@@ -81,24 +88,6 @@ export interface SchedulePayload {
 export interface SchedulesRef {
   current: MaterializedSchedule[];
 }
-
-export const requireLineageKey = <TId extends string>(
-  lineageKey: TId | undefined,
-  params: {
-    entityId: string;
-    entityType: "Arbeitszeit" | "Behandler" | "Standort";
-  },
-): Result<TId, ReturnType<typeof invalidStateError>> => {
-  if (!lineageKey) {
-    return err(
-      invalidStateError(
-        `[HISTORY:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} hat keinen lineageKey.`,
-        "requireLineageKey",
-      ),
-    );
-  }
-  return ok(lineageKey);
-};
 
 export const resolvePractitionerLineageId = (
   practitionerId: Id<"practitioners">,
@@ -115,10 +104,7 @@ export const resolvePractitionerLineageId = (
       ),
     );
   }
-  return requireLineageKey(practitioner.lineageKey, {
-    entityId: practitioner._id,
-    entityType: "Behandler",
-  });
+  return ok(practitioner.lineageKey);
 };
 
 export const resolveLocationLineageId = (
@@ -134,10 +120,7 @@ export const resolveLocationLineageId = (
       ),
     );
   }
-  return requireLineageKey(location.lineageKey, {
-    entityId: location._id,
-    entityType: "Standort",
-  });
+  return ok(location.lineageKey);
 };
 
 export const resolvePractitionerIdByLineage = (
@@ -177,41 +160,28 @@ export const resolveLocationIdByLineage = (
 };
 
 export const matchesSchedulePayload = (
-  schedule: Doc<"baseSchedules">,
+  schedule: MaterializedSchedule,
   payload: SchedulePayload,
-): boolean =>
-  requireLineageKey(schedule.lineageKey, {
-    entityId: schedule._id,
-    entityType: "Arbeitszeit",
-  }).match(
-    (lineageKey) => lineageKey === payload.lineageKey,
-    () => false,
-  );
+): boolean => schedule.lineageKey === payload.lineageKey;
 
 export const toSchedulePayload = (
-  schedule: Doc<"baseSchedules">,
+  schedule: MaterializedSchedule,
   practitioners: PractitionerMatchEntity[] | undefined,
   locations: LocationMatchEntity[] | undefined,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
-  requireLineageKey(schedule.lineageKey, {
-    entityId: schedule._id,
-    entityType: "Arbeitszeit",
-  }).andThen((lineageKey) =>
-    resolveLocationLineageId(schedule.locationId, locations).andThen(
-      (locationLineageId) =>
-        resolvePractitionerLineageId(
-          schedule.practitionerId,
-          practitioners,
-        ).map((practitionerLineageId) => ({
+  resolveLocationLineageId(schedule.locationId, locations).andThen(
+    (locationLineageId) =>
+      resolvePractitionerLineageId(schedule.practitionerId, practitioners).map(
+        (practitionerLineageId) => ({
           ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
           dayOfWeek: schedule.dayOfWeek,
           endTime: schedule.endTime,
-          lineageKey,
+          lineageKey: schedule.lineageKey,
           locationLineageId,
           practitionerLineageId,
           startTime: schedule.startTime,
-        })),
-    ),
+        }),
+      ),
   );
 
 export const buildLocationLineageByIdMap = (
@@ -220,14 +190,13 @@ export const buildLocationLineageByIdMap = (
   ReadonlyMap<Id<"locations">, Id<"locations">>,
   ReturnType<typeof invalidStateError>
 > =>
-  Result.combine(
-    (locations ?? []).map((location) =>
-      requireLineageKey(location.lineageKey, {
-        entityId: location._id,
-        entityType: "Standort",
-      }).map((lineageKey) => [location._id, lineageKey] as const),
+  ok(
+    new Map(
+      (locations ?? []).map(
+        (location) => [location._id, location.lineageKey] as const,
+      ),
     ),
-  ).map((entries) => new Map(entries));
+  );
 
 export const buildPractitionerLineageByIdMap = (
   practitioners: PractitionerMatchEntity[] | undefined,
@@ -235,14 +204,13 @@ export const buildPractitionerLineageByIdMap = (
   ReadonlyMap<Id<"practitioners">, Id<"practitioners">>,
   ReturnType<typeof invalidStateError>
 > =>
-  Result.combine(
-    (practitioners ?? []).map((practitioner) =>
-      requireLineageKey(practitioner.lineageKey, {
-        entityId: practitioner._id,
-        entityType: "Behandler",
-      }).map((lineageKey) => [practitioner._id, lineageKey] as const),
+  ok(
+    new Map(
+      (practitioners ?? []).map(
+        (practitioner) => [practitioner._id, practitioner.lineageKey] as const,
+      ),
     ),
-  ).map((entries) => new Map(entries));
+  );
 
 export const resolveLocationLineageIdFromSnapshot = (
   locationId: Id<"locations">,
@@ -280,34 +248,29 @@ export const resolvePractitionerLineageIdFromSnapshot = (
 };
 
 export const toSchedulePayloadFromLineageSnapshot = (
-  schedule: Doc<"baseSchedules">,
+  schedule: MaterializedSchedule,
   practitionerLineageById: ReadonlyMap<
     Id<"practitioners">,
     Id<"practitioners">
   >,
   locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> =>
-  requireLineageKey(schedule.lineageKey, {
-    entityId: schedule._id,
-    entityType: "Arbeitszeit",
-  }).andThen((lineageKey) =>
-    resolveLocationLineageIdFromSnapshot(
-      schedule.locationId,
-      locationLineageById,
-    ).andThen((locationLineageId) =>
-      resolvePractitionerLineageIdFromSnapshot(
-        schedule.practitionerId,
-        practitionerLineageById,
-      ).map((practitionerLineageId) => ({
-        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-        dayOfWeek: schedule.dayOfWeek,
-        endTime: schedule.endTime,
-        lineageKey,
-        locationLineageId,
-        practitionerLineageId,
-        startTime: schedule.startTime,
-      })),
-    ),
+  resolveLocationLineageIdFromSnapshot(
+    schedule.locationId,
+    locationLineageById,
+  ).andThen((locationLineageId) =>
+    resolvePractitionerLineageIdFromSnapshot(
+      schedule.practitionerId,
+      practitionerLineageById,
+    ).map((practitionerLineageId) => ({
+      ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+      dayOfWeek: schedule.dayOfWeek,
+      endTime: schedule.endTime,
+      lineageKey: schedule.lineageKey,
+      locationLineageId,
+      practitionerLineageId,
+      startTime: schedule.startTime,
+    })),
   );
 
 export const toMutationSchedulePayload = (
@@ -376,10 +339,12 @@ export const scheduleDocFromInput = (params: {
     startTime: string;
   };
 }): MaterializedSchedule => {
-  const lineageKey = params.schedule.lineageKey ?? params.entityId;
+  const lineageKey = params.schedule.lineageKey
+    ? asBaseScheduleLineageKey(params.schedule.lineageKey)
+    : asBaseScheduleLineageKey(params.entityId);
   return {
     _creationTime: Date.now(),
-    _id: params.entityId,
+    _id: asBaseScheduleId(params.entityId),
     ...(params.schedule.breakTimes
       ? { breakTimes: params.schedule.breakTimes }
       : {}),
@@ -400,7 +365,7 @@ export const toSchedulePayloadFromAppliedSchedule = (
   ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
   dayOfWeek: schedule.dayOfWeek,
   endTime: schedule.endTime,
-  lineageKey: schedule.lineageKey,
+  lineageKey: asBaseScheduleLineageKey(schedule.lineageKey),
   locationLineageId: schedule.locationLineageKey,
   practitionerLineageId: schedule.practitionerLineageKey,
   startTime: schedule.startTime,

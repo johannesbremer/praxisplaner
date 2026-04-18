@@ -6,6 +6,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
@@ -88,6 +89,9 @@ async function createPatient(
       lastModified: BigInt(Date.now()),
       patientId: args.patientId,
       practiceId: args.practiceId,
+      recordType: "pvs",
+      searchFirstName: "",
+      searchLastName: "",
     });
   });
 }
@@ -132,9 +136,11 @@ async function insertWithLineage<TableName extends LineageTable>(
   table: TableName,
   value: Omit<Doc<TableName>, "_creationTime" | "_id" | "lineageKey">,
 ): Promise<Id<TableName>> {
-  const id = await ctx.db.insert(table, value as never);
-  await ctx.db.patch(table, id, { lineageKey: id } as never);
-  return id;
+  return (await insertSelfLineageEntity(
+    ctx.db,
+    table as never,
+    value as never,
+  )) as Id<TableName>;
 }
 
 function nextWeekday(weekday: number): Temporal.PlainDate {
@@ -383,14 +389,14 @@ describe("appointment series", () => {
     await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       await ctx.db.insert("appointments", {
-        appointmentTypeId: targetAppointmentTypeId,
+        appointmentTypeLineageKey: targetAppointmentTypeId,
         appointmentTypeTitle: "Blocker",
         createdAt: now,
         end: blockedFollowUpEnd,
         lastModified: now,
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         start: blockedFollowUpStart,
         title: "Blockiert",
       });
@@ -739,6 +745,299 @@ describe("appointment series", () => {
     expect(appointments).toHaveLength(0);
   });
 
+  test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the follow-up type", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const otherPractitionerId = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Follow Up Only",
+          practiceId,
+          ruleSetId,
+        },
+      );
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertWithLineage(ctx, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationId,
+          practiceId,
+          practitionerId: otherPractitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [otherPractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Nur anderer Behandler",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 1,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("step-1");
+    expect(preview.steps).toHaveLength(1);
+    expect(preview.failureMessage).toContain("Kein verfügbarer Kettentermin");
+  });
+
+  test("copied draft series booking still blocks occupied root slots by lineage", async () => {
+    const t = createAuthedTestContext();
+    const {
+      locationId: activeLocationId,
+      practiceId,
+      practitionerId: activePractitionerId,
+      ruleSetId: activeRuleSetId,
+    } = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_copied_draft_series_user",
+      "copied-draft-series@example.com",
+    );
+
+    const {
+      draftLocationId,
+      draftPractitionerId,
+      draftRootAppointmentTypeId,
+      draftRuleSetId,
+      rootAppointmentTypeLineageKey,
+    } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [activePractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId: activeRuleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [activePractitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId: activeRuleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Copied Draft",
+        draftRevision: 0,
+        parentVersion: activeRuleSetId,
+        practiceId,
+        saved: false,
+        version: 2,
+      });
+
+      const draftLocationId = await ctx.db.insert("locations", {
+        lineageKey: activeLocationId,
+        name: "Main Location Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+      const draftPractitionerId = await ctx.db.insert("practitioners", {
+        lineageKey: activePractitionerId,
+        name: "Dr. Chain Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertWithLineage(ctx, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationId: draftLocationId,
+          practiceId,
+          practitionerId: draftPractitionerId,
+          ruleSetId: draftRuleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerIds: [draftPractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        lineageKey: targetAppointmentTypeId,
+        name: "Kontrolle Copy",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+
+      const draftRootAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [draftPractitionerId],
+          createdAt: now,
+          duration: 30,
+          followUpPlan: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              locationMode: "inherit",
+              offsetUnit: "days",
+              offsetValue: 2,
+              practitionerMode: "inherit",
+              required: true,
+              searchMode: "first_available_on_or_after",
+              stepId: "step-1",
+            },
+          ],
+          lastModified: now,
+          lineageKey: rootAppointmentTypeId,
+          name: "Ersttermin Copy",
+          practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+      );
+
+      return {
+        draftLocationId,
+        draftPractitionerId,
+        draftRootAppointmentTypeId,
+        draftRuleSetId,
+        rootAppointmentTypeLineageKey: rootAppointmentTypeId,
+      };
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const rootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+        appointmentTypeTitle: "Bestehender Termin",
+        createdAt: now,
+        end: rootEnd,
+        lastModified: now,
+        locationLineageKey: activeLocationId,
+        practiceId,
+        practitionerLineageKey: activePractitionerId,
+        start: rootStart,
+        title: "Bereits gebucht",
+        userId,
+      });
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId: draftLocationId,
+      practiceId,
+      practitionerId: draftPractitionerId,
+      rootAppointmentTypeId: draftRootAppointmentTypeId,
+      ruleSetId: draftRuleSetId,
+      scope: "simulation",
+      simulationRuleSetId: draftRuleSetId,
+      start: rootStart,
+      userId,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("root");
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId: draftLocationId,
+        practiceId,
+        practitionerId: draftPractitionerId,
+        rootAppointmentTypeId: draftRootAppointmentTypeId,
+        rootTitle: "Draft chain",
+        ruleSetId: draftRuleSetId,
+        scope: "simulation",
+        simulationRuleSetId: draftRuleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow("Der ausgewählte Starttermin ist nicht mehr verfügbar");
+  });
+
   test("createAppointment routes simulation bookings with follow-up plans through the same series path", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -794,11 +1093,16 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
+    const patientId = await createPatient(t, {
+      patientId: 9001,
+      practiceId,
+    });
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
       isSimulation: true,
       locationId,
+      patientId,
       practiceId,
       practitionerId,
       start: rootStart,
@@ -816,6 +1120,21 @@ describe("appointment series", () => {
     expect(appointments.every((appointment) => appointment.isSimulation)).toBe(
       true,
     );
+    expect(
+      appointments.every(
+        (appointment) => appointment.simulationKind === "draft",
+      ),
+    ).toBe(true);
+    expect(
+      appointments.every(
+        (appointment) => appointment.simulationRuleSetId === ruleSetId,
+      ),
+    ).toBe(true);
+    expect(
+      appointments.every(
+        (appointment) => appointment.simulationValidatedAt !== undefined,
+      ),
+    ).toBe(true);
     expect(
       new Set(appointments.map((appointment) => appointment.seriesId)).size,
     ).toBe(1);

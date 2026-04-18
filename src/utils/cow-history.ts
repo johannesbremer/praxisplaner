@@ -10,9 +10,12 @@ export interface DraftMutationResult {
   ruleSetId: Id<"ruleSets">;
 }
 
-export interface LineageTrackedEntity<TId extends string> {
-  _id: TId;
-  lineageKey?: TId;
+export interface LineageTrackedEntity<
+  TEntityId extends string,
+  TLineageKey extends string = TEntityId,
+> {
+  _id: TEntityId;
+  lineageKey?: TLineageKey;
 }
 
 export type RuleSetReplayTarget =
@@ -33,35 +36,41 @@ interface ResolveReplayEntityConflict {
 }
 
 interface ResolveReplayEntityParams<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
-  currentEntityId: TId;
+  currentEntityId: TEntityId;
   entities: readonly TEntity[];
-  lineageKey: TId;
+  lineageKey: TLineageKey;
   missingMessage: string;
 }
 
 type ResolveReplayEntityResult<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
-> = ResolveReplayEntityConflict | ResolveReplayEntitySuccess<TId, TEntity>;
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
+> =
+  | ResolveReplayEntityConflict
+  | ResolveReplayEntitySuccess<TEntityId, TLineageKey, TEntity>;
 
 interface ResolveReplayEntitySuccess<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
-  currentEntityId: TId;
+  currentEntityId: TEntityId;
   entity: TEntity;
   status: "ok";
 }
 
 export function resolveReplayEntity<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
-  params: ResolveReplayEntityParams<TId, TEntity>,
-): ResolveReplayEntityResult<TId, TEntity> {
+  params: ResolveReplayEntityParams<TEntityId, TLineageKey, TEntity>,
+): ResolveReplayEntityResult<TEntityId, TLineageKey, TEntity> {
   const byId = params.entities.find(
     (entity) => entity._id === params.currentEntityId,
   );

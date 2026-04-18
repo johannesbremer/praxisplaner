@@ -9,7 +9,10 @@
  */
 
 import type * as appointmentConflicts from "../appointmentConflicts.js";
+import type * as appointmentCoverage from "../appointmentCoverage.js";
+import type * as appointmentReferences from "../appointmentReferences.js";
 import type * as appointmentSeries from "../appointmentSeries.js";
+import type * as appointmentSimulation from "../appointmentSimulation.js";
 import type * as appointments from "../appointments.js";
 import type * as auth from "../auth.js";
 import type * as bookingSessions from "../bookingSessions.js";
@@ -20,16 +23,21 @@ import type * as gdt_processing from "../gdt/processing.js";
 import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
 import type * as http from "../http.js";
+import type * as identity from "../identity.js";
+import type * as lineage from "../lineage.js";
 import type * as mfas from "../mfas.js";
+import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practices from "../practices.js";
 import type * as publicHolidays from "../publicHolidays.js";
 import type * as ruleEngine from "../ruleEngine.js";
+import type * as ruleSetEntityDeletion from "../ruleSetEntityDeletion.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
 import type * as schedulingCore from "../schedulingCore.js";
+import type * as temporaryPatients from "../temporaryPatients.js";
 import type * as tests_test_utils from "../tests/test_utils.js";
 import type * as userIdentity from "../userIdentity.js";
 import type * as users from "../users.js";
@@ -44,7 +52,10 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   appointmentConflicts: typeof appointmentConflicts;
+  appointmentCoverage: typeof appointmentCoverage;
+  appointmentReferences: typeof appointmentReferences;
   appointmentSeries: typeof appointmentSeries;
+  appointmentSimulation: typeof appointmentSimulation;
   appointments: typeof appointments;
   auth: typeof auth;
   bookingSessions: typeof bookingSessions;
@@ -55,16 +66,21 @@ declare const fullApi: ApiFromModules<{
   "gdt/types": typeof gdt_types;
   "gdt/validation": typeof gdt_validation;
   http: typeof http;
+  identity: typeof identity;
+  lineage: typeof lineage;
   mfas: typeof mfas;
+  patientSearch: typeof patientSearch;
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
   practices: typeof practices;
   publicHolidays: typeof publicHolidays;
   ruleEngine: typeof ruleEngine;
+  ruleSetEntityDeletion: typeof ruleSetEntityDeletion;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
   schedulingCore: typeof schedulingCore;
+  temporaryPatients: typeof temporaryPatients;
   "tests/test_utils": typeof tests_test_utils;
   userIdentity: typeof userIdentity;
   users: typeof users;

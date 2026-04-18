@@ -24,8 +24,9 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
-import type { Doc, Id } from "../../convex/_generated/dataModel";
-import type { PatientInfo } from "../types";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { AppointmentResult } from "../../convex/appointments";
+import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
 import { formatZonedDateTimeDE } from "../utils/date-utils";
@@ -34,16 +35,27 @@ import {
   type FrontendError,
   missingContextError,
 } from "../utils/frontend-errors";
+import { getPatientInfoDisplayName } from "../utils/patient-info";
+import {
+  getPatientSelectionPanelInitialSelection,
+  PatientSelectionPanel,
+} from "./patient-selection-panel";
 
 // Appointment type for the sidebar list
-export type SidebarAppointment = Doc<"appointments">;
-type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
+export type SidebarAppointment = AppointmentResult;
+type BookingPersonalData =
+  import("../../convex/_generated/dataModel").Doc<"bookingNewConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
+  onPatientSelected?:
+    | ((patient?: PracticePatientSelection) => void)
+    | undefined;
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
+  practiceId?: Id<"practices"> | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
+  selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
   showGdtAlert?: boolean | undefined;
 }
@@ -98,10 +110,13 @@ const RightSidebarContext =
 
 // Extracted sidebar content to avoid duplication
 export function CalendarRightSidebar({
+  onPatientSelected,
   onSelectAppointment,
   patient,
   patientAppointments,
+  practiceId,
   selectedAppointmentId,
+  selectedPatientId,
   selectedSeriesId,
   showGdtAlert,
 }: CalendarRightSidebarProps) {
@@ -110,13 +125,7 @@ export function CalendarRightSidebar({
   return sidebarResult.match(
     ({ isMobile, open, openMobile, setOpenMobile }) => {
       const patientDisplayName = patient
-        ? patient.firstName && patient.lastName
-          ? `${patient.title ? `${patient.title} ` : ""}${patient.firstName} ${patient.lastName}`
-          : patient.patientId
-            ? `Patient ${patient.patientId}`
-            : patient.email
-              ? patient.email
-              : "Kein Patient ausgewählt"
+        ? getPatientInfoDisplayName(patient) || "Kein Patient ausgewählt"
         : "Kein Patient ausgewählt";
 
       const handleOpenInPvs = () => {
@@ -153,11 +162,14 @@ export function CalendarRightSidebar({
               <div className="flex h-full w-full flex-col">
                 <RightSidebarContent
                   handleOpenInPvs={handleOpenInPvs}
+                  onPatientSelected={onPatientSelected}
                   onSelectAppointment={onSelectAppointment}
                   patient={patient}
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
+                  practiceId={practiceId}
                   selectedAppointmentId={selectedAppointmentId}
+                  selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
                   showGdtAlert={showGdtAlert}
                 />
@@ -194,11 +206,14 @@ export function CalendarRightSidebar({
             <div className="bg-background flex h-full w-full flex-col">
               <RightSidebarContent
                 handleOpenInPvs={handleOpenInPvs}
+                onPatientSelected={onPatientSelected}
                 onSelectAppointment={onSelectAppointment}
                 patient={patient}
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
+                practiceId={practiceId}
                 selectedAppointmentId={selectedAppointmentId}
+                selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
                 showGdtAlert={showGdtAlert}
               />
@@ -288,20 +303,26 @@ export function useRightSidebar(): Result<
 
 function RightSidebarContent({
   handleOpenInPvs,
+  onPatientSelected,
   onSelectAppointment,
   patient,
   patientAppointments,
   patientDisplayName,
+  practiceId,
   selectedAppointmentId,
+  selectedPatientId,
   selectedSeriesId,
   showGdtAlert,
 }: {
   handleOpenInPvs: () => void;
+  onPatientSelected: ((patient?: PracticePatientSelection) => void) | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
   patient: PatientInfo | undefined;
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
+  practiceId: Id<"practices"> | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
+  selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
   showGdtAlert: boolean | undefined;
 }) {
@@ -320,6 +341,27 @@ function RightSidebarContent({
                 Keine Verbindung mit dem PVS möglich!
               </AlertDescription>
             </Alert>
+          </div>
+        )}
+        {practiceId && onPatientSelected && (
+          <div className="mb-4">
+            <PatientSelectionPanel
+              initialSelection={getPatientSelectionPanelInitialSelection({
+                patient,
+                selectedPatientId,
+              })}
+              key={
+                selectedPatientId ??
+                (patient?.userId
+                  ? `user:${patient.userId}`
+                  : patient?.recordType === "temporary" &&
+                      patient.convexPatientId === undefined
+                    ? `draft:${patient.name}:${patient.phoneNumber}`
+                    : "empty")
+              }
+              onPatientSelected={onPatientSelected}
+              practiceId={practiceId}
+            />
           </div>
         )}
         {patient ? (
@@ -351,6 +393,12 @@ function RightSidebarContent({
                 {patient.email && (
                   <p className="text-sm text-muted-foreground">
                     {patient.email}
+                  </p>
+                )}
+
+                {patient.phoneNumber && (
+                  <p className="text-sm text-muted-foreground">
+                    {patient.phoneNumber}
                   </p>
                 )}
 
@@ -441,11 +489,11 @@ function RightSidebarContent({
         ) : (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Kein Patient aus dem PVS ausgewählt.
+              Kein Patient ausgewählt.
             </p>
             <p className="text-xs text-muted-foreground">
-              Wählen Sie einen Patienten in Ihrem Praxisverwaltungssystem aus,
-              um dessen Daten hier anzuzeigen.
+              Wählen Sie einen Patienten aus oder legen Sie beim Erstellen eines
+              Termins einen temporären Patienten an.
             </p>
           </div>
         )}

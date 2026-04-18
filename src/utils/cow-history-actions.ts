@@ -13,32 +13,34 @@ interface MutationStepResult<TId extends string> {
 }
 
 interface RegisterLineageCreateActionParams<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
   entitiesRef: RefObject<TEntity[]>;
-  initialEntityId: TId;
+  initialEntityId: TEntityId;
   isMissingEntityError: (error: unknown) => boolean;
   label: string;
-  lineageKey: TId;
+  lineageKey: TLineageKey;
   onRegisterHistoryAction: ((action: LocalHistoryAction) => void) | undefined;
-  runCreate: () => Promise<ReplayStepResult<TId>>;
-  runDelete: (entityId: TId) => Promise<ReplayStepResult<TId>>;
+  runCreate: () => Promise<ReplayStepResult<TEntityId>>;
+  runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   validateBeforeCreate?: () => null | string;
 }
 
 interface RegisterLineageUpdateActionParams<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
   entitiesRef: RefObject<TEntity[]>;
-  initialEntityId: TId;
+  initialEntityId: TEntityId;
   label: string;
-  lineageKey: TId;
+  lineageKey: TLineageKey;
   onRegisterHistoryAction: ((action: LocalHistoryAction) => void) | undefined;
   redoMissingMessage: string;
-  runRedo: (entityId: TId) => Promise<ReplayStepResult<TId>>;
-  runUndo: (entityId: TId) => Promise<ReplayStepResult<TId>>;
+  runRedo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
+  runUndo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   undoMissingMessage: string;
   validateRedo: (entity: TEntity) => null | string;
   validateUndo: (entity: TEntity) => null | string;
@@ -51,9 +53,12 @@ type ReplayStepResult<TId extends string> =
 const APPLIED_RESULT: LocalHistoryResult = { status: "applied" };
 
 export function registerLineageCreateHistoryAction<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
->(params: RegisterLineageCreateActionParams<TId, TEntity>): void {
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
+>(
+  params: RegisterLineageCreateActionParams<TEntityId, TLineageKey, TEntity>,
+): void {
   if (!params.onRegisterHistoryAction) {
     return;
   }
@@ -101,9 +106,12 @@ export function registerLineageCreateHistoryAction<
 }
 
 export function registerLineageUpdateHistoryAction<
-  TId extends string,
-  TEntity extends LineageTrackedEntity<TId>,
->(params: RegisterLineageUpdateActionParams<TId, TEntity>): void {
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
+>(
+  params: RegisterLineageUpdateActionParams<TEntityId, TLineageKey, TEntity>,
+): void {
   if (!params.onRegisterHistoryAction) {
     return;
   }

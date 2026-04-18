@@ -34,7 +34,7 @@ import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
-import type { PatientInfo, SchedulingSimulatedContext } from "../types";
+import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
 
 import { createSimulatedContext } from "../../lib/utils";
@@ -642,29 +642,30 @@ function LogicView() {
       ) {
         const draftToDiscard = unsavedRuleSet;
         const parentRuleSetId = unsavedRuleSet.parentVersion;
+        const previousDraftRevision = draftToDiscard.draftRevision;
         discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
 
         try {
+          setUnsavedRuleSetId(null);
+          setDraftRevisionOverride(null);
+          setIsDraftEquivalentToParent(false);
+          pushUrl({ ruleSetId: parentRuleSetId });
+
           const discardResult = await discardEquivalentUnsavedRuleSetMutation({
             practiceId: currentPractice._id,
             ruleSetId: draftToDiscard._id,
           });
 
-          if (discardResult.deleted) {
-            setUnsavedRuleSetId(null);
-            setDraftRevisionOverride(null);
-            setIsDraftEquivalentToParent(false);
-            pushUrl({ ruleSetId: parentRuleSetId });
-          } else {
+          if (!discardResult.deleted) {
             setUnsavedRuleSetId(draftToDiscard._id);
-            setDraftRevisionOverride(draftToDiscard.draftRevision);
+            setDraftRevisionOverride(previousDraftRevision);
             setIsDraftEquivalentToParent(false);
             pushUrl({ ruleSetId: draftToDiscard._id });
           }
         } catch (error: unknown) {
           discardingUnsavedRuleSetIdRef.current = null;
           setUnsavedRuleSetId(draftToDiscard._id);
-          setDraftRevisionOverride(draftToDiscard.draftRevision);
+          setDraftRevisionOverride(previousDraftRevision);
           setIsDraftEquivalentToParent(false);
           pushUrl({ ruleSetId: draftToDiscard._id });
           captureError(error, {
@@ -936,15 +937,6 @@ function LogicView() {
     end: endOfDay.toISOString(),
     start: startOfDay.toISOString(),
   };
-
-  // Create patient info for the right sidebar in staff view
-  // This extracts patient information from the simulated context
-  const patientInfo: PatientInfo = useMemo(
-    () => ({
-      isNewPatient,
-    }),
-    [isNewPatient],
-  );
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
@@ -1363,7 +1355,7 @@ function LogicView() {
 
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
-                {resolvedRuleSetIdFromUrl ? (
+                {resolvedCurrentWorkingRuleSet ? (
                   <div className="flex justify-center">
                     <PatientBookingFlow
                       dateRange={dateRange}
@@ -1378,7 +1370,7 @@ function LogicView() {
                         });
                       }}
                       practiceId={currentPractice._id}
-                      ruleSetId={resolvedRuleSetIdFromUrl}
+                      ruleSetId={resolvedCurrentWorkingRuleSet._id}
                       simulatedContext={simulatedContext}
                     />
                   </div>
@@ -1429,7 +1421,7 @@ function LogicView() {
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={resolvedRuleSetIdFromUrl}
+                  simulationRuleSetId={resolvedCurrentWorkingRuleSet?._id}
                 />
               </div>
             </div>
@@ -1494,7 +1486,7 @@ function LogicView() {
           <TabsContent value="staff-view">
             <div className="space-y-6">
               <div className="space-y-6">
-                {resolvedRuleSetIdFromUrl ? (
+                {resolvedCurrentWorkingRuleSet ? (
                   <MedicalStaffDisplay
                     onUpdateSimulatedContext={(ctx) => {
                       setSimulatedContext(ctx);
@@ -1503,9 +1495,8 @@ function LogicView() {
                         locationId: ctx.locationId,
                       });
                     }}
-                    patient={patientInfo}
                     practiceId={currentPractice._id}
-                    ruleSetId={resolvedRuleSetIdFromUrl}
+                    ruleSetId={resolvedCurrentWorkingRuleSet._id}
                     simulatedContext={simulatedContext}
                     simulationDate={simulationDate}
                   />
@@ -1555,7 +1546,7 @@ function LogicView() {
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={simulatedContext}
-                  simulationRuleSetId={resolvedRuleSetIdFromUrl}
+                  simulationRuleSetId={resolvedCurrentWorkingRuleSet?._id}
                 />
               </div>
             </div>

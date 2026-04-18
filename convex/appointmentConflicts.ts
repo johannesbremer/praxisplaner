@@ -6,8 +6,17 @@ import type {
 import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { LocationLineageKey, PractitionerLineageKey } from "./identity";
 
 export type AppointmentBookingScope = "real" | "simulation";
+export interface AppointmentConflictCandidate {
+  end: string;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+  start: string;
+}
+
+export type AppointmentOccupancyView = "draftEffective" | "live";
 
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
@@ -16,20 +25,15 @@ type DatabaseLike =
 export function appointmentOverlapsCandidate(
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationId" | "practitionerId" | "start"
+    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
-  candidate: {
-    end: string;
-    locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
-    start: string;
-  },
+  candidate: AppointmentConflictCandidate,
 ): boolean {
-  if (appointment.locationId !== candidate.locationId) {
+  if (appointment.locationLineageKey !== candidate.locationLineageKey) {
     return false;
   }
 
-  if (appointment.practitionerId !== candidate.practitionerId) {
+  if (appointment.practitionerLineageKey !== candidate.practitionerLineageKey) {
     return false;
   }
 
@@ -52,15 +56,11 @@ export function appointmentOverlapsCandidate(
 export async function findConflictingAppointment(
   db: DatabaseLike,
   args: {
-    candidate: {
-      end: string;
-      locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
-      start: string;
-    };
+    candidate: AppointmentConflictCandidate;
+    draftRuleSetId?: Id<"ruleSets">;
     excludeAppointmentIds?: Id<"appointments">[];
+    occupancyView: AppointmentOccupancyView;
     practiceId: Id<"practices">;
-    scope: AppointmentBookingScope;
   },
 ): Promise<Doc<"appointments"> | null> {
   const windowStart = Temporal.ZonedDateTime.from(args.candidate.start);
@@ -93,9 +93,10 @@ export async function findConflictingAppointment(
     .collect();
 
   const excludeAppointmentIds = new Set(args.excludeAppointmentIds);
-  const effectiveAppointments = getEffectiveAppointmentsForScope(
+  const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
     rawAppointments,
-    args.scope,
+    args.occupancyView,
+    args.draftRuleSetId,
   );
 
   return (
@@ -107,23 +108,32 @@ export async function findConflictingAppointment(
   );
 }
 
-export function getEffectiveAppointmentsForScope(
+export function getEffectiveAppointmentsForOccupancyView(
   appointments: Doc<"appointments">[],
-  scope: AppointmentBookingScope,
+  occupancyView: AppointmentOccupancyView,
+  draftRuleSetId?: Id<"ruleSets">,
 ): Doc<"appointments">[] {
   const visibleAppointments = appointments.filter(
     (appointment) => appointment.cancelledAt === undefined,
   );
 
-  if (scope === "real") {
+  if (occupancyView === "live") {
     return visibleAppointments.filter(
       (appointment) => appointment.isSimulation !== true,
     );
   }
 
-  const simulationAppointments = visibleAppointments.filter(
-    (appointment) => appointment.isSimulation === true,
-  );
+  const simulationAppointments = visibleAppointments.filter((appointment) => {
+    if (appointment.isSimulation !== true) {
+      return false;
+    }
+
+    if (!draftRuleSetId) {
+      return true;
+    }
+
+    return appointment.simulationRuleSetId === draftRuleSetId;
+  });
   const replacedIds = new Set(
     simulationAppointments
       .map((appointment) => appointment.replacesAppointmentId)
@@ -138,4 +148,10 @@ export function getEffectiveAppointmentsForScope(
   return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
     a.start.localeCompare(b.start),
   );
+}
+
+export function getOccupancyViewForBookingScope(
+  scope: AppointmentBookingScope,
+): AppointmentOccupancyView {
+  return scope === "simulation" ? "draftEffective" : "live";
 }

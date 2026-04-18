@@ -8,7 +8,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { AppointmentResult } from "@/convex/appointments";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,13 +41,13 @@ interface AppointmentConfirmationCardProps {
 }
 
 interface BookedAppointmentsSummaryProps {
-  appointments: Doc<"appointments">[];
+  appointments: AppointmentResult[];
   onCancelled?: () => Promise<void> | void;
   practitionerNamesById?: Partial<Record<Id<"practitioners">, string>>;
 }
 
 interface BookedAppointmentSummaryProps {
-  appointment: Doc<"appointments">;
+  appointment: AppointmentResult;
   onCancelled?: () => Promise<void> | void;
   practitionerName?: string;
 }

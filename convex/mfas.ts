@@ -2,9 +2,12 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import type { MfaId } from "./identity";
 
 import { mutation, query } from "./_generated/server";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
+import { asMfaId, asMfaLineageKey } from "./identity";
+import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
@@ -26,7 +29,7 @@ const draftMutationResultValidator = v.object({
 
 async function resolveMfaEntityInRuleSet(
   ctx: MutationCtx,
-  mfaId: Id<"mfas">,
+  mfaId: MfaId,
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
 ): Promise<Doc<"mfas">> {
@@ -41,11 +44,18 @@ async function resolveMfaEntityInRuleSet(
     return mfa;
   }
 
-  const lineageKey = mfa.lineageKey ?? mfa._id;
+  const lineageKey = requireLineageKey({
+    entityId: mfa._id,
+    entityType: "mfa",
+    lineageKey: mfa.lineageKey,
+    ruleSetId: mfa.ruleSetId,
+  });
   const mapped = await ctx.db
     .query("mfas")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+      q
+        .eq("ruleSetId", ruleSetId)
+        .eq("lineageKey", asMfaLineageKey(lineageKey)),
     )
     .first();
 
@@ -104,10 +114,11 @@ export const create = mutation({
     }
 
     if (args.lineageKey) {
+      const lineageKey = asMfaLineageKey(args.lineageKey);
       const existingByLineage = await ctx.db
         .query("mfas")
         .withIndex("by_ruleSetId_lineageKey", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+          q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
         )
         .first();
       if (existingByLineage) {
@@ -115,16 +126,13 @@ export const create = mutation({
       }
     }
 
-    const entityId = await ctx.db.insert("mfas", {
+    const entityId = await insertSelfLineageEntity(ctx.db, "mfas", {
       createdAt: BigInt(Date.now()),
       ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
       name,
       practiceId: args.practiceId,
       ruleSetId,
     });
-    if (!args.lineageKey) {
-      await ctx.db.patch("mfas", entityId, { lineageKey: entityId });
-    }
 
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
@@ -152,7 +160,7 @@ export const remove = mutation({
 
     const mfa = await resolveMfaEntityInRuleSet(
       ctx,
-      args.mfaId,
+      asMfaId(args.mfaId),
       args.practiceId,
       ruleSetId,
     );

@@ -31,6 +31,7 @@ import {
   generateRuleName,
 } from "../../lib/rule-name-generator.js";
 import { api, internal } from "../_generated/api";
+import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -91,12 +92,16 @@ async function createPractitioner(
   tags?: string[],
 ) {
   return await t.run(async (ctx) => {
-    const practitionerId = await ctx.db.insert("practitioners", {
-      name,
-      practiceId,
-      ruleSetId,
-      ...(tags && { tags }),
-    });
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name,
+        practiceId,
+        ruleSetId,
+        ...(tags && { tags }),
+      },
+    );
     return practitionerId;
   });
 }
@@ -111,7 +116,7 @@ async function createLocation(
   name: string,
 ) {
   return await t.run(async (ctx) => {
-    const locationId = await ctx.db.insert("locations", {
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
       name,
       practiceId,
       ruleSetId,
@@ -132,15 +137,19 @@ async function createAppointmentType(
   duration = 30,
 ) {
   return await t.run(async (ctx) => {
-    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-      allowedPractitionerIds: practitionerIds,
-      createdAt: BigInt(Date.now()),
-      duration,
-      lastModified: BigInt(Date.now()),
-      name,
-      practiceId,
-      ruleSetId,
-    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerIds: practitionerIds,
+        createdAt: BigInt(Date.now()),
+        duration,
+        lastModified: BigInt(Date.now()),
+        name,
+        practiceId,
+        ruleSetId,
+      },
+    );
     return appointmentTypeId;
   });
 }
@@ -234,19 +243,42 @@ async function createAppointment(
       "appointmentTypes",
       appointmentTypeId,
     );
+    const location = await ctx.db.get("locations", locationId);
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
     if (!appointmentType) {
       throw new Error(`Appointment type ${appointmentTypeId} not found`);
     }
+    if (!location) {
+      throw new Error(`Location ${locationId} not found`);
+    }
+    if (!practitioner) {
+      throw new Error(`Practitioner ${practitionerId} not found`);
+    }
 
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeId,
+      appointmentTypeLineageKey: requireLineageKey({
+        entityId: appointmentType._id,
+        entityType: "appointment type",
+        lineageKey: appointmentType.lineageKey,
+        ruleSetId: appointmentType.ruleSetId,
+      }),
       appointmentTypeTitle: appointmentType.name,
       createdAt: BigInt(Date.now()),
       end: endZoned.toString(),
       lastModified: BigInt(Date.now()),
-      locationId,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
       practiceId,
-      practitionerId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: practitioner.ruleSetId,
+      }),
       start: startZoned.toString(),
       title: appointmentType.name, // Default title is the appointment type name
     });
@@ -2924,7 +2956,7 @@ async function insertBaseSchedule(
   endTime = "17:00",
 ) {
   return await t.run(async (ctx) => {
-    const scheduleId = await ctx.db.insert("baseSchedules", {
+    const scheduleId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
       breakTimes: [],
       dayOfWeek,
       endTime,
@@ -3266,6 +3298,113 @@ describe("E2E: Slot Generation with Rules", () => {
     );
     expect(jonesSlots.length).toBeGreaterThan(0);
     expect(jonesSlots.every((slot) => slot.status === "AVAILABLE")).toBe(true);
+  });
+
+  test("existing appointments block copied-rule-set slots via lineage identity", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const baseRuleSetId = await createRuleSet(t, practiceId, true);
+    const copiedRuleSetId = await createRuleSet(t, practiceId, true);
+
+    const basePractitionerId = await createPractitioner(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Dr. Base",
+    );
+    const baseLocationId = await createLocation(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Base Office",
+    );
+    const baseAppointmentTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Checkup",
+      [basePractitionerId],
+    );
+
+    const copiedIds = await t.run(async (ctx) => {
+      const copiedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: basePractitionerId,
+          name: "Dr. Copied",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseLocationId,
+          name: "Copied Office",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [copiedPractitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          lastModified: BigInt(Date.now()),
+          lineageKey: baseAppointmentTypeId,
+          name: "Checkup Copy",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      return {
+        copiedAppointmentTypeId,
+        copiedLocationId,
+        copiedPractitionerId,
+      };
+    });
+
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      copiedRuleSetId,
+      copiedIds.copiedPractitionerId,
+      copiedIds.copiedLocationId,
+      1,
+    );
+
+    await createAppointment(
+      t,
+      practiceId,
+      basePractitionerId,
+      baseLocationId,
+      baseAppointmentTypeId,
+      "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+      30,
+    );
+
+    const slots = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2025-10-27",
+      practiceId,
+      ruleSetId: copiedRuleSetId,
+      simulatedContext: {
+        appointmentTypeId: copiedIds.copiedAppointmentTypeId,
+        patient: { isNew: false },
+      },
+    });
+
+    const nineAmSlot = slots.slots.find(
+      (slot) =>
+        slot.practitionerId === copiedIds.copiedPractitionerId &&
+        slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+    );
+
+    expect(nineAmSlot?.status).toBe("BLOCKED");
   });
 
   test("Compound AND rule blocks slots only when both conditions match", async () => {

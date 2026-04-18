@@ -3,7 +3,7 @@ import type React from "react";
 import { Plus } from "lucide-react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { Appointment } from "./types";
+import type { Appointment, CalendarColumn } from "./types";
 
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
@@ -24,7 +24,7 @@ interface BlockedSlot {
 interface CalendarGridProps {
   appointments: Appointment[];
   blockedSlots?: BlockedSlot[];
-  columns: { id: string; isMuted?: boolean; title: string }[];
+  columns: CalendarColumn[];
   currentTimeSlot: number;
   draggedAppointment: Appointment | null;
   draggedBlockedSlotId?: null | string;
@@ -100,6 +100,11 @@ export function CalendarGrid({
   timeToSlot,
   totalSlots,
 }: CalendarGridProps) {
+  const isColumnInteractionDisabled = (column: CalendarColumn) =>
+    column.isUnavailable === true ||
+    column.isAppointmentTypeUnavailable === true ||
+    (draggedAppointment !== null && column.isDragDisabled === true);
+
   const renderAppointments = (column: string) => {
     return appointments
       .filter((apt) => apt.column === column)
@@ -338,20 +343,30 @@ export function CalendarGrid({
               }
             }}
             onDragOver={(e) => {
+              if (isColumnInteractionDisabled(column)) {
+                return;
+              }
               onDragOver(e, column.id);
             }}
             onDrop={(e) => {
+              if (isColumnInteractionDisabled(column)) {
+                return;
+              }
               void onDrop(e, column.id);
             }}
           >
             {Array.from({ length: totalSlots }, (_, i) => {
               const isHour = i % 12 === 0;
               const isHalfHour = i % 6 === 0 && !isHour;
+              const isInteractionDisabled = isColumnInteractionDisabled(column);
               return (
                 <div
-                  className={`h-4 hover:bg-muted/50 cursor-pointer group ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
+                  className={`h-4 group ${isInteractionDisabled ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
                   key={i}
                   onClick={() => {
+                    if (isInteractionDisabled) {
+                      return;
+                    }
                     if (isBlockingModeActive && onBlockSlot) {
                       onBlockSlot(column.id, i);
                     } else {
@@ -359,7 +374,9 @@ export function CalendarGrid({
                     }
                   }}
                 >
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
+                  <div
+                    className={`flex items-center justify-center h-full ${isInteractionDisabled ? "opacity-0" : "opacity-0 group-hover:opacity-100"}`}
+                  >
                     <Plus className="h-3 w-3 text-muted-foreground" />
                   </div>
                 </div>

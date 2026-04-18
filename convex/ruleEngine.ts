@@ -24,6 +24,7 @@ import {
   generateRuleName,
 } from "../lib/rule-name-generator.js";
 import { internalQuery } from "./_generated/server";
+import { requireLineageKey } from "./lineage";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -36,10 +37,16 @@ import { internalQuery } from "./_generated/server";
 export interface ParsedAppointment {
   /** Original appointment document */
   appointment: Doc<"appointments">;
+  /** Appointment type id resolved into the evaluated rule set when possible */
+  appointmentTypeId?: Id<"appointmentTypes">;
   /** Start time as epoch milliseconds (for fast comparison) */
   startEpochMs: number;
   /** End time as epoch milliseconds (for fast comparison) */
   endEpochMs: number;
+  /** Location id resolved into the evaluated rule set when possible */
+  locationId?: Id<"locations">;
+  /** Practitioner id resolved into the evaluated rule set when possible */
+  practitionerId?: Id<"practitioners">;
 }
 
 /**
@@ -93,12 +100,14 @@ export interface PreloadedDayData {
  * @param db Database reader
  * @param practiceId Practice to query appointments for
  * @param day Day as ISO date string (YYYY-MM-DD format)
+ * @param ruleSetId Rule set whose entity IDs should be used for lookups
  * @param practitioners Pre-loaded practitioners array (reuse from caller to avoid duplicate query)
  */
 export async function buildPreloadedDayData(
   db: DatabaseReader,
   practiceId: Id<"practices">,
   day: string,
+  ruleSetId: Id<"ruleSets">,
   practitioners: Doc<"practitioners">[],
 ): Promise<PreloadedDayData> {
   // Parse the day and compute day boundaries
@@ -130,6 +139,61 @@ export async function buildPreloadedDayData(
     (appointment) => appointment.cancelledAt === undefined,
   );
 
+  const [ruleSetAppointmentTypes, ruleSetLocations] = await Promise.all([
+    db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
+  ]);
+
+  const appointmentTypeIdByLineage = new Map(
+    ruleSetAppointmentTypes
+      .filter((appointmentType) => appointmentType.practiceId === practiceId)
+      .map((appointmentType) => [
+        requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
+        appointmentType._id,
+      ]),
+  );
+  const locationIdByLineage = new Map(
+    ruleSetLocations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [
+        requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
+        location._id,
+      ]),
+  );
+  const practitionerIdByLineage = new Map(
+    practitioners
+      .filter(
+        (practitioner) =>
+          practitioner.practiceId === practiceId &&
+          practitioner.ruleSetId === ruleSetId,
+      )
+      .map((practitioner) => [
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+        practitioner._id,
+      ]),
+  );
+
   // Build parsed appointments with pre-computed epoch times for fast overlap detection
   // Group by scope for efficient CONCURRENT_COUNT filtering
   const parsedAppointmentsByScope = new Map<string, ParsedAppointment[]>();
@@ -140,12 +204,27 @@ export async function buildPreloadedDayData(
   parsedAppointmentsByScope.set(practiceKey, practiceAppointments);
 
   for (const apt of appointments) {
+    const appointmentTypeId = appointmentTypeIdByLineage.get(
+      apt.appointmentTypeLineageKey,
+    );
+    const locationIdForRuleSet = locationIdByLineage.get(
+      apt.locationLineageKey,
+    );
+    const practitionerIdForRuleSet = apt.practitionerLineageKey
+      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+      : undefined;
+
     // Parse times once per appointment (expensive operation)
     const startZdt = Temporal.ZonedDateTime.from(apt.start);
     const endZdt = Temporal.ZonedDateTime.from(apt.end);
     const parsed: ParsedAppointment = {
       appointment: apt,
+      ...(appointmentTypeId ? { appointmentTypeId } : {}),
       endEpochMs: endZdt.epochMilliseconds,
+      ...(locationIdForRuleSet ? { locationId: locationIdForRuleSet } : {}),
+      ...(practitionerIdForRuleSet
+        ? { practitionerId: practitionerIdForRuleSet }
+        : {}),
       startEpochMs: startZdt.epochMilliseconds,
     };
 
@@ -153,17 +232,19 @@ export async function buildPreloadedDayData(
     practiceAppointments.push(parsed);
 
     // Add to location-specific list
-    const locationKey = `location:${apt.locationId}`;
-    let locationAppointments = parsedAppointmentsByScope.get(locationKey);
-    if (!locationAppointments) {
-      locationAppointments = [];
-      parsedAppointmentsByScope.set(locationKey, locationAppointments);
+    if (locationIdForRuleSet) {
+      const locationKey = `location:${locationIdForRuleSet}`;
+      let locationAppointments = parsedAppointmentsByScope.get(locationKey);
+      if (!locationAppointments) {
+        locationAppointments = [];
+        parsedAppointmentsByScope.set(locationKey, locationAppointments);
+      }
+      locationAppointments.push(parsed);
     }
-    locationAppointments.push(parsed);
 
     // Add to practitioner-specific list (if practitioner assigned)
-    if (apt.practitionerId) {
-      const practitionerKey = `practitioner:${apt.practitionerId}`;
+    if (practitionerIdForRuleSet) {
+      const practitionerKey = `practitioner:${practitionerIdForRuleSet}`;
       let practitionerAppointments =
         parsedAppointmentsByScope.get(practitionerKey);
       if (!practitionerAppointments) {
@@ -181,25 +262,57 @@ export async function buildPreloadedDayData(
   // Multiple keys per appointment: practice, location, and practitioner scope
   const dailyCapacityCounts = new Map<string, number>();
   for (const apt of appointments) {
-    const typeId = apt.appointmentTypeId;
+    const typeId = appointmentTypeIdByLineage.get(
+      apt.appointmentTypeLineageKey,
+    );
 
-    // Practice-wide count by appointment type
+    dailyCapacityCounts.set(
+      "practice:__all__",
+      (dailyCapacityCounts.get("practice:__all__") ?? 0) + 1,
+    );
+
+    const locationIdForRuleSet = locationIdByLineage.get(
+      apt.locationLineageKey,
+    );
+    if (locationIdForRuleSet) {
+      const locationAllKey = `location:${locationIdForRuleSet}:__all__`;
+      dailyCapacityCounts.set(
+        locationAllKey,
+        (dailyCapacityCounts.get(locationAllKey) ?? 0) + 1,
+      );
+    }
+
+    const practitionerIdForRuleSet = apt.practitionerLineageKey
+      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+      : undefined;
+    if (practitionerIdForRuleSet) {
+      const practitionerAllKey = `practitioner:${practitionerIdForRuleSet}:__all__`;
+      dailyCapacityCounts.set(
+        practitionerAllKey,
+        (dailyCapacityCounts.get(practitionerAllKey) ?? 0) + 1,
+      );
+    }
+
+    if (!typeId) {
+      continue;
+    }
+
     const practiceTypeKey = `practice:${typeId}`;
     dailyCapacityCounts.set(
       practiceTypeKey,
       (dailyCapacityCounts.get(practiceTypeKey) ?? 0) + 1,
     );
 
-    // Location-specific count by appointment type
-    const locationTypeKey = `location:${apt.locationId}:${typeId}`;
-    dailyCapacityCounts.set(
-      locationTypeKey,
-      (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
-    );
+    if (locationIdForRuleSet) {
+      const locationTypeKey = `location:${locationIdForRuleSet}:${typeId}`;
+      dailyCapacityCounts.set(
+        locationTypeKey,
+        (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
+      );
+    }
 
-    // Practitioner-specific count by appointment type (if practitioner assigned)
-    if (apt.practitionerId) {
-      const practitionerTypeKey = `practitioner:${apt.practitionerId}:${typeId}`;
+    if (practitionerIdForRuleSet) {
+      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${typeId}`;
       dailyCapacityCounts.set(
         practitionerTypeKey,
         (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
@@ -217,7 +330,9 @@ export async function buildPreloadedDayData(
 
   // Build practitioners map from passed-in array
   const practitionersMap = new Map<Id<"practitioners">, Doc<"practitioners">>();
-  for (const practitioner of practitioners) {
+  for (const practitioner of practitioners.filter(
+    (candidate) => candidate.ruleSetId === ruleSetId,
+  )) {
     practitionersMap.set(practitioner._id, practitioner);
   }
 
@@ -446,7 +561,7 @@ function evaluateCondition(
         ) {
           // Check appointment type filter if specified
           if (appointmentTypeIds.length > 0) {
-            const aptTypeId = parsed.appointment.appointmentTypeId;
+            const aptTypeId = parsed.appointmentTypeId;
             if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
               continue;
             }
@@ -469,7 +584,12 @@ function evaluateCondition(
         return false;
       }
 
-      const scope = condition.scope ?? "practitioner"; // Default to practitioner for backward compatibility
+      const scope = condition.scope;
+      if (!scope) {
+        throw new Error(
+          "DAILY_CAPACITY condition is missing required scope. Data corruption?",
+        );
+      }
       const appointmentTypeIds = valueIds ?? [];
 
       // Use pre-computed daily capacity counts - O(k) where k is number of appointment types to sum
@@ -483,20 +603,14 @@ function evaluateCondition(
       // If no specific appointment types are specified, we need to count all appointments
       // For this, we'll sum up the counts for all appointment types in the pre-computed map
       if (appointmentTypeIds.length === 0) {
-        // Count all appointments matching the scope
-        // This requires iterating the keys - still O(k) where k is unique appointment types
         const keyPrefix =
           scope === "practice"
-            ? "practice:"
+            ? "practice:__all__"
             : scope === "location"
-              ? `location:${context.locationId}:`
-              : `practitioner:${context.practitionerId}:`;
+              ? `location:${context.locationId}:__all__`
+              : `practitioner:${context.practitionerId}:__all__`;
 
-        for (const [key, count] of preloadedData.dailyCapacityCounts) {
-          if (key.startsWith(keyPrefix)) {
-            totalCount += count;
-          }
-        }
+        totalCount = preloadedData.dailyCapacityCounts.get(keyPrefix) ?? 0;
       } else {
         // Sum up counts for each specified appointment type
         for (const typeId of appointmentTypeIds) {
@@ -536,30 +650,14 @@ function evaluateCondition(
       const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
       const dayOfWeek = appointmentZoned.dayOfWeek; // ISO: 1=Monday, 7=Sunday
 
-      // Handle both old format (valueIds with day names) and new format (valueNumber)
-      let targetDayOfWeek: number | undefined = valueNumber;
-
-      // Backward compatibility: if valueNumber is undefined but valueIds has a day name, convert it
-      // Using ISO 8601 format: 1=Monday, 7=Sunday
-      if (targetDayOfWeek === undefined && valueIds && valueIds.length > 0) {
-        const dayName = valueIds[0];
-        const dayMap: Record<string, number> = {
-          FRIDAY: 5,
-          MONDAY: 1,
-          SATURDAY: 6,
-          SUNDAY: 7, // ISO 8601: Sunday is 7, not 0
-          THURSDAY: 4,
-          TUESDAY: 2,
-          WEDNESDAY: 3,
-        };
-        targetDayOfWeek = dayName ? dayMap[dayName] : undefined;
-      }
+      const targetDayOfWeek = valueNumber;
 
       if (targetDayOfWeek === undefined) {
-        return false;
+        throw new Error(
+          "DAY_OF_WEEK condition is missing required valueNumber. Data corruption?",
+        );
       }
 
-      // Handle both EQUALS (new format) and IS (old format) operators
       if (operator === "IS" || operator === "EQUALS") {
         return dayOfWeek === targetDayOfWeek;
       } else if (operator === "IS_NOT") {
@@ -814,6 +912,7 @@ export const checkRulesForAppointment = internalQuery({
       ctx.db,
       args.context.practiceId,
       dateStr,
+      args.ruleSetId,
       practitioners,
     );
 
@@ -1190,6 +1289,21 @@ export function validateConditionTree(
       (!node.valueIds || node.valueIds.length === 0)
     ) {
       errors.push("CONDITION node must have either valueNumber or valueIds");
+    }
+    if (
+      (node.conditionType === "CONCURRENT_COUNT" ||
+        node.conditionType === "DAILY_CAPACITY") &&
+      node.scope === undefined
+    ) {
+      errors.push(
+        `${node.conditionType} condition must define scope explicitly`,
+      );
+    }
+    if (
+      node.conditionType === "DAY_OF_WEEK" &&
+      node.valueNumber === undefined
+    ) {
+      errors.push("DAY_OF_WEEK condition must use valueNumber");
     }
   } else if (isLogicalNode(node)) {
     // Validate logical operator - children array is guaranteed by type guard

@@ -2,7 +2,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2, User } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -19,12 +19,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import { asPractitionerId, asPractitionerLineageKey } from "@/convex/identity";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -36,6 +38,11 @@ import {
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
 import { useErrorTracking } from "../utils/error-tracking";
+import {
+  findFrontendEntityByEntityId,
+  findFrontendEntityByLineageKey,
+  mapFrontendLineageEntities,
+} from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
@@ -65,7 +72,10 @@ interface PractitionerManagementProps {
 
 type PractitionersResult =
   (typeof api.entities.getPractitioners)["_returnType"];
-type PractitionerWithLineage = PractitionersResult[number];
+type PractitionerWithLineage = FrontendLineageEntity<
+  "practitioners",
+  PractitionersResult[number]
+>;
 
 export default function PractitionerManagement({
   onDraftMutation,
@@ -85,10 +95,24 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef(practitionersQuery ?? []);
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "PractitionerManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const practitionersRef = useRef(practitioners);
   useEffect(() => {
-    practitionersRef.current = practitionersQuery ?? [];
-  }, [practitionersQuery]);
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -119,14 +143,16 @@ export default function PractitionerManagement({
 
   const handleDelete = async (practitionerId: Id<"practitioners">) => {
     try {
-      const practitionerLineageKey = practitionersRef.current.find(
-        (entry) => entry._id === practitionerId,
-      )?.lineageKey;
+      const practitioner = findFrontendEntityByEntityId(
+        practitionersRef.current,
+        asPractitionerId(practitionerId),
+      );
       const deleteResult = await deleteWithDependenciesMutation({
         practiceId,
         practitionerId,
         ...getCowMutationArgs(),
-        ...(practitionerLineageKey && { practitionerLineageKey }),
+        practitionerLineageKey:
+          practitioner?.lineageKey ?? asPractitionerLineageKey(practitionerId),
       });
       handleDraftMutationResult(deleteResult);
       let currentSnapshot = deleteResult.snapshot;
@@ -134,9 +160,9 @@ export default function PractitionerManagement({
       onRegisterHistoryAction?.({
         label: "Arzt gelöscht",
         redo: async () => {
-          const existingByLineage = practitionersRef.current.find(
-            (entry) =>
-              entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+          const existingByLineage = findFrontendEntityByLineageKey(
+            practitionersRef.current,
+            asPractitionerLineageKey(currentSnapshot.practitioner.lineageKey),
           );
           if (!existingByLineage) {
             return { status: "applied" as const };
@@ -156,9 +182,11 @@ export default function PractitionerManagement({
             return { status: "applied" as const };
           } catch (error: unknown) {
             if (isMissingEntityError(error)) {
-              const currentByLineage = practitionersRef.current.find(
-                (entry) =>
-                  entry.lineageKey === currentSnapshot.practitioner.lineageKey,
+              const currentByLineage = findFrontendEntityByLineageKey(
+                practitionersRef.current,
+                asPractitionerLineageKey(
+                  currentSnapshot.practitioner.lineageKey,
+                ),
               );
               if (!currentByLineage) {
                 return { status: "applied" as const };
@@ -263,7 +291,7 @@ export default function PractitionerManagement({
       </CardHeader>
       <CardContent>
         {practitionersQuery ? (
-          practitionersQuery.length === 0 ? (
+          practitioners.length === 0 ? (
             <div className="text-center py-8">
               <User className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <div className="text-muted-foreground mb-4">
@@ -281,7 +309,7 @@ export default function PractitionerManagement({
             </div>
           ) : (
             <div className="space-y-2">
-              {practitionersQuery.map((practitioner) => (
+              {practitioners.map((practitioner) => (
                 <div
                   className="p-4 border rounded-lg hover:bg-accent transition-colors"
                   key={practitioner._id}
@@ -352,10 +380,24 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitionersRef = useRef(practitionersQuery ?? []);
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "PractitionerDialog",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const practitionersRef = useRef(practitioners);
   useEffect(() => {
-    practitionersRef.current = practitionersQuery ?? [];
-  }, [practitionersQuery]);
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -398,7 +440,7 @@ function PractitionerDialog({
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
             entitiesRef: practitionersRef,
-            initialEntityId: updateResult.entityId,
+            initialEntityId: asPractitionerId(updateResult.entityId),
             label: "Arzt aktualisiert",
             lineageKey: practitionerLineageKey,
             onRegisterHistoryAction,
@@ -412,7 +454,7 @@ function PractitionerDialog({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
-              return { entityId: redoResult.entityId };
+              return { entityId: asPractitionerId(redoResult.entityId) };
             },
             runUndo: async (currentPractitionerId) => {
               const undoResult = await updateMutation({
@@ -422,7 +464,7 @@ function PractitionerDialog({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
-              return { entityId: undoResult.entityId };
+              return { entityId: asPractitionerId(undoResult.entityId) };
             },
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -449,9 +491,10 @@ function PractitionerDialog({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(createResult);
-          const { entityId } = createResult;
-
-          const practitionerLineageKey = entityId;
+          const entityId = asPractitionerId(createResult.entityId);
+          const practitionerLineageKey = asPractitionerLineageKey(
+            createResult.entityId,
+          );
           registerLineageCreateHistoryAction({
             entitiesRef: practitionersRef,
             initialEntityId: entityId,
@@ -467,7 +510,7 @@ function PractitionerDialog({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(recreateResult);
-              return { entityId: recreateResult.entityId };
+              return { entityId: asPractitionerId(recreateResult.entityId) };
             },
             runDelete: async (currentPractitionerId) => {
               const undoResult = await deleteMutation({
@@ -476,7 +519,7 @@ function PractitionerDialog({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
-              return { entityId: undoResult.entityId };
+              return { entityId: asPractitionerId(undoResult.entityId) };
             },
             validateBeforeCreate: () => {
               const duplicate = practitionersRef.current.find(

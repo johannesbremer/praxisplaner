@@ -466,19 +466,25 @@ export default defineSchema({
     title: v.string(), // User-provided title for the appointment
 
     // Additional fields
-    appointmentTypeId: v.id("appointmentTypes"), // Required reference to appointment type
+    appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
     cancelledAt: v.optional(v.int64()),
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
-    locationId: v.id("locations"),
+    locationLineageKey: v.id("locations"), // Stable reference across rule set versions
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerId: v.optional(v.id("practitioners")),
+    practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
+    reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
     seriesStepId: v.optional(v.string()),
     seriesStepIndex: v.optional(v.int64()),
+    simulationKind: v.optional(
+      v.union(v.literal("draft"), v.literal("activation-reassignment")),
+    ),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
+    simulationValidatedAt: v.optional(v.int64()),
     userId: v.optional(v.id("users")),
 
     // Metadata
@@ -487,12 +493,17 @@ export default defineSchema({
   })
     .index("by_start", ["start"])
     .index("by_patientId", ["patientId"])
-    .index("by_practitionerId", ["practitionerId"])
+    .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
-    .index("by_appointmentTypeId", ["appointmentTypeId"])
+    .index("by_simulationRuleSetId_reassignmentSourceVacationLineageKey", [
+      "simulationRuleSetId",
+      "reassignmentSourceVacationLineageKey",
+    ])
+    .index("by_simulationRuleSetId", ["simulationRuleSetId"])
+    .index("by_appointmentTypeLineageKey", ["appointmentTypeLineageKey"])
     .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
     .index("by_userId_start", ["userId", "start"]),
@@ -525,6 +536,7 @@ export default defineSchema({
   appointmentTypes: defineTable({
     allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
     createdAt: v.int64(),
+    deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
     followUpPlan: followUpPlanValidator,
     lastModified: v.int64(),
@@ -877,6 +889,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   locations: defineTable({
+    deleted: v.optional(v.boolean()),
     lineageKey: v.optional(v.id("locations")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("locations")), // Reference to the entity this was copied from
@@ -912,8 +925,13 @@ export default defineSchema({
     dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
     firstName: v.optional(v.string()), // FK 3102
     lastName: v.optional(v.string()), // FK 3101
-    patientId: v.number(), // FK 3000 - Required, unique identifier as integer
+    name: v.optional(v.string()), // Temporary patients use a single display name
+    patientId: v.optional(v.number()), // FK 3000 - Present for PVS patients
+    phoneNumber: v.optional(v.string()),
     practiceId: v.id("practices"), // Multi-tenancy support
+    recordType: v.union(v.literal("pvs"), v.literal("temporary")),
+    searchFirstName: v.string(),
+    searchLastName: v.string(),
     street: v.optional(v.string()), // FK 3107 - Street address
 
     // Metadata and tracking fields
@@ -922,9 +940,18 @@ export default defineSchema({
     sourceGdtFileName: v.optional(v.string()), // Original GDT filename for reference
   })
     .index("by_patientId", ["patientId"])
+    .index("by_practiceId_patientId", ["practiceId", "patientId"])
     .index("by_lastModified", ["lastModified"])
     .index("by_createdAt", ["createdAt"])
-    .index("by_practiceId", ["practiceId"]),
+    .index("by_practiceId", ["practiceId"])
+    .searchIndex("search_by_searchFirstName", {
+      filterFields: ["practiceId"],
+      searchField: "searchFirstName",
+    })
+    .searchIndex("search_by_searchLastName", {
+      filterFields: ["practiceId"],
+      searchField: "searchLastName",
+    }),
 
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
@@ -967,6 +994,7 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   practitioners: defineTable({
+    deleted: v.optional(v.boolean()),
     lineageKey: v.optional(v.id("practitioners")), // Stable identity across copied rule sets
     name: v.string(),
     parentId: v.optional(v.id("practitioners")), // Reference to the entity this was copied from

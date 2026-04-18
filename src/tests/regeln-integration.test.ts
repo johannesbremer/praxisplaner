@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { AppointmentResult } from "@/convex/appointments";
 
 import type { SchedulingSimulatedContext } from "../types";
 
-const baseAppointment: Doc<"appointments"> = {
+const baseAppointment: AppointmentResult = {
   _creationTime: 0,
   _id: "appointment-base" as Id<"appointments">,
   appointmentTypeId: "appointmentType1" as Id<"appointmentTypes">,
@@ -19,8 +20,8 @@ const baseAppointment: Doc<"appointments"> = {
 };
 
 const createAppointment = (
-  overrides: Partial<Doc<"appointments">> = {},
-): Doc<"appointments"> => ({
+  overrides: Partial<AppointmentResult> = {},
+): AppointmentResult => ({
   ...baseAppointment,
   ...overrides,
 });

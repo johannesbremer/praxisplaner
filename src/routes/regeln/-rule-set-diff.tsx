@@ -307,6 +307,13 @@ function formatChangedStructuredDiffValues(
     };
   }
 
+  if (section.key === "appointmentCoverage") {
+    return {
+      after: stringValue(after["practitionerName"]),
+      before: stringValue(before["practitionerName"]),
+    };
+  }
+
   const changedKeys = [
     ...new Set([...Object.keys(before), ...Object.keys(after)]),
   ].filter(
@@ -515,6 +522,7 @@ function formatStructuredKey(key: string) {
     name: "Name",
     nodeType: "Logik",
     operator: "Operator",
+    patientLastName: "Patient",
     portion: "Teil",
     practitionerName: "Behandler",
     scope: "Geltungsbereich",
@@ -611,6 +619,10 @@ function getDiffItemPath(
     ]
       .filter(Boolean)
       .join(" > ");
+  }
+
+  if (section.key === "appointmentCoverage") {
+    return stringValue(parsed["patientLastName"]);
   }
 
   if (section.key === "rules") {
@@ -1068,6 +1080,7 @@ function RuleSetDiffSectionView({
   projectedSection: ProjectedRuleSetDiffSection;
 }) {
   const { rows, section } = projectedSection;
+  const isAppointmentCoverageSection = section.key === "appointmentCoverage";
   const isRuleSection = section.key === "rules";
   const modifiedRows = rows.filter((row) => row.kind === "modified");
   const singleValueRows = rows.filter((row) => row.kind !== "modified");
@@ -1101,6 +1114,21 @@ function RuleSetDiffSectionView({
                           </div>
                         </div>
                       </td>
+                    ) : isAppointmentCoverageSection ? (
+                      <>
+                        <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
+                          {row.path}
+                        </td>
+                        <td className="border-l px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-red-950">{row.before}</span>
+                            <span className="text-muted-foreground">-&gt;</span>
+                            <span className="text-emerald-950">
+                              {row.after}
+                            </span>
+                          </div>
+                        </td>
+                      </>
                     ) : (
                       <>
                         <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">

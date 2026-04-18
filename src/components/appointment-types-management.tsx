@@ -13,6 +13,10 @@ import { toast } from "sonner";
 import * as z from "zod";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  AppointmentTypeLineageKey,
+  PractitionerLineageKey,
+} from "@/convex/identity";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,12 +49,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import {
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+} from "@/convex/identity";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -61,9 +72,22 @@ import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
-
-type AppointmentType = AppointmentTypesResult[number];
-
+import {
+  findFrontendEntityByEntityId,
+  mapFrontendLineageEntities,
+} from "../utils/frontend-lineage";
+type AppointmentType = FrontendLineageEntity<
+  "appointmentTypes",
+  AppointmentTypeQueryResult[number]
+>;
+interface AppointmentTypeFormValues {
+  duration: number;
+  followUpPlan: FollowUpPlanFormStep[];
+  name: string;
+  practitionerIds: Id<"practitioners">[];
+}
+type AppointmentTypeQueryResult =
+  (typeof api.entities.getAppointmentTypes)["_returnType"];
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
@@ -72,15 +96,47 @@ interface AppointmentTypesManagementProps {
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
-type AppointmentTypesResult =
-  (typeof api.entities.getAppointmentTypes)["_returnType"];
+interface FollowUpPlanFormStep {
+  appointmentTypeLineageKey: FollowUpPlanTargetSelection;
+  offsetUnit: FollowUpPlanOffsetUnit;
+  offsetValue: number;
+}
+type FollowUpPlanOffsetUnit = FollowUpPlanStep["offsetUnit"];
 type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
+type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
+
+type Practitioner = FrontendLineageEntity<
+  "practitioners",
+  PractitionerQueryResult[number]
+>;
+
+type PractitionerQueryResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+
+const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
+  duration: 30,
+  followUpPlan: [],
+  name: "",
+  practitionerIds: [],
+};
+
+const appointmentTypeLineageSelectionSchema =
+  z.custom<FollowUpPlanTargetSelection>(
+    (value) => typeof value === "string",
+    "Bitte wählen Sie eine Terminart",
+  );
+
+const practitionerIdSchema = z.custom<Id<"practitioners">>(
+  (value) => typeof value === "string",
+  "Ungültiger Behandler",
+);
 
 const followUpStepSchema = z
   .object({
-    appointmentTypeLineageKey: z
-      .string()
-      .min(1, "Bitte wählen Sie eine Terminart"),
+    appointmentTypeLineageKey: appointmentTypeLineageSelectionSchema.refine(
+      (value) => value !== "",
+      "Bitte wählen Sie eine Terminart",
+    ),
     offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
     offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
   })
@@ -113,10 +169,9 @@ const followUpStepSchema = z
       });
     }
   });
-type FollowUpPlanFormStep = z.infer<typeof followUpStepSchema>;
 
 const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
-  appointmentTypeLineageKey: "" as Id<"appointmentTypes">,
+  appointmentTypeLineageKey: "",
   offsetUnit: "days",
   offsetValue: 1,
 });
@@ -139,8 +194,7 @@ const normalizeFollowUpPlanForSubmit = (
   }
 
   return steps.map((step, index) => ({
-    appointmentTypeLineageKey:
-      step.appointmentTypeLineageKey as Id<"appointmentTypes">,
+    appointmentTypeLineageKey: resolveSelectedAppointmentTypeLineageKey(step),
     locationMode: "inherit",
     offsetUnit: step.offsetUnit,
     offsetValue: normalizeFollowUpOffsetValue(
@@ -204,11 +258,29 @@ const normalizeFollowUpOffsetValue = (
   return Math.max(1, normalizedInteger);
 };
 
+const parseFollowUpOffsetUnit = (
+  value: string,
+): FollowUpPlanOffsetUnit | undefined => {
+  switch (value) {
+    case "days":
+    case "minutes":
+    case "months":
+    case "weeks": {
+      return value;
+    }
+    default: {
+      return undefined;
+    }
+  }
+};
+
 const normalizeFollowUpPlanForForm = (
   followUpPlan: FollowUpPlanStep[] | undefined,
 ): FollowUpPlanFormStep[] =>
   (followUpPlan ?? []).map((step) => ({
-    appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      step.appointmentTypeLineageKey,
+    ),
     offsetUnit: step.offsetUnit,
     offsetValue: normalizeFollowUpOffsetValue(
       step.offsetUnit,
@@ -246,9 +318,9 @@ const formSchema = z.object({
     .min(2, "Name muss mindestens 2 Zeichen lang sein")
     .max(50, "Name darf maximal 50 Zeichen lang sein"),
   practitionerIds: z
-    .array(z.string())
+    .array(practitionerIdSchema)
     .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
-});
+}) satisfies z.ZodType<AppointmentTypeFormValues>;
 
 interface PractitionerHistorySnapshot {
   lineageId: Id<"practitioners">;
@@ -299,6 +371,16 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
+const resolveSelectedAppointmentTypeLineageKey = (
+  step: FollowUpPlanFormStep,
+): AppointmentTypeLineageKey => {
+  if (step.appointmentTypeLineageKey === "") {
+    throw new Error("Bitte wählen Sie eine Terminart.");
+  }
+
+  return step.appointmentTypeLineageKey;
+};
+
 export function AppointmentTypesManagement({
   onDraftMutation,
   onRegisterHistoryAction,
@@ -328,11 +410,21 @@ export function AppointmentTypesManagement({
   );
 
   const appointmentTypes: AppointmentType[] = useMemo(
-    () => appointmentTypesQuery ?? [],
+    () =>
+      mapFrontendLineageEntities({
+        entities: appointmentTypesQuery ?? [],
+        entityType: "appointment type",
+        source: "AppointmentTypesManagement",
+      }),
     [appointmentTypesQuery],
   );
-  const practitioners = useMemo(
-    () => practitionersQuery ?? [],
+  const practitioners: Practitioner[] = useMemo(
+    () =>
+      mapFrontendLineageEntities({
+        entities: practitionersQuery ?? [],
+        entityType: "practitioner",
+        source: "AppointmentTypesManagement",
+      }),
     [practitionersQuery],
   );
   const appointmentTypesRef = useRef(appointmentTypes);
@@ -363,7 +455,9 @@ export function AppointmentTypesManagement({
   const upsertAppointmentTypeRef = useCallback(
     (
       appointmentType: AppointmentType,
-      options?: { previousLineageKey?: Id<"appointmentTypes"> | undefined },
+      options?: {
+        previousLineageKey?: AppointmentTypeLineageKey | undefined;
+      },
     ) => {
       const next = [...appointmentTypesRef.current];
       const matchIndex = next.findIndex(
@@ -387,7 +481,7 @@ export function AppointmentTypesManagement({
   const removeAppointmentTypeFromRef = useCallback(
     (params: {
       id: Id<"appointmentTypes">;
-      lineageKey?: Id<"appointmentTypes"> | undefined;
+      lineageKey?: AppointmentTypeLineageKey | undefined;
     }) => {
       appointmentTypesRef.current = appointmentTypesRef.current.filter(
         (existing) =>
@@ -399,10 +493,13 @@ export function AppointmentTypesManagement({
     [],
   );
 
-  const resolvePractitionerLineageKey = (practitionerId: Id<"practitioners">) =>
-    practitionersRef.current.find(
-      (practitioner) => practitioner._id === practitionerId,
-    )?.lineageKey ?? practitionerId;
+  const resolvePractitionerLineageKey = (
+    practitionerId: Id<"practitioners">,
+  ): PractitionerLineageKey =>
+    findFrontendEntityByEntityId(
+      practitionersRef.current,
+      asPractitionerId(practitionerId),
+    )?.lineageKey ?? asPractitionerLineageKey(practitionerId);
 
   const createPractitionerSnapshots = (
     practitionerIds: Id<"practitioners">[],
@@ -416,7 +513,7 @@ export function AppointmentTypesManagement({
 
     return practitionerIds.map((id) => ({
       lineageId: resolvePractitionerLineageKey(id),
-      name: nameById.get(id) ?? id,
+      name: nameById.get(asPractitionerId(id)) ?? id,
     }));
   };
 
@@ -428,22 +525,16 @@ export function AppointmentTypesManagement({
       .toSorted();
 
   const form = useForm({
-    defaultValues: {
-      duration: 30,
-      followUpPlan: [] as FollowUpPlanFormStep[],
-      name: "",
-      practitionerIds: [] as string[],
-    },
+    defaultValues: defaultAppointmentTypeFormValues,
     onSubmit: async ({ value }) => {
       try {
         const trimmedName = value.name.trim();
         const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
           value.followUpPlan,
         );
-        const formPractitionerIds =
-          value.practitionerIds as Id<"practitioners">[];
-        const formPractitionerSnapshots =
-          createPractitionerSnapshots(formPractitionerIds);
+        const formPractitionerSnapshots = createPractitionerSnapshots(
+          value.practitionerIds,
+        );
         const resolvedFormPractitionerIds = practitionerIdsFromSnapshots(
           formPractitionerSnapshots,
         );
@@ -490,7 +581,7 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef(
             {
               ...editingAppointmentType,
-              _id: updateResult.entityId,
+              _id: asAppointmentTypeId(updateResult.entityId),
               allowedPractitionerIds: afterState.practitionerIds,
               duration: afterState.duration,
               followUpPlan: afterState.followUpPlan ?? [],
@@ -603,22 +694,23 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(createResult);
+          const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+            createResult.entityId,
+          );
           upsertAppointmentTypeRef({
             _creationTime: 0,
-            _id: createResult.entityId,
+            _id: asAppointmentTypeId(createResult.entityId),
             allowedPractitionerIds: resolvedFormPractitionerIds.ids,
             createdAt: 0n,
             duration: value.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
             lastModified: 0n,
-            lineageKey: createResult.entityId,
+            lineageKey: appointmentTypeLineageKey,
             name: trimmedName,
             practiceId,
             ruleSetId: createResult.ruleSetId,
           });
           const { entityId } = createResult;
-
-          const appointmentTypeLineageKey = entityId;
 
           registerLineageCreateHistoryAction({
             entitiesRef: appointmentTypesRef,
@@ -681,7 +773,10 @@ export function AppointmentTypesManagement({
       }
     },
     validators: {
-      onSubmit: formSchema,
+      onSubmit: ({ value }) => {
+        const result = formSchema.safeParse(value);
+        return result.success ? undefined : result.error;
+      },
     },
   });
 
@@ -699,7 +794,9 @@ export function AppointmentTypesManagement({
 
   const openEditDialog = (appointmentType: AppointmentType) => {
     const availablePractitionerIds = new Set(
-      practitioners.map((practitioner) => practitioner._id),
+      practitioners.map(
+        (practitioner) => practitioner._id as Id<"practitioners">,
+      ),
     );
     const validPractitionerIds = appointmentType.allowedPractitionerIds.filter(
       (practitionerId) => availablePractitionerIds.has(practitionerId),
@@ -832,7 +929,7 @@ export function AppointmentTypesManagement({
           handleDraftMutationResult(recreateResult);
           upsertAppointmentTypeRef({
             _creationTime: 0,
-            _id: recreateResult.entityId,
+            _id: asAppointmentTypeId(recreateResult.entityId),
             allowedPractitionerIds: resolvedUndoPractitionerIds.ids,
             createdAt: 0n,
             duration: deletedSnapshot.duration,
@@ -843,7 +940,9 @@ export function AppointmentTypesManagement({
             practiceId,
             ruleSetId: recreateResult.ruleSetId,
           });
-          currentAppointmentTypeId = recreateResult.entityId;
+          currentAppointmentTypeId = asAppointmentTypeId(
+            recreateResult.entityId,
+          );
           return { status: "applied" as const };
         },
       });
@@ -921,15 +1020,7 @@ export function AppointmentTypesManagement({
                               placeholder="z.B. Erstgespräch, Kontrolltermin"
                               value={field.state.value}
                             />
-                            <FieldError>
-                              {field.state.meta.errors
-                                .map((error) =>
-                                  typeof error === "string"
-                                    ? error
-                                    : (error?.message ?? ""),
-                                )
-                                .join(", ")}
-                            </FieldError>
+                            <FieldError errors={field.state.meta.errors} />
                           </Field>
                         );
                       }}
@@ -965,15 +1056,7 @@ export function AppointmentTypesManagement({
                               type="number"
                               value={field.state.value}
                             />
-                            <FieldError>
-                              {field.state.meta.errors
-                                .map((error) =>
-                                  typeof error === "string"
-                                    ? error
-                                    : (error?.message ?? ""),
-                                )
-                                .join(", ")}
-                            </FieldError>
+                            <FieldError errors={field.state.meta.errors} />
                           </Field>
                         );
                       }}
@@ -1092,10 +1175,17 @@ export function AppointmentTypesManagement({
                                               <FieldLabel>Terminart</FieldLabel>
                                               <Select
                                                 onValueChange={(value) => {
+                                                  const selectedAppointmentType =
+                                                    availableTargets.find(
+                                                      (appointmentType) =>
+                                                        appointmentType.lineageKey ===
+                                                        value,
+                                                    );
                                                   itemField.handleChange({
                                                     ...itemField.state.value,
                                                     appointmentTypeLineageKey:
-                                                      value as Id<"appointmentTypes">,
+                                                      selectedAppointmentType?.lineageKey ??
+                                                      "",
                                                   });
                                                 }}
                                                 {...(selectedTargetExists
@@ -1192,7 +1282,12 @@ export function AppointmentTypesManagement({
                                               <Select
                                                 onValueChange={(value) => {
                                                   const nextOffsetUnit =
-                                                    value as FollowUpPlanStep["offsetUnit"];
+                                                    parseFollowUpOffsetUnit(
+                                                      value,
+                                                    );
+                                                  if (!nextOffsetUnit) {
+                                                    return;
+                                                  }
                                                   itemField.handleChange({
                                                     ...itemField.state.value,
                                                     offsetUnit: nextOffsetUnit,
@@ -1248,15 +1343,7 @@ export function AppointmentTypesManagement({
                                 Kettentermin hinzufügen
                               </Button>
                             </div>
-                            <FieldError>
-                              {field.state.meta.errors
-                                .map((error) =>
-                                  typeof error === "string"
-                                    ? error
-                                    : (error?.message ?? ""),
-                                )
-                                .join(", ")}
-                            </FieldError>
+                            <FieldError errors={field.state.meta.errors} />
                           </FieldSet>
                         );
                       }}
@@ -1327,15 +1414,7 @@ export function AppointmentTypesManagement({
                                 ))
                               )}
                             </FieldGroup>
-                            <FieldError>
-                              {field.state.meta.errors
-                                .map((error) =>
-                                  typeof error === "string"
-                                    ? error
-                                    : (error?.message ?? ""),
-                                )
-                                .join(", ")}
-                            </FieldError>
+                            <FieldError errors={field.state.meta.errors} />
                           </FieldSet>
                         );
                       }}

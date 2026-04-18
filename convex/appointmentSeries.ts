@@ -3,17 +3,27 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { SchedulingResultSlot } from "./scheduling";
+import type { InternalSchedulingResultSlot } from "./scheduling";
 
 import { internal } from "./_generated/api";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
+  getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import { resolveOccupancyReferenceLineageKeys } from "./appointmentReferences";
 import {
   type FollowUpStep,
+  normalizeFollowUpPlan,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
+import {
+  type AppointmentTypeLineageKey,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asPractitionerId,
+} from "./identity";
+import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
 
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
@@ -74,13 +84,14 @@ export const appointmentSeriesArgsValidator = {
   rootAppointmentTypeId: v.id("appointmentTypes"),
   ruleSetId: v.id("ruleSets"),
   scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+  simulationRuleSetId: v.optional(v.id("ruleSets")),
   start: v.string(),
   userId: v.optional(v.id("users")),
 };
 
 export interface PlannedSeriesStep {
   appointmentTypeId: Id<"appointmentTypes">;
-  appointmentTypeLineageKey: Id<"appointmentTypes">;
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
   durationMinutes: number;
   end: string;
@@ -108,6 +119,7 @@ interface RootSeriesCandidate {
   practiceId: Id<"practices">;
   practitionerId: Id<"practitioners">;
   scope?: AppointmentBookingScope;
+  simulationRuleSetId?: Id<"ruleSets">;
   start: string;
   title?: string;
   userId?: Id<"users">;
@@ -127,7 +139,7 @@ interface SeriesPlanningResult {
 interface SeriesPlanningState {
   baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
   eligibleWeekdays: Map<string, number[]>;
-  slotCache: Map<string, SchedulingResultSlot[]>;
+  slotCache: Map<string, InternalSchedulingResultSlot[]>;
 }
 
 interface SeriesSpecification {
@@ -151,6 +163,7 @@ export async function createAppointmentSeries(
     rootTitle: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     userId?: Id<"users">;
   },
@@ -188,6 +201,13 @@ export async function createAppointmentSeries(
     appointmentId: Id<"appointments">;
   })[] = [];
   const scope = args.scope ?? "real";
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
+    ruleSetId: args.ruleSetId,
+    scope,
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
   const patientDateOfBirth = await resolvePatientDateOfBirth(ctx, {
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
@@ -196,15 +216,22 @@ export async function createAppointmentSeries(
   });
 
   for (const [index, step] of preview.steps.entries()) {
+    const occupancyReferences = await resolveOccupancyReferenceLineageKeys(
+      ctx.db,
+      {
+        locationId: asLocationId(step.locationId),
+        practitionerId: asPractitionerId(step.practitionerId),
+      },
+    );
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
-        locationId: step.locationId,
-        practitionerId: step.practitionerId,
+        ...occupancyReferences,
         start: step.start,
       },
+      ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
+      occupancyView: getOccupancyViewForBookingScope(scope),
       practiceId: args.practiceId,
-      scope,
       ...(index === 0 &&
         args.rootReplacesAppointmentId && {
           excludeAppointmentIds: [args.rootReplacesAppointmentId],
@@ -219,16 +246,20 @@ export async function createAppointmentSeries(
     }
 
     const appointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeId: step.appointmentTypeId,
+      appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+      ...occupancyReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
       createdAt: now,
       end: step.end,
-      ...(scope === "simulation" && { isSimulation: true }),
+      ...(scope === "simulation" && {
+        isSimulation: true,
+        simulationKind: "draft" as const,
+        ...(simulationRuleSetId && { simulationRuleSetId }),
+        simulationValidatedAt: now,
+      }),
       lastModified: now,
-      locationId: step.locationId,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
-      practitionerId: step.practitionerId,
       ...(index === 0 &&
         args.rootReplacesAppointmentId && {
           replacesAppointmentId: args.rootReplacesAppointmentId,
@@ -270,8 +301,12 @@ export async function createAppointmentSeries(
     practiceId: args.practiceId,
     rootAppointmentId,
     rootAppointmentTypeId: rootAppointmentType._id,
-    rootAppointmentTypeLineageKey:
-      rootAppointmentType.lineageKey ?? rootAppointmentType._id,
+    rootAppointmentTypeLineageKey: requireLineageKey({
+      entityId: rootAppointmentType._id,
+      entityType: "appointment type",
+      lineageKey: rootAppointmentType.lineageKey,
+      ruleSetId: rootAppointmentType.ruleSetId,
+    }),
     rootDurationMinutes: rootAppointmentType.duration,
     ruleSetIdAtBooking: args.ruleSetId,
     scope,
@@ -312,6 +347,9 @@ export async function planSeriesFromRootCandidate(
     rootDurationMinutes: args.seriesSpecification.rootDurationMinutes,
     ruleSetId: args.seriesSpecification.ruleSetId,
     ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
+    ...(args.rootCandidate.simulationRuleSetId && {
+      simulationRuleSetId: args.rootCandidate.simulationRuleSetId,
+    }),
     start: args.rootCandidate.start,
   });
 
@@ -321,9 +359,14 @@ export async function planSeriesFromRootCandidate(
 
   const rootStep: PlannedSeriesStep = {
     appointmentTypeId: args.seriesSpecification.rootAppointmentType._id,
-    appointmentTypeLineageKey:
-      args.seriesSpecification.rootAppointmentType.lineageKey ??
-      args.seriesSpecification.rootAppointmentType._id,
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      requireLineageKey({
+        entityId: args.seriesSpecification.rootAppointmentType._id,
+        entityType: "appointment type",
+        lineageKey: args.seriesSpecification.rootAppointmentType.lineageKey,
+        ruleSetId: args.seriesSpecification.rootAppointmentType.ruleSetId,
+      }),
+    ),
     appointmentTypeTitle: args.seriesSpecification.rootAppointmentType.name,
     durationMinutes: args.seriesSpecification.rootDurationMinutes,
     end: calculateEndTime(
@@ -369,6 +412,9 @@ export async function planSeriesFromRootCandidate(
       requestedAt: args.requestedAt,
       ruleSetId: args.seriesSpecification.ruleSetId,
       ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
+      ...(args.rootCandidate.simulationRuleSetId && {
+        simulationRuleSetId: args.rootCandidate.simulationRuleSetId,
+      }),
       step,
       targetAppointmentType,
       ...(args.rootCandidate.excludedAppointmentIds && {
@@ -390,8 +436,14 @@ export async function planSeriesFromRootCandidate(
 
     const plannedStep: PlannedSeriesStep = {
       appointmentTypeId: targetAppointmentType._id,
-      appointmentTypeLineageKey:
-        targetAppointmentType.lineageKey ?? targetAppointmentType._id,
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        requireLineageKey({
+          entityId: targetAppointmentType._id,
+          entityType: "appointment type",
+          lineageKey: targetAppointmentType.lineageKey,
+          ruleSetId: targetAppointmentType.ruleSetId,
+        }),
+      ),
       appointmentTypeTitle: targetAppointmentType.name,
       durationMinutes: targetAppointmentType.duration,
       end: calculateEndTime(
@@ -430,6 +482,7 @@ export async function previewAppointmentSeries(
     rootAppointmentTypeId: Id<"appointmentTypes">;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
     userId?: Id<"users">;
   },
@@ -445,6 +498,7 @@ export async function previewAppointmentSeries(
   const requestedAt = Temporal.Now.instant()
     .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
     .toString();
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId(args);
 
   return await planSeriesFromRootCandidate(ctx, {
     planningState,
@@ -462,6 +516,9 @@ export async function previewAppointmentSeries(
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
       ...(args.scope && { scope: args.scope }),
+      ...(simulationRuleSetId && {
+        simulationRuleSetId,
+      }),
       start: args.start,
       ...(args.userId && { userId: args.userId }),
     },
@@ -502,6 +559,10 @@ export async function replanAppointmentSeries(
     .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
     .toString();
   const planningState = createSeriesPlanningState();
+  const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
+    ruleSetId: args.series.ruleSetIdAtBooking,
+    scope: args.scope,
+  });
   const patientDateOfBirth = await resolvePatientDateOfBirth(ctx, {
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
@@ -522,6 +583,7 @@ export async function replanAppointmentSeries(
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
       scope: args.scope,
+      ...(simulationRuleSetId && { simulationRuleSetId }),
       start: args.start,
       ...(args.userId && { userId: args.userId }),
     },
@@ -630,10 +692,20 @@ async function findSlotForFollowUpStep(
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     step: FollowUpStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
 ) {
+  if (
+    args.practitionerId &&
+    !args.targetAppointmentType.allowedPractitionerIds.includes(
+      args.practitionerId,
+    )
+  ) {
+    return null;
+  }
+
   const earliestStart = addOffset(
     Temporal.ZonedDateTime.from(args.previousStep.end),
     args.step,
@@ -660,14 +732,13 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
 
     return (
-      slots.find(
-        (slot) =>
-          slot.startTime === earliestStart.toString() &&
-          slot.locationId !== undefined,
-      ) ?? null
+      slots.find((slot) => slot.startTime === earliestStart.toString()) ?? null
     );
   }
 
@@ -691,14 +762,16 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
 
     return (
       slots.find(
         (slot) =>
-          slot.locationId !== undefined &&
           Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >=
-            earliestStart.epochMilliseconds,
+          earliestStart.epochMilliseconds,
       ) ?? null
     );
   }
@@ -733,8 +806,11 @@ async function findSlotForFollowUpStep(
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
     });
-    const matchingSlot = slots.find((slot) => slot.locationId !== undefined);
+    const matchingSlot = slots[0] ?? null;
 
     if (matchingSlot) {
       return matchingSlot;
@@ -909,21 +985,9 @@ async function loadRootAppointmentType(
 }
 
 function normalizeFollowUpPlanSnapshot(
-  followUpPlan: FollowUpStep[],
+  followUpPlan: Doc<"appointmentTypes">["followUpPlan"] | FollowUpStep[],
 ): FollowUpStep[] {
-  return followUpPlan.map((step) => ({
-    ...step,
-    locationMode: "inherit",
-    practitionerMode: "inherit",
-    searchMode:
-      step.offsetUnit === "minutes"
-        ? step.offsetValue === 0
-          ? "exact_after_previous"
-          : "same_day"
-        : "first_available_on_or_after",
-    stepId: step.stepId.trim(),
-    ...(step.note?.trim() ? { note: step.note.trim() } : {}),
-  }));
+  return normalizeFollowUpPlan(followUpPlan) ?? [];
 }
 
 async function queryAvailableSlotsForDay(
@@ -941,6 +1005,7 @@ async function queryAvailableSlotsForDay(
     requestedAt: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
   },
 ) {
   const cacheKey = [
@@ -955,13 +1020,14 @@ async function queryAvailableSlotsForDay(
     args.requestedAt,
     args.ruleSetId,
     args.scope ?? "real",
+    args.simulationRuleSetId ?? "",
   ].join("|");
   const cachedSlots = args.planningState.slotCache.get(cacheKey);
   if (cachedSlots) {
     return cachedSlots;
   }
 
-  const result: { log: string[]; slots: SchedulingResultSlot[] } =
+  const result: { log: string[]; slots: InternalSchedulingResultSlot[] } =
     await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
       date: args.date,
       ...(args.excludedAppointmentIds && {
@@ -1018,6 +1084,18 @@ async function resolvePatientDateOfBirth(
   return patient?.dateOfBirth;
 }
 
+function resolveSeriesSimulationRuleSetId(args: {
+  ruleSetId: Id<"ruleSets">;
+  scope?: AppointmentBookingScope;
+  simulationRuleSetId?: Id<"ruleSets">;
+}) {
+  if (args.scope !== "simulation") {
+    return;
+  }
+
+  return args.simulationRuleSetId ?? args.ruleSetId;
+}
+
 function validateDurationMinutes(durationMinutes: number): number {
   if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
     throw appointmentSeriesError(
@@ -1044,6 +1122,7 @@ async function validateRootCandidate(
     rootDurationMinutes: number;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
   },
 ): Promise<
@@ -1086,6 +1165,9 @@ async function validateRootCandidate(
     requestedAt: args.requestedAt,
     ruleSetId: args.ruleSetId,
     ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
   });
 
   const selectedRootSlot = rootSlots.find(
@@ -1108,15 +1190,20 @@ async function validateRootCandidate(
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      locationId: args.locationId,
-      practitionerId: args.practitionerId,
+      ...(await resolveOccupancyReferenceLineageKeys(ctx.db, {
+        locationId: asLocationId(args.locationId),
+        practitionerId: asPractitionerId(args.practitionerId),
+      })),
       start: args.start,
     },
+    ...(args.simulationRuleSetId && {
+      draftRuleSetId: args.simulationRuleSetId,
+    }),
     ...(args.excludedAppointmentIds && {
       excludeAppointmentIds: args.excludedAppointmentIds,
     }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
     practiceId: args.practiceId,
-    scope: args.scope ?? "real",
   });
 
   if (conflictingAppointment) {

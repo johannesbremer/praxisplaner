@@ -10,6 +10,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
@@ -51,12 +52,14 @@ async function insertWithLineage<TableName extends LineageTable>(
   value: Omit<Doc<TableName>, "_creationTime" | "_id" | "lineageKey">,
   lineageKey?: Id<TableName>,
 ): Promise<Id<TableName>> {
-  const insertValue = (lineageKey ? { ...value, lineageKey } : value) as never;
-  const id = await ctx.db.insert(table, insertValue);
-  if (!lineageKey) {
-    await ctx.db.patch(table, id, { lineageKey: id } as never);
-  }
-  return id;
+  return (await insertSelfLineageEntity(
+    ctx.db,
+    table as never,
+    {
+      ...value,
+      ...(lineageKey ? { lineageKey } : {}),
+    } as never,
+  )) as Id<TableName>;
 }
 
 async function setupBaseScheduleEntities(
@@ -590,6 +593,55 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
   });
 
+  test("should reject legacy rule payloads that rely on implicit scope or DAY_OF_WEEK valueIds", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Strict Rule Payload Practice",
+    });
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+
+    await expect(
+      t.mutation(api.entities.createRule, {
+        conditionTree: {
+          children: [
+            {
+              conditionType: "CONCURRENT_COUNT",
+              nodeType: "CONDITION",
+              operator: "GREATER_THAN_OR_EQUAL",
+              valueIds: [],
+              valueNumber: 1,
+            },
+            {
+              conditionType: "DAY_OF_WEEK",
+              nodeType: "CONDITION",
+              operator: "IS",
+              valueIds: ["MONDAY"],
+            },
+          ],
+          nodeType: "AND",
+        },
+        expectedDraftRevision: null,
+        name: "Legacy Rule Payload",
+        practiceId,
+        selectedRuleSetId: practice.currentActiveRuleSetId,
+      }),
+    ).rejects.toThrow(
+      "Ungueltiger Regelbaum: Child 0: CONCURRENT_COUNT condition must define scope explicitly; Child 1: DAY_OF_WEEK condition must use valueNumber",
+    );
+  });
+
   test("should delete base schedules after a discarded draft when expected revision is reset", async () => {
     const t = createAuthedTestContext();
 
@@ -942,15 +994,18 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         practiceId,
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND\]/);
+    ).rejects.toThrow(/gelöscht|deleted|APPOINTMENT_TYPE/);
 
     const remainingAfterFailedDelete = await t.run(async (ctx) => {
-      return await ctx.db
+      const matches = await ctx.db
         .query("appointmentTypes")
         .withIndex("by_ruleSetId_name", (q) =>
           q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
         )
-        .first();
+        .collect();
+      return matches.find(
+        (appointmentType) => appointmentType.deleted !== true,
+      );
     });
 
     expect(remainingAfterFailedDelete?._id).toEqual(secondCreate.entityId);
@@ -964,15 +1019,19 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const remainingAfterValidDelete = await t.run(async (ctx) => {
-      return await ctx.db
+      const matches = await ctx.db
         .query("appointmentTypes")
         .withIndex("by_ruleSetId_name", (q) =>
           q.eq("ruleSetId", firstCreate.ruleSetId).eq("name", "Kontrolle"),
         )
-        .first();
+        .collect();
+      return matches.find(
+        (appointmentType) => appointmentType._id === secondCreate.entityId,
+      );
     });
 
-    expect(remainingAfterValidDelete).toBeNull();
+    expect(remainingAfterValidDelete?._id).toEqual(secondCreate.entityId);
+    expect(remainingAfterValidDelete?.deleted).toBe(true);
   });
 
   test("should remap rule condition appointment type IDs on delete and recreate", async () => {
@@ -1047,6 +1106,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       practitionerIds: [practitionerId],
       selectedRuleSetId: initialRuleSetId,
     });
+    expect(recreatedType.entityId).toEqual(createdType.entityId);
 
     const ruleConditionNode = await t.run(async (ctx) => {
       return await ctx.db
@@ -1062,7 +1122,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       ruleConditionNode,
       "Expected appointment type condition node",
     );
-    expect(ruleConditionNode.valueIds).toEqual([recreatedType.entityId]);
+    expect(ruleConditionNode.valueIds).toEqual([createdType.entityId]);
   });
 
   test("unsaved rule diff keeps rule appointment type names after delete and recreate", async () => {
@@ -1103,7 +1163,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "DAY_OF_WEEK",
             nodeType: "CONDITION",
             operator: "IS",
-            valueIds: ["1"],
+            valueNumber: 1,
           },
         ],
         nodeType: "AND",

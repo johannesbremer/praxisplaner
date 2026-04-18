@@ -1,4 +1,12 @@
+import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
+
+import type { Id } from "../../../convex/_generated/dataModel";
+
+import {
+  collectDeletedPractitionerCalendarRanges,
+  filterBlockedSlotsForDateAndLocation,
+} from "../../components/calendar/use-calendar-logic-helpers";
 
 /**
  * Integration tests for manual blocked slots
@@ -238,6 +246,65 @@ describe("Manual Blocked Slots Integration", () => {
       );
 
       expect(result).toHaveLength(0);
+    });
+
+    it("should keep deleted practitioners visible when they only have manual blocked slots", () => {
+      const deletedPractitionerId = "practitioner2" as Id<"practitioners">;
+      const selectedDate = Temporal.PlainDate.from("2026-04-18");
+      const locationId = "location1" as Id<"locations">;
+      const blockedSlotsData = [
+        {
+          end: "2026-04-18T10:00:00+02:00[Europe/Berlin]",
+          locationId,
+          practitionerId: deletedPractitionerId,
+          start: "2026-04-18T09:00:00+02:00[Europe/Berlin]",
+        },
+      ];
+
+      const result = collectDeletedPractitionerCalendarRanges({
+        appointments: [],
+        blockedSlots: blockedSlotsData,
+        deletedPractitionerIds: new Set([deletedPractitionerId]),
+        effectiveLocationId: locationId,
+        selectedDate,
+      });
+
+      expect(result).toEqual([
+        {
+          endMinutes: 600,
+          practitionerId: deletedPractitionerId,
+          startMinutes: 540,
+        },
+      ]);
+    });
+
+    it("should ignore blocked slots outside the selected location", () => {
+      const selectedDate = Temporal.PlainDate.from("2026-04-18");
+      const locationId = "location1" as Id<"locations">;
+      const otherLocationId = "location2" as Id<"locations">;
+      const blockedSlotsData = [
+        {
+          end: "2026-04-18T10:00:00+02:00[Europe/Berlin]",
+          locationId,
+          practitionerId: "practitioner1" as Id<"practitioners">,
+          start: "2026-04-18T09:00:00+02:00[Europe/Berlin]",
+        },
+        {
+          end: "2026-04-18T12:00:00+02:00[Europe/Berlin]",
+          locationId: otherLocationId,
+          practitionerId: "practitioner1" as Id<"practitioners">,
+          start: "2026-04-18T11:00:00+02:00[Europe/Berlin]",
+        },
+      ];
+
+      const result = filterBlockedSlotsForDateAndLocation(
+        blockedSlotsData,
+        selectedDate,
+        locationId,
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.locationId).toBe(locationId);
     });
 
     it("should handle multiple blocked slots from same practitioner", () => {

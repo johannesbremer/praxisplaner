@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 
-import type { PatientInfo } from "../types";
+import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -33,6 +33,25 @@ import {
   invalidStateError,
   resultFromNullable,
 } from "../utils/frontend-errors";
+import { getPatientInfoDisplayName } from "../utils/patient-info";
+import {
+  getPatientSelectionPanelInitialSelection,
+  PatientSelectionPanel,
+} from "./patient-selection-panel";
+
+type CreateTarget =
+  | {
+      patientId: Id<"patients">;
+      recipient: { id: Id<"patients">; type: "patient" };
+    }
+  | {
+      recipient: { id: Id<"users">; type: "user" };
+      userId: Id<"users">;
+    }
+  | {
+      temporaryPatientName: string;
+      temporaryPatientPhoneNumber: string;
+    };
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -46,6 +65,9 @@ interface StaffAppointmentCreationModalProps {
       | { id: Id<"users">; type: "user" },
   ) => void;
   onOpenChange: (open: boolean, shouldResetAppointmentType?: boolean) => void;
+  onPatientSelected?:
+    | ((patient?: PracticePatientSelection) => void)
+    | undefined;
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   open: boolean;
   patient?: PatientInfo | undefined;
@@ -62,10 +84,13 @@ interface StaffAppointmentCreationModalProps {
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
+    temporaryPatientName?: string;
+    temporaryPatientPhoneNumber?: string;
     title: string;
     userId?: Id<"users">;
   }) => Promise<Id<"appointments"> | undefined>;
   selectedDate: string;
+  selectedPatientId: Id<"patients"> | undefined;
 }
 
 export function StaffAppointmentCreationModal({
@@ -75,6 +100,7 @@ export function StaffAppointmentCreationModal({
   locationId,
   onAppointmentCreated,
   onOpenChange,
+  onPatientSelected,
   onPendingTitleChange,
   open,
   patient,
@@ -82,8 +108,12 @@ export function StaffAppointmentCreationModal({
   ruleSetId,
   runCreateAppointment: runCreateAppointmentProp,
   selectedDate,
+  selectedPatientId,
 }: StaffAppointmentCreationModalProps) {
   const [mode, setMode] = useState<"next" | null>(null);
+  const [selectedFallbackPatient, setSelectedFallbackPatient] = useState<
+    PracticePatientSelection | undefined
+  >();
   const [title, setTitle] = useState("");
 
   const createAppointmentMutation = useMutation(
@@ -108,6 +138,11 @@ export function StaffAppointmentCreationModal({
     (type) => type._id === appointmentTypeId,
   );
   const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
+  const effectivePatient = selectedFallbackPatient?.info ?? patient;
+  const effectiveSelectedPatientId =
+    selectedFallbackPatient && "id" in selectedFallbackPatient
+      ? selectedFallbackPatient.id
+      : selectedPatientId;
 
   // Query for next available slot - only query when modal is open
   const [requestedAt] = useState(() => Temporal.Now.instant().toString());
@@ -124,8 +159,8 @@ export function StaffAppointmentCreationModal({
             appointmentTypeId,
             locationId,
             patient: {
-              ...(patient?.dateOfBirth && {
-                dateOfBirth: patient.dateOfBirth,
+              ...(effectivePatient?.dateOfBirth && {
+                dateOfBirth: effectivePatient.dateOfBirth,
               }),
               isNew: false,
             },
@@ -136,21 +171,25 @@ export function StaffAppointmentCreationModal({
   );
 
   // Determine if we have a patient (from GDT or user-linked booking)
-  const hasPatientFromGdt = patient?.convexPatientId !== undefined;
-  const hasUserLinkedPatient = patient?.userId !== undefined;
-  const hasSimulationPatient = isSimulation;
+  const hasPersistedPatient = effectivePatient?.convexPatientId !== undefined;
+  const hasUserLinkedPatient = effectivePatient?.userId !== undefined;
+  const hasTemporaryPatientDraft =
+    effectivePatient?.recordType === "temporary" &&
+    effectivePatient.convexPatientId === undefined &&
+    effectivePatient.name.trim().length > 0 &&
+    effectivePatient.phoneNumber.trim().length > 0;
   const hasAnyPatient =
-    hasPatientFromGdt || hasUserLinkedPatient || hasSimulationPatient;
+    hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
     open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
       ? {
           locationId,
-          ...(patient?.dateOfBirth && {
-            patientDateOfBirth: patient.dateOfBirth,
+          ...(effectivePatient?.dateOfBirth && {
+            patientDateOfBirth: effectivePatient.dateOfBirth,
           }),
-          ...(patient?.convexPatientId && {
-            patientId: patient.convexPatientId,
+          ...(effectivePatient?.convexPatientId && {
+            patientId: effectivePatient.convexPatientId,
           }),
           isNewPatient,
           practiceId,
@@ -159,41 +198,23 @@ export function StaffAppointmentCreationModal({
           ruleSetId,
           scope: isSimulation ? "simulation" : "real",
           start: nextAvailableSlot.startTime,
-          ...(patient?.userId && { userId: patient.userId }),
+          ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
         }
       : "skip",
   );
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
-    if (hasPatientFromGdt) {
-      if (patient.firstName && patient.lastName) {
-        return `${patient.firstName} ${patient.lastName}`;
-      }
-      return `Patient ${patient.patientId ?? ""}`;
+    const currentPatient = effectivePatient;
+    if (!currentPatient) {
+      return "Kein Patient";
     }
 
-    if (hasUserLinkedPatient) {
-      const parts = [patient.firstName, patient.lastName].filter(Boolean);
-      if (parts.length > 0) {
-        return parts.join(" ");
-      }
-      return patient.email ?? "Kein Patient";
-    }
-
-    if (hasSimulationPatient) {
-      const parts = [patient?.firstName, patient?.lastName].filter(Boolean);
-      if (parts.length > 0) {
-        return parts.join(" ");
-      }
-      return "Simulationspatient";
-    }
-
-    return "Kein Patient";
+    return getPatientInfoDisplayName(currentPatient) || "Kein Patient";
   };
 
-  const getCreateTarget = () => {
-    const patientId = patient?.convexPatientId;
+  const getCreateTarget = (): CreateTarget | null => {
+    const patientId = effectivePatient?.convexPatientId;
     if (patientId) {
       return {
         patientId,
@@ -201,7 +222,7 @@ export function StaffAppointmentCreationModal({
       };
     }
 
-    const userId = patient?.userId;
+    const userId = effectivePatient?.userId;
     if (userId) {
       return {
         recipient: { id: userId, type: "user" as const },
@@ -209,8 +230,14 @@ export function StaffAppointmentCreationModal({
       };
     }
 
-    if (isSimulation) {
-      return { recipient: undefined };
+    if (
+      effectivePatient?.recordType === "temporary" &&
+      effectivePatient.convexPatientId === undefined
+    ) {
+      return {
+        temporaryPatientName: effectivePatient.name.trim(),
+        temporaryPatientPhoneNumber: effectivePatient.phoneNumber.trim(),
+      };
     }
 
     return null;
@@ -226,8 +253,8 @@ export function StaffAppointmentCreationModal({
       ),
     ).match(
       (selectedTarget) => selectedTarget,
-      () => {
-        toast.error("Bitte wählen Sie einen Patienten aus.");
+      (error) => {
+        toast.error(error.message);
         return null;
       },
     );
@@ -270,21 +297,54 @@ export function StaffAppointmentCreationModal({
     }
 
     await ResultAsync.fromPromise(
-      runCreateAppointment({
-        appointmentTypeId: selectedAppointmentType._id,
-        isNewPatient,
-        ...(isSimulation && { isSimulation: true }),
-        locationId,
-        ...(patient?.dateOfBirth && {
-          patientDateOfBirth: patient.dateOfBirth,
-        }),
-        ...(createTarget.patientId && { patientId: createTarget.patientId }),
-        practiceId,
-        practitionerId: slot.practitionerId,
-        start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
-        title,
-        ...(createTarget.userId && { userId: createTarget.userId }),
-      }),
+      runCreateAppointment(
+        "patientId" in createTarget
+          ? {
+              appointmentTypeId: selectedAppointmentType._id,
+              isNewPatient,
+              ...(isSimulation && { isSimulation: true }),
+              locationId,
+              ...(effectivePatient?.dateOfBirth && {
+                patientDateOfBirth: effectivePatient.dateOfBirth,
+              }),
+              patientId: createTarget.patientId,
+              practiceId,
+              practitionerId: slot.practitionerId,
+              start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+              title,
+            }
+          : "userId" in createTarget
+            ? {
+                appointmentTypeId: selectedAppointmentType._id,
+                isNewPatient,
+                ...(isSimulation && { isSimulation: true }),
+                locationId,
+                ...(effectivePatient?.dateOfBirth && {
+                  patientDateOfBirth: effectivePatient.dateOfBirth,
+                }),
+                practiceId,
+                practitionerId: slot.practitionerId,
+                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                title,
+                userId: createTarget.userId,
+              }
+            : {
+                appointmentTypeId: selectedAppointmentType._id,
+                isNewPatient,
+                ...(isSimulation && { isSimulation: true }),
+                locationId,
+                ...(effectivePatient?.dateOfBirth && {
+                  patientDateOfBirth: effectivePatient.dateOfBirth,
+                }),
+                practiceId,
+                practitionerId: slot.practitionerId,
+                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                temporaryPatientName: createTarget.temporaryPatientName,
+                temporaryPatientPhoneNumber:
+                  createTarget.temporaryPatientPhoneNumber,
+                title,
+              },
+      ),
       (error) =>
         frontendErrorFromUnknown(error, {
           kind: "unknown",
@@ -303,7 +363,10 @@ export function StaffAppointmentCreationModal({
       )
       .match(
         (appointmentId) => {
-          onAppointmentCreated?.(appointmentId, createTarget.recipient);
+          onAppointmentCreated?.(
+            appointmentId,
+            "recipient" in createTarget ? createTarget.recipient : undefined,
+          );
           toast.success(
             hasFollowUpPlan
               ? "Kettentermine erfolgreich erstellt"
@@ -311,6 +374,7 @@ export function StaffAppointmentCreationModal({
           );
           onOpenChange(false, true);
           setMode(null);
+          setSelectedFallbackPatient(undefined);
           setTitle("");
           form.reset();
         },
@@ -333,13 +397,6 @@ export function StaffAppointmentCreationModal({
     defaultValues: {},
     onSubmit: async () => {
       if (mode === "next" && nextAvailableSlot) {
-        // Check if we have any patient - if not, show selection modal
-        if (!hasAnyPatient) {
-          toast.error("Bitte wählen Sie einen Patienten aus.");
-          return;
-        }
-
-        // Create appointment with the selected patient
         await createAppointmentWithPatient();
       }
     },
@@ -348,6 +405,7 @@ export function StaffAppointmentCreationModal({
   const handleClose = (shouldResetAppointmentType = true) => {
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
+    setSelectedFallbackPatient(undefined);
     setTitle("");
     form.reset();
   };
@@ -375,6 +433,7 @@ export function StaffAppointmentCreationModal({
     !form.state.canSubmit ||
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
+    !hasAnyPatient ||
     (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
   const submitButtonLabel = isNextAvailableSlotLoading
     ? "Termin wird gesucht..."
@@ -445,6 +504,21 @@ export function StaffAppointmentCreationModal({
                     )}
                   </span>
                 </div>
+
+                {!hasAnyPatient && (
+                  <PatientSelectionPanel
+                    initialSelection={getPatientSelectionPanelInitialSelection({
+                      patient: effectivePatient,
+                      selectedPatientId: effectiveSelectedPatientId,
+                    })}
+                    key="patient-selection-next"
+                    onPatientSelected={(selected) => {
+                      setSelectedFallbackPatient(selected);
+                      onPatientSelected?.(selected);
+                    }}
+                    practiceId={practiceId}
+                  />
+                )}
 
                 {hasFollowUpPlan && (
                   <div className="rounded-md border p-3 space-y-2">
@@ -570,9 +644,24 @@ export function StaffAppointmentCreationModal({
                   />
                 </div>
 
+                {!hasAnyPatient && (
+                  <PatientSelectionPanel
+                    initialSelection={getPatientSelectionPanelInitialSelection({
+                      patient: effectivePatient,
+                      selectedPatientId: effectiveSelectedPatientId,
+                    })}
+                    key="patient-selection-create"
+                    onPatientSelected={(selected) => {
+                      setSelectedFallbackPatient(selected);
+                      onPatientSelected?.(selected);
+                    }}
+                    practiceId={practiceId}
+                  />
+                )}
+
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim()}
+                  disabled={!title.trim() || !hasAnyPatient}
                   onClick={() => {
                     setMode("next");
                   }}
@@ -609,10 +698,16 @@ export function StaffAppointmentCreationModal({
                     Der nächste verfügbare Termin wird gesucht.
                   </div>
                 )}
+                {!hasAnyPatient && (
+                  <div className="text-sm text-muted-foreground">
+                    Ohne ausgewählten Patienten öffnet sich beim nächsten
+                    verfügbaren Termin zuerst die Patientenauswahl.
+                  </div>
+                )}
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim()}
+                  disabled={!title.trim() || !hasAnyPatient}
                   onClick={() => {
                     // Pass the title to the calendar for manual placement
                     onPendingTitleChange?.(title.trim());

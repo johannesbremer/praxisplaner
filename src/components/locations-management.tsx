@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import { Edit2, Plus, Trash2 } from "lucide-react";
 import { err, ok, Result } from "neverthrow";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -21,12 +21,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import {
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+} from "@/convex/identity";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -42,6 +48,11 @@ import {
   captureFrontendError,
   invalidStateError,
 } from "../utils/frontend-errors";
+import {
+  findFrontendEntityByEntityId,
+  findFrontendEntityByLineageKey,
+  mapFrontendLineageEntities,
+} from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
@@ -50,6 +61,17 @@ const isMissingEntityError = (error: unknown) =>
     error.message,
   );
 
+type BaseScheduleRow = FrontendLineageEntity<
+  "baseSchedules",
+  BaseSchedulesQueryResult[number]
+>;
+
+type BaseSchedulesQueryResult =
+  (typeof api.entities.getBaseSchedules)["_returnType"];
+type LocationRow = FrontendLineageEntity<
+  "locations",
+  LocationsQueryResult[number]
+>;
 interface LocationsManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
@@ -57,6 +79,13 @@ interface LocationsManagementProps {
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
+type LocationsQueryResult = (typeof api.entities.getLocations)["_returnType"];
+type PractitionerRow = FrontendLineageEntity<
+  "practitioners",
+  PractitionersQueryResult[number]
+>;
+type PractitionersQueryResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
 
 export function LocationsManagement({
   onDraftMutation,
@@ -67,11 +96,9 @@ export function LocationsManagement({
 }: LocationsManagementProps) {
   const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editingLocation, setEditingLocation] = useState<null | {
-    _id: Id<"locations">;
-    lineageKey?: Id<"locations">;
-    name: string;
-  }>(null);
+  const [editingLocation, setEditingLocation] = useState<LocationRow | null>(
+    null,
+  );
 
   const { captureError } = useErrorTracking();
   const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
@@ -81,24 +108,65 @@ export function LocationsManagement({
   const baseSchedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+  const locations: LocationRow[] = useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<"locations", LocationsQueryResult[number]>(
+            {
+              entities: locationsQuery,
+              entityType: "location",
+              source: "LocationsManagement",
+            },
+          )
+        : [],
+    [locationsQuery],
+  );
+  const practitioners: PractitionerRow[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersQueryResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "LocationsManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const baseSchedules: BaseScheduleRow[] = useMemo(
+    () =>
+      baseSchedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            BaseSchedulesQueryResult[number]
+          >({
+            entities: baseSchedulesQuery,
+            entityType: "base schedule",
+            source: "LocationsManagement",
+          })
+        : [],
+    [baseSchedulesQuery],
+  );
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
   const createBaseScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
   );
-  const locationsRef = useRef(locationsQuery ?? []);
+  const locationsRef = useRef(locations);
   useEffect(() => {
-    locationsRef.current = locationsQuery ?? [];
-  }, [locationsQuery]);
-  const practitionersRef = useRef(practitionersQuery ?? []);
+    locationsRef.current = locations;
+  }, [locations]);
+  const practitionersRef = useRef(practitioners);
   useEffect(() => {
-    practitionersRef.current = practitionersQuery ?? [];
-  }, [practitionersQuery]);
-  const baseSchedulesRef = useRef(baseSchedulesQuery ?? []);
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
+  const baseSchedulesRef = useRef(baseSchedules);
   useEffect(() => {
-    baseSchedulesRef.current = baseSchedulesQuery ?? [];
-  }, [baseSchedulesQuery]);
+    baseSchedulesRef.current = baseSchedules;
+  }, [baseSchedules]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -125,8 +193,6 @@ export function LocationsManagement({
         const trimmedName = value.name.trim();
 
         if (editingLocation) {
-          const locationLineageKey =
-            editingLocation.lineageKey ?? editingLocation._id;
           const previousName = editingLocation.name;
 
           const updateResult = await updateLocationMutation({
@@ -138,9 +204,9 @@ export function LocationsManagement({
           handleDraftMutationResult(updateResult);
           registerLineageUpdateHistoryAction({
             entitiesRef: locationsRef,
-            initialEntityId: updateResult.entityId,
+            initialEntityId: asLocationId(updateResult.entityId),
             label: "Standort aktualisiert",
-            lineageKey: locationLineageKey,
+            lineageKey: editingLocation.lineageKey,
             onRegisterHistoryAction,
             redoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
@@ -152,7 +218,7 @@ export function LocationsManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
-              return { entityId: redoResult.entityId };
+              return { entityId: asLocationId(redoResult.entityId) };
             },
             runUndo: async (currentLocationId) => {
               const undoResult = await updateLocationMutation({
@@ -162,7 +228,7 @@ export function LocationsManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
-              return { entityId: undoResult.entityId };
+              return { entityId: asLocationId(undoResult.entityId) };
             },
             undoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -191,9 +257,10 @@ export function LocationsManagement({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(createResult);
-          const { entityId } = createResult;
-
-          const locationLineageKey = entityId;
+          const entityId = asLocationId(createResult.entityId);
+          const locationLineageKey = asLocationLineageKey(
+            createResult.entityId,
+          );
           registerLineageCreateHistoryAction({
             entitiesRef: locationsRef,
             initialEntityId: entityId,
@@ -209,7 +276,7 @@ export function LocationsManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(recreateResult);
-              return { entityId: recreateResult.entityId };
+              return { entityId: asLocationId(recreateResult.entityId) };
             },
             runDelete: async (currentLocationId) => {
               const undoResult = await deleteLocationMutation({
@@ -219,7 +286,7 @@ export function LocationsManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
-              return { entityId: undoResult.entityId };
+              return { entityId: asLocationId(undoResult.entityId) };
             },
             validateBeforeCreate: () => {
               const duplicate = locationsRef.current.find(
@@ -255,7 +322,7 @@ export function LocationsManagement({
     },
   });
 
-  const openEditDialog = (location: { _id: Id<"locations">; name: string }) => {
+  const openEditDialog = (location: LocationRow) => {
     setEditingLocation(location);
     form.setFieldValue("name", location.name);
   };
@@ -271,15 +338,17 @@ export function LocationsManagement({
     name: string,
   ) => {
     try {
-      const deletedSnapshot = locationsRef.current.find(
-        (location) => location._id === locationId,
+      const deletedSnapshot = findFrontendEntityByEntityId(
+        locationsRef.current,
+        asLocationId(locationId),
       );
       const deletedScheduleSnapshotsResult = Result.combine(
         baseSchedulesRef.current
           .filter((schedule) => schedule.locationId === locationId)
           .map((schedule) => {
-            const practitioner = practitionersRef.current.find(
-              (entry) => entry._id === schedule.practitionerId,
+            const practitioner = findFrontendEntityByEntityId(
+              practitionersRef.current,
+              asPractitionerId(schedule.practitionerId),
             );
             if (!practitioner) {
               return err(
@@ -335,7 +404,7 @@ export function LocationsManagement({
       handleDraftMutationResult(deleteResult);
 
       if (deletedSnapshot) {
-        let currentLocationId = locationId;
+        let currentLocationId = asLocationId(locationId);
         onRegisterHistoryAction?.({
           label: "Standort gelöscht",
           redo: async () => {
@@ -362,8 +431,9 @@ export function LocationsManagement({
             }
           },
           undo: async () => {
-            const existingByLineage = locationsRef.current.find(
-              (location) => location.lineageKey === deletedSnapshot.lineageKey,
+            const existingByLineage = findFrontendEntityByLineageKey(
+              locationsRef.current,
+              deletedSnapshot.lineageKey,
             );
             if (existingByLineage) {
               currentLocationId = existingByLineage._id;
@@ -387,7 +457,7 @@ export function LocationsManagement({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
-            currentLocationId = recreateResult.entityId;
+            currentLocationId = asLocationId(recreateResult.entityId);
 
             const missingSchedules = deletedScheduleSnapshots.filter(
               (schedule) =>
@@ -399,9 +469,9 @@ export function LocationsManagement({
               const scheduleResult = await createBaseScheduleBatchMutation({
                 practiceId,
                 schedules: missingSchedules.map((schedule) => {
-                  const practitionerByLineage = practitionersRef.current.find(
-                    (entry) =>
-                      entry.lineageKey === schedule.practitionerLineageKey,
+                  const practitionerByLineage = findFrontendEntityByLineageKey(
+                    practitionersRef.current,
+                    schedule.practitionerLineageKey,
                   );
                   if (!practitionerByLineage) {
                     throw new Error(
@@ -541,7 +611,7 @@ export function LocationsManagement({
           <div className="text-center py-4 text-muted-foreground">
             Lade Standorte...
           </div>
-        ) : locationsQuery.length === 0 ? (
+        ) : locations.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p className="mb-2">Noch keine Standorte erstellt</p>
             <p className="text-sm">
@@ -551,42 +621,36 @@ export function LocationsManagement({
           </div>
         ) : (
           <div className="space-y-2">
-            {locationsQuery.map(
-              (location: {
-                _id: Id<"locations">;
-                name: string;
-                practiceId: Id<"practices">;
-              }) => (
-                <div
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                  key={location._id}
-                >
-                  <div>
-                    <div className="font-medium">{location.name}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={() => {
-                        openEditDialog(location);
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        void handleDeleteLocation(location._id, location.name);
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+            {locations.map((location) => (
+              <div
+                className="flex items-center justify-between p-3 border rounded-lg"
+                key={location._id}
+              >
+                <div>
+                  <div className="font-medium">{location.name}</div>
                 </div>
-              ),
-            )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      openEditDialog(location);
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      void handleDeleteLocation(location._id, location.name);
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

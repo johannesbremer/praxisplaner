@@ -87,6 +87,7 @@ export function CalendarSidebar() {
     onDateChange,
     onLocationResolved,
     onLocationSelect,
+    onPatientSelected,
     onPendingTitleChange,
     onUpdateSimulatedContext,
     patient,
@@ -96,6 +97,7 @@ export function CalendarSidebar() {
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
+    selectedPatientId,
     simulatedContext,
   } = calendarContext;
 
@@ -175,6 +177,8 @@ export function CalendarSidebar() {
     }
     return set;
   }, [publicHolidayDates]);
+  const selectableLocations =
+    locationsData?.filter((location) => location.deleted !== true) ?? [];
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
@@ -263,11 +267,11 @@ export function CalendarSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
 
-              {locationsData && locationsData.length > 0 && (
+              {selectableLocations.length > 0 && (
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <LocationSelector
-                      locations={locationsData}
+                      locations={selectableLocations}
                       onLocationSelect={handleLocationSelect}
                       selectedLocationId={selectedLocationId}
                     />
@@ -320,11 +324,13 @@ export function CalendarSidebar() {
             locationId={creationModalLocationId}
             onOpenChange={handleModalClose}
             onPendingTitleChange={onPendingTitleChange}
+            {...(onPatientSelected && { onPatientSelected })}
             open={showCreationModal}
             patient={patient}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
             selectedDate={selectedDate.toString()}
+            selectedPatientId={selectedPatientId}
             {...(onAppointmentCreated && { onAppointmentCreated })}
             {...(runCreateAppointment && { runCreateAppointment })}
           />

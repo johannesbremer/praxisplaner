@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -13,7 +13,15 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
+  getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import {
+  resolveAppointmentTypeIdForRuleSetByLineage,
+  resolveAppointmentTypeLineageKey,
+  resolveLocationIdForRuleSetByLineage,
+  resolvePractitionerIdForRuleSetByLineage,
+  resolveStoredAppointmentReferencesForWrite,
+} from "./appointmentReferences";
 import {
   appointmentSeriesArgsValidator,
   appointmentSeriesCreateResultValidator,
@@ -22,12 +30,26 @@ import {
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
 } from "./appointmentSeries";
-import { mapEntityIdsBetweenRuleSets } from "./copyOnWrite";
+import {
+  type AppointmentSimulationKind,
+  appointmentSimulationKindValidator,
+  isActivationBoundSimulation,
+} from "./appointmentSimulation";
+import {
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+} from "./identity";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import { createTemporaryPatientRecord } from "./temporaryPatients";
 import {
   ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
@@ -35,6 +57,15 @@ import {
 } from "./userIdentity";
 
 type AppointmentDoc = Doc<"appointments">;
+type AppointmentListItem = AppointmentResult &
+  Pick<
+    AppointmentDoc,
+    | "cancelledAt"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "simulationKind"
+    | "simulationRuleSetId"
+  >;
 type AppointmentScope = "all" | "real" | "simulation";
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
@@ -53,14 +84,20 @@ const appointmentResultValidator = v.object({
   patientId: v.optional(v.id("patients")),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
+  reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
   seriesStepId: v.optional(v.string()),
   seriesStepIndex: v.optional(v.int64()),
+  simulationKind: v.optional(appointmentSimulationKindValidator),
+  simulationRuleSetId: v.optional(v.id("ruleSets")),
+  simulationValidatedAt: v.optional(v.int64()),
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
 });
+
+export type AppointmentResult = Infer<typeof appointmentResultValidator>;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
@@ -136,7 +173,9 @@ function getSeriesStepKey(appointment: AppointmentDoc): string {
   return `index:${Number(appointment.seriesStepIndex ?? 0n)}`;
 }
 
-function isAppointmentCancelled(appointment: AppointmentDoc): boolean {
+function isAppointmentCancelled(
+  appointment: Pick<AppointmentDoc, "cancelledAt">,
+): boolean {
   return appointment.cancelledAt !== undefined;
 }
 
@@ -154,8 +193,30 @@ function isAppointmentInFuture(
   }
 }
 
-function isVisibleAppointment(appointment: AppointmentDoc): boolean {
+function isVisibleAppointment(
+  appointment: Pick<AppointmentDoc, "cancelledAt">,
+): boolean {
   return !isAppointmentCancelled(appointment);
+}
+
+function requireEntityUsableForNewAppointment<
+  T extends { deleted?: boolean },
+>(params: {
+  entity: null | T | undefined;
+  entityId: string;
+  entityLabel: "Behandler" | "Standort" | "Terminart";
+}): T {
+  if (!params.entity) {
+    throw new Error(
+      `${params.entityLabel} mit ID ${params.entityId} nicht gefunden`,
+    );
+  }
+  if (isRuleSetEntityDeleted(params.entity)) {
+    throw new Error(
+      `${params.entityLabel} mit ID ${params.entityId} wurde gelöscht und kann nicht mehr neu referenziert werden.`,
+    );
+  }
+  return params.entity;
 }
 
 async function resolveAppointmentPatientDateOfBirth(
@@ -173,48 +234,77 @@ async function resolveAppointmentPatientDateOfBirth(
   return args.fallbackDateOfBirth;
 }
 
+async function resolveAppointmentTypeIdForDisplayRuleSet(
+  db: DatabaseReader,
+  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"appointmentTypes">> {
+  return await resolveAppointmentTypeIdForRuleSetByLineage(db, {
+    lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
+    ruleSetId: targetRuleSetId,
+  });
+}
+
+async function resolveLocationIdForDisplayRuleSet(
+  db: DatabaseReader,
+  locationLineageKey: Id<"locations">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"locations">> {
+  return await resolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: asLocationLineageKey(locationLineageKey),
+    ruleSetId: targetRuleSetId,
+  });
+}
+
+async function resolvePractitionerIdForDisplayRuleSet(
+  db: DatabaseReader,
+  practitionerLineageKey: Id<"practitioners">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<Id<"practitioners">> {
+  return await resolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+    ruleSetId: targetRuleSetId,
+  });
+}
+
 /**
- * Remaps entity IDs in blocked slots from source rule set to target rule set.
- * This is needed when viewing simulation data (from a different rule set) in the
- * context of the active rule set.
+ * Resolves blocked-slot references into the displayed rule set via lineage.
  */
 async function remapBlockedSlotIds(
   ctx: { db: DatabaseReader },
   blockedSlots: BlockedSlotDoc[],
-  sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<BlockedSlotDoc[]> {
-  // If rule sets are the same, no remapping needed
-  if (sourceRuleSetId === targetRuleSetId) {
-    return blockedSlots;
-  }
-
-  // Get entity mappings
-  const locationMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "locations",
+  const remappedSlots = await Promise.all(
+    blockedSlots.map(async (slot) => {
+      try {
+        const remappedSlot: BlockedSlotDoc = {
+          ...slot,
+          locationId: await resolveLocationIdForDisplayRuleSet(
+            ctx.db,
+            slot.locationId,
+            targetRuleSetId,
+          ),
+        };
+        if (slot.practitionerId) {
+          remappedSlot.practitionerId =
+            await resolvePractitionerIdForDisplayRuleSet(
+              ctx.db,
+              slot.practitionerId,
+              targetRuleSetId,
+            );
+        }
+        return remappedSlot;
+      } catch (error) {
+        if (isMissingDisplayLineageMappingError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }),
   );
-  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "practitioners",
-  );
 
-  // Remap IDs in blocked slots
-  return blockedSlots.map((slot) => {
-    const remappedSlot: BlockedSlotDoc = {
-      ...slot,
-      locationId: locationMapping.get(slot.locationId) ?? slot.locationId,
-    };
-    if (slot.practitionerId) {
-      remappedSlot.practitionerId =
-        practitionerMapping.get(slot.practitionerId) ?? slot.practitionerId;
-    }
-    return remappedSlot;
-  });
+  return remappedSlots.filter((slot): slot is BlockedSlotDoc => slot !== null);
 }
 
 /**
@@ -241,8 +331,8 @@ function combineBlockedSlotsForSimulation(
 }
 
 function combineForSimulationScope(
-  appointments: AppointmentDoc[],
-): AppointmentDoc[] {
+  appointments: AppointmentListItem[],
+): AppointmentListItem[] {
   const simulationAppointments = appointments.filter(
     (appointment) => appointment.isSimulation === true,
   );
@@ -263,54 +353,159 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+function filterAppointmentsForScope<T extends AppointmentDoc>(
+  appointments: T[],
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  return appointments.filter((appointment) =>
+    isAppointmentVisibleInScope(appointment, args, scope),
+  );
+}
+
+function getDisplayRuleSetId(args: {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}) {
+  return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
+function getSimulationScopeRuleSetId(args: {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}) {
+  return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
+function isAppointmentVisibleInScope(
+  appointment: Pick<AppointmentDoc, "isSimulation" | "simulationRuleSetId">,
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  if (scope === "real") {
+    return appointment.isSimulation !== true;
+  }
+
+  return (
+    appointment.isSimulation !== true ||
+    appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
+  );
+}
+
+function isMissingDisplayLineageMappingError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("im Regelset") &&
+    error.message.includes("nicht gefunden")
+  );
+}
+
 async function remapAppointmentIds(
   ctx: { db: DatabaseReader },
   appointments: AppointmentDoc[],
-  sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
-): Promise<AppointmentDoc[]> {
-  // If rule sets are the same, no remapping needed
-  if (sourceRuleSetId === targetRuleSetId) {
-    return appointments;
-  }
+): Promise<AppointmentListItem[]> {
+  const remappedAppointments = await Promise.all(
+    appointments.map(async (appointment) => {
+      try {
+        const remappedAppointment: AppointmentListItem = {
+          ...toAppointmentListItem(appointment),
+          appointmentTypeId: await resolveAppointmentTypeIdForDisplayRuleSet(
+            ctx.db,
+            appointment.appointmentTypeLineageKey,
+            targetRuleSetId,
+          ),
+          locationId: await resolveLocationIdForDisplayRuleSet(
+            ctx.db,
+            appointment.locationLineageKey,
+            targetRuleSetId,
+          ),
+        };
+        if (appointment.practitionerLineageKey) {
+          remappedAppointment.practitionerId =
+            await resolvePractitionerIdForDisplayRuleSet(
+              ctx.db,
+              appointment.practitionerLineageKey,
+              targetRuleSetId,
+            );
+        }
+        return remappedAppointment;
+      } catch (error) {
+        if (isMissingDisplayLineageMappingError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }),
+  );
 
-  // Get entity mappings
-  const locationMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "locations",
+  return remappedAppointments.filter(
+    (appointment): appointment is AppointmentListItem => appointment !== null,
   );
-  const practitionerMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "practitioners",
-  );
-  const appointmentTypeMapping = await mapEntityIdsBetweenRuleSets(
-    ctx.db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    "appointmentTypes",
-  );
+}
 
-  // Remap IDs in appointments
-  return appointments.map((appointment) => {
-    const remappedAppointment: AppointmentDoc = {
-      ...appointment,
-      appointmentTypeId:
-        appointmentTypeMapping.get(appointment.appointmentTypeId) ??
-        appointment.appointmentTypeId,
-      locationId:
-        locationMapping.get(appointment.locationId) ?? appointment.locationId,
-    };
-    if (appointment.practitionerId) {
-      remappedAppointment.practitionerId =
-        practitionerMapping.get(appointment.practitionerId) ??
-        appointment.practitionerId;
-    }
-    return remappedAppointment;
-  });
+function toAppointmentListItem(
+  appointment: AppointmentDoc,
+): AppointmentListItem {
+  return {
+    _creationTime: appointment._creationTime,
+    _id: appointment._id,
+    appointmentTypeId: appointment.appointmentTypeLineageKey,
+    appointmentTypeTitle: appointment.appointmentTypeTitle,
+    createdAt: appointment.createdAt,
+    end: appointment.end,
+    lastModified: appointment.lastModified,
+    locationId: appointment.locationLineageKey,
+    practiceId: appointment.practiceId,
+    ...(appointment.cancelledAt === undefined
+      ? {}
+      : { cancelledAt: appointment.cancelledAt }),
+    ...(appointment.isSimulation === undefined
+      ? {}
+      : { isSimulation: appointment.isSimulation }),
+    ...(appointment.patientId === undefined
+      ? {}
+      : { patientId: appointment.patientId }),
+    ...(appointment.practitionerLineageKey
+      ? { practitionerId: appointment.practitionerLineageKey }
+      : {}),
+    ...(appointment.reassignmentSourceVacationLineageKey === undefined
+      ? {}
+      : {
+          reassignmentSourceVacationLineageKey:
+            appointment.reassignmentSourceVacationLineageKey,
+        }),
+    ...(appointment.replacesAppointmentId === undefined
+      ? {}
+      : { replacesAppointmentId: appointment.replacesAppointmentId }),
+    ...(appointment.seriesId === undefined
+      ? {}
+      : { seriesId: appointment.seriesId }),
+    ...(appointment.seriesStepId === undefined
+      ? {}
+      : { seriesStepId: appointment.seriesStepId }),
+    ...(appointment.seriesStepIndex === undefined
+      ? {}
+      : { seriesStepIndex: appointment.seriesStepIndex }),
+    ...(appointment.simulationKind === undefined
+      ? {}
+      : { simulationKind: appointment.simulationKind }),
+    ...(appointment.simulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: appointment.simulationRuleSetId }),
+    ...(appointment.simulationValidatedAt === undefined
+      ? {}
+      : { simulationValidatedAt: appointment.simulationValidatedAt }),
+    start: appointment.start,
+    title: appointment.title,
+    ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
+  };
 }
 
 // Query to get all appointments
@@ -333,38 +528,24 @@ export const getAppointments = query({
       .query("appointments")
       .order("asc")
       .collect();
-    let appointments = appointmentDocs.filter(
+    const visibleAppointments = appointmentDocs.filter(
       (appointment) =>
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
+    const scopedAppointments = filterAppointmentsForScope(
+      visibleAppointments,
+      args,
+      scope,
+    );
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    const appointments: AppointmentListItem[] = displayRuleSetId
+      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
+      : scopedAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        );
 
-    // If both rule set IDs are provided and different, remap entity IDs in REAL appointments
-    // from active rule set to selected rule set BEFORE combining with simulation data
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      // Only remap real appointments (simulation appointments already have correct IDs)
-      const realAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation !== true,
-      );
-      const simulationAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation === true,
-      );
-
-      const remappedRealAppointments = await remapAppointmentIds(
-        ctx,
-        realAppointments,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
-      );
-
-      appointments = [...remappedRealAppointments, ...simulationAppointments];
-    }
-
-    let resultAppointments: AppointmentDoc[];
+    let resultAppointments: AppointmentListItem[];
 
     if (scope === "simulation") {
       resultAppointments = combineForSimulationScope(appointments);
@@ -373,9 +554,9 @@ export const getAppointments = query({
         a.start.localeCompare(b.start),
       );
     } else {
-      resultAppointments = appointments
-        .filter((appointment) => appointment.isSimulation !== true)
-        .toSorted((a, b) => a.start.localeCompare(b.start));
+      resultAppointments = appointments.toSorted((a, b) =>
+        a.start.localeCompare(b.start),
+      );
     }
 
     return resultAppointments;
@@ -412,31 +593,19 @@ export const getAppointmentsInRange = query({
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
-
-    let appointments = filteredAppointments;
     const scope: AppointmentScope = args.scope ?? "real";
+    const scopedAppointments = filterAppointmentsForScope(
+      filteredAppointments,
+      args,
+      scope,
+    );
 
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      const realAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation !== true,
-      );
-      const simulationAppointments = appointments.filter(
-        (appointment) => appointment.isSimulation === true,
-      );
-
-      const remappedRealAppointments = await remapAppointmentIds(
-        ctx,
-        realAppointments,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
-      );
-
-      appointments = [...remappedRealAppointments, ...simulationAppointments];
-    }
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    const appointments: AppointmentListItem[] = displayRuleSetId
+      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
+      : scopedAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        );
 
     if (scope === "simulation") {
       return combineForSimulationScope(appointments);
@@ -446,9 +615,7 @@ export const getAppointmentsInRange = query({
       return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
     }
 
-    return appointments
-      .filter((appointment) => appointment.isSimulation !== true)
-      .toSorted((a, b) => a.start.localeCompare(b.start));
+    return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(appointmentResultValidator),
 });
@@ -511,18 +678,30 @@ export async function createAppointmentFromTrustedSource(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
+    simulationKind?: AppointmentSimulationKind;
+    simulationRuleSetId?: Id<"ruleSets">;
     start: string;
+    temporaryPatientName?: string;
+    temporaryPatientPhoneNumber?: string;
     title: string;
     userId?: Id<"users">;
   },
 ) {
   const now = BigInt(Date.now());
   const {
+    appointmentTypeId,
     isNewPatient,
     isSimulation,
+    locationId,
     patientDateOfBirth,
     patientId,
+    practiceId,
+    practitionerId,
     replacesAppointmentId,
+    simulationKind,
+    simulationRuleSetId,
+    temporaryPatientName,
+    temporaryPatientPhoneNumber,
     userId,
     ...rest
   } = args;
@@ -533,76 +712,165 @@ export async function createAppointmentFromTrustedSource(
     );
   }
 
-  // For non-simulation appointments, require at least one identifier to tie the booking to a user or patient
-  if (!isSimulation && !patientId && !userId) {
-    throw new Error("Either patientId or userId must be provided.");
+  const hasTemporaryPatientData =
+    temporaryPatientName !== undefined ||
+    temporaryPatientPhoneNumber !== undefined;
+
+  if ((patientId || userId) && hasTemporaryPatientData) {
+    throw new Error(
+      "Temporäre Patientendaten können nicht zusammen mit patientId oder userId übergeben werden.",
+    );
+  }
+
+  let resolvedPatientId = patientId;
+  let resolvedUserId = userId;
+  const allowsMissingLinkedRecords =
+    isSimulation === true && replacesAppointmentId !== undefined;
+
+  if (!resolvedPatientId && !resolvedUserId) {
+    if (
+      temporaryPatientName === undefined ||
+      temporaryPatientPhoneNumber === undefined
+    ) {
+      throw new Error(
+        "Either patientId, userId, or temporary patient data must be provided.",
+      );
+    }
+
+    resolvedPatientId = await createTemporaryPatientRecord(ctx, {
+      name: temporaryPatientName,
+      phoneNumber: temporaryPatientPhoneNumber,
+      practiceId,
+    });
+  }
+
+  if (simulationKind && isSimulation !== true) {
+    throw new Error(
+      "simulationKind can only be used with simulated appointments.",
+    );
   }
 
   // If a patientId is provided, verify it exists
-  if (patientId) {
-    const patient = await ctx.db.get("patients", patientId);
+  if (resolvedPatientId) {
+    const patient = await ctx.db.get("patients", resolvedPatientId);
     if (!patient) {
-      throw new Error(`Patient with ID ${patientId} not found`);
+      if (allowsMissingLinkedRecords) {
+        resolvedPatientId = undefined;
+      } else {
+        throw new Error(`Patient with ID ${resolvedPatientId} not found`);
+      }
     }
   }
 
-  if (userId) {
-    const user = await ctx.db.get("users", userId);
+  if (resolvedUserId) {
+    const user = await ctx.db.get("users", resolvedUserId);
     if (!user) {
-      throw new Error(`User with ID ${userId} not found`);
+      if (allowsMissingLinkedRecords) {
+        resolvedUserId = undefined;
+      } else {
+        throw new Error(`User with ID ${resolvedUserId} not found`);
+      }
     }
   }
 
   // Look up the appointment type to get its name at booking time
   const appointmentType = await ctx.db.get(
     "appointmentTypes",
-    args.appointmentTypeId,
+    appointmentTypeId,
   );
-  if (!appointmentType) {
-    throw new Error(
-      `Appointment type with ID ${args.appointmentTypeId} not found`,
-    );
+  const activeAppointmentType = requireEntityUsableForNewAppointment({
+    entity: appointmentType,
+    entityId: appointmentTypeId,
+    entityLabel: "Terminart",
+  });
+
+  const location = await ctx.db.get("locations", locationId);
+  requireEntityUsableForNewAppointment({
+    entity: location,
+    entityId: locationId,
+    entityLabel: "Standort",
+  });
+
+  if (practitionerId) {
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
+    requireEntityUsableForNewAppointment({
+      entity: practitioner,
+      entityId: practitionerId,
+      entityLabel: "Behandler",
+    });
   }
 
-  if (appointmentType.followUpPlan && appointmentType.followUpPlan.length > 0) {
-    if (!args.practitionerId) {
+  const resolvedSimulationRuleSetId =
+    isSimulation === true
+      ? (simulationRuleSetId ?? activeAppointmentType.ruleSetId)
+      : undefined;
+
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
+      locationId: asLocationId(locationId),
+      ...(practitionerId
+        ? { practitionerId: asPractitionerId(practitionerId) }
+        : {}),
+    },
+  );
+
+  if (
+    activeAppointmentType.followUpPlan &&
+    activeAppointmentType.followUpPlan.length > 0
+  ) {
+    if (!practitionerId) {
       throw new Error(
         "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
       );
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
-      locationId: args.locationId,
+      locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
-      ...(patientId && { patientId }),
-      practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
-      rootAppointmentTypeId: args.appointmentTypeId,
+      ...(resolvedPatientId && { patientId: resolvedPatientId }),
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId: appointmentTypeId,
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
       rootTitle: args.title.trim(),
-      ruleSetId: appointmentType.ruleSetId,
+      ruleSetId: activeAppointmentType.ruleSetId,
       scope: getAppointmentBookingScope(isSimulation),
+      ...(resolvedSimulationRuleSetId && {
+        simulationRuleSetId: resolvedSimulationRuleSetId,
+      }),
       start: args.start,
-      ...(userId && { userId }),
+      ...(resolvedUserId && { userId: resolvedUserId }),
     });
 
     return result.rootAppointmentId;
   }
 
-  const end = calculateEndFromDuration(args.start, appointmentType.duration);
+  const end = calculateEndFromDuration(
+    args.start,
+    activeAppointmentType.duration,
+  );
 
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end,
-      locationId: args.locationId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
+      locationLineageKey: storedReferences.locationLineageKey,
+      ...(storedReferences.practitionerLineageKey && {
+        practitionerLineageKey: storedReferences.practitionerLineageKey,
+      }),
       start: args.start,
     },
-    practiceId: args.practiceId,
-    scope: getAppointmentBookingScope(isSimulation),
+    practiceId,
+    ...(resolvedSimulationRuleSetId
+      ? { draftRuleSetId: resolvedSimulationRuleSetId }
+      : {}),
+    occupancyView: getOccupancyViewForBookingScope(
+      getAppointmentBookingScope(isSimulation),
+    ),
     ...(replacesAppointmentId && {
       excludeAppointmentIds: [replacesAppointmentId],
     }),
@@ -614,15 +882,24 @@ export async function createAppointmentFromTrustedSource(
 
   const insertData = {
     ...rest,
-    appointmentTypeTitle: appointmentType.name,
+    ...storedReferences,
+    appointmentTypeTitle: activeAppointmentType.name,
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
     lastModified: now,
-    ...(patientId && { patientId }),
-    ...(userId && { userId }),
+    practiceId,
+    ...(resolvedPatientId && { patientId: resolvedPatientId }),
+    ...(resolvedUserId && { userId: resolvedUserId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
+    }),
+    ...(isSimulation === true && {
+      simulationKind: simulationKind ?? "draft",
+      ...(resolvedSimulationRuleSetId && {
+        simulationRuleSetId: resolvedSimulationRuleSetId,
+      }),
+      simulationValidatedAt: now,
     }),
   };
   return await ctx.db.insert("appointments", insertData);
@@ -640,7 +917,11 @@ export const createAppointment = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(appointmentSimulationKindValidator),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
     start: v.string(),
+    temporaryPatientName: v.optional(v.string()),
+    temporaryPatientPhoneNumber: v.optional(v.string()),
     title: v.string(),
     userId: v.optional(v.id("users")),
   },
@@ -658,193 +939,510 @@ function getAppointmentBookingScope(
   return isSimulation === true ? "simulation" : "real";
 }
 
-// Mutation to update an existing appointment
-export const updateAppointment = mutation({
-  args: {
-    appointmentTypeId: v.optional(v.id("appointmentTypes")),
-    end: v.optional(v.string()),
-    id: v.id("appointments"),
-    isSimulation: v.optional(v.boolean()),
-    locationId: v.optional(v.id("locations")),
-    patientId: v.optional(v.id("patients")),
-    practitionerId: v.optional(v.id("practitioners")),
-    replacesAppointmentId: v.optional(v.id("appointments")),
-    start: v.optional(v.string()),
-    title: v.optional(v.string()),
-    userId: v.optional(v.id("users")),
-  },
-  handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    const { id, ...updateData } = args;
-    const existingAppointment = await ctx.db.get("appointments", id);
-    if (!existingAppointment) {
-      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+const appointmentUpdateArgsValidator = {
+  appointmentTypeId: v.optional(v.id("appointmentTypes")),
+  end: v.optional(v.string()),
+  id: v.id("appointments"),
+  isSimulation: v.optional(v.boolean()),
+  locationId: v.optional(v.id("locations")),
+  patientId: v.optional(v.id("patients")),
+  practitionerId: v.optional(v.id("practitioners")),
+  replacesAppointmentId: v.optional(v.id("appointments")),
+  simulationKind: v.optional(appointmentSimulationKindValidator),
+  simulationRuleSetId: v.optional(v.id("ruleSets")),
+  start: v.optional(v.string()),
+  title: v.optional(v.string()),
+  userId: v.optional(v.id("users")),
+} as const;
+
+interface AppointmentUpdateArgs {
+  appointmentTypeId?: Id<"appointmentTypes">;
+  end?: string;
+  id: Id<"appointments">;
+  isSimulation?: boolean;
+  locationId?: Id<"locations">;
+  patientId?: Id<"patients">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  simulationKind?: AppointmentSimulationKind;
+  simulationRuleSetId?: Id<"ruleSets">;
+  start?: string;
+  title?: string;
+  userId?: Id<"users">;
+}
+
+type AppointmentUpdateMode = "activationReassignment" | "real" | "simulation";
+
+function assertExpectedAppointmentUpdateMode(
+  appointment: AppointmentDoc,
+  expectedMode: AppointmentUpdateMode,
+) {
+  const actualMode = getExistingAppointmentUpdateMode(appointment);
+  if (actualMode === expectedMode) {
+    return;
+  }
+
+  switch (expectedMode) {
+    case "real": {
+      throw new Error(
+        "Simulierte Termine können nicht über die Echttermin-Bearbeitung geändert werden.",
+      );
     }
-    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
-
-    // Filter out undefined values
-
-    const filteredUpdateData = Object.fromEntries(
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      Object.entries(updateData).filter(([, value]) => value !== undefined),
-    ) as Partial<typeof updateData>;
-
-    const { patientId, userId } = filteredUpdateData;
-
-    if (patientId) {
-      const patient = await ctx.db.get("patients", patientId);
-      if (!patient) {
-        throw new Error(`Patient with ID ${patientId} not found`);
-      }
+    case "simulation": {
+      throw new Error(
+        actualMode === "activationReassignment"
+          ? "Urlaubsbedingte Vertretungsverschiebungen müssen separat bearbeitet werden."
+          : "Echte Termine können nicht über die Simulations-Bearbeitung geändert werden.",
+      );
     }
-
-    if (userId) {
-      const user = await ctx.db.get("users", userId);
-      if (!user) {
-        throw new Error(`User with ID ${userId} not found`);
-      }
+    case "activationReassignment": {
+      throw new Error(
+        "Nur urlaubsbedingte Vertretungsverschiebungen können über diese Bearbeitung geändert werden.",
+      );
     }
+  }
+}
 
-    if (existingAppointment.seriesId !== undefined) {
-      const seriesId = existingAppointment.seriesId;
-      if (!seriesId) {
-        throw appointmentChainError(
-          "CHAIN_NOT_FOUND",
-          "Appointment series metadata is incomplete.",
+function assertImmutableAppointmentModeFields(
+  updateData: Partial<AppointmentUpdateArgs>,
+) {
+  if (updateData.isSimulation !== undefined) {
+    throw new Error(
+      "Der Terminmodus kann nach dem Erstellen nicht geändert werden.",
+    );
+  }
+
+  if (updateData.replacesAppointmentId !== undefined) {
+    throw new Error(
+      "Die Ersetzungsbeziehung eines Termins kann nach dem Erstellen nicht geändert werden.",
+    );
+  }
+
+  if (updateData.simulationKind !== undefined) {
+    throw new Error(
+      "Die Art einer Simulation kann nach dem Erstellen nicht geändert werden.",
+    );
+  }
+
+  if (updateData.simulationRuleSetId !== undefined) {
+    throw new Error(
+      "Das Simulations-Regelset eines Termins kann nach dem Erstellen nicht geändert werden.",
+    );
+  }
+}
+
+function getExistingAppointmentUpdateMode(
+  appointment: AppointmentDoc,
+): AppointmentUpdateMode {
+  if (isActivationBoundSimulation(appointment)) {
+    return "activationReassignment";
+  }
+
+  if (appointment.isSimulation === true) {
+    return "simulation";
+  }
+
+  return "real";
+}
+
+function getPersistentSimulationFields(
+  appointment: AppointmentDoc,
+  now: bigint,
+) {
+  if (appointment.isSimulation !== true) {
+    return {};
+  }
+
+  return {
+    isSimulation: true,
+    ...(appointment.reassignmentSourceVacationLineageKey && {
+      reassignmentSourceVacationLineageKey:
+        appointment.reassignmentSourceVacationLineageKey,
+    }),
+    simulationKind: appointment.simulationKind ?? ("draft" as const),
+    ...(appointment.simulationRuleSetId && {
+      simulationRuleSetId: appointment.simulationRuleSetId,
+    }),
+    simulationValidatedAt: now,
+  };
+}
+
+async function updateAppointmentByMode(
+  ctx: MutationCtx,
+  args: AppointmentUpdateArgs,
+  expectedMode: AppointmentUpdateMode,
+) {
+  const { id, ...updateData } = args;
+  const existingAppointment = await ctx.db.get("appointments", id);
+  if (!existingAppointment) {
+    throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+  }
+  await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+  assertExpectedAppointmentUpdateMode(existingAppointment, expectedMode);
+
+  // Filter out undefined values
+  const filteredUpdateData = Object.fromEntries(
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    Object.entries(updateData).filter(([, value]) => value !== undefined),
+  ) as Partial<typeof updateData>;
+  assertImmutableAppointmentModeFields(filteredUpdateData);
+
+  const { patientId, userId } = filteredUpdateData;
+
+  if (patientId) {
+    const patient = await ctx.db.get("patients", patientId);
+    if (!patient) {
+      throw new Error(`Patient with ID ${patientId} not found`);
+    }
+  }
+
+  if (userId) {
+    const user = await ctx.db.get("users", userId);
+    if (!user) {
+      throw new Error(`User with ID ${userId} not found`);
+    }
+  }
+
+  const appointmentTypeRecord =
+    filteredUpdateData.appointmentTypeId === undefined
+      ? undefined
+      : await ctx.db.get(
+          "appointmentTypes",
+          filteredUpdateData.appointmentTypeId,
         );
-      }
+  const locationRecord =
+    filteredUpdateData.locationId === undefined
+      ? undefined
+      : await ctx.db.get("locations", filteredUpdateData.locationId);
+  const practitionerRecord =
+    filteredUpdateData.practitionerId === undefined
+      ? undefined
+      : await ctx.db.get("practitioners", filteredUpdateData.practitionerId);
 
-      if (existingAppointment.seriesStepIndex !== 0n) {
-        throw appointmentChainError(
-          "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
-          "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
+  if (filteredUpdateData.appointmentTypeId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: appointmentTypeRecord,
+      entityId: filteredUpdateData.appointmentTypeId,
+      entityLabel: "Terminart",
+    });
+  }
+  if (filteredUpdateData.locationId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: locationRecord,
+      entityId: filteredUpdateData.locationId,
+      entityLabel: "Standort",
+    });
+  }
+  if (filteredUpdateData.practitionerId !== undefined) {
+    requireEntityUsableForNewAppointment({
+      entity: practitionerRecord,
+      entityId: filteredUpdateData.practitionerId,
+      entityLabel: "Behandler",
+    });
+  }
+
+  const editingRuleSetId =
+    appointmentTypeRecord?.ruleSetId ??
+    practitionerRecord?.ruleSetId ??
+    locationRecord?.ruleSetId;
+
+  const resolvedStoredReferences =
+    filteredUpdateData.appointmentTypeId !== undefined ||
+    filteredUpdateData.locationId !== undefined ||
+    filteredUpdateData.practitionerId !== undefined
+      ? await (async () => {
+          if (!editingRuleSetId) {
+            throw new Error(
+              "Das Regelset fuer die Terminbearbeitung konnte nicht bestimmt werden.",
+            );
+          }
+          const appointmentTypeIdForWrite =
+            filteredUpdateData.appointmentTypeId ??
+            (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+              lineageKey: asAppointmentTypeLineageKey(
+                existingAppointment.appointmentTypeLineageKey,
+              ),
+              ruleSetId: editingRuleSetId,
+            }));
+          const locationIdForWrite =
+            filteredUpdateData.locationId ??
+            (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+              lineageKey: asLocationLineageKey(
+                existingAppointment.locationLineageKey,
+              ),
+              ruleSetId: editingRuleSetId,
+            }));
+          const practitionerIdForWrite =
+            filteredUpdateData.practitionerId ??
+            (existingAppointment.practitionerLineageKey
+              ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+                  lineageKey: asPractitionerLineageKey(
+                    existingAppointment.practitionerLineageKey,
+                  ),
+                  ruleSetId: editingRuleSetId,
+                })
+              : undefined);
+
+          return resolveStoredAppointmentReferencesForWrite(ctx.db, {
+            appointmentTypeId: asAppointmentTypeId(appointmentTypeIdForWrite),
+            locationId: asLocationId(locationIdForWrite),
+            ...(practitionerIdForWrite
+              ? { practitionerId: asPractitionerId(practitionerIdForWrite) }
+              : {}),
+          });
+        })()
+      : {
+          appointmentTypeLineageKey:
+            existingAppointment.appointmentTypeLineageKey,
+          locationLineageKey: existingAppointment.locationLineageKey,
+          ...(existingAppointment.practitionerLineageKey
+            ? {
+                practitionerLineageKey:
+                  existingAppointment.practitionerLineageKey,
+              }
+            : {}),
+        };
+  const resolvedAppointmentTypeId =
+    resolvedStoredReferences.appointmentTypeLineageKey;
+  const resolvedLocationId = resolvedStoredReferences.locationLineageKey;
+  const resolvedPractitionerId =
+    resolvedStoredReferences.practitionerLineageKey;
+  const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
+  const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
+  const resolvedIsSimulation = existingAppointment.isSimulation;
+  const resolvedSimulationRuleSetId = existingAppointment.simulationRuleSetId;
+
+  if (
+    filteredUpdateData.appointmentTypeId !== undefined ||
+    filteredUpdateData.practitionerId !== undefined
+  ) {
+    const appointmentTypeRuleSetId =
+      appointmentTypeRecord?.ruleSetId ?? practitionerRecord?.ruleSetId;
+
+    if (!appointmentTypeRuleSetId) {
+      throw new Error("Die Terminart konnte nicht validiert werden.");
+    }
+
+    const appointmentTypeIdForValidation =
+      filteredUpdateData.appointmentTypeId ??
+      (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+        lineageKey: asAppointmentTypeLineageKey(
+          existingAppointment.appointmentTypeLineageKey,
+        ),
+        ruleSetId: appointmentTypeRuleSetId,
+      }));
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      appointmentTypeIdForValidation,
+    );
+    const activeAppointmentType = requireEntityUsableForNewAppointment({
+      entity: appointmentType,
+      entityId: appointmentTypeIdForValidation,
+      entityLabel: "Terminart",
+    });
+
+    const practitionerIdForValidation =
+      filteredUpdateData.practitionerId ??
+      (existingAppointment.practitionerLineageKey
+        ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asPractitionerLineageKey(
+              existingAppointment.practitionerLineageKey,
+            ),
+            ruleSetId: activeAppointmentType.ruleSetId,
+          })
+        : undefined);
+
+    if (
+      practitionerIdForValidation &&
+      !activeAppointmentType.allowedPractitionerIds.includes(
+        practitionerIdForValidation,
+      )
+    ) {
+      throw new Error(
+        "Der gewählte Behandler ist für diese Terminart nicht freigegeben.",
+      );
+    }
+  }
+
+  const hasSchedulingChange =
+    resolvedLocationId !== existingAppointment.locationLineageKey ||
+    resolvedPractitionerId !== existingAppointment.practitionerLineageKey ||
+    resolvedStart !== existingAppointment.start ||
+    resolvedEnd !== existingAppointment.end;
+
+  if (hasSchedulingChange) {
+    const appointmentBookingScope =
+      getAppointmentBookingScope(resolvedIsSimulation);
+    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+      candidate: {
+        end: resolvedEnd,
+        locationLineageKey: asLocationLineageKey(resolvedLocationId),
+        ...(resolvedPractitionerId
+          ? {
+              practitionerLineageKey: asPractitionerLineageKey(
+                resolvedPractitionerId,
+              ),
+            }
+          : {}),
+        start: resolvedStart,
+      },
+      excludeAppointmentIds: [existingAppointment._id],
+      practiceId: existingAppointment.practiceId,
+      ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+        ? { draftRuleSetId: resolvedSimulationRuleSetId }
+        : {}),
+      occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
+    });
+
+    if (conflictingAppointment) {
+      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+    }
+  }
+
+  if (existingAppointment.seriesId !== undefined) {
+    const seriesId = existingAppointment.seriesId;
+    if (!seriesId) {
+      throw appointmentChainError(
+        "CHAIN_NOT_FOUND",
+        "Appointment series metadata is incomplete.",
+      );
+    }
+
+    if (existingAppointment.seriesStepIndex !== 0n) {
+      throw appointmentChainError(
+        "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
+        "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
+      );
+    }
+
+    if (filteredUpdateData.appointmentTypeId !== undefined) {
+      const nextAppointmentTypeLineageKey =
+        await resolveAppointmentTypeLineageKey(
+          ctx.db,
+          asAppointmentTypeId(filteredUpdateData.appointmentTypeId),
         );
-      }
-
       if (
-        filteredUpdateData.appointmentTypeId !== undefined &&
-        filteredUpdateData.appointmentTypeId !==
-          existingAppointment.appointmentTypeId
+        nextAppointmentTypeLineageKey !==
+        existingAppointment.appointmentTypeLineageKey
       ) {
         throw appointmentChainError(
           "CHAIN_REPLAN_FAILED",
           "Die Terminart eines Kettentermins kann nach der Buchung nicht geändert werden.",
         );
       }
+    }
 
-      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
-      if (!seriesRecord) {
-        throw appointmentChainError(
-          "CHAIN_NOT_FOUND",
-          "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
-        );
-      }
-
-      const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
-      const seriesAppointmentIds = seriesAppointments.map(
-        (appointment) => appointment._id,
+    const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+    if (!seriesRecord) {
+      throw appointmentChainError(
+        "CHAIN_NOT_FOUND",
+        "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
       );
-      const resolvedPatientId =
-        filteredUpdateData.patientId ?? existingAppointment.patientId;
-      const resolvedPatientDateOfBirth =
-        await resolveAppointmentPatientDateOfBirth(ctx.db, {
-          ...(filteredUpdateData.patientId === undefined &&
-            seriesRecord.patientDateOfBirth && {
-              fallbackDateOfBirth: seriesRecord.patientDateOfBirth,
-            }),
-          ...(resolvedPatientId && { patientId: resolvedPatientId }),
-        });
-      const updatedStart =
-        filteredUpdateData.start ?? existingAppointment.start;
-      const updatedEnd =
-        filteredUpdateData.end ??
-        (filteredUpdateData.start === undefined
-          ? existingAppointment.end
-          : calculateShiftedEnd(
-              existingAppointment.end,
-              existingAppointment.start,
-              filteredUpdateData.start,
-            ));
-      const practitionerId =
-        filteredUpdateData.practitionerId ?? existingAppointment.practitionerId;
+    }
 
-      if (!practitionerId) {
-        throw appointmentChainError(
-          "CHAIN_REPLAN_FAILED",
-          "Kettentermine benötigen einen Behandler auf dem Starttermin.",
-        );
-      }
-
-      const plannedSteps = await replanAppointmentSeries(ctx, {
-        excludedAppointmentIds: seriesAppointmentIds,
-        locationId:
-          filteredUpdateData.locationId ?? existingAppointment.locationId,
-        ...(resolvedPatientDateOfBirth && {
-          patientDateOfBirth: resolvedPatientDateOfBirth,
-        }),
-        ...(resolvedPatientId && { patientId: resolvedPatientId }),
-        practiceId: existingAppointment.practiceId,
-        practitionerId,
-        rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
-        scope: getAppointmentBookingScope(existingAppointment.isSimulation),
-        series: seriesRecord,
-        start: updatedStart,
-        ...((filteredUpdateData.userId ?? existingAppointment.userId)
-          ? { userId: filteredUpdateData.userId ?? existingAppointment.userId }
-          : {}),
-      });
-
-      const now = BigInt(Date.now());
-      const resolvedUserId =
-        filteredUpdateData.userId ?? existingAppointment.userId;
-      const existingByStepKey = new Map(
-        seriesAppointments.map((appointment) => [
-          getSeriesStepKey(appointment),
-          appointment,
-        ]),
-      );
-      const touchedAppointmentIds = new Set<Id<"appointments">>();
-
-      for (const step of plannedSteps) {
-        const matchingAppointment = existingByStepKey.get(step.stepId);
-        const title =
-          step.seriesStepIndex === 0
-            ? (filteredUpdateData.title?.trim() ?? existingAppointment.title)
-            : `Folgetermin: ${step.appointmentTypeTitle}`;
-
-        if (matchingAppointment) {
-          await ctx.db.patch("appointments", matchingAppointment._id, {
-            appointmentTypeId: step.appointmentTypeId,
-            appointmentTypeTitle: step.appointmentTypeTitle,
-            end: step.end,
-            lastModified: now,
-            locationId: step.locationId,
-            ...(resolvedPatientId && { patientId: resolvedPatientId }),
-            practitionerId: step.practitionerId,
-            seriesId,
-            seriesStepId: step.stepId,
-            seriesStepIndex: BigInt(step.seriesStepIndex),
-            start: step.start,
-            title,
-            ...(resolvedUserId && { userId: resolvedUserId }),
-          });
-          touchedAppointmentIds.add(matchingAppointment._id);
-          continue;
-        }
-
-        const insertedAppointmentId = await ctx.db.insert("appointments", {
-          appointmentTypeId: step.appointmentTypeId,
-          appointmentTypeTitle: step.appointmentTypeTitle,
-          createdAt: now,
-          end: step.end,
-          ...(existingAppointment.isSimulation === true && {
-            isSimulation: true,
+    const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
+    const seriesAppointmentIds = seriesAppointments.map(
+      (appointment) => appointment._id,
+    );
+    const resolvedPatientId =
+      filteredUpdateData.patientId ?? existingAppointment.patientId;
+    const resolvedPatientDateOfBirth =
+      await resolveAppointmentPatientDateOfBirth(ctx.db, {
+        ...(filteredUpdateData.patientId === undefined &&
+          seriesRecord.patientDateOfBirth && {
+            fallbackDateOfBirth: seriesRecord.patientDateOfBirth,
           }),
+        ...(resolvedPatientId && { patientId: resolvedPatientId }),
+      });
+    const updatedStart = filteredUpdateData.start ?? existingAppointment.start;
+    const updatedEnd =
+      filteredUpdateData.end ??
+      (filteredUpdateData.start === undefined
+        ? existingAppointment.end
+        : calculateShiftedEnd(
+            existingAppointment.end,
+            existingAppointment.start,
+            filteredUpdateData.start,
+          ));
+    const practitionerId =
+      filteredUpdateData.practitionerId ??
+      (existingAppointment.practitionerLineageKey
+        ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asPractitionerLineageKey(
+              existingAppointment.practitionerLineageKey,
+            ),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          })
+        : undefined);
+
+    if (!practitionerId) {
+      throw appointmentChainError(
+        "CHAIN_REPLAN_FAILED",
+        "Kettentermine benötigen einen Behandler auf dem Starttermin.",
+      );
+    }
+
+    const plannedSteps = await replanAppointmentSeries(ctx, {
+      excludedAppointmentIds: seriesAppointmentIds,
+      locationId:
+        filteredUpdateData.locationId ??
+        (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+          lineageKey: asLocationLineageKey(
+            existingAppointment.locationLineageKey,
+          ),
+          ruleSetId: seriesRecord.ruleSetIdAtBooking,
+        })),
+      ...(resolvedPatientDateOfBirth && {
+        patientDateOfBirth: resolvedPatientDateOfBirth,
+      }),
+      ...(resolvedPatientId && { patientId: resolvedPatientId }),
+      practiceId: existingAppointment.practiceId,
+      practitionerId,
+      rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+      scope: getAppointmentBookingScope(existingAppointment.isSimulation),
+      series: seriesRecord,
+      start: updatedStart,
+      ...((filteredUpdateData.userId ?? existingAppointment.userId)
+        ? { userId: filteredUpdateData.userId ?? existingAppointment.userId }
+        : {}),
+    });
+
+    const now = BigInt(Date.now());
+    const resolvedUserId =
+      filteredUpdateData.userId ?? existingAppointment.userId;
+    const existingByStepKey = new Map(
+      seriesAppointments.map((appointment) => [
+        getSeriesStepKey(appointment),
+        appointment,
+      ]),
+    );
+    const touchedAppointmentIds = new Set<Id<"appointments">>();
+    const persistentSimulationFields = getPersistentSimulationFields(
+      existingAppointment,
+      now,
+    );
+
+    for (const step of plannedSteps) {
+      const matchingAppointment = existingByStepKey.get(step.stepId);
+      const title =
+        step.seriesStepIndex === 0
+          ? (filteredUpdateData.title?.trim() ?? existingAppointment.title)
+          : `Folgetermin: ${step.appointmentTypeTitle}`;
+
+      if (matchingAppointment) {
+        const stepStoredReferences =
+          await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+            appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
+            locationId: asLocationId(step.locationId),
+            practitionerId: asPractitionerId(step.practitionerId),
+          });
+        await ctx.db.patch("appointments", matchingAppointment._id, {
+          ...stepStoredReferences,
+          ...persistentSimulationFields,
+          appointmentTypeTitle: step.appointmentTypeTitle,
+          end: step.end,
           lastModified: now,
-          locationId: step.locationId,
           ...(resolvedPatientId && { patientId: resolvedPatientId }),
-          practiceId: existingAppointment.practiceId,
-          practitionerId: step.practitionerId,
           seriesId,
           seriesStepId: step.stepId,
           seriesStepIndex: BigInt(step.seriesStepIndex),
@@ -852,44 +1450,115 @@ export const updateAppointment = mutation({
           title,
           ...(resolvedUserId && { userId: resolvedUserId }),
         });
-        touchedAppointmentIds.add(insertedAppointmentId);
+        touchedAppointmentIds.add(matchingAppointment._id);
+        continue;
       }
 
-      for (const seriesAppointment of seriesAppointments) {
-        if (!touchedAppointmentIds.has(seriesAppointment._id)) {
-          await ctx.db.delete("appointments", seriesAppointment._id);
-        }
-      }
-
-      await ctx.db.replace("appointmentSeries", seriesRecord._id, {
-        createdAt: seriesRecord.createdAt,
-        followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
+      const stepStoredReferences =
+        await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+          appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
+          locationId: asLocationId(step.locationId),
+          practitionerId: asPractitionerId(step.practitionerId),
+        });
+      const insertedAppointmentId = await ctx.db.insert("appointments", {
+        ...stepStoredReferences,
+        ...persistentSimulationFields,
+        appointmentTypeTitle: step.appointmentTypeTitle,
+        createdAt: now,
+        end: step.end,
         lastModified: now,
-        ...(resolvedPatientDateOfBirth && {
-          patientDateOfBirth: resolvedPatientDateOfBirth,
-        }),
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
-        practiceId: seriesRecord.practiceId,
-        rootAppointmentId: id,
-        rootAppointmentTypeId: seriesRecord.rootAppointmentTypeId,
-        rootAppointmentTypeLineageKey:
-          seriesRecord.rootAppointmentTypeLineageKey,
-        rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
-        ruleSetIdAtBooking: seriesRecord.ruleSetIdAtBooking,
-        scope: seriesRecord.scope,
-        seriesId: seriesRecord.seriesId,
+        practiceId: existingAppointment.practiceId,
+        seriesId,
+        seriesStepId: step.stepId,
+        seriesStepIndex: BigInt(step.seriesStepIndex),
+        start: step.start,
+        title,
         ...(resolvedUserId && { userId: resolvedUserId }),
       });
-
-      return null;
+      touchedAppointmentIds.add(insertedAppointmentId);
     }
 
-    await ctx.db.patch("appointments", id, {
-      ...filteredUpdateData,
-      lastModified: BigInt(Date.now()),
+    for (const seriesAppointment of seriesAppointments) {
+      if (!touchedAppointmentIds.has(seriesAppointment._id)) {
+        await ctx.db.delete("appointments", seriesAppointment._id);
+      }
+    }
+
+    await ctx.db.replace("appointmentSeries", seriesRecord._id, {
+      createdAt: seriesRecord.createdAt,
+      followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
+      lastModified: now,
+      ...(resolvedPatientDateOfBirth && {
+        patientDateOfBirth: resolvedPatientDateOfBirth,
+      }),
+      ...(resolvedPatientId && { patientId: resolvedPatientId }),
+      practiceId: seriesRecord.practiceId,
+      rootAppointmentId: id,
+      rootAppointmentTypeId: seriesRecord.rootAppointmentTypeId,
+      rootAppointmentTypeLineageKey: seriesRecord.rootAppointmentTypeLineageKey,
+      rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+      ruleSetIdAtBooking: seriesRecord.ruleSetIdAtBooking,
+      scope: seriesRecord.scope,
+      seriesId: seriesRecord.seriesId,
+      ...(resolvedUserId && { userId: resolvedUserId }),
     });
 
     return null;
+  }
+
+  const persistedUpdateData = Object.fromEntries(
+    Object.entries(filteredUpdateData).filter(
+      ([key]) =>
+        key !== "appointmentTypeId" &&
+        key !== "locationId" &&
+        key !== "practitionerId",
+    ),
+  ) as Omit<
+    typeof filteredUpdateData,
+    "appointmentTypeId" | "locationId" | "practitionerId"
+  >;
+
+  await ctx.db.patch("appointments", id, {
+    ...persistedUpdateData,
+    ...getPersistentSimulationFields(existingAppointment, BigInt(Date.now())),
+    appointmentTypeLineageKey: resolvedAppointmentTypeId,
+    locationLineageKey: resolvedLocationId,
+    ...(resolvedPractitionerId
+      ? { practitionerLineageKey: resolvedPractitionerId }
+      : filteredUpdateData.practitionerId === undefined
+        ? {}
+        : { practitionerLineageKey: undefined }),
+    lastModified: BigInt(Date.now()),
+  });
+
+  return null;
+}
+
+// Mutation to update an existing real appointment
+export const updateAppointment = mutation({
+  args: appointmentUpdateArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    return await updateAppointmentByMode(ctx, args, "real");
+  },
+  returns: v.null(),
+});
+
+export const updateSimulationAppointment = mutation({
+  args: appointmentUpdateArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    return await updateAppointmentByMode(ctx, args, "simulation");
+  },
+  returns: v.null(),
+});
+
+export const updateVacationReassignmentAppointment = mutation({
+  args: appointmentUpdateArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    return await updateAppointmentByMode(ctx, args, "activationReassignment");
   },
   returns: v.null(),
 });
@@ -1028,7 +1697,7 @@ export const getBookedAppointmentForCurrentUser = query({
 async function getBookedAppointmentsForUser(
   ctx: QueryCtx,
   args: { refreshNonce?: number },
-): Promise<AppointmentDoc[]> {
+): Promise<AppointmentListItem[]> {
   const userId = await getAuthenticatedUserIdForQuery(ctx);
   if (!userId) {
     return [];
@@ -1047,14 +1716,14 @@ async function getBookedAppointmentsForUser(
       q.eq("userId", userId).gte("start", nowStartLowerBound),
     );
 
-  const appointments: AppointmentDoc[] = [];
+  const appointments: AppointmentListItem[] = [];
   for await (const appointment of appointmentQuery) {
     if (
       appointment.isSimulation !== true &&
       isVisibleAppointment(appointment) &&
       isAppointmentInFuture(appointment, nowEpochMilliseconds)
     ) {
-      appointments.push(appointment);
+      appointments.push(toAppointmentListItem(appointment));
     }
   }
 
@@ -1077,7 +1746,7 @@ export const getAppointmentsForPatient = query({
       return [];
     }
 
-    const appointments: AppointmentDoc[] = [];
+    const appointments: AppointmentListItem[] = [];
 
     // Query by patient ID if provided
     if (args.patientId) {
@@ -1085,7 +1754,11 @@ export const getAppointmentsForPatient = query({
         .query("appointments")
         .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
         .collect();
-      appointments.push(...patientAppointments);
+      appointments.push(
+        ...patientAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        ),
+      );
     }
 
     if (args.userId) {
@@ -1093,7 +1766,11 @@ export const getAppointmentsForPatient = query({
         .query("appointments")
         .withIndex("by_userId", (q) => q.eq("userId", args.userId))
         .collect();
-      appointments.push(...userAppointments);
+      appointments.push(
+        ...userAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        ),
+      );
     }
 
     // Dedupe in case both queries return the same appointment, then sort by start time (ascending)
@@ -1124,10 +1801,15 @@ export const deleteAllSimulatedAppointments = internalMutation({
     );
 
     for (const appointment of simulatedAppointments) {
+      if (isActivationBoundSimulation(appointment)) {
+        continue;
+      }
       await ctx.db.delete("appointments", appointment._id);
     }
 
-    return simulatedAppointments.length;
+    return simulatedAppointments.filter(
+      (appointment) => !isActivationBoundSimulation(appointment),
+    ).length;
   },
   returns: v.number(),
 });
@@ -1156,31 +1838,6 @@ export const getBlockedSlots = query({
       accessiblePracticeIds.has(blockedSlot.practiceId),
     );
 
-    // If both rule set IDs are provided and different, remap entity IDs in REAL blocked slots
-    // from active rule set to selected rule set BEFORE combining with simulation data
-    if (
-      args.selectedRuleSetId &&
-      args.activeRuleSetId &&
-      args.selectedRuleSetId !== args.activeRuleSetId
-    ) {
-      // Only remap real blocked slots (simulation slots already have correct IDs)
-      const realSlots = blockedSlots.filter(
-        (slot) => slot.isSimulation !== true,
-      );
-      const simulationSlots = blockedSlots.filter(
-        (slot) => slot.isSimulation === true,
-      );
-
-      const remappedRealSlots = await remapBlockedSlotIds(
-        ctx,
-        realSlots,
-        args.activeRuleSetId,
-        args.selectedRuleSetId,
-      );
-
-      blockedSlots = [...remappedRealSlots, ...simulationSlots];
-    }
-
     let resultSlots: BlockedSlotDoc[];
 
     if (scope === "simulation") {
@@ -1191,6 +1848,15 @@ export const getBlockedSlots = query({
       );
     } else {
       resultSlots = blockedSlots;
+    }
+
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    if (displayRuleSetId) {
+      resultSlots = await remapBlockedSlotIds(
+        ctx,
+        resultSlots,
+        displayRuleSetId,
+      );
     }
 
     return resultSlots;

@@ -19,6 +19,10 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { asMfaId, asMfaLineageKey, type MfaId } from "./identity";
+import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+
 // Type aliases for cleaner code
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
@@ -32,25 +36,6 @@ export type EntityType =
   | "practitioner"
   | "rule"
   | "rule condition";
-
-function requireLineageKey<T extends string>(params: {
-  entityId: string;
-  entityType:
-    | "appointment type"
-    | "base schedule"
-    | "location"
-    | "practitioner"
-    | "vacation";
-  lineageKey: T | undefined;
-  ruleSetId: Id<"ruleSets">;
-}): T {
-  if (!params.lineageKey) {
-    throw new Error(
-      `[INVARIANT:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entityId} in Regelset ${params.ruleSetId} hat keinen lineageKey.`,
-    );
-  }
-  return params.lineageKey;
-}
 
 // ================================
 // VALIDATION HELPERS
@@ -342,7 +327,7 @@ export async function copyAppointmentTypes(
       allowedPractitionerIds.push(newId);
     }
 
-    const newId = await db.insert("appointmentTypes", {
+    const newId = await insertSelfLineageEntity(db, "appointmentTypes", {
       allowedPractitionerIds,
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
@@ -383,7 +368,7 @@ export async function copyPractitioners(
   const idMap = new Map<Id<"practitioners">, Id<"practitioners">>();
 
   for (const source of sourcePractitioners) {
-    const newId = await db.insert("practitioners", {
+    const newId = await insertSelfLineageEntity(db, "practitioners", {
       lineageKey: requireLineageKey({
         entityId: source._id,
         entityType: "practitioner",
@@ -411,26 +396,33 @@ export async function copyMfas(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-): Promise<Map<Id<"mfas">, Id<"mfas">>> {
+): Promise<Map<MfaId, MfaId>> {
   const sourceMfas = await db
     .query("mfas")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
     .collect();
 
-  const idMap = new Map<Id<"mfas">, Id<"mfas">>();
+  const idMap = new Map<MfaId, MfaId>();
 
   for (const source of sourceMfas) {
-    const lineageKey = source.lineageKey ?? source._id;
-    const newId = await db.insert("mfas", {
-      createdAt: source.createdAt,
-      lineageKey,
-      name: source.name,
-      parentId: source._id,
-      practiceId,
-      ruleSetId: targetRuleSetId,
+    const lineageKey = requireLineageKey({
+      entityId: source._id,
+      entityType: "mfa",
+      lineageKey: source.lineageKey,
+      ruleSetId: source.ruleSetId,
     });
+    const newId = asMfaId(
+      await insertSelfLineageEntity(db, "mfas", {
+        createdAt: source.createdAt,
+        lineageKey: asMfaLineageKey(lineageKey),
+        name: source.name,
+        parentId: source._id,
+        practiceId,
+        ruleSetId: targetRuleSetId,
+      }),
+    );
 
-    idMap.set(source._id, newId);
+    idMap.set(asMfaId(source._id), newId);
   }
 
   return idMap;
@@ -453,7 +445,7 @@ export async function copyLocations(
   const idMap = new Map<Id<"locations">, Id<"locations">>();
 
   for (const source of sourceLocations) {
-    const newId = await db.insert("locations", {
+    const newId = await insertSelfLineageEntity(db, "locations", {
       lineageKey: requireLineageKey({
         entityId: source._id,
         entityType: "location",
@@ -508,7 +500,7 @@ export async function copyBaseSchedules(
       );
     }
 
-    await db.insert("baseSchedules", {
+    await insertSelfLineageEntity(db, "baseSchedules", {
       dayOfWeek: source.dayOfWeek,
       endTime: source.endTime,
       lineageKey: requireLineageKey({
@@ -537,7 +529,7 @@ export async function copyVacations(
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
   practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  mfaIdMap: Map<Id<"mfas">, Id<"mfas">>,
+  mfaIdMap: Map<MfaId, MfaId>,
 ): Promise<void> {
   const sourceVacations = await db
     .query("vacations")
@@ -546,7 +538,7 @@ export async function copyVacations(
 
   for (const source of sourceVacations) {
     let practitionerId: Id<"practitioners"> | undefined;
-    let mfaId: Id<"mfas"> | undefined;
+    let mfaId: MfaId | undefined;
 
     if (source.staffType === "practitioner") {
       if (!source.practitionerId) {
@@ -566,7 +558,7 @@ export async function copyVacations(
           `Failed to copy vacation ${source._id}: missing mfaId.`,
         );
       }
-      mfaId = mfaIdMap.get(source.mfaId);
+      mfaId = mfaIdMap.get(asMfaId(source.mfaId));
       if (!mfaId) {
         throw new Error(
           `Failed to copy vacation ${source._id}: MFA ${source.mfaId} not found in mapping.`,
@@ -574,7 +566,7 @@ export async function copyVacations(
       }
     }
 
-    await db.insert("vacations", {
+    await insertSelfLineageEntity(db, "vacations", {
       createdAt: source.createdAt,
       date: source.date,
       lineageKey: requireLineageKey({
@@ -910,6 +902,11 @@ export async function validateAppointmentTypeIdsInRuleSet(
           `This indicates the entity was deleted or the ID is invalid.`,
       );
     }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `appointmentTypes with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
+      );
+    }
 
     if (entity.ruleSetId !== expectedRuleSetId) {
       throw validateEntityInRuleSetError(
@@ -939,6 +936,11 @@ export async function validateLocationIdsInRuleSet(
           `This indicates the entity was deleted or the ID is invalid.`,
       );
     }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `locations with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
+      );
+    }
 
     if (entity.ruleSetId !== expectedRuleSetId) {
       throw validateEntityInRuleSetError(
@@ -966,6 +968,11 @@ export async function validatePractitionerIdsInRuleSet(
       throw new Error(
         `practitioners with ID ${id} not found. ` +
           `This indicates the entity was deleted or the ID is invalid.`,
+      );
+    }
+    if (isRuleSetEntityDeleted(entity)) {
+      throw new Error(
+        `practitioners with ID ${id} was soft-deleted and can no longer be referenced for writes.`,
       );
     }
 

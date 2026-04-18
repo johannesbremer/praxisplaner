@@ -3,14 +3,28 @@ import { Temporal } from "temporal-polyfill";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import {
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+  type LocationId,
+  type LocationLineageKey,
+  type PractitionerId,
+  type PractitionerLineageKey,
+} from "./identity";
+import { requireLineageKey } from "./lineage";
+
 export const SCHEDULING_TIMEZONE = "Europe/Berlin";
 
 export interface CandidateSlot {
-  blockedByBlockedSlotId?: string;
-  blockedByRuleId?: string;
+  blockedByBlockedSlotId?: Id<"blockedSlots">;
+  blockedByRuleId?: Id<"ruleConditions">;
   duration: number;
-  locationId?: string;
-  practitionerId: string;
+  locationId: LocationId;
+  locationLineageKey: LocationLineageKey;
+  practitionerId: PractitionerId;
+  practitionerLineageKey: PractitionerLineageKey;
   practitionerName?: string;
   reason?: string;
   startTime: string;
@@ -30,7 +44,11 @@ export async function generateCandidateSlotsForDay(
 ): Promise<CandidateSlot[]> {
   const { date: targetPlainDate, locationId, practiceId, ruleSetId } = args;
 
-  const [practitioners, schedules] = await Promise.all([
+  const [locations, practitioners, schedules] = await Promise.all([
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
     db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -49,6 +67,34 @@ export async function generateCandidateSlotsForDay(
       practitioner._id,
       practitioner.name,
     ]),
+  );
+  const practitionerLineageKeyById = new Map(
+    practitionersForPractice.map((practitioner) => [
+      asPractitionerId(practitioner._id),
+      asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+    ]),
+  );
+  const locationLineageKeyById = new Map(
+    locations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [
+        asLocationId(location._id),
+        asLocationLineageKey(
+          requireLineageKey({
+            entityId: location._id,
+            entityType: "location",
+            lineageKey: location.lineageKey,
+            ruleSetId: location.ruleSetId,
+          }),
+        ),
+      ]),
   );
 
   const dayOfWeek =
@@ -106,8 +152,15 @@ export async function generateCandidateSlotsForDay(
       if (!isBreakTime) {
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
-          locationId: schedule.locationId,
-          practitionerId: schedule.practitionerId,
+          locationId: asLocationId(schedule.locationId),
+          locationLineageKey:
+            locationLineageKeyById.get(asLocationId(schedule.locationId)) ??
+            asLocationLineageKey(schedule.locationId),
+          practitionerId: asPractitionerId(schedule.practitionerId),
+          practitionerLineageKey:
+            practitionerLineageKeyById.get(
+              asPractitionerId(schedule.practitionerId),
+            ) ?? asPractitionerLineageKey(schedule.practitionerId),
           practitionerName:
             practitionerNameById.get(schedule.practitionerId) ??
             "Unknown Practitioner",
@@ -140,18 +193,21 @@ export function isSlotStartInFuture(
 export function slotOverlapsAppointment(
   slot: Pick<
     CandidateSlot,
-    "duration" | "locationId" | "practitionerId" | "startTime"
+    "duration" | "locationLineageKey" | "practitionerLineageKey" | "startTime"
   >,
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationId" | "practitionerId" | "start"
-  >,
+    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
+  > & {
+    locationLineageKey: LocationLineageKey;
+    practitionerLineageKey?: PractitionerLineageKey;
+  },
 ): boolean {
-  if (slot.locationId !== appointment.locationId) {
+  if (slot.locationLineageKey !== appointment.locationLineageKey) {
     return false;
   }
 
-  if (slot.practitionerId !== appointment.practitionerId) {
+  if (slot.practitionerLineageKey !== appointment.practitionerLineageKey) {
     return false;
   }
 

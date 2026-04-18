@@ -22,12 +22,6 @@ export type ConditionType =
   | "PATIENT_AGE"
   | "PRACTITIONER";
 
-export interface NamedEntity {
-  _id: string;
-  lineageKey?: string;
-  name: string;
-}
-
 export interface RuleFromDB {
   _id: Id<"ruleConditions">;
   conditionTree: unknown;

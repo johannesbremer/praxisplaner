@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { Appointment, NewCalendarProps } from "./types";
+import type { AppointmentResult } from "../../../convex/appointments";
+import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
@@ -32,6 +33,8 @@ import {
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 import {
   type BlockedSlotConversionOptions,
+  collectDeletedPractitionerCalendarRanges,
+  filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
   parsePlainTimeResult,
   type SimulationConversionOptions,
@@ -137,18 +140,15 @@ export function useCalendarLogic({
   const [selectedLocationId, setSelectedLocationId] = useState(
     externalSelectedLocationId,
   );
-  const [prevExternalLocationId, setPrevExternalLocationId] = useState(
-    externalSelectedLocationId,
-  );
 
-  // Sync with external location ID changes during render (safe pattern)
-  if (
-    externalSelectedLocationId !== prevExternalLocationId &&
-    externalSelectedLocationId
-  ) {
-    setPrevExternalLocationId(externalSelectedLocationId);
-    setSelectedLocationId(externalSelectedLocationId);
-  }
+  useEffect(() => {
+    if (
+      externalSelectedLocationId &&
+      externalSelectedLocationId !== selectedLocationId
+    ) {
+      setSelectedLocationId(externalSelectedLocationId);
+    }
+  }, [externalSelectedLocationId, selectedLocationId]);
 
   // Get active rule set for entity ID remapping
   const activeRuleSetData = useQuery(
@@ -214,7 +214,7 @@ export function useCalendarLogic({
   );
 
   const appointmentDocMap = useMemo(() => {
-    const map = new Map<Id<"appointments">, Doc<"appointments">>();
+    const map = new Map<Id<"appointments">, AppointmentResult>();
     if (!appointmentsData) {
       return map;
     }
@@ -269,7 +269,11 @@ export function useCalendarLogic({
     ruleSetId
       ? api.entities.getPractitioners
       : api.entities.getPractitionersFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
   const baseSchedulesData = useQuery(
     ruleSetId
@@ -279,7 +283,11 @@ export function useCalendarLogic({
   );
   const locationsData = useQuery(
     ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
 
   // Query appointment types for duration and title lookup
@@ -287,18 +295,28 @@ export function useCalendarLogic({
     ruleSetId
       ? api.entities.getAppointmentTypes
       : api.entities.getAppointmentTypesFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
+    ruleSetId
+      ? { includeDeleted: true, ruleSetId }
+      : practiceId
+        ? { practiceId }
+        : "skip",
   );
 
   // Create a map for quick appointment type lookup
   const appointmentTypeMap = useMemo(() => {
     const map = new Map<
       Id<"appointmentTypes">,
-      { duration: number; hasFollowUpPlan: boolean; name: string }
+      {
+        allowedPractitionerIds: Id<"practitioners">[];
+        duration: number;
+        hasFollowUpPlan: boolean;
+        name: string;
+      }
     >();
     if (appointmentTypesData) {
       for (const at of appointmentTypesData) {
         map.set(at._id, {
+          allowedPractitionerIds: at.allowedPractitionerIds,
           duration: at.duration,
           hasFollowUpPlan: (at.followUpPlan?.length ?? 0) > 0,
           name: at.name,
@@ -307,6 +325,53 @@ export function useCalendarLogic({
     }
     return map;
   }, [appointmentTypesData]);
+
+  const placementAppointmentTypeId =
+    simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
+  const draggedAppointmentTypeId =
+    draggedAppointment?.resource?.appointmentTypeId;
+
+  const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
+    (
+      appointmentTypeId: Id<"appointmentTypes"> | undefined,
+      practitionerIds: Iterable<Id<"practitioners">>,
+    ) => {
+      if (!appointmentTypeId) {
+        return new Set<Id<"practitioners">>();
+      }
+
+      const allowedPractitionerIds = new Set(
+        appointmentTypeMap.get(appointmentTypeId)?.allowedPractitionerIds,
+      );
+
+      return new Set(
+        [...practitionerIds].filter(
+          (practitionerId) => !allowedPractitionerIds.has(practitionerId),
+        ),
+      );
+    },
+    [appointmentTypeMap],
+  );
+
+  const createBlockedSlotsForColumns = useCallback(
+    (
+      columns: CalendarColumn[],
+      reason: string,
+      predicate: (column: CalendarColumn) => boolean,
+      totalSlots: number,
+    ) => {
+      return columns.flatMap((column) =>
+        predicate(column)
+          ? Array.from({ length: totalSlots }, (_, slot) => ({
+              column: column.id,
+              reason,
+              slot,
+            }))
+          : [],
+      );
+    },
+    [],
+  );
 
   const getAppointmentCreationEnd = useCallback(
     (args: {
@@ -539,6 +604,12 @@ export function useCalendarLogic({
   const updateAppointmentMutation = useMutation(
     api.appointments.updateAppointment,
   );
+  const updateSimulationAppointmentMutation = useMutation(
+    api.appointments.updateSimulationAppointment,
+  );
+  const updateVacationReassignmentAppointmentMutation = useMutation(
+    api.appointments.updateVacationReassignmentAppointment,
+  );
   const deleteAppointmentMutation = useMutation(
     api.appointments.deleteAppointment,
   );
@@ -577,7 +648,7 @@ export function useCalendarLogic({
             start: optimisticArgs.start,
           });
 
-          const newAppointment: Doc<"appointments"> = {
+          const newAppointment: AppointmentResult = {
             _creationTime: now,
             _id: tempId,
             appointmentTypeId: optimisticArgs.appointmentTypeId,
@@ -632,56 +703,91 @@ export function useCalendarLogic({
     ],
   );
 
-  const runUpdateAppointmentInternal = useCallback(
-    async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
-      return await updateAppointmentMutation.withOptimisticUpdate(
-        (localStore, optimisticArgs) => {
-          const existingAppointments = localStore.getQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
-          );
-          if (!existingAppointments) {
-            return;
-          }
+  const applyOptimisticAppointmentUpdate = useCallback(
+    (
+      localStore: Parameters<
+        Parameters<typeof updateAppointmentMutation.withOptimisticUpdate>[0]
+      >[0],
+      optimisticArgs: Parameters<typeof updateAppointmentMutation>[0],
+    ) => {
+      const existingAppointments = localStore.getQuery(
+        api.appointments.getAppointments,
+        appointmentsQueryArgs,
+      );
+      if (!existingAppointments) {
+        return;
+      }
 
-          const now = Date.now();
-          const updatedAppointments = existingAppointments.map(
-            (appointment) => {
-              if (appointment._id !== optimisticArgs.id) {
-                return appointment;
-              }
+      const now = Date.now();
+      const updatedAppointments = existingAppointments.map((appointment) => {
+        if (appointment._id !== optimisticArgs.id) {
+          return appointment;
+        }
 
-              return {
-                ...appointment,
-                ...(optimisticArgs.start !== undefined && {
-                  start: optimisticArgs.start,
-                }),
-                ...(optimisticArgs.end !== undefined && {
-                  end: optimisticArgs.end,
-                }),
-                ...(optimisticArgs.practitionerId !== undefined && {
-                  practitionerId: optimisticArgs.practitionerId,
-                }),
-                ...(optimisticArgs.locationId !== undefined && {
-                  locationId: optimisticArgs.locationId,
-                }),
-                ...(optimisticArgs.title !== undefined && {
-                  title: optimisticArgs.title,
-                }),
-                lastModified: BigInt(now),
-              };
-            },
-          );
+        return {
+          ...appointment,
+          ...(optimisticArgs.start !== undefined && {
+            start: optimisticArgs.start,
+          }),
+          ...(optimisticArgs.end !== undefined && {
+            end: optimisticArgs.end,
+          }),
+          ...(optimisticArgs.practitionerId !== undefined && {
+            practitionerId: optimisticArgs.practitionerId,
+          }),
+          ...(optimisticArgs.locationId !== undefined && {
+            locationId: optimisticArgs.locationId,
+          }),
+          ...(optimisticArgs.title !== undefined && {
+            title: optimisticArgs.title,
+          }),
+          lastModified: BigInt(now),
+        };
+      });
 
-          localStore.setQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
-            updatedAppointments,
-          );
-        },
-      )(args);
+      localStore.setQuery(
+        api.appointments.getAppointments,
+        appointmentsQueryArgs,
+        updatedAppointments,
+      );
     },
     [appointmentsQueryArgs, updateAppointmentMutation],
+  );
+
+  const getAppointmentUpdateMutation = useCallback(
+    (appointment?: AppointmentResult) => {
+      if (
+        appointment?.isSimulation === true &&
+        (appointment.simulationKind === "activation-reassignment" ||
+          appointment.reassignmentSourceVacationLineageKey !== undefined)
+      ) {
+        return updateVacationReassignmentAppointmentMutation;
+      }
+
+      if (appointment?.isSimulation === true) {
+        return updateSimulationAppointmentMutation;
+      }
+
+      return updateAppointmentMutation;
+    },
+    [
+      updateAppointmentMutation,
+      updateSimulationAppointmentMutation,
+      updateVacationReassignmentAppointmentMutation,
+    ],
+  );
+
+  const runUpdateAppointmentInternal = useCallback(
+    async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
+      const mutation = getAppointmentUpdateMutation(
+        appointmentDocMapRef.current.get(args.id),
+      );
+
+      return await mutation.withOptimisticUpdate(
+        applyOptimisticAppointmentUpdate,
+      )(args);
+    },
+    [applyOptimisticAppointmentUpdate, getAppointmentUpdateMutation],
   );
 
   const runDeleteAppointmentInternal = useCallback(
@@ -934,7 +1040,7 @@ export function useCalendarLogic({
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
       const before = appointmentDocMapRef.current.get(args.id);
       if (before?.seriesId) {
-        await updateAppointmentMutation(args);
+        await getAppointmentUpdateMutation(before)(args);
         return;
       }
 
@@ -957,7 +1063,7 @@ export function useCalendarLogic({
       };
 
       const matchesState = (
-        appointment: Doc<"appointments">,
+        appointment: AppointmentResult,
         expected: typeof beforeState,
       ) =>
         appointment.start === expected.start &&
@@ -1041,10 +1147,10 @@ export function useCalendarLogic({
       });
     },
     [
+      getAppointmentUpdateMutation,
       hasAppointmentConflict,
       pushHistoryAction,
       runUpdateAppointmentInternal,
-      updateAppointmentMutation,
     ],
   );
 
@@ -1477,6 +1583,8 @@ export function useCalendarLogic({
       (schedule: Doc<"baseSchedules">) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
 
     if (simulatedContext?.locationId) {
       daySchedules = daySchedules.filter(
@@ -1490,7 +1598,52 @@ export function useCalendarLogic({
       );
     }
 
-    if (daySchedules.length === 0) {
+    const appointmentsForSelectedDate = (appointmentsData ?? []).filter(
+      (appointment) => {
+        if (!appointment.practitionerId) {
+          return false;
+        }
+
+        if (
+          Temporal.PlainDate.compare(
+            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+            selectedDate,
+          ) !== 0
+        ) {
+          return false;
+        }
+
+        if (
+          effectiveLocationId !== undefined &&
+          appointment.locationId !== effectiveLocationId
+        ) {
+          return false;
+        }
+
+        return true;
+      },
+    );
+    const deletedPractitionerIds = new Set(
+      practitionersData
+        .filter((practitioner) => practitioner.deleted === true)
+        .map((practitioner) => practitioner._id),
+    );
+    const deletedPractitionerCalendarRanges =
+      collectDeletedPractitionerCalendarRanges({
+        appointments: appointmentsData ?? [],
+        blockedSlots: blockedSlotsData ?? [],
+        deletedPractitionerIds,
+        effectiveLocationId,
+        selectedDate,
+      });
+    const deletedPractitionerIdsWithCalendarItems = new Set(
+      deletedPractitionerCalendarRanges.map((range) => range.practitionerId),
+    );
+
+    if (
+      daySchedules.length === 0 &&
+      deletedPractitionerIdsWithCalendarItems.size === 0
+    ) {
       return {
         businessEndHour: 0,
         businessStartHour: 0,
@@ -1520,14 +1673,7 @@ export function useCalendarLogic({
 
     if (vacationsData) {
       const practitionersWithAppointments = new Set(
-        (appointmentsData ?? [])
-          .filter(
-            (appointment) =>
-              Temporal.PlainDate.compare(
-                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-                selectedDate,
-              ) === 0,
-          )
+        appointmentsForSelectedDate
           .map((appointment) => appointment.practitionerId)
           .filter(Boolean),
       );
@@ -1579,8 +1725,34 @@ export function useCalendarLogic({
       name: practitionerMap.get(schedule.practitionerId) ?? "Unbekannt",
       startTime: schedule.startTime,
     }));
-    const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
+    const workingPractitionerIds = new Set(
+      working.map((practitioner) => practitioner.id),
+    );
+
+    const formatMinutesAsTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60);
+      const remainder = minutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+    };
+
+    for (const {
+      endMinutes,
+      practitionerId,
+      startMinutes,
+    } of deletedPractitionerCalendarRanges) {
+      mutedPractitionerIds.add(practitionerId);
+      if (workingPractitionerIds.has(practitionerId)) {
+        continue;
+      }
+
+      working.push({
+        endTime: formatMinutesAsTime(endMinutes),
+        id: practitionerId,
+        name: practitionerMap.get(practitionerId) ?? "Unbekannt",
+        startTime: formatMinutesAsTime(startMinutes),
+      });
+      workingPractitionerIds.add(practitionerId);
+    }
 
     const effectiveWorkingRanges = working.flatMap((practitioner) =>
       getPractitionerAvailabilityRangesForDate(
@@ -1594,27 +1766,11 @@ export function useCalendarLogic({
     const practitionerIds = new Set(
       working.map((practitioner) => practitioner.id),
     );
-    const appointmentRanges = (appointmentsData ?? []).flatMap(
+    const appointmentRanges = appointmentsForSelectedDate.flatMap(
       (appointment) => {
         if (
           appointment.practitionerId === undefined ||
           !practitionerIds.has(appointment.practitionerId)
-        ) {
-          return [];
-        }
-
-        if (
-          Temporal.PlainDate.compare(
-            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-            selectedDate,
-          ) !== 0
-        ) {
-          return [];
-        }
-
-        if (
-          effectiveLocationId !== undefined &&
-          appointment.locationId !== effectiveLocationId
         ) {
           return [];
         }
@@ -1630,7 +1786,16 @@ export function useCalendarLogic({
         ];
       },
     );
-    const visibleRanges = [...effectiveWorkingRanges, ...appointmentRanges];
+    const deletedPractitionerCalendarItemRanges =
+      deletedPractitionerCalendarRanges.map(({ endMinutes, startMinutes }) => ({
+        endMinutes,
+        startMinutes,
+      }));
+    const visibleRanges = [
+      ...effectiveWorkingRanges,
+      ...appointmentRanges,
+      ...deletedPractitionerCalendarItemRanges,
+    ];
 
     const startTimes = visibleRanges.map((range) => range.startMinutes);
     const endTimes = visibleRanges.map((range) => range.endMinutes);
@@ -1652,17 +1817,53 @@ export function useCalendarLogic({
     const totalSlots =
       ((businessEndHour - businessStartHour) * 60) / SLOT_DURATION;
 
-    const practitionerColumns = working.map((practitioner) => ({
-      id: practitioner.id,
-      isMuted: mutedPractitionerIds.has(practitioner.id),
-      title: practitioner.name,
-    }));
+    const workingPractitionerIdList = working.map(
+      (practitioner) => practitioner.id,
+    );
+    const placementUnsupportedPractitionerIds =
+      getUnsupportedPractitionerIdsForAppointmentType(
+        placementAppointmentTypeId,
+        workingPractitionerIdList,
+      );
+    const dragUnsupportedPractitionerIds =
+      getUnsupportedPractitionerIdsForAppointmentType(
+        draggedAppointmentTypeId,
+        workingPractitionerIdList,
+      );
 
-    const specialColumns =
+    const practitionerColumns: CalendarColumn[] = working.map(
+      (practitioner) => ({
+        id: practitioner.id,
+        isAppointmentTypeUnavailable: placementUnsupportedPractitionerIds.has(
+          practitioner.id,
+        ),
+        isDragDisabled: dragUnsupportedPractitionerIds.has(practitioner.id),
+        isMuted:
+          mutedPractitionerIds.has(practitioner.id) ||
+          placementUnsupportedPractitionerIds.has(practitioner.id) ||
+          dragUnsupportedPractitionerIds.has(practitioner.id),
+        isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
+          practitioner.id,
+        ),
+        title: practitioner.name,
+      }),
+    );
+
+    const specialColumns: CalendarColumn[] =
       working.length > 0
         ? [
-            { id: "ekg", title: "EKG" },
-            { id: "labor", title: "Labor" },
+            {
+              id: "ekg",
+              isMuted: false,
+              isUnavailable: false,
+              title: "EKG",
+            },
+            {
+              id: "labor",
+              isMuted: false,
+              isUnavailable: false,
+              title: "Labor",
+            },
           ]
         : [];
 
@@ -1680,10 +1881,14 @@ export function useCalendarLogic({
     baseSchedulesData,
     currentDayOfWeek,
     appointmentsData,
+    draggedAppointmentTypeId,
+    getUnsupportedPractitionerIdsForAppointmentType,
+    placementAppointmentTypeId,
     simulatedContext,
     selectedLocationId,
     selectedDate,
     timeToMinutes,
+    blockedSlotsData,
     vacationsData,
   ]);
 
@@ -1692,7 +1897,7 @@ export function useCalendarLogic({
     if (!appointmentsData) {
       return [];
     }
-    return appointmentsData.filter((appointment: Doc<"appointments">) => {
+    return appointmentsData.filter((appointment: AppointmentResult) => {
       const appointmentDate = safeParseISOToPlainDate(appointment.start);
       if (!appointmentDate) {
         console.warn(`Invalid appointment start date: ${appointment.start}`);
@@ -1757,7 +1962,7 @@ export function useCalendarLogic({
   // Map to Appointment type
   const combinedDerivedAppointments = useMemo(() => {
     return locationFilteredAppointments
-      .map((appointment: Doc<"appointments">, index): Appointment | null => {
+      .map((appointment: AppointmentResult, index): Appointment | null => {
         const startZoned = safeParseISOToZoned(appointment.start);
         const endZoned = safeParseISOToZoned(appointment.end);
 
@@ -1780,10 +1985,11 @@ export function useCalendarLogic({
         if (appointment.patientId && patientData) {
           const patientInfo = patientData[appointment.patientId];
           if (patientInfo) {
-            const parts = [patientInfo.lastName, patientInfo.firstName].filter(
-              Boolean,
-            );
-            patientName = parts.join(", ");
+            patientName =
+              patientInfo.name ??
+              [patientInfo.lastName, patientInfo.firstName]
+                .filter(Boolean)
+                .join(", ");
           }
         }
 
@@ -2092,36 +2298,19 @@ export function useCalendarLogic({
       title?: string;
     }[] = [];
 
-    // Filter blocked slots by selected date
-    const dateFilteredBlocks = blockedSlotsData.filter((blockedSlot) => {
-      const slotDate = Temporal.ZonedDateTime.from(
-        blockedSlot.start,
-      ).toPlainDate();
-      return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
-    });
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId;
+    const dateFilteredBlocks = filterBlockedSlotsForDateAndLocation(
+      blockedSlotsData,
+      selectedDate,
+      effectiveLocationId,
+    );
 
     for (const blockedSlot of dateFilteredBlocks) {
       // Find if this practitioner has a column
       const practitionerColumn = blockedSlot.practitionerId
         ? workingPractitioners.find((p) => p.id === blockedSlot.practitionerId)
         : undefined;
-
-      // DEV: Log when a blocked slot doesn't match any practitioner column
-      if (
-        import.meta.env.DEV &&
-        !practitionerColumn &&
-        blockedSlot.practitionerId
-      ) {
-        console.warn(
-          "[ManualBlockedSlots] Block practitioner not in columns:",
-          {
-            blockId: blockedSlot._id,
-            blockPractitionerId: blockedSlot.practitionerId,
-            blockTitle: blockedSlot.title,
-            workingPractitionerIds: workingPractitioners.map((p) => p.id),
-          },
-        );
-      }
 
       if (practitionerColumn) {
         const startTime = Temporal.ZonedDateTime.from(
@@ -2154,11 +2343,32 @@ export function useCalendarLogic({
             title: blockedSlot.title,
           });
         }
+      } else if (blockedSlot.practitionerId) {
+        captureFrontendError(
+          invalidStateError(
+            "Manual blocked slot practitioner not in visible columns.",
+            "useCalendarLogic.manualBlockedSlots",
+          ),
+          {
+            blockedSlotId: blockedSlot._id,
+            locationId: blockedSlot.locationId,
+            practitionerId: blockedSlot.practitionerId,
+            selectedDate: selectedDate.toString(),
+          },
+          `manualBlockedSlotMissingColumn:${blockedSlot._id}`,
+        );
       }
     }
 
     return manual;
-  }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
+  }, [
+    blockedSlotsData,
+    workingPractitioners,
+    timeToSlot,
+    selectedDate,
+    selectedLocationId,
+    simulatedContext?.locationId,
+  ]);
 
   const vacationBlockedSlots = useMemo(() => {
     if (
@@ -2240,12 +2450,42 @@ export function useCalendarLogic({
     workingPractitioners,
   ]);
 
+  const unavailablePractitionerBlockedSlots = useMemo(() => {
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler gelöscht",
+      (column) => column.isUnavailable === true,
+      totalSlots,
+    );
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
+
+  const appointmentTypeUnavailableBlockedSlots = useMemo(() => {
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler nicht für Terminart freigegeben",
+      (column) => column.isAppointmentTypeUnavailable === true,
+      totalSlots,
+    );
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
+
+  const dragDisabledPractitionerBlockedSlots = useMemo(() => {
+    return createBlockedSlotsForColumns(
+      columns,
+      "Behandler nicht für Terminart freigegeben",
+      (column) => column.isDragDisabled === true,
+      totalSlots,
+    );
+  }, [columns, createBlockedSlotsForColumns, totalSlots]);
+
   // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
   const allBlockedSlots = useMemo(() => {
     const combined = [
       ...blockedSlots,
       ...breakSlots,
+      ...appointmentTypeUnavailableBlockedSlots,
+      ...dragDisabledPractitionerBlockedSlots,
       ...manualBlockedSlots,
+      ...unavailablePractitionerBlockedSlots,
       ...vacationBlockedSlots,
     ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
 
@@ -2267,9 +2507,12 @@ export function useCalendarLogic({
     return [...uniqueSlots.values()];
   }, [
     blockedSlots,
+    appointmentTypeUnavailableBlockedSlots,
     breakSlots,
+    dragDisabledPractitionerBlockedSlots,
     manualBlockedSlots,
     totalSlots,
+    unavailablePractitionerBlockedSlots,
     vacationBlockedSlots,
   ]);
 
@@ -2600,6 +2843,10 @@ export function useCalendarLogic({
 
       if (resource.patientId !== undefined) {
         appointmentData.patientId = resource.patientId;
+      }
+
+      if (resource.userId !== undefined) {
+        appointmentData.userId = resource.userId;
       }
 
       if (practitionerId !== undefined) {
@@ -3234,18 +3481,39 @@ export function useCalendarLogic({
         // Use pending title from sidebar if available, otherwise fall back to appointment type name
         const title = pendingAppointmentTitle || appointmentTypeTitle;
 
+        const hasTemporaryPatientDraft =
+          patient?.recordType === "temporary" &&
+          patient.convexPatientId === undefined &&
+          patient.name.trim().length > 0 &&
+          patient.phoneNumber.trim().length > 0;
+
+        if (
+          !patient?.convexPatientId &&
+          !patient?.userId &&
+          !hasTemporaryPatientDraft
+        ) {
+          toast.error(
+            "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
+          );
+          return;
+        }
+
         void runCreateAppointment({
           appointmentTypeId: simulatedContext.appointmentTypeId,
           isNewPatient: simulatedContext.patient.isNew,
           isSimulation: true,
           locationId: simulatedContext.locationId,
-          ...(patient?.dateOfBirth && {
+          ...(patient.dateOfBirth && {
             patientDateOfBirth: patient.dateOfBirth,
           }),
-          ...(patient?.convexPatientId && {
+          ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
           }),
-          ...(patient?.userId && { userId: patient.userId }),
+          ...(hasTemporaryPatientDraft && {
+            temporaryPatientName: patient.name.trim(),
+            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
+          }),
+          ...(patient.userId && { userId: patient.userId }),
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
@@ -3300,7 +3568,17 @@ export function useCalendarLogic({
         const title = pendingAppointmentTitle || appointmentTypeTitle;
 
         // Check if we have a patient - if not, ask for patient selection
-        if (!patient?.convexPatientId && !patient?.userId) {
+        const hasTemporaryPatientDraft =
+          patient?.recordType === "temporary" &&
+          patient.convexPatientId === undefined &&
+          patient.name.trim().length > 0 &&
+          patient.phoneNumber.trim().length > 0;
+
+        if (
+          !patient?.convexPatientId &&
+          !patient?.userId &&
+          !hasTemporaryPatientDraft
+        ) {
           if (onPatientRequired) {
             onPatientRequired({
               appointmentTypeId: selectedAppointmentTypeId,
@@ -3331,6 +3609,10 @@ export function useCalendarLogic({
           }),
           ...(patient.convexPatientId && {
             patientId: patient.convexPatientId,
+          }),
+          ...(hasTemporaryPatientDraft && {
+            temporaryPatientName: patient.name.trim(),
+            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
           }),
           ...(patient.userId && { userId: patient.userId }),
           practiceId,

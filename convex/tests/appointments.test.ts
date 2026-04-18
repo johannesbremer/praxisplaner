@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -34,34 +35,43 @@ async function createAppointmentBaseData(t: TestContext) {
       currentActiveRuleSetId: ruleSetId,
     });
 
-    const locationId = await ctx.db.insert("locations", {
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
       name: "Main Location",
       practiceId,
       ruleSetId,
     });
 
-    const practitionerId = await ctx.db.insert("practitioners", {
-      name: "Dr. Appointments",
-      practiceId,
-      ruleSetId,
-    });
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name: "Dr. Appointments",
+        practiceId,
+        ruleSetId,
+      },
+    );
 
     const now = BigInt(Date.now());
-    const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-      allowedPractitionerIds: [practitionerId],
-      createdAt: now,
-      duration: 30,
-      lastModified: now,
-      name: "Checkup",
-      practiceId,
-      ruleSetId,
-    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Checkup",
+        practiceId,
+        ruleSetId,
+      },
+    );
 
     return {
       appointmentTypeId,
       locationId,
       practiceId,
       practitionerId,
+      ruleSetId,
     };
   });
 }
@@ -93,15 +103,43 @@ async function insertAppointment(
 ) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    const location = await ctx.db.get("locations", args.locationId);
+    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+
+    if (!appointmentType || !location || !practitioner) {
+      throw new Error(
+        "Appointment test fixture is missing referenced entities",
+      );
+    }
+
     return await ctx.db.insert("appointments", {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeLineageKey: requireLineageKey({
+        entityId: appointmentType._id,
+        entityType: "appointment type",
+        lineageKey: appointmentType.lineageKey,
+        ruleSetId: appointmentType.ruleSetId,
+      }),
       appointmentTypeTitle: "Checkup",
       createdAt: now,
       end: args.window.end,
       lastModified: now,
-      locationId: args.locationId,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: practitioner.ruleSetId,
+      }),
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
@@ -237,15 +275,15 @@ describe("appointments self-service cancellation", () => {
     await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup (Simulation)",
         createdAt: now,
         end: simulationWindow.end,
         isSimulation: true,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: simulationWindow.start,
         title: "Simulation-Termin",
         userId,
@@ -256,15 +294,15 @@ describe("appointments self-service cancellation", () => {
     const realAppointmentId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       return await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: realWindow.end,
         isSimulation: false,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Online-Termin: Checkup",
         userId,
@@ -281,6 +319,99 @@ describe("appointments self-service cancellation", () => {
       {},
     );
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
+  });
+
+  test("createAppointment scopes draft simulations to the appointment type rule set by default", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_scoped_simulation_default";
+    const userId = await createUser(t, authId, "scoped-sim@example.com");
+    const authed = t.withIdentity({
+      email: "scoped-sim@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(4).start,
+        title: "Scoped simulation",
+        userId,
+      },
+    );
+
+    const appointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+
+    expect(appointment?.simulationRuleSetId).toBe(baseData.ruleSetId);
+    expect(appointment?.simulationKind).toBe("draft");
+    expect(appointment?.simulationValidatedAt).toBeDefined();
+  });
+
+  test("createAppointment creates a temporary patient at booking time", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_temporary_patient_booking";
+    const userId = await createUser(t, authId, "temp-booking@example.com");
+    const authed = t.withIdentity({
+      email: "temp-booking@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(6).start,
+        temporaryPatientName: "Alex Beispiel",
+        temporaryPatientPhoneNumber: "+491701234567",
+        title: "Temporärer Termin",
+      },
+    );
+
+    const { appointment, patient } = await t.run(async (ctx) => {
+      const appointment = await ctx.db.get("appointments", appointmentId);
+      const patient = appointment?.patientId
+        ? await ctx.db.get("patients", appointment.patientId)
+        : null;
+
+      return { appointment, patient };
+    });
+
+    expect(appointment?.patientId).toBeDefined();
+    expect(appointment?.userId).toBeUndefined();
+    expect(patient?.name).toBe("Alex Beispiel");
+    expect(patient?.phoneNumber).toBe("+491701234567");
+    expect(patient?.recordType).toBe("temporary");
+    expect(patient?.firstName).toBeUndefined();
+    expect(patient?.lastName).toBeUndefined();
   });
 
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
@@ -307,20 +438,24 @@ describe("appointments self-service cancellation", () => {
       }
       const ruleSetId = practice.currentActiveRuleSetId;
 
-      const locationId = await ctx.db.insert("locations", {
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
         practiceId,
         ruleSetId,
       });
 
-      const practitionerId = await ctx.db.insert("practitioners", {
-        name: "Dr. Series",
-        practiceId,
-        ruleSetId,
-      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Series",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       for (const dayOfWeek of [1, 2, 3, 4, 5]) {
-        await ctx.db.insert("baseSchedules", {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
           locationId,
@@ -332,43 +467,45 @@ describe("appointments self-service cancellation", () => {
       }
 
       const now = BigInt(Date.now());
-      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
-        createdAt: now,
-        duration: 30,
-        lastModified: now,
-        name: "Kontrolle",
-        practiceId,
-        ruleSetId,
-      });
-      await ctx.db.patch("appointmentTypes", followUpTypeId, {
-        lineageKey: followUpTypeId,
-      });
+      const followUpTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Kontrolle",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
-      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
-        createdAt: now,
-        duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
-        lastModified: now,
-        name: "Ersttermin",
-        practiceId,
-        ruleSetId,
-      });
-      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
-        lineageKey: rootAppointmentTypeId,
-      });
+      const rootAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          followUpPlan: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              locationMode: "inherit",
+              offsetUnit: "days",
+              offsetValue: 2,
+              practitionerMode: "inherit",
+              required: true,
+              searchMode: "first_available_on_or_after",
+              stepId: "step-1",
+            },
+          ],
+          lastModified: now,
+          name: "Ersttermin",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       return {
         locationId,
@@ -442,28 +579,36 @@ describe("appointments self-service cancellation", () => {
       }
       const ruleSetId = practice.currentActiveRuleSetId;
 
-      const locationId = await ctx.db.insert("locations", {
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
         practiceId,
         ruleSetId,
       });
 
-      const practitionerId = await ctx.db.insert("practitioners", {
-        name: "Dr. Appointments",
-        practiceId,
-        ruleSetId,
-      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Appointments",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       const now = BigInt(Date.now());
-      const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
-        createdAt: now,
-        duration: 30,
-        lastModified: now,
-        name: "Checkup",
-        practiceId,
-        ruleSetId,
-      });
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Checkup",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       return {
         appointmentTypeId,
@@ -494,6 +639,7 @@ describe("appointments self-service cancellation", () => {
         practitionerId: baseData.practitionerId,
         start: window.start,
         title: "Simulationskollision",
+        userId,
       }),
     ).rejects.toThrow("bereits belegt");
   });
@@ -514,28 +660,36 @@ describe("appointments self-service cancellation", () => {
       }
       const ruleSetId = practice.currentActiveRuleSetId;
 
-      const locationId = await ctx.db.insert("locations", {
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
         practiceId,
         ruleSetId,
       });
 
-      const practitionerId = await ctx.db.insert("practitioners", {
-        name: "Dr. Appointments",
-        practiceId,
-        ruleSetId,
-      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Appointments",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       const now = BigInt(Date.now());
-      const appointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
-        createdAt: now,
-        duration: 30,
-        lastModified: now,
-        name: "Checkup",
-        practiceId,
-        ruleSetId,
-      });
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Checkup",
+          practiceId,
+          ruleSetId,
+        },
+      );
 
       return {
         appointmentTypeId,
@@ -589,14 +743,14 @@ describe("appointments self-service cancellation", () => {
     const rootAppointmentId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const appointmentId = await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: rootWindow.end,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 0n,
         start: rootWindow.start,
@@ -605,14 +759,14 @@ describe("appointments self-service cancellation", () => {
       });
 
       await ctx.db.insert("appointments", {
-        appointmentTypeId: baseData.appointmentTypeId,
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
         end: followUpEnd,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 1n,
         start: followUpStart,
@@ -637,5 +791,994 @@ describe("appointments self-service cancellation", () => {
       {},
     );
     expect(remainingAppointments).toHaveLength(0);
+  });
+});
+
+describe("appointments update safety", () => {
+  test("updateAppointment rejects moving an appointment onto an occupied practitioner slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_collision";
+    const userId = await createUser(t, authId, "update-collision@example.com");
+    const authed = t.withIdentity({
+      email: "update-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const otherPractitionerId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      return await insertSelfLineageEntity(ctx.db, "practitioners", {
+        name: "Dr. Other",
+        practiceId: baseData.practiceId,
+        ruleSetId: practice?.currentActiveRuleSetId as Id<"ruleSets">,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        baseData.appointmentTypeId,
+      );
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        allowedPractitionerIds: [
+          ...(appointmentType?.allowedPractitionerIds ?? []),
+          otherPractitionerId,
+        ],
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+    await insertAppointment(t, {
+      ...baseData,
+      practitionerId: otherPractitionerId,
+      userId,
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: appointmentToMove,
+        practitionerId: otherPractitionerId,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("simulation conflicts are scoped to the current draft rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_scope";
+    const userId = await createUser(t, authId, "sim-scope@example.com");
+    const authed = t.withIdentity({
+      email: "sim-scope@example.com",
+      subject: authId,
+    });
+
+    const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const draftRuleSetA = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft A",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const draftRuleSetB = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft B",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 3,
+      });
+
+      return { draftRuleSetA, draftRuleSetB };
+    });
+
+    const window = makeSlotWindow(6);
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: draftRuleSetA,
+      start: window.start,
+      title: "Draft A Simulation",
+      userId,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: draftRuleSetB,
+        start: window.start,
+        title: "Draft B Simulation",
+        userId,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  test("simulated appointments must be updated through the simulation mutation", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_update";
+    const userId = await createUser(t, authId, "sim-update@example.com");
+    const authed = t.withIdentity({
+      email: "sim-update@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: baseData.ruleSetId,
+        start: makeSlotWindow(10).start,
+        title: "Simulation vor Änderung",
+        userId,
+      },
+    );
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: appointmentId,
+        title: "Sollte fehlschlagen",
+      }),
+    ).rejects.toThrow("Echttermin-Bearbeitung");
+
+    await authed.mutation(api.appointments.updateSimulationAppointment, {
+      id: appointmentId,
+      title: "Simulation nach Änderung",
+    });
+
+    const updatedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+
+    expect(updatedAppointment?.title).toBe("Simulation nach Änderung");
+    expect(updatedAppointment?.isSimulation).toBe(true);
+    expect(updatedAppointment?.simulationKind).toBe("draft");
+    expect(updatedAppointment?.simulationRuleSetId).toBe(baseData.ruleSetId);
+  });
+
+  test("unsaved diff ignores manual simulated replacements", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_manual_sim_diff";
+    const userId = await createUser(t, authId, "manual-sim-diff@example.com");
+    const authed = t.withIdentity({
+      email: "manual-sim-diff@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        lineageKey: baseData.appointmentTypeId,
+      });
+      await ctx.db.patch("locations", baseData.locationId, {
+        lineageKey: baseData.locationId,
+      });
+      await ctx.db.patch("practitioners", baseData.practitionerId, {
+        lineageKey: baseData.practitionerId,
+      });
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(11).start,
+        title: "Echter Termin",
+        userId,
+      },
+    );
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(11).start,
+      title: "Manuelle Simulation",
+      userId,
+    });
+
+    const diff = await authed.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: baseData.practiceId,
+      ruleSetId: unsavedRuleSetId,
+    });
+    const coverageSection = diff?.sections.find(
+      (section) => section.key === "appointmentCoverage",
+    );
+
+    expect(coverageSection?.added).toHaveLength(0);
+    expect(coverageSection?.removed).toHaveLength(0);
+  });
+
+  test("activating a saved ruleset clears non-replacement simulation appointments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_cleanup";
+    const userId = await createUser(t, authId, "sim-cleanup@example.com");
+    const authed = t.withIdentity({
+      email: "sim-cleanup@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(7).start,
+      title: "Draft preview only",
+      userId,
+    });
+
+    await authed.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Simulation cleanup",
+      practiceId: baseData.practiceId,
+      setAsActive: true,
+    });
+
+    const remainingSimulations = await t.run(async (ctx) =>
+      ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", unsavedRuleSetId),
+        )
+        .collect(),
+    );
+
+    expect(remainingSimulations).toHaveLength(0);
+  });
+
+  test("clearing simulated data keeps activation-bound vacation reassignments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_clear_keep_reassignments";
+    const userId = await createUser(t, authId, "sim-clear-keep@example.com");
+    const authed = t.withIdentity({
+      email: "sim-clear-keep@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(8).start,
+        title: "Real appointment",
+        userId,
+      },
+    );
+
+    await authed.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: unsavedRuleSetId,
+      start: makeSlotWindow(9).start,
+      title: "Draft preview only",
+      userId,
+    });
+
+    const activationBoundSimulationId = await t.run(async (ctx) => {
+      const vacationId = await insertSelfLineageEntity(ctx.db, "vacations", {
+        createdAt: BigInt(Date.now()),
+        date: "2026-01-05",
+        portion: "morning",
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        ruleSetId: unsavedRuleSetId,
+        staffType: "practitioner",
+      });
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: BigInt(Date.now()),
+        end: makeSlotWindow(8).end,
+        isSimulation: true,
+        lastModified: BigInt(Date.now()),
+        locationLineageKey: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        reassignmentSourceVacationLineageKey: vacationId,
+        replacesAppointmentId: realAppointmentId,
+        simulationKind: "activation-reassignment",
+        simulationRuleSetId: unsavedRuleSetId,
+        simulationValidatedAt: BigInt(Date.now()),
+        start: makeSlotWindow(8).start,
+        title: "Auto reassigned",
+        userId,
+      });
+    });
+
+    const clearResult = await authed.mutation(
+      api.appointments.deleteAllSimulatedData,
+      {
+        practiceId: baseData.practiceId,
+      },
+    );
+
+    expect(clearResult.appointmentsDeleted).toBe(1);
+
+    const [remainingActivationBound, remainingDraftOnly] = await t.run(
+      async (ctx) => {
+        const activationBound = await ctx.db.get(
+          "appointments",
+          activationBoundSimulationId,
+        );
+        const draftOnlyAppointments = await ctx.db
+          .query("appointments")
+          .withIndex("by_simulationRuleSetId", (q) =>
+            q.eq("simulationRuleSetId", unsavedRuleSetId),
+          )
+          .collect();
+        return [activationBound, draftOnlyAppointments];
+      },
+    );
+
+    expect(remainingActivationBound?._id).toBe(activationBoundSimulationId);
+    expect(
+      remainingDraftOnly.filter(
+        (appointment) =>
+          appointment.simulationKind !== "activation-reassignment",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("simulated replacements tolerate missing patient links on the replaced appointment", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_missing_patient";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-missing-patient@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-missing-patient@example.com",
+      subject: authId,
+    });
+
+    const { patientId, unsavedRuleSetId } = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const patientId = await ctx.db.insert("patients", {
+        createdAt: BigInt(Date.now()),
+        firstName: "Pat",
+        lastModified: BigInt(Date.now()),
+        lastName: "Missing",
+        practiceId: baseData.practiceId,
+        recordType: "pvs",
+        searchFirstName: "Pat",
+        searchLastName: "Missing",
+      });
+
+      const unsavedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+
+      return { patientId, unsavedRuleSetId };
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        patientId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(8).start,
+        title: "Real appointment",
+      },
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete("patients", patientId);
+    });
+
+    const simulatedReplacementId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        patientId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        replacesAppointmentId: realAppointmentId,
+        simulationRuleSetId: unsavedRuleSetId,
+        start: makeSlotWindow(8).start,
+        title: "Sim replacement",
+      },
+    );
+
+    const simulatedReplacement = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", simulatedReplacementId);
+    });
+
+    expect(simulatedReplacement?.replacesAppointmentId).toBe(realAppointmentId);
+    expect(simulatedReplacement?.patientId).toBeUndefined();
+    expect(simulatedReplacement?.isSimulation).toBe(true);
+  });
+
+  test("getAppointments remaps appointment references by lineage into the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set B",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const copiedEntityIds = await t.run(async (ctx) => {
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+        lineageKey: baseData.locationId,
+        name: "Main Location Copy",
+        practiceId: baseData.practiceId,
+        ruleSetId: savedRuleSetId,
+      });
+
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Dr. Appointments Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      const now = BigInt(Date.now());
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Checkup Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      return { appointmentTypeId, locationId, practitionerId };
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_lineage_display",
+      "lineage-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "lineage-display@example.com",
+      subject: "workos_lineage_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await insertAppointment(t, {
+      appointmentTypeId: copiedEntityIds.appointmentTypeId,
+      locationId: copiedEntityIds.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: copiedEntityIds.practitionerId,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    const appointmentsInDisplayedRuleSet = await authed.query(
+      api.appointments.getAppointments,
+      {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: baseData.ruleSetId,
+      },
+    );
+
+    expect(appointmentsInDisplayedRuleSet).toHaveLength(1);
+    const displayedAppointment = appointmentsInDisplayedRuleSet[0];
+    expect(displayedAppointment?._id).toBe(appointmentId);
+
+    expect(displayedAppointment?.appointmentTypeId).toBe(
+      baseData.appointmentTypeId,
+    );
+    expect(displayedAppointment?.locationId).toBe(baseData.locationId);
+    expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
+  });
+
+  test("getAppointments ignores unrelated draft simulations before remapping the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_foreign_draft_simulation",
+      "foreign-draft-simulation@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "foreign-draft-simulation@example.com",
+      subject: "workos_foreign_draft_simulation",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const foreignRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const foreignLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          name: "Foreign Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+      const foreignPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Foreign Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const foreignAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [foreignPractitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Foreign Type",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: foreignAppointmentTypeId,
+        appointmentTypeTitle: "Foreign Type",
+        createdAt: now,
+        end: makeSlotWindow(6).end,
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: foreignLocationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: foreignPractitionerId,
+        simulationKind: "draft",
+        simulationRuleSetId: foreignRuleSetId,
+        simulationValidatedAt: now,
+        start: makeSlotWindow(6).start,
+        title: "Foreign draft simulation",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set Missing Mapping",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_missing_display_mapping",
+      "missing-display-mapping@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "missing-display-mapping@example.com",
+      subject: "workos_missing_display_mapping",
+    });
+    const deletedDisplayEntityIds = await t.run(async (ctx) => {
+      const deletedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Location Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const deletedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          deleted: true,
+          lineageKey: baseData.practitionerId,
+          name: "Deleted Practitioner Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const deletedTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [deletedPractitionerId],
+          createdAt: now,
+          deleted: true,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Deleted Type Copy",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      return {
+        deletedLocationId,
+        deletedPractitionerId,
+        deletedTypeId,
+      };
+    });
+
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        appointmentTypeId: deletedDisplayEntityIds.deletedTypeId,
+        locationId: deletedDisplayEntityIds.deletedLocationId,
+        practitionerId: deletedDisplayEntityIds.deletedPractitionerId,
+      },
+    ]);
+  });
+
+  test("getAppointments skips appointments that cannot be remapped into the displayed rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const savedRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Saved Rule Set Without Mappings",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_unmappable_display_appointment",
+      "unmappable-display-appointment@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "unmappable-display-appointment@example.com",
+      subject: "workos_unmappable_display_appointment",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        selectedRuleSetId: savedRuleSetId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  test("getBlockedSlots applies scope before display remapping", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    const foreignRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+    });
+
+    const userId = await createUser(
+      t,
+      "workos_blocked_slot_scope",
+      "blocked-slot-scope@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "blocked-slot-scope@example.com",
+      subject: "workos_blocked_slot_scope",
+    });
+
+    const realWindow = makeSlotWindow(4);
+    const simulationWindow = makeSlotWindow(5);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const foreignLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          name: "Foreign Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+      const foreignPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Foreign Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: foreignRuleSetId,
+        },
+      );
+
+      const now = BigInt(Date.now());
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: realWindow.end,
+        lastModified: now,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: realWindow.start,
+        title: "Real blocked slot",
+      });
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: simulationWindow.end,
+        isSimulation: true,
+        lastModified: now,
+        locationId: foreignLocationId,
+        practiceId: baseData.practiceId,
+        practitionerId: foreignPractitionerId,
+        start: simulationWindow.start,
+        title: "Foreign simulation blocked slot",
+      });
+    });
+
+    await expect(
+      authed.query(api.appointments.getBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        scope: "real",
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: baseData.locationId,
+        practitionerId: baseData.practitionerId,
+        title: "Real blocked slot",
+      },
+    ]);
   });
 });
