@@ -24,7 +24,12 @@ interface BlockedSlot {
 interface CalendarGridProps {
   appointments: Appointment[];
   blockedSlots?: BlockedSlot[];
-  columns: { id: string; isMuted?: boolean; title: string }[];
+  columns: {
+    id: string;
+    isMuted?: boolean;
+    isUnavailable?: boolean;
+    title: string;
+  }[];
   currentTimeSlot: number;
   draggedAppointment: Appointment | null;
   draggedBlockedSlotId?: null | string;
@@ -338,9 +343,15 @@ export function CalendarGrid({
               }
             }}
             onDragOver={(e) => {
+              if (column.isUnavailable) {
+                return;
+              }
               onDragOver(e, column.id);
             }}
             onDrop={(e) => {
+              if (column.isUnavailable) {
+                return;
+              }
               void onDrop(e, column.id);
             }}
           >
@@ -349,9 +360,12 @@ export function CalendarGrid({
               const isHalfHour = i % 6 === 0 && !isHour;
               return (
                 <div
-                  className={`h-4 hover:bg-muted/50 cursor-pointer group ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
+                  className={`h-4 group ${column.isUnavailable ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
                   key={i}
                   onClick={() => {
+                    if (column.isUnavailable) {
+                      return;
+                    }
                     if (isBlockingModeActive && onBlockSlot) {
                       onBlockSlot(column.id, i);
                     } else {
@@ -359,7 +373,9 @@ export function CalendarGrid({
                     }
                   }}
                 >
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center h-full">
+                  <div
+                    className={`flex items-center justify-center h-full ${column.isUnavailable ? "opacity-0" : "opacity-0 group-hover:opacity-100"}`}
+                  >
                     <Plus className="h-3 w-3 text-muted-foreground" />
                   </div>
                 </div>

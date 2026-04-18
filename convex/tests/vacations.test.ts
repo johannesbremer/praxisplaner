@@ -2344,6 +2344,19 @@ describe("vacations", () => {
       deleteResult.snapshot.reassignmentSimulationIds[0];
     assertDefined(reassignmentSimulationId);
 
+    const diff = await t.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: fixture.practiceId,
+      ruleSetId: deleteResult.ruleSetId,
+    });
+    const coverageSection = diff?.sections.find(
+      (section) => section.key === "appointmentCoverage",
+    );
+    expect(coverageSection?.added).toHaveLength(1);
+    expect(coverageSection?.removed).toHaveLength(1);
+    expect(coverageSection?.added[0]).toContain("Dr. Zuletzt Gesehen");
+    expect(coverageSection?.removed[0]).toContain("Dr. Urlaub");
+    expect(coverageSection?.added[0]).toContain("Patientin");
+
     const createdSimulation = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", reassignmentSimulationId);
     });

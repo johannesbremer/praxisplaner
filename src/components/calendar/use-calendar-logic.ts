@@ -1772,14 +1772,22 @@ export function useCalendarLogic({
     const practitionerColumns = working.map((practitioner) => ({
       id: practitioner.id,
       isMuted: mutedPractitionerIds.has(practitioner.id),
+      isUnavailable: deletedPractitionerIdsWithAppointments.has(
+        practitioner.id,
+      ),
       title: practitioner.name,
     }));
 
     const specialColumns =
       working.length > 0
         ? [
-            { id: "ekg", title: "EKG" },
-            { id: "labor", title: "Labor" },
+            { id: "ekg", isMuted: false, isUnavailable: false, title: "EKG" },
+            {
+              id: "labor",
+              isMuted: false,
+              isUnavailable: false,
+              title: "Labor",
+            },
           ]
         : [];
 
@@ -2358,12 +2366,25 @@ export function useCalendarLogic({
     workingPractitioners,
   ]);
 
+  const unavailablePractitionerBlockedSlots = useMemo(() => {
+    return columns.flatMap((column) =>
+      column.isUnavailable
+        ? Array.from({ length: totalSlots }, (_, slot) => ({
+            column: column.id,
+            reason: "Behandler gelöscht",
+            slot,
+          }))
+        : [],
+    );
+  }, [columns, totalSlots]);
+
   // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
   const allBlockedSlots = useMemo(() => {
     const combined = [
       ...blockedSlots,
       ...breakSlots,
       ...manualBlockedSlots,
+      ...unavailablePractitionerBlockedSlots,
       ...vacationBlockedSlots,
     ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
 
@@ -2388,6 +2409,7 @@ export function useCalendarLogic({
     breakSlots,
     manualBlockedSlots,
     totalSlots,
+    unavailablePractitionerBlockedSlots,
     vacationBlockedSlots,
   ]);
 
