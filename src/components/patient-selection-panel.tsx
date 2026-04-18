@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import {
-  formatPatientOptionLabel,
   getPatientDocumentName,
   getPatientInfoDisplayName,
   patientDocToInfo,
@@ -52,7 +51,6 @@ type DraftTemporaryPatient = Extract<
 
 interface PatientOption {
   id: Id<"patients">;
-  label: string;
   name: string;
   patient: Doc<"patients">;
 }
@@ -130,7 +128,6 @@ export function PatientSelectionPanel({
     () =>
       (patients ?? []).map((patient) => ({
         id: patient._id,
-        label: formatPatientOptionLabel(patient),
         name: getPatientDocumentName(patient),
         patient,
       })),
@@ -237,13 +234,8 @@ export function PatientSelectionPanel({
                       }}
                       type="button"
                     >
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">
-                          {option.name}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {option.label}
-                        </div>
+                      <div className="min-w-0 truncate font-medium">
+                        {option.name}
                       </div>
                       {isSelected ? (
                         <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
