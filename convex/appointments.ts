@@ -44,15 +44,12 @@ import {
   asPractitionerLineageKey,
 } from "./identity";
 import {
-  buildPatientSearchFirstName,
-  buildPatientSearchLastName,
-} from "./patientSearch";
-import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import { createTemporaryPatientRecord } from "./temporaryPatients";
 import {
   ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
@@ -133,40 +130,6 @@ function calculateShiftedEnd(end: string, start: string, nextStart: string) {
   return Temporal.ZonedDateTime.from(nextStart)
     .add({ minutes: durationMinutes })
     .toString();
-}
-
-async function createTemporaryPatientRecord(
-  ctx: MutationCtx,
-  args: {
-    name: string;
-    phoneNumber: string;
-    practiceId: Id<"practices">;
-  },
-): Promise<Id<"patients">> {
-  const name = args.name.trim();
-  const phoneNumber = args.phoneNumber.trim();
-
-  if (name.length === 0 || phoneNumber.length === 0) {
-    throw new Error(
-      "Temporäre Patienten benötigen einen Namen und eine Telefonnummer.",
-    );
-  }
-
-  const now = BigInt(Date.now());
-  return await ctx.db.insert("patients", {
-    createdAt: now,
-    lastModified: now,
-    name,
-    phoneNumber,
-    practiceId: args.practiceId,
-    recordType: "temporary",
-    searchFirstName: buildPatientSearchFirstName({
-      name,
-    }),
-    searchLastName: buildPatientSearchLastName({
-      name,
-    }),
-  });
 }
 
 async function getAppointmentSeriesRecord(

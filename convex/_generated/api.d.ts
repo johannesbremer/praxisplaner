@@ -37,6 +37,7 @@ import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
 import type * as schedulingCore from "../schedulingCore.js";
+import type * as temporaryPatients from "../temporaryPatients.js";
 import type * as tests_test_utils from "../tests/test_utils.js";
 import type * as userIdentity from "../userIdentity.js";
 import type * as users from "../users.js";
@@ -79,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
   schedulingCore: typeof schedulingCore;
+  temporaryPatients: typeof temporaryPatients;
   "tests/test_utils": typeof tests_test_utils;
   userIdentity: typeof userIdentity;
   users: typeof users;

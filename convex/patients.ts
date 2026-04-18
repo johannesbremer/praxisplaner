@@ -13,6 +13,7 @@ import {
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
+import { createTemporaryPatientRecord } from "./temporaryPatients";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 import { patientUpsertResultValidator } from "./validators";
 
@@ -154,22 +155,7 @@ export const createTemporaryPatient = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-
-    const now = BigInt(Date.now());
-    return await ctx.db.insert("patients", {
-      createdAt: now,
-      lastModified: now,
-      name: args.name.trim(),
-      phoneNumber: args.phoneNumber.trim(),
-      practiceId: args.practiceId,
-      recordType: "temporary",
-      searchFirstName: buildPatientSearchFirstName({
-        name: args.name.trim(),
-      }),
-      searchLastName: buildPatientSearchLastName({
-        name: args.name.trim(),
-      }),
-    });
+    return await createTemporaryPatientRecord(ctx, args);
   },
   returns: v.id("patients"),
 });
