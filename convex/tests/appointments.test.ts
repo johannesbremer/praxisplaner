@@ -1207,6 +1207,100 @@ describe("appointments update safety", () => {
     ).toHaveLength(0);
   });
 
+  test("simulated replacements tolerate missing patient links on the replaced appointment", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_missing_patient";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-missing-patient@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-missing-patient@example.com",
+      subject: authId,
+    });
+
+    const { patientId, unsavedRuleSetId } = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const patientId = await ctx.db.insert("patients", {
+        createdAt: BigInt(Date.now()),
+        firstName: "Pat",
+        lastModified: BigInt(Date.now()),
+        lastName: "Missing",
+        practiceId: baseData.practiceId,
+        recordType: "pvs",
+        searchFirstName: "Pat",
+        searchLastName: "Missing",
+      });
+
+      const unsavedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+
+      return { patientId, unsavedRuleSetId };
+    });
+
+    const realAppointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: false,
+        locationId: baseData.locationId,
+        patientId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(8).start,
+        title: "Real appointment",
+      },
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete("patients", patientId);
+    });
+
+    const simulatedReplacementId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        patientId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        replacesAppointmentId: realAppointmentId,
+        simulationRuleSetId: unsavedRuleSetId,
+        start: makeSlotWindow(8).start,
+        title: "Sim replacement",
+      },
+    );
+
+    const simulatedReplacement = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", simulatedReplacementId);
+    });
+
+    expect(simulatedReplacement?.replacesAppointmentId).toBe(realAppointmentId);
+    expect(simulatedReplacement?.patientId).toBeUndefined();
+    expect(simulatedReplacement?.isSimulation).toBe(true);
+  });
+
   test("getAppointments remaps appointment references by lineage into the displayed rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

@@ -723,8 +723,11 @@ export async function createAppointmentFromTrustedSource(
   }
 
   let resolvedPatientId = patientId;
+  let resolvedUserId = userId;
+  const allowsMissingLinkedRecords =
+    isSimulation === true && replacesAppointmentId !== undefined;
 
-  if (!resolvedPatientId && !userId) {
+  if (!resolvedPatientId && !resolvedUserId) {
     if (
       temporaryPatientName === undefined ||
       temporaryPatientPhoneNumber === undefined
@@ -751,14 +754,22 @@ export async function createAppointmentFromTrustedSource(
   if (resolvedPatientId) {
     const patient = await ctx.db.get("patients", resolvedPatientId);
     if (!patient) {
-      throw new Error(`Patient with ID ${resolvedPatientId} not found`);
+      if (allowsMissingLinkedRecords) {
+        resolvedPatientId = undefined;
+      } else {
+        throw new Error(`Patient with ID ${resolvedPatientId} not found`);
+      }
     }
   }
 
-  if (userId) {
-    const user = await ctx.db.get("users", userId);
+  if (resolvedUserId) {
+    const user = await ctx.db.get("users", resolvedUserId);
     if (!user) {
-      throw new Error(`User with ID ${userId} not found`);
+      if (allowsMissingLinkedRecords) {
+        resolvedUserId = undefined;
+      } else {
+        throw new Error(`User with ID ${resolvedUserId} not found`);
+      }
     }
   }
 
@@ -831,7 +842,7 @@ export async function createAppointmentFromTrustedSource(
         simulationRuleSetId: resolvedSimulationRuleSetId,
       }),
       start: args.start,
-      ...(userId && { userId }),
+      ...(resolvedUserId && { userId: resolvedUserId }),
     });
 
     return result.rootAppointmentId;
@@ -875,7 +886,7 @@ export async function createAppointmentFromTrustedSource(
     lastModified: now,
     practiceId,
     ...(resolvedPatientId && { patientId: resolvedPatientId }),
-    ...(userId && { userId }),
+    ...(resolvedUserId && { userId: resolvedUserId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
     }),

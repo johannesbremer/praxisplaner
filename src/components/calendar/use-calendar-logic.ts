@@ -33,6 +33,8 @@ import {
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 import {
   type BlockedSlotConversionOptions,
+  collectDeletedPractitionerCalendarRanges,
+  filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
   parsePlainTimeResult,
   type SimulationConversionOptions,
@@ -138,18 +140,15 @@ export function useCalendarLogic({
   const [selectedLocationId, setSelectedLocationId] = useState(
     externalSelectedLocationId,
   );
-  const [prevExternalLocationId, setPrevExternalLocationId] = useState(
-    externalSelectedLocationId,
-  );
 
-  // Sync with external location ID changes during render (safe pattern)
-  if (
-    externalSelectedLocationId !== prevExternalLocationId &&
-    externalSelectedLocationId
-  ) {
-    setPrevExternalLocationId(externalSelectedLocationId);
-    setSelectedLocationId(externalSelectedLocationId);
-  }
+  useEffect(() => {
+    if (
+      externalSelectedLocationId &&
+      externalSelectedLocationId !== selectedLocationId
+    ) {
+      setSelectedLocationId(externalSelectedLocationId);
+    }
+  }, [externalSelectedLocationId, selectedLocationId]);
 
   // Get active rule set for entity ID remapping
   const activeRuleSetData = useQuery(
@@ -1576,18 +1575,21 @@ export function useCalendarLogic({
         .filter((practitioner) => practitioner.deleted === true)
         .map((practitioner) => practitioner._id),
     );
-    const deletedPractitionerIdsWithAppointments = new Set(
-      appointmentsForSelectedDate.flatMap((appointment) =>
-        appointment.practitionerId &&
-        deletedPractitionerIds.has(appointment.practitionerId)
-          ? [appointment.practitionerId]
-          : [],
-      ),
+    const deletedPractitionerCalendarRanges =
+      collectDeletedPractitionerCalendarRanges({
+        appointments: appointmentsData ?? [],
+        blockedSlots: blockedSlotsData ?? [],
+        deletedPractitionerIds,
+        effectiveLocationId,
+        selectedDate,
+      });
+    const deletedPractitionerIdsWithCalendarItems = new Set(
+      deletedPractitionerCalendarRanges.map((range) => range.practitionerId),
     );
 
     if (
       daySchedules.length === 0 &&
-      deletedPractitionerIdsWithAppointments.size === 0
+      deletedPractitionerIdsWithCalendarItems.size === 0
     ) {
       return {
         businessEndHour: 0,
@@ -1680,37 +1682,21 @@ export function useCalendarLogic({
       return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
     };
 
-    for (const practitionerId of deletedPractitionerIdsWithAppointments) {
+    for (const {
+      endMinutes,
+      practitionerId,
+      startMinutes,
+    } of deletedPractitionerCalendarRanges) {
       mutedPractitionerIds.add(practitionerId);
       if (workingPractitionerIds.has(practitionerId)) {
         continue;
       }
 
-      const practitionerAppointments = appointmentsForSelectedDate.filter(
-        (appointment) => appointment.practitionerId === practitionerId,
-      );
-      if (practitionerAppointments.length === 0) {
-        continue;
-      }
-
-      const appointmentStartMinutes = practitionerAppointments.map(
-        (appointment) => {
-          const start = Temporal.ZonedDateTime.from(appointment.start);
-          return start.hour * 60 + start.minute;
-        },
-      );
-      const appointmentEndMinutes = practitionerAppointments.map(
-        (appointment) => {
-          const end = Temporal.ZonedDateTime.from(appointment.end);
-          return end.hour * 60 + end.minute;
-        },
-      );
-
       working.push({
-        endTime: formatMinutesAsTime(Math.max(...appointmentEndMinutes)),
+        endTime: formatMinutesAsTime(endMinutes),
         id: practitionerId,
         name: practitionerMap.get(practitionerId) ?? "Unbekannt",
-        startTime: formatMinutesAsTime(Math.min(...appointmentStartMinutes)),
+        startTime: formatMinutesAsTime(startMinutes),
       });
       workingPractitionerIds.add(practitionerId);
     }
@@ -1747,7 +1733,16 @@ export function useCalendarLogic({
         ];
       },
     );
-    const visibleRanges = [...effectiveWorkingRanges, ...appointmentRanges];
+    const deletedPractitionerCalendarItemRanges =
+      deletedPractitionerCalendarRanges.map(({ endMinutes, startMinutes }) => ({
+        endMinutes,
+        startMinutes,
+      }));
+    const visibleRanges = [
+      ...effectiveWorkingRanges,
+      ...appointmentRanges,
+      ...deletedPractitionerCalendarItemRanges,
+    ];
 
     const startTimes = visibleRanges.map((range) => range.startMinutes);
     const endTimes = visibleRanges.map((range) => range.endMinutes);
@@ -1772,7 +1767,7 @@ export function useCalendarLogic({
     const practitionerColumns = working.map((practitioner) => ({
       id: practitioner.id,
       isMuted: mutedPractitionerIds.has(practitioner.id),
-      isUnavailable: deletedPractitionerIdsWithAppointments.has(
+      isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
         practitioner.id,
       ),
       title: practitioner.name,
@@ -1809,6 +1804,7 @@ export function useCalendarLogic({
     selectedLocationId,
     selectedDate,
     timeToMinutes,
+    blockedSlotsData,
     vacationsData,
   ]);
 
@@ -2218,36 +2214,19 @@ export function useCalendarLogic({
       title?: string;
     }[] = [];
 
-    // Filter blocked slots by selected date
-    const dateFilteredBlocks = blockedSlotsData.filter((blockedSlot) => {
-      const slotDate = Temporal.ZonedDateTime.from(
-        blockedSlot.start,
-      ).toPlainDate();
-      return Temporal.PlainDate.compare(slotDate, selectedDate) === 0;
-    });
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId;
+    const dateFilteredBlocks = filterBlockedSlotsForDateAndLocation(
+      blockedSlotsData,
+      selectedDate,
+      effectiveLocationId,
+    );
 
     for (const blockedSlot of dateFilteredBlocks) {
       // Find if this practitioner has a column
       const practitionerColumn = blockedSlot.practitionerId
         ? workingPractitioners.find((p) => p.id === blockedSlot.practitionerId)
         : undefined;
-
-      // DEV: Log when a blocked slot doesn't match any practitioner column
-      if (
-        import.meta.env.DEV &&
-        !practitionerColumn &&
-        blockedSlot.practitionerId
-      ) {
-        console.warn(
-          "[ManualBlockedSlots] Block practitioner not in columns:",
-          {
-            blockId: blockedSlot._id,
-            blockPractitionerId: blockedSlot.practitionerId,
-            blockTitle: blockedSlot.title,
-            workingPractitionerIds: workingPractitioners.map((p) => p.id),
-          },
-        );
-      }
 
       if (practitionerColumn) {
         const startTime = Temporal.ZonedDateTime.from(
@@ -2280,11 +2259,32 @@ export function useCalendarLogic({
             title: blockedSlot.title,
           });
         }
+      } else if (blockedSlot.practitionerId) {
+        captureFrontendError(
+          invalidStateError(
+            "Manual blocked slot practitioner not in visible columns.",
+            "useCalendarLogic.manualBlockedSlots",
+          ),
+          {
+            blockedSlotId: blockedSlot._id,
+            locationId: blockedSlot.locationId,
+            practitionerId: blockedSlot.practitionerId,
+            selectedDate: selectedDate.toString(),
+          },
+          `manualBlockedSlotMissingColumn:${blockedSlot._id}`,
+        );
       }
     }
 
     return manual;
-  }, [blockedSlotsData, workingPractitioners, timeToSlot, selectedDate]);
+  }, [
+    blockedSlotsData,
+    workingPractitioners,
+    timeToSlot,
+    selectedDate,
+    selectedLocationId,
+    simulatedContext?.locationId,
+  ]);
 
   const vacationBlockedSlots = useMemo(() => {
     if (
