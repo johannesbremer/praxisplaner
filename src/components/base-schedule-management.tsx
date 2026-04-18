@@ -1518,56 +1518,39 @@ function BreakTimesField({
 }) {
   const [newBreakStart, setNewBreakStart] = useState("");
   const [newBreakEnd, setNewBreakEnd] = useState("");
-
-  // Auto-save partial break time when form is submitted
-  React.useEffect(() => {
-    if (newBreakStart && newBreakEnd) {
-      if (newBreakStart < newBreakEnd) {
-        const newBreak = { end: newBreakEnd, start: newBreakStart };
-        if (
-          !value.some(
-            (bt) => bt.start === newBreakStart && bt.end === newBreakEnd,
-          )
-        ) {
-          onBreakTimesChange([...value, newBreak]);
-          setNewBreakStart("");
-          setNewBreakEnd("");
-        }
-      } else {
-        onValidationError?.(true);
-      }
-    } else if (
-      (newBreakStart || newBreakEnd) &&
-      !(newBreakStart && newBreakEnd)
-    ) {
-      onValidationError?.(true); // Incomplete break time
-    } else {
-      onValidationError?.(false);
-    }
-  }, [
-    newBreakStart,
-    newBreakEnd,
-    value,
-    onBreakTimesChange,
-    onValidationError,
-  ]);
+  const updateValidationError = (start: string, end: string) => {
+    const hasPartialInput = Boolean(start) !== Boolean(end);
+    const hasInvalidRange = Boolean(start && end) && start >= end;
+    onValidationError?.(hasPartialInput || hasInvalidRange);
+  };
 
   const addBreakTime = () => {
     if (!newBreakStart || !newBreakEnd) {
+      updateValidationError(newBreakStart, newBreakEnd);
       toast.error("Bitte füllen Sie beide Pausenzeiten aus");
       return;
     }
 
     if (newBreakStart >= newBreakEnd) {
+      updateValidationError(newBreakStart, newBreakEnd);
       toast.error("Die Pausenstart-Zeit muss vor der Pausenend-Zeit liegen");
       return;
     }
 
     const newBreak = { end: newBreakEnd, start: newBreakStart };
+    const alreadyExists = value.some(
+      (breakTime) =>
+        breakTime.start === newBreakStart && breakTime.end === newBreakEnd,
+    );
+    if (alreadyExists) {
+      toast.error("Diese Pausenzeit existiert bereits");
+      return;
+    }
     onBreakTimesChange([...value, newBreak]);
 
     setNewBreakStart("");
     setNewBreakEnd("");
+    onValidationError?.(false);
   };
 
   const removeBreakTime = (index: number) => {
@@ -1607,7 +1590,9 @@ function BreakTimesField({
       <div className="flex gap-2">
         <Input
           onChange={(e) => {
-            setNewBreakStart(e.target.value);
+            const start = e.target.value;
+            setNewBreakStart(start);
+            updateValidationError(start, newBreakEnd);
           }}
           placeholder="Pausenbeginn"
           type="time"
@@ -1615,7 +1600,9 @@ function BreakTimesField({
         />
         <Input
           onChange={(e) => {
-            setNewBreakEnd(e.target.value);
+            const end = e.target.value;
+            setNewBreakEnd(end);
+            updateValidationError(newBreakStart, end);
           }}
           placeholder="Pausenende"
           type="time"

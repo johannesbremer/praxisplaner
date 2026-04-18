@@ -130,7 +130,7 @@ function LogicView() {
   const { captureError } = useErrorTracking();
 
   // No explicit selected saved rule set state; selection is driven by URL
-  const [unsavedRuleSetId, setUnsavedRuleSetId] =
+  const [trackedUnsavedRuleSetId, setUnsavedRuleSetId] =
     useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
@@ -151,6 +151,7 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
+  const hasTriggeredInitializePracticeRef = useRef(false);
   const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
     null,
   );
@@ -183,6 +184,7 @@ function LogicView() {
 
   // Use the first available practice or initialize one
   const currentPractice = practicesQuery?.[0];
+  const routeSearch: RegelnSearchParams = Route.useSearch();
 
   // Initialize practice if none exists
   const handleInitializePractice = useCallback(async () => {
@@ -207,10 +209,25 @@ function LogicView() {
   const shouldInitialize = practicesQuery?.length === 0;
 
   React.useEffect(() => {
-    if (shouldInitialize && !isInitializingPractice) {
-      void handleInitializePractice();
+    if (
+      !shouldInitialize ||
+      isInitializingPractice ||
+      hasTriggeredInitializePracticeRef.current
+    ) {
+      return;
     }
+
+    hasTriggeredInitializePracticeRef.current = true;
+    queueMicrotask(() => {
+      void handleInitializePractice();
+    });
   }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
+
+  React.useEffect(() => {
+    if (!shouldInitialize) {
+      hasTriggeredInitializePracticeRef.current = false;
+    }
+  }, [shouldInitialize]);
 
   const performClearSimulatedAppointments = useCallback(
     (options: { silent?: boolean }) =>
@@ -392,6 +409,18 @@ function LogicView() {
   const existingUnsavedRuleSet = ruleSetsWithActive?.find(
     (rs) => !rs.isActive && rs.description === UNSAVED_RULE_SET_DESCRIPTION,
   );
+  const resolvedTrackedUnsavedRuleSetId =
+    trackedUnsavedRuleSetId &&
+    ruleSetsQuery?.some(
+      (ruleSet) => ruleSet._id === trackedUnsavedRuleSetId && !ruleSet.saved,
+    )
+      ? trackedUnsavedRuleSetId
+      : null;
+  const unsavedRuleSetId =
+    resolvedTrackedUnsavedRuleSetId ??
+    (routeSearch.regelwerk && routeSearch.regelwerk !== "ungespeichert"
+      ? null
+      : (existingUnsavedRuleSet?._id ?? null));
 
   // Transform unsavedRuleSet from raw query to include isActive
   const unsavedRuleSet = useMemo(() => {
@@ -418,9 +447,6 @@ function LogicView() {
       version: rawUnsaved.version,
     };
   }, [currentPractice, ruleSetsQuery, unsavedRuleSetId]);
-
-  // Get the search params directly to determine which rule set to use
-  const routeSearch: RegelnSearchParams = Route.useSearch();
 
   // Determine current working rule set based on URL
   // We'll do a preliminary calculation to fetch locations
@@ -475,6 +501,33 @@ function LogicView() {
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
+  const effectiveSimulatedContext = useMemo(() => {
+    const nextLocationId = locationIdFromUrl ?? simulatedContext.locationId;
+    const nextPatientIsNew = isNewPatient;
+
+    if (
+      nextLocationId === simulatedContext.locationId &&
+      nextPatientIsNew === simulatedContext.patient.isNew
+    ) {
+      return simulatedContext;
+    }
+
+    return {
+      ...simulatedContext,
+      ...(nextLocationId ? { locationId: nextLocationId } : {}),
+      patient: { isNew: nextPatientIsNew },
+    };
+  }, [isNewPatient, locationIdFromUrl, simulatedContext]);
+  const updateSimulatedContext = useCallback(
+    (ctx: SimulatedContext) => {
+      setSimulatedContext(ctx);
+      pushUrl({
+        isNewPatient: ctx.patient.isNew,
+        locationId: ctx.locationId,
+      });
+    },
+    [pushUrl],
+  );
 
   // Determine current working rule set based on the properly computed ruleSetIdFromUrl
   const selectedRuleSet = useMemo(
@@ -556,36 +609,6 @@ function LogicView() {
       parentRuleSetId: resolvedCurrentWorkingRuleSet._id,
     };
   }, [draftRevisionOverride, resolvedCurrentWorkingRuleSet, unsavedRuleSet]);
-  React.useEffect(() => {
-    if (!ruleSetsQuery || !unsavedRuleSetId) {
-      return;
-    }
-
-    const draftStillExists = ruleSetsQuery.some(
-      (ruleSet) => ruleSet._id === unsavedRuleSetId && !ruleSet.saved,
-    );
-    if (draftStillExists) {
-      return;
-    }
-
-    setUnsavedRuleSetId(null);
-    setDraftRevisionOverride(null);
-    setIsDraftEquivalentToParent(false);
-  }, [ruleSetsQuery, unsavedRuleSetId]);
-
-  React.useEffect(() => {
-    if (!unsavedRuleSet) {
-      setDraftRevisionOverride(null);
-      setIsDraftEquivalentToParent(false);
-      return;
-    }
-    setDraftRevisionOverride(unsavedRuleSet.draftRevision);
-  }, [
-    unsavedRuleSet,
-    unsavedRuleSet?._id,
-    unsavedRuleSet?.draftRevision,
-    unsavedRuleSet?.parentVersion,
-  ]);
 
   const historyScopeKey = useMemo(() => {
     const isWorkingOnUnsavedRuleSet =
@@ -760,25 +783,6 @@ function LogicView() {
 
   useRegisterGlobalUndoRedoControls(regelnUndoRedoControls);
 
-  // Function to get or wait for the unsaved rule set
-  // With CoW, the unsaved rule set is created automatically by mutations when needed
-  const createInitialUnsaved = React.useCallback(() => {
-    if (!currentPractice) {
-      return;
-    }
-
-    // Simply return the existing unsaved rule set if it exists
-    if (existingUnsavedRuleSet) {
-      setUnsavedRuleSetId(existingUnsavedRuleSet._id);
-      return existingUnsavedRuleSet._id;
-    }
-
-    // If no unsaved rule set exists yet, it will be created automatically
-    // by the first mutation that tries to modify data (via CoW)
-    // For now, we return null and let the mutations handle it
-    return null;
-  }, [currentPractice, existingUnsavedRuleSet]);
-
   const handleDraftMutation = useCallback(
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
       setUnsavedRuleSetId(result.ruleSetId);
@@ -857,55 +861,6 @@ function LogicView() {
       setIsResettingSimulation(false);
     }
   }, [defaultAppointmentTypeId, performClearSimulatedAppointments, pushUrl]);
-
-  // Auto-detect existing unsaved rule set on load
-  React.useEffect(() => {
-    if (!existingUnsavedRuleSet) {
-      return;
-    }
-
-    // Respect explicit URL selection of a saved rule set.
-    if (raw.ruleSet && raw.ruleSet !== "ungespeichert") {
-      return;
-    }
-
-    if (!unsavedRuleSetId || unsavedRuleSetId !== existingUnsavedRuleSet._id) {
-      setUnsavedRuleSetId(existingUnsavedRuleSet._id);
-    }
-  }, [existingUnsavedRuleSet, raw.ruleSet, unsavedRuleSetId]);
-
-  // Auto-create an initial unsaved rule set when no rule sets exist
-  React.useEffect(() => {
-    if (currentPractice && ruleSetsQuery?.length === 0 && !unsavedRuleSetId) {
-      void createInitialUnsaved();
-    }
-  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId, createInitialUnsaved]);
-
-  // Keep patient.isNew in local simulatedContext in sync with URL
-  React.useEffect(() => {
-    if (simulatedContext.patient.isNew !== isNewPatient) {
-      setSimulatedContext((prev) => ({
-        ...prev,
-        patient: { isNew: isNewPatient },
-      }));
-    }
-  }, [isNewPatient, simulatedContext.patient.isNew]);
-
-  // Sync URL location to Context on initial load or URL change (e.g., from shared link)
-  // This is ONE-WAY: URL → Context only. User changes go through onLocationChange → pushUrl → URL
-  React.useEffect(() => {
-    if (locationIdFromUrl) {
-      setSimulatedContext((prev) => {
-        if (prev.locationId === locationIdFromUrl) {
-          return prev;
-        }
-        return {
-          ...prev,
-          locationId: locationIdFromUrl,
-        };
-      });
-    }
-  }, [locationIdFromUrl]);
 
   // TODO: Fetch rules for the current working rule set (re-enable once new rule system is implemented)
   // const rulesQuery = useQuery(
@@ -1362,16 +1317,10 @@ function LogicView() {
                       onLocationChange={(locationId) => {
                         pushUrl({ locationId });
                       }}
-                      onUpdateSimulatedContext={(ctx) => {
-                        setSimulatedContext(ctx);
-                        pushUrl({
-                          isNewPatient: ctx.patient.isNew,
-                          locationId: ctx.locationId,
-                        });
-                      }}
+                      onUpdateSimulatedContext={updateSimulatedContext}
                       practiceId={currentPractice._id}
                       ruleSetId={resolvedCurrentWorkingRuleSet._id}
-                      simulatedContext={simulatedContext}
+                      simulatedContext={effectiveSimulatedContext}
                     />
                   </div>
                 ) : (
@@ -1397,13 +1346,7 @@ function LogicView() {
                     pushUrl({ locationId });
                   }}
                   onResetSimulation={resetSimulation}
-                  onSimulatedContextChange={(ctx) => {
-                    setSimulatedContext(ctx);
-                    pushUrl({
-                      isNewPatient: ctx.patient.isNew,
-                      locationId: ctx.locationId,
-                    });
-                  }}
+                  onSimulatedContextChange={updateSimulatedContext}
                   onSimulationRuleSetChange={(id) => {
                     // If unsaved exists and target is not the unsaved id, show save dialog
                     if (
@@ -1420,7 +1363,7 @@ function LogicView() {
                   ruleSetsQuery={ruleSetsWithActive}
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
-                  simulatedContext={simulatedContext}
+                  simulatedContext={effectiveSimulatedContext}
                   simulationRuleSetId={resolvedCurrentWorkingRuleSet?._id}
                 />
               </div>
@@ -1488,16 +1431,10 @@ function LogicView() {
               <div className="space-y-6">
                 {resolvedCurrentWorkingRuleSet ? (
                   <MedicalStaffDisplay
-                    onUpdateSimulatedContext={(ctx) => {
-                      setSimulatedContext(ctx);
-                      pushUrl({
-                        isNewPatient: ctx.patient.isNew,
-                        locationId: ctx.locationId,
-                      });
-                    }}
+                    onUpdateSimulatedContext={updateSimulatedContext}
                     practiceId={currentPractice._id}
                     ruleSetId={resolvedCurrentWorkingRuleSet._id}
-                    simulatedContext={simulatedContext}
+                    simulatedContext={effectiveSimulatedContext}
                     simulationDate={simulationDate}
                   />
                 ) : (
@@ -1523,13 +1460,7 @@ function LogicView() {
                     pushUrl({ locationId });
                   }}
                   onResetSimulation={resetSimulation}
-                  onSimulatedContextChange={(ctx) => {
-                    setSimulatedContext(ctx);
-                    pushUrl({
-                      isNewPatient: ctx.patient.isNew,
-                      locationId: ctx.locationId,
-                    });
-                  }}
+                  onSimulatedContextChange={updateSimulatedContext}
                   onSimulationRuleSetChange={(id) => {
                     if (
                       hasBlockingUnsavedChanges &&
@@ -1545,7 +1476,7 @@ function LogicView() {
                   ruleSetsQuery={ruleSetsWithActive}
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
-                  simulatedContext={simulatedContext}
+                  simulatedContext={effectiveSimulatedContext}
                   simulationRuleSetId={resolvedCurrentWorkingRuleSet?._id}
                 />
               </div>

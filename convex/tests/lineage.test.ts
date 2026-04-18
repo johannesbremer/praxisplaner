@@ -198,7 +198,7 @@ describe("lineage invariants", () => {
   test("the lineage audit catches broken rows explicitly", async () => {
     const t = createTestContext();
 
-    const missing = await t.run(async (ctx) => {
+    const { missing, missingLocationId } = await t.run(async (ctx) => {
       const practiceId = await ctx.db.insert("practices", {
         name: "Broken Lineage Practice",
       });
@@ -211,17 +211,20 @@ describe("lineage invariants", () => {
         version: 1,
       });
 
-      await ctx.db.insert("locations", {
+      const missingLocationId = await ctx.db.insert("locations", {
         name: "Broken Location",
         practiceId,
         ruleSetId,
       });
 
-      return await collectMissingLineageKeys(ctx.db);
+      return {
+        missing: await collectMissingLineageKeys(ctx.db),
+        missingLocationId,
+      };
     });
 
     expect(missing.locations).toHaveLength(1);
-    expect(missing.locations[0]).toMatch(/;locations$/);
+    expect(missing.locations[0]).toBe(missingLocationId);
   });
 
   test("self-lineage writes go through the shared insert helper", async () => {
