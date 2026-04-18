@@ -2,7 +2,11 @@ import { type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, QueryCtx } from "./_generated/server";
+import type {
+  DatabaseReader,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
 
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
@@ -179,7 +183,9 @@ async function getPatientDateOfBirth(
 }
 
 async function previewPractitionerCoverageForAppointment(
-  ctx: QueryCtx,
+  ctx:
+    | (Pick<MutationCtx, "runQuery"> & { db: DatabaseReader })
+    | (Pick<QueryCtx, "runQuery"> & { db: DatabaseReader }),
   args: {
     activeRuleSetId: Id<"ruleSets">;
     appointment: Doc<"appointments">;
@@ -364,6 +370,8 @@ async function previewPractitionerCoverageForAppointment(
     targetPractitionerName: bestCandidate.name,
   };
 }
+
+export { previewPractitionerCoverageForAppointment };
 
 async function resolvePractitionerIdInRuleSet(
   db: DatabaseReader,

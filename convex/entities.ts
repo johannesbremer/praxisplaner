@@ -18,10 +18,20 @@ import type {
 } from "convex/server";
 
 import { v } from "convex/values";
+import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 import { mutation, query } from "./_generated/server";
+import { getEffectiveAppointmentsForScope } from "./appointmentConflicts";
+import {
+  previewPractitionerCoverageForAppointment,
+  resolveAppointmentTypeIdForRuleSet,
+  resolveLocationIdForRuleSet,
+} from "./appointmentCoverage";
+import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferences";
+import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
   bumpDraftRevision,
   type EntityType,
@@ -116,6 +126,95 @@ function assertRuleSetEntityIsActive(params: {
   throw new Error(
     `${params.errorCode} ${params.entityLabel} ${params.entityId} wurde in Regelset ${params.ruleSetId} gelöscht und kann nicht mehr neu referenziert werden.`,
   );
+}
+
+async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    practitionerId: Id<"practitioners">;
+    practitionerLineageKey: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<Id<"appointments">[]> {
+  const practice = await ctx.db.get("practices", args.practiceId);
+  if (!practice?.currentActiveRuleSetId) {
+    return [];
+  }
+
+  const nowIso = Temporal.Now.zonedDateTimeISO("Europe/Berlin").toString();
+  const appointments = await ctx.db
+    .query("appointments")
+    .withIndex("by_practiceId_start", (q) =>
+      q.eq("practiceId", args.practiceId).gte("start", nowIso),
+    )
+    .collect();
+  const effectiveAppointments = getEffectiveAppointmentsForScope(
+    appointments,
+    "simulation",
+    args.ruleSetId,
+  );
+  const affectedAppointments = effectiveAppointments.filter(
+    (appointment) =>
+      appointment.isSimulation !== true &&
+      appointment.practitionerLineageKey === args.practitionerLineageKey,
+  );
+  const createdSimulationIds: Id<"appointments">[] = [];
+  const now = BigInt(Date.now());
+
+  for (const appointment of affectedAppointments) {
+    const suggestion = await previewPractitionerCoverageForAppointment(ctx, {
+      activeRuleSetId: practice.currentActiveRuleSetId,
+      appointment,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      selectedPractitionerId: args.practitionerId,
+    });
+
+    if (!suggestion.targetPractitionerId) {
+      continue;
+    }
+
+    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSet(ctx.db, {
+      appointmentTypeId: appointment.appointmentTypeLineageKey,
+      practiceId: args.practiceId,
+      targetRuleSetId: args.ruleSetId,
+    });
+    const locationId = await resolveLocationIdForRuleSet(ctx.db, {
+      locationId: appointment.locationLineageKey,
+      practiceId: args.practiceId,
+      targetRuleSetId: args.ruleSetId,
+    });
+    const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+      ctx.db,
+      {
+        appointmentTypeId,
+        locationId,
+        practitionerId: suggestion.targetPractitionerId,
+      },
+    );
+
+    const simulationAppointmentId = await ctx.db.insert("appointments", {
+      ...storedReferences,
+      appointmentTypeTitle: appointment.appointmentTypeTitle,
+      createdAt: now,
+      end: appointment.end,
+      isSimulation: true,
+      lastModified: now,
+      ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
+      practiceId: args.practiceId,
+      replacesAppointmentId: appointment._id,
+      simulationKind: "activation-reassignment",
+      simulationRuleSetId: args.ruleSetId,
+      simulationValidatedAt: now,
+      start: appointment.start,
+      title: appointment.title,
+      ...(appointment.userId ? { userId: appointment.userId } : {}),
+    });
+    createdSimulationIds.push(simulationAppointmentId);
+  }
+
+  return createdSimulationIds;
 }
 
 async function ensureBaseScheduleLineageKeyForWrite(
@@ -1388,6 +1487,14 @@ export const deletePractitionerWithDependencies = mutation({
       deleted: true,
     });
 
+    const reassignmentSimulationIds =
+      await createAutomaticReassignmentSimulationsForDeletedPractitioner(ctx, {
+        practiceId: args.practiceId,
+        practitionerId: practitioner._id,
+        practitionerLineageKey: requirePractitionerLineageKey(practitioner),
+        ruleSetId,
+      });
+
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return {
       draftRevision,
@@ -1402,6 +1509,7 @@ export const deletePractitionerWithDependencies = mutation({
           ...(practitioner.tags && { tags: practitioner.tags }),
         },
         practitionerConditionPatches,
+        reassignmentSimulationIds,
       },
     };
   },
@@ -1634,6 +1742,22 @@ export const restorePractitionerWithDependencies = mutation({
         lastModified: now,
         valueIds: restoredValueIds,
       });
+    }
+
+    for (const simulationAppointmentId of args.snapshot
+      .reassignmentSimulationIds) {
+      const simulationAppointment = await ctx.db.get(
+        "appointments",
+        simulationAppointmentId,
+      );
+      if (
+        simulationAppointment?.simulationRuleSetId !== ruleSetId ||
+        !isActivationBoundSimulation(simulationAppointment)
+      ) {
+        continue;
+      }
+
+      await ctx.db.delete("appointments", simulationAppointmentId);
     }
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);

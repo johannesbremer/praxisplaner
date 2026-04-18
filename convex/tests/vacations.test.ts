@@ -2273,4 +2273,97 @@ describe("vacations", () => {
       [firstCreate.entityId, secondCreate.entityId].toSorted(),
     );
   });
+
+  test("deleting a practitioner auto-reassigns movable future appointments and undo clears those simulations", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    await t.run(async (ctx) => {
+      const previousStart = monday
+        .subtract({ days: 14 })
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("10:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const previousEnd = Temporal.ZonedDateTime.from(previousStart)
+        .add({ minutes: 30 })
+        .toString();
+      await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: previousEnd,
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.preferredPractitionerId,
+        start: previousStart,
+        title: "Vorbehandlung",
+      });
+
+      const upcomingStart = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("10:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const upcomingEnd = Temporal.ZonedDateTime.from(upcomingStart)
+        .add({ minutes: 30 })
+        .toString();
+      await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: upcomingEnd,
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start: upcomingStart,
+        title: "Betroffener Termin",
+      });
+    });
+
+    const deleteResult = await t.mutation(
+      api.entities.deletePractitionerWithDependencies,
+      {
+        expectedDraftRevision: null,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        selectedRuleSetId: fixture.ruleSetId,
+      },
+    );
+
+    expect(deleteResult.snapshot.reassignmentSimulationIds).toHaveLength(1);
+    const reassignmentSimulationId =
+      deleteResult.snapshot.reassignmentSimulationIds[0];
+    assertDefined(reassignmentSimulationId);
+
+    const createdSimulation = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", reassignmentSimulationId);
+    });
+    assertDefined(createdSimulation);
+    expect(createdSimulation.isSimulation).toBe(true);
+    expect(createdSimulation.simulationKind).toBe("activation-reassignment");
+    expect(createdSimulation.practitionerLineageKey).toBe(
+      fixture.preferredPractitionerId,
+    );
+
+    await t.mutation(api.entities.restorePractitionerWithDependencies, {
+      expectedDraftRevision: deleteResult.draftRevision,
+      practiceId: fixture.practiceId,
+      selectedRuleSetId: deleteResult.ruleSetId,
+      snapshot: deleteResult.snapshot,
+    });
+
+    const remainingSimulation = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", reassignmentSimulationId);
+    });
+    expect(remainingSimulation).toBeNull();
+  });
 });

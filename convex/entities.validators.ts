@@ -147,6 +147,7 @@ export const practitionerDependencySnapshotValidator = v.object({
   baseSchedules: v.array(practitionerBaseScheduleSnapshotValidator),
   practitioner: practitionerSnapshotValidator,
   practitionerConditionPatches: v.array(practitionerConditionPatchValidator),
+  reassignmentSimulationIds: v.array(v.id("appointments")),
 });
 
 export const deletePractitionerWithDependenciesResultValidator = v.object({

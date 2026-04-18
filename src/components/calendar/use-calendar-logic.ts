@@ -1531,6 +1531,8 @@ export function useCalendarLogic({
       (schedule: Doc<"baseSchedules">) =>
         schedule.dayOfWeek === currentDayOfWeek,
     );
+    const effectiveLocationId =
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
 
     if (simulatedContext?.locationId) {
       daySchedules = daySchedules.filter(
@@ -1544,7 +1546,49 @@ export function useCalendarLogic({
       );
     }
 
-    if (daySchedules.length === 0) {
+    const appointmentsForSelectedDate = (appointmentsData ?? []).filter(
+      (appointment) => {
+        if (!appointment.practitionerId) {
+          return false;
+        }
+
+        if (
+          Temporal.PlainDate.compare(
+            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
+            selectedDate,
+          ) !== 0
+        ) {
+          return false;
+        }
+
+        if (
+          effectiveLocationId !== undefined &&
+          appointment.locationId !== effectiveLocationId
+        ) {
+          return false;
+        }
+
+        return true;
+      },
+    );
+    const deletedPractitionerIds = new Set(
+      practitionersData
+        .filter((practitioner) => practitioner.deleted === true)
+        .map((practitioner) => practitioner._id),
+    );
+    const deletedPractitionerIdsWithAppointments = new Set(
+      appointmentsForSelectedDate.flatMap((appointment) =>
+        appointment.practitionerId &&
+        deletedPractitionerIds.has(appointment.practitionerId)
+          ? [appointment.practitionerId]
+          : [],
+      ),
+    );
+
+    if (
+      daySchedules.length === 0 &&
+      deletedPractitionerIdsWithAppointments.size === 0
+    ) {
       return {
         businessEndHour: 0,
         businessStartHour: 0,
@@ -1574,14 +1618,7 @@ export function useCalendarLogic({
 
     if (vacationsData) {
       const practitionersWithAppointments = new Set(
-        (appointmentsData ?? [])
-          .filter(
-            (appointment) =>
-              Temporal.PlainDate.compare(
-                Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-                selectedDate,
-              ) === 0,
-          )
+        appointmentsForSelectedDate
           .map((appointment) => appointment.practitionerId)
           .filter(Boolean),
       );
@@ -1633,8 +1670,50 @@ export function useCalendarLogic({
       name: practitionerMap.get(schedule.practitionerId) ?? "Unbekannt",
       startTime: schedule.startTime,
     }));
-    const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
+    const workingPractitionerIds = new Set(
+      working.map((practitioner) => practitioner.id),
+    );
+
+    const formatMinutesAsTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60);
+      const remainder = minutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+    };
+
+    for (const practitionerId of deletedPractitionerIdsWithAppointments) {
+      mutedPractitionerIds.add(practitionerId);
+      if (workingPractitionerIds.has(practitionerId)) {
+        continue;
+      }
+
+      const practitionerAppointments = appointmentsForSelectedDate.filter(
+        (appointment) => appointment.practitionerId === practitionerId,
+      );
+      if (practitionerAppointments.length === 0) {
+        continue;
+      }
+
+      const appointmentStartMinutes = practitionerAppointments.map(
+        (appointment) => {
+          const start = Temporal.ZonedDateTime.from(appointment.start);
+          return start.hour * 60 + start.minute;
+        },
+      );
+      const appointmentEndMinutes = practitionerAppointments.map(
+        (appointment) => {
+          const end = Temporal.ZonedDateTime.from(appointment.end);
+          return end.hour * 60 + end.minute;
+        },
+      );
+
+      working.push({
+        endTime: formatMinutesAsTime(Math.max(...appointmentEndMinutes)),
+        id: practitionerId,
+        name: practitionerMap.get(practitionerId) ?? "Unbekannt",
+        startTime: formatMinutesAsTime(Math.min(...appointmentStartMinutes)),
+      });
+      workingPractitionerIds.add(practitionerId);
+    }
 
     const effectiveWorkingRanges = working.flatMap((practitioner) =>
       getPractitionerAvailabilityRangesForDate(
@@ -1648,27 +1727,11 @@ export function useCalendarLogic({
     const practitionerIds = new Set(
       working.map((practitioner) => practitioner.id),
     );
-    const appointmentRanges = (appointmentsData ?? []).flatMap(
+    const appointmentRanges = appointmentsForSelectedDate.flatMap(
       (appointment) => {
         if (
           appointment.practitionerId === undefined ||
           !practitionerIds.has(appointment.practitionerId)
-        ) {
-          return [];
-        }
-
-        if (
-          Temporal.PlainDate.compare(
-            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-            selectedDate,
-          ) !== 0
-        ) {
-          return [];
-        }
-
-        if (
-          effectiveLocationId !== undefined &&
-          appointment.locationId !== effectiveLocationId
         ) {
           return [];
         }
