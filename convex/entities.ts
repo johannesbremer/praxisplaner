@@ -62,6 +62,11 @@ import {
   validateFollowUpPlan,
 } from "./followUpPlans";
 import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerId,
+} from "./identity";
+import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
@@ -176,12 +181,14 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     }
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSet(ctx.db, {
-      appointmentTypeId: appointment.appointmentTypeLineageKey,
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        appointment.appointmentTypeLineageKey,
+      ),
       practiceId: args.practiceId,
       targetRuleSetId: args.ruleSetId,
     });
     const locationId = await resolveLocationIdForRuleSet(ctx.db, {
-      locationId: appointment.locationLineageKey,
+      locationLineageKey: asLocationLineageKey(appointment.locationLineageKey),
       practiceId: args.practiceId,
       targetRuleSetId: args.ruleSetId,
     });
@@ -190,7 +197,7 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
       {
         appointmentTypeId,
         locationId,
-        practitionerId: suggestion.targetPractitionerId,
+        practitionerId: asPractitionerId(suggestion.targetPractitionerId),
       },
     );
 

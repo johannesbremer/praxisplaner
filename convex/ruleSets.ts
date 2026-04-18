@@ -14,6 +14,7 @@ import {
 } from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -157,9 +158,15 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     }
     const currentCandidate = {
       end: currentSimulation.end,
-      locationLineageKey: currentSimulation.locationLineageKey,
+      locationLineageKey: asLocationLineageKey(
+        currentSimulation.locationLineageKey,
+      ),
       ...(currentSimulation.practitionerLineageKey
-        ? { practitionerLineageKey: currentSimulation.practitionerLineageKey }
+        ? {
+            practitionerLineageKey: asPractitionerLineageKey(
+              currentSimulation.practitionerLineageKey,
+            ),
+          }
         : {}),
       start: currentSimulation.start,
     };
@@ -177,11 +184,14 @@ async function applyPendingSimulationAppointmentsForRuleSet(
         appointmentOverlapsCandidate(
           {
             end: otherSimulation.end,
-            locationLineageKey: otherSimulation.locationLineageKey,
+            locationLineageKey: asLocationLineageKey(
+              otherSimulation.locationLineageKey,
+            ),
             ...(otherSimulation.practitionerLineageKey
               ? {
-                  practitionerLineageKey:
+                  practitionerLineageKey: asPractitionerLineageKey(
                     otherSimulation.practitionerLineageKey,
+                  ),
                 }
               : {}),
             start: otherSimulation.start,
@@ -212,11 +222,14 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     const conflictingAppointment = await findConflictingAppointment(db, {
       candidate: {
         end: simulationAppointment.end,
-        locationLineageKey: simulationAppointment.locationLineageKey,
+        locationLineageKey: asLocationLineageKey(
+          simulationAppointment.locationLineageKey,
+        ),
         ...(simulationAppointment.practitionerLineageKey
           ? {
-              practitionerLineageKey:
+              practitionerLineageKey: asPractitionerLineageKey(
                 simulationAppointment.practitionerLineageKey,
+              ),
             }
           : {}),
         start: simulationAppointment.start,

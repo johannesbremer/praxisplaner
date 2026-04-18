@@ -20,6 +20,11 @@ import {
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "./identity";
+import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
@@ -593,7 +598,7 @@ export const createVacationWithCoverageAdjustments = mutation({
 
     const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
       ruleSetId: practice.currentActiveRuleSetId,
     });
     const draftPractitionerId = await resolvePractitionerIdInRuleSet(
@@ -642,7 +647,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     const selectedVacationPractitionerId =
       await resolvePractitionerIdForRuleSet(ctx.db, {
         practiceId: args.practiceId,
-        practitionerId: args.practitionerId,
+        practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
         ruleSetId,
       });
 
@@ -717,7 +722,9 @@ export const createVacationWithCoverageAdjustments = mutation({
         ctx.db,
         {
           practiceId: args.practiceId,
-          practitionerId: reassignment.targetPractitionerId,
+          practitionerLineageKey: asPractitionerLineageKey(
+            reassignment.targetPractitionerId,
+          ),
           ruleSetId,
         },
       );
@@ -734,7 +741,9 @@ export const createVacationWithCoverageAdjustments = mutation({
 
       const selectedAppointmentTypeId =
         await resolveAppointmentTypeIdForRuleSet(ctx.db, {
-          appointmentTypeId: appointment.appointmentTypeLineageKey,
+          appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+            appointment.appointmentTypeLineageKey,
+          ),
           practiceId: args.practiceId,
           targetRuleSetId: ruleSetId,
         });
@@ -755,7 +764,9 @@ export const createVacationWithCoverageAdjustments = mutation({
         );
       }
       const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-        locationId: appointment.locationLineageKey,
+        locationLineageKey: asLocationLineageKey(
+          appointment.locationLineageKey,
+        ),
         practiceId: args.practiceId,
         targetRuleSetId: ruleSetId,
       });
@@ -769,7 +780,9 @@ export const createVacationWithCoverageAdjustments = mutation({
         ? await findConflictingAppointment(ctx.db, {
             candidate: {
               end: appointment.end,
-              locationLineageKey: appointment.locationLineageKey,
+              locationLineageKey: asLocationLineageKey(
+                appointment.locationLineageKey,
+              ),
               practitionerLineageKey: targetPractitionerLineageKey,
               start: appointment.start,
             },

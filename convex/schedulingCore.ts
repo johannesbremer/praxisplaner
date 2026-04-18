@@ -3,16 +3,27 @@ import { Temporal } from "temporal-polyfill";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import {
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+  type LocationId,
+  type LocationLineageKey,
+  type PractitionerId,
+  type PractitionerLineageKey,
+} from "./identity";
+
 export const SCHEDULING_TIMEZONE = "Europe/Berlin";
 
 export interface CandidateSlot {
   blockedByBlockedSlotId?: Id<"blockedSlots">;
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number;
-  locationId: Id<"locations">;
-  locationLineageKey: Id<"locations">;
-  practitionerId: Id<"practitioners">;
-  practitionerLineageKey: Id<"practitioners">;
+  locationId: LocationId;
+  locationLineageKey: LocationLineageKey;
+  practitionerId: PractitionerId;
+  practitionerLineageKey: PractitionerLineageKey;
   practitionerName?: string;
   reason?: string;
   startTime: string;
@@ -58,14 +69,21 @@ export async function generateCandidateSlotsForDay(
   );
   const practitionerLineageKeyById = new Map(
     practitionersForPractice.map((practitioner) => [
-      practitioner._id,
-      practitioner.lineageKey ?? practitioner._id,
+      asPractitionerId(practitioner._id),
+      practitioner.lineageKey
+        ? asPractitionerLineageKey(practitioner.lineageKey)
+        : asPractitionerLineageKey(practitioner._id),
     ]),
   );
   const locationLineageKeyById = new Map(
     locations
       .filter((location) => location.practiceId === practiceId)
-      .map((location) => [location._id, location.lineageKey ?? location._id]),
+      .map((location) => [
+        asLocationId(location._id),
+        location.lineageKey
+          ? asLocationLineageKey(location.lineageKey)
+          : asLocationLineageKey(location._id),
+      ]),
   );
 
   const dayOfWeek =
@@ -123,14 +141,15 @@ export async function generateCandidateSlotsForDay(
       if (!isBreakTime) {
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
-          locationId: schedule.locationId,
+          locationId: asLocationId(schedule.locationId),
           locationLineageKey:
-            locationLineageKeyById.get(schedule.locationId) ??
-            schedule.locationId,
-          practitionerId: schedule.practitionerId,
+            locationLineageKeyById.get(asLocationId(schedule.locationId)) ??
+            asLocationLineageKey(schedule.locationId),
+          practitionerId: asPractitionerId(schedule.practitionerId),
           practitionerLineageKey:
-            practitionerLineageKeyById.get(schedule.practitionerId) ??
-            schedule.practitionerId,
+            practitionerLineageKeyById.get(
+              asPractitionerId(schedule.practitionerId),
+            ) ?? asPractitionerLineageKey(schedule.practitionerId),
           practitionerName:
             practitionerNameById.get(schedule.practitionerId) ??
             "Unknown Practitioner",
@@ -168,7 +187,10 @@ export function slotOverlapsAppointment(
   appointment: Pick<
     Doc<"appointments">,
     "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
-  >,
+  > & {
+    locationLineageKey: LocationLineageKey;
+    practitionerLineageKey?: PractitionerLineageKey;
+  },
 ): boolean {
   if (slot.locationLineageKey !== appointment.locationLineageKey) {
     return false;

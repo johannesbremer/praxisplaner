@@ -3,6 +3,12 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import type {
+  LocationId,
+  LocationLineageKey,
+  PractitionerId,
+  PractitionerLineageKey,
+} from "./identity";
 import type { AppointmentContext } from "./ruleEngine";
 
 import {
@@ -18,6 +24,7 @@ import {
   getEffectiveAppointmentsForOccupancyView,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
   buildPreloadedDayData,
@@ -43,8 +50,10 @@ import {
  * Get the current time as a ZonedDateTime string in the configured timezone.
  */
 export interface InternalSchedulingResultSlot extends SchedulingResultSlot {
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey: Id<"practitioners">;
+  locationId: LocationId;
+  locationLineageKey: LocationLineageKey;
+  practitionerId: PractitionerId;
+  practitionerLineageKey: PractitionerLineageKey;
 }
 
 export interface SchedulingResultSlot {
@@ -549,7 +558,20 @@ async function getSlotsForDayImpl(
       const overlappingAppointment = effectiveAppointments.find(
         (appointment) =>
           !excludedAppointmentIds.has(appointment._id) &&
-          slotOverlapsAppointment(slot, appointment),
+          slotOverlapsAppointment(slot, {
+            end: appointment.end,
+            locationLineageKey: asLocationLineageKey(
+              appointment.locationLineageKey,
+            ),
+            ...(appointment.practitionerLineageKey
+              ? {
+                  practitionerLineageKey: asPractitionerLineageKey(
+                    appointment.practitionerLineageKey,
+                  ),
+                }
+              : {}),
+            start: appointment.start,
+          }),
       );
 
       if (overlappingAppointment) {

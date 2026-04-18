@@ -36,6 +36,14 @@ import {
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
 import {
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+} from "./identity";
+import {
   buildPatientSearchFirstName,
   buildPatientSearchLastName,
 } from "./patientSearch";
@@ -269,7 +277,7 @@ async function resolveAppointmentTypeIdForDisplayRuleSet(
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"appointmentTypes">> {
   return await resolveAppointmentTypeIdForRuleSetByLineage(db, {
-    lineageKey: appointmentTypeLineageKey,
+    lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
     ruleSetId: targetRuleSetId,
   });
 }
@@ -280,7 +288,7 @@ async function resolveLocationIdForDisplayRuleSet(
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"locations">> {
   return await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: locationLineageKey,
+    lineageKey: asLocationLineageKey(locationLineageKey),
     ruleSetId: targetRuleSetId,
   });
 }
@@ -291,7 +299,7 @@ async function resolvePractitionerIdForDisplayRuleSet(
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"practitioners">> {
   return await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: practitionerLineageKey,
+    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
     ruleSetId: targetRuleSetId,
   });
 }
@@ -810,9 +818,11 @@ export async function createAppointmentFromTrustedSource(
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
     ctx.db,
     {
-      appointmentTypeId,
-      locationId,
-      ...(practitionerId ? { practitionerId } : {}),
+      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
+      locationId: asLocationId(locationId),
+      ...(practitionerId
+        ? { practitionerId: asPractitionerId(practitionerId) }
+        : {}),
     },
   );
 
@@ -1159,29 +1169,35 @@ async function updateAppointmentByMode(
           const appointmentTypeIdForWrite =
             filteredUpdateData.appointmentTypeId ??
             (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
-              lineageKey: existingAppointment.appointmentTypeLineageKey,
+              lineageKey: asAppointmentTypeLineageKey(
+                existingAppointment.appointmentTypeLineageKey,
+              ),
               ruleSetId: editingRuleSetId,
             }));
           const locationIdForWrite =
             filteredUpdateData.locationId ??
             (await resolveLocationIdForRuleSetByLineage(ctx.db, {
-              lineageKey: existingAppointment.locationLineageKey,
+              lineageKey: asLocationLineageKey(
+                existingAppointment.locationLineageKey,
+              ),
               ruleSetId: editingRuleSetId,
             }));
           const practitionerIdForWrite =
             filteredUpdateData.practitionerId ??
             (existingAppointment.practitionerLineageKey
               ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-                  lineageKey: existingAppointment.practitionerLineageKey,
+                  lineageKey: asPractitionerLineageKey(
+                    existingAppointment.practitionerLineageKey,
+                  ),
                   ruleSetId: editingRuleSetId,
                 })
               : undefined);
 
           return resolveStoredAppointmentReferencesForWrite(ctx.db, {
-            appointmentTypeId: appointmentTypeIdForWrite,
-            locationId: locationIdForWrite,
+            appointmentTypeId: asAppointmentTypeId(appointmentTypeIdForWrite),
+            locationId: asLocationId(locationIdForWrite),
             ...(practitionerIdForWrite
-              ? { practitionerId: practitionerIdForWrite }
+              ? { practitionerId: asPractitionerId(practitionerIdForWrite) }
               : {}),
           });
         })()
@@ -1220,7 +1236,9 @@ async function updateAppointmentByMode(
     const appointmentTypeIdForValidation =
       filteredUpdateData.appointmentTypeId ??
       (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
-        lineageKey: existingAppointment.appointmentTypeLineageKey,
+        lineageKey: asAppointmentTypeLineageKey(
+          existingAppointment.appointmentTypeLineageKey,
+        ),
         ruleSetId: appointmentTypeRuleSetId,
       }));
     const appointmentType = await ctx.db.get(
@@ -1237,7 +1255,9 @@ async function updateAppointmentByMode(
       filteredUpdateData.practitionerId ??
       (existingAppointment.practitionerLineageKey
         ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: existingAppointment.practitionerLineageKey,
+            lineageKey: asPractitionerLineageKey(
+              existingAppointment.practitionerLineageKey,
+            ),
             ruleSetId: activeAppointmentType.ruleSetId,
           })
         : undefined);
@@ -1266,9 +1286,13 @@ async function updateAppointmentByMode(
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: resolvedEnd,
-        locationLineageKey: resolvedLocationId,
+        locationLineageKey: asLocationLineageKey(resolvedLocationId),
         ...(resolvedPractitionerId
-          ? { practitionerLineageKey: resolvedPractitionerId }
+          ? {
+              practitionerLineageKey: asPractitionerLineageKey(
+                resolvedPractitionerId,
+              ),
+            }
           : {}),
         start: resolvedStart,
       },
@@ -1305,7 +1329,7 @@ async function updateAppointmentByMode(
       const nextAppointmentTypeLineageKey =
         await resolveAppointmentTypeLineageKey(
           ctx.db,
-          filteredUpdateData.appointmentTypeId,
+          asAppointmentTypeId(filteredUpdateData.appointmentTypeId),
         );
       if (
         nextAppointmentTypeLineageKey !==
@@ -1354,7 +1378,9 @@ async function updateAppointmentByMode(
       filteredUpdateData.practitionerId ??
       (existingAppointment.practitionerLineageKey
         ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: existingAppointment.practitionerLineageKey,
+            lineageKey: asPractitionerLineageKey(
+              existingAppointment.practitionerLineageKey,
+            ),
             ruleSetId: seriesRecord.ruleSetIdAtBooking,
           })
         : undefined);
@@ -1371,7 +1397,9 @@ async function updateAppointmentByMode(
       locationId:
         filteredUpdateData.locationId ??
         (await resolveLocationIdForRuleSetByLineage(ctx.db, {
-          lineageKey: existingAppointment.locationLineageKey,
+          lineageKey: asLocationLineageKey(
+            existingAppointment.locationLineageKey,
+          ),
           ruleSetId: seriesRecord.ruleSetIdAtBooking,
         })),
       ...(resolvedPatientDateOfBirth && {
@@ -1414,9 +1442,9 @@ async function updateAppointmentByMode(
       if (matchingAppointment) {
         const stepStoredReferences =
           await resolveStoredAppointmentReferencesForWrite(ctx.db, {
-            appointmentTypeId: step.appointmentTypeId,
-            locationId: step.locationId,
-            practitionerId: step.practitionerId,
+            appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
+            locationId: asLocationId(step.locationId),
+            practitionerId: asPractitionerId(step.practitionerId),
           });
         await ctx.db.patch("appointments", matchingAppointment._id, {
           ...stepStoredReferences,
@@ -1438,9 +1466,9 @@ async function updateAppointmentByMode(
 
       const stepStoredReferences =
         await resolveStoredAppointmentReferencesForWrite(ctx.db, {
-          appointmentTypeId: step.appointmentTypeId,
-          locationId: step.locationId,
-          practitionerId: step.practitionerId,
+          appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
+          locationId: asLocationId(step.locationId),
+          practitionerId: asPractitionerId(step.practitionerId),
         });
       const insertedAppointmentId = await ctx.db.insert("appointments", {
         ...stepStoredReferences,

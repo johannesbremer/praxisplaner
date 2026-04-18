@@ -6,8 +6,16 @@ import type {
 import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { LocationLineageKey, PractitionerLineageKey } from "./identity";
 
 export type AppointmentBookingScope = "real" | "simulation";
+export interface AppointmentConflictCandidate {
+  end: string;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+  start: string;
+}
+
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
 type DatabaseLike =
@@ -19,12 +27,7 @@ export function appointmentOverlapsCandidate(
     Doc<"appointments">,
     "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
   >,
-  candidate: {
-    end: string;
-    locationLineageKey: Id<"locations">;
-    practitionerLineageKey?: Id<"practitioners">;
-    start: string;
-  },
+  candidate: AppointmentConflictCandidate,
 ): boolean {
   if (appointment.locationLineageKey !== candidate.locationLineageKey) {
     return false;
@@ -53,12 +56,7 @@ export function appointmentOverlapsCandidate(
 export async function findConflictingAppointment(
   db: DatabaseLike,
   args: {
-    candidate: {
-      end: string;
-      locationLineageKey: Id<"locations">;
-      practitionerLineageKey?: Id<"practitioners">;
-      start: string;
-    };
+    candidate: AppointmentConflictCandidate;
     draftRuleSetId?: Id<"ruleSets">;
     excludeAppointmentIds?: Id<"appointments">[];
     occupancyView: AppointmentOccupancyView;

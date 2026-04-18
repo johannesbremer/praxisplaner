@@ -1,30 +1,47 @@
 import type { GenericDatabaseReader } from "convex/server";
 
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
 
+import {
+  type AppointmentTypeId,
+  type AppointmentTypeLineageKey,
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+  type LocationId,
+  type LocationLineageKey,
+  type PractitionerId,
+  type PractitionerLineageKey,
+} from "./identity";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
-export type OccupancyReferenceLineageKeys = Pick<
-  StoredAppointmentReferences,
-  "locationLineageKey" | "practitionerLineageKey"
->;
-export type StoredAppointmentReferences = Pick<
-  Doc<"appointments">,
-  "appointmentTypeLineageKey" | "locationLineageKey" | "practitionerLineageKey"
->;
+export interface OccupancyReferenceLineageKeys {
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+}
+
+export interface StoredAppointmentReferences extends OccupancyReferenceLineageKeys {
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+}
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 export async function resolveAppointmentTypeIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {
-    lineageKey: Id<"appointmentTypes">;
+    lineageKey: AppointmentTypeLineageKey;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"appointmentTypes">> {
+): Promise<AppointmentTypeId> {
   const direct = await db.get("appointmentTypes", args.lineageKey);
-  const effectiveLineageKey =
-    direct?.lineageKey ?? direct?._id ?? args.lineageKey;
+  const effectiveLineageKey = direct?.lineageKey
+    ? asAppointmentTypeLineageKey(direct.lineageKey)
+    : direct?._id
+      ? asAppointmentTypeLineageKey(direct._id)
+      : args.lineageKey;
   const entity = await db
     .query("appointmentTypes")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -33,11 +50,11 @@ export async function resolveAppointmentTypeIdForRuleSetByLineage(
     .first();
 
   if (entity) {
-    return entity._id;
+    return asAppointmentTypeId(entity._id);
   }
 
   if (direct?.ruleSetId === args.ruleSetId) {
-    return direct._id;
+    return asAppointmentTypeId(direct._id);
   }
 
   throw new Error(
@@ -47,22 +64,27 @@ export async function resolveAppointmentTypeIdForRuleSetByLineage(
 
 export async function resolveAppointmentTypeLineageKey(
   db: DatabaseReader,
-  appointmentTypeId: Id<"appointmentTypes">,
-): Promise<Id<"appointmentTypes">> {
+  appointmentTypeId: AppointmentTypeId,
+): Promise<AppointmentTypeLineageKey> {
   const appointmentType = await requireAppointmentType(db, appointmentTypeId);
-  return appointmentType.lineageKey ?? appointmentType._id;
+  return appointmentType.lineageKey
+    ? asAppointmentTypeLineageKey(appointmentType.lineageKey)
+    : asAppointmentTypeLineageKey(appointmentType._id);
 }
 
 export async function resolveLocationIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {
-    lineageKey: Id<"locations">;
+    lineageKey: LocationLineageKey;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"locations">> {
+): Promise<LocationId> {
   const direct = await db.get("locations", args.lineageKey);
-  const effectiveLineageKey =
-    direct?.lineageKey ?? direct?._id ?? args.lineageKey;
+  const effectiveLineageKey = direct?.lineageKey
+    ? asLocationLineageKey(direct.lineageKey)
+    : direct?._id
+      ? asLocationLineageKey(direct._id)
+      : args.lineageKey;
   const entity = await db
     .query("locations")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -71,11 +93,11 @@ export async function resolveLocationIdForRuleSetByLineage(
     .first();
 
   if (entity) {
-    return entity._id;
+    return asLocationId(entity._id);
   }
 
   if (direct?.ruleSetId === args.ruleSetId) {
-    return direct._id;
+    return asLocationId(direct._id);
   }
 
   throw new Error(
@@ -85,17 +107,19 @@ export async function resolveLocationIdForRuleSetByLineage(
 
 export async function resolveLocationLineageKey(
   db: DatabaseReader,
-  locationId: Id<"locations">,
-): Promise<Id<"locations">> {
+  locationId: LocationId,
+): Promise<LocationLineageKey> {
   const location = await requireLocation(db, locationId);
-  return location.lineageKey ?? location._id;
+  return location.lineageKey
+    ? asLocationLineageKey(location.lineageKey)
+    : asLocationLineageKey(location._id);
 }
 
 export async function resolveOccupancyReferenceLineageKeys(
   db: DatabaseReader,
   args: {
-    locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
+    locationId: LocationId;
+    practitionerId?: PractitionerId;
   },
 ): Promise<OccupancyReferenceLineageKeys> {
   return {
@@ -114,13 +138,16 @@ export async function resolveOccupancyReferenceLineageKeys(
 export async function resolvePractitionerIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {
-    lineageKey: Id<"practitioners">;
+    lineageKey: PractitionerLineageKey;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"practitioners">> {
+): Promise<PractitionerId> {
   const direct = await db.get("practitioners", args.lineageKey);
-  const effectiveLineageKey =
-    direct?.lineageKey ?? direct?._id ?? args.lineageKey;
+  const effectiveLineageKey = direct?.lineageKey
+    ? asPractitionerLineageKey(direct.lineageKey)
+    : direct?._id
+      ? asPractitionerLineageKey(direct._id)
+      : args.lineageKey;
   const entity = await db
     .query("practitioners")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
@@ -129,11 +156,11 @@ export async function resolvePractitionerIdForRuleSetByLineage(
     .first();
 
   if (entity) {
-    return entity._id;
+    return asPractitionerId(entity._id);
   }
 
   if (direct?.ruleSetId === args.ruleSetId) {
-    return direct._id;
+    return asPractitionerId(direct._id);
   }
 
   throw new Error(
@@ -143,18 +170,20 @@ export async function resolvePractitionerIdForRuleSetByLineage(
 
 export async function resolvePractitionerLineageKey(
   db: DatabaseReader,
-  practitionerId: Id<"practitioners">,
-): Promise<Id<"practitioners">> {
+  practitionerId: PractitionerId,
+): Promise<PractitionerLineageKey> {
   const practitioner = await requirePractitioner(db, practitionerId);
-  return practitioner.lineageKey ?? practitioner._id;
+  return practitioner.lineageKey
+    ? asPractitionerLineageKey(practitioner.lineageKey)
+    : asPractitionerLineageKey(practitioner._id);
 }
 
 export async function resolveStoredAppointmentReferencesForWrite(
   db: DatabaseReader,
   args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
+    appointmentTypeId: AppointmentTypeId;
+    locationId: LocationId;
+    practitionerId?: PractitionerId;
   },
 ): Promise<StoredAppointmentReferences> {
   return {

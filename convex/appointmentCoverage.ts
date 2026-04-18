@@ -16,6 +16,20 @@ import {
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
+import {
+  type AppointmentTypeId,
+  type AppointmentTypeLineageKey,
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+  type LocationId,
+  type LocationLineageKey,
+  type PractitionerId,
+  type PractitionerLineageKey,
+} from "./identity";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -42,30 +56,33 @@ export type CoverageSuggestion = Infer<typeof coverageSuggestionValidator>;
 export async function resolveAppointmentTypeIdForRuleSet(
   db: DatabaseReader,
   args: {
-    appointmentTypeId: Id<"appointmentTypes">;
+    appointmentTypeLineageKey: AppointmentTypeLineageKey;
     practiceId: Id<"practices">;
     targetRuleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"appointmentTypes">> {
+): Promise<AppointmentTypeId> {
   const appointmentType = await db.get(
     "appointmentTypes",
-    args.appointmentTypeId,
+    args.appointmentTypeLineageKey,
   );
   if (!appointmentType) {
-    throw new Error(`Terminart ${args.appointmentTypeId} nicht gefunden.`);
+    throw new Error(
+      `Terminart ${args.appointmentTypeLineageKey} nicht gefunden.`,
+    );
   }
   if (appointmentType.practiceId !== args.practiceId) {
     throw new Error("Terminart gehört nicht zu dieser Praxis.");
   }
   if (appointmentType.ruleSetId === args.targetRuleSetId) {
-    return appointmentType._id;
+    return asAppointmentTypeId(appointmentType._id);
   }
 
-  const lineageKey = appointmentType.lineageKey ?? appointmentType._id;
   const mappedAppointmentType = await db
     .query("appointmentTypes")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
+      q
+        .eq("ruleSetId", args.targetRuleSetId)
+        .eq("lineageKey", args.appointmentTypeLineageKey),
     )
     .first();
 
@@ -75,44 +92,44 @@ export async function resolveAppointmentTypeIdForRuleSet(
     );
   }
 
-  return mappedAppointmentType._id;
+  return asAppointmentTypeId(mappedAppointmentType._id);
 }
 
 export async function resolveLocationIdForRuleSet(
   db: DatabaseReader,
   args: {
-    locationId: Id<"locations">;
+    locationLineageKey: LocationLineageKey;
     practiceId: Id<"practices">;
     targetRuleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"locations">> {
+): Promise<LocationId> {
   const resolvedLocationId = await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: args.locationId,
+    lineageKey: args.locationLineageKey,
     ruleSetId: args.targetRuleSetId,
   });
   const location = await db.get("locations", resolvedLocationId);
   if (!location) {
     throw new Error(
-      `Standort ${args.locationId} konnte im Ziel-Regelset nicht geladen werden.`,
+      `Standort ${args.locationLineageKey} konnte im Ziel-Regelset nicht geladen werden.`,
     );
   }
   if (location.practiceId !== args.practiceId) {
     throw new Error("Standort gehört nicht zu dieser Praxis.");
   }
-  return resolvedLocationId;
+  return asLocationId(resolvedLocationId);
 }
 
 export async function resolvePractitionerIdForRuleSet(
   db: DatabaseReader,
   args: {
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
+    practitionerLineageKey: PractitionerLineageKey;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"practitioners">> {
+): Promise<PractitionerId> {
   return await resolvePractitionerIdInRuleSet(db, {
     practiceId: args.practiceId,
-    practitionerId: args.practitionerId,
+    practitionerLineageKey: args.practitionerLineageKey,
     targetRuleSetId: args.ruleSetId,
   });
 }
@@ -198,7 +215,9 @@ async function previewPractitionerCoverageForAppointment(
   userId?: Id<"users">;
 }> {
   const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-    locationId: args.appointment.locationLineageKey,
+    locationLineageKey: asLocationLineageKey(
+      args.appointment.locationLineageKey,
+    ),
     practiceId: args.practiceId,
     targetRuleSetId: args.ruleSetId,
   });
@@ -226,7 +245,9 @@ async function previewPractitionerCoverageForAppointment(
   const selectedAppointmentTypeId = await resolveAppointmentTypeIdForRuleSet(
     ctx.db,
     {
-      appointmentTypeId: args.appointment.appointmentTypeLineageKey,
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        args.appointment.appointmentTypeLineageKey,
+      ),
       practiceId: args.practiceId,
       targetRuleSetId: args.ruleSetId,
     },
@@ -280,56 +301,17 @@ async function previewPractitionerCoverageForAppointment(
     args.appointment,
   );
 
-  const candidates = await Promise.all(
-    matchingSlots.map(async (slot) => {
-      let selectedPractitionerIdInRuleSet: Id<"practitioners"> | undefined;
-      let activePractitionerLineageKey: Id<"practitioners"> | undefined;
-
-      try {
-        selectedPractitionerIdInRuleSet = await resolvePractitionerIdInRuleSet(
-          ctx.db,
-          {
-            practiceId: args.practiceId,
-            practitionerId: slot.practitionerId,
-            targetRuleSetId: args.ruleSetId,
-          },
-        );
-      } catch {
-        selectedPractitionerIdInRuleSet = undefined;
-      }
-
-      try {
-        const activePractitionerId = await resolvePractitionerIdInRuleSet(
-          ctx.db,
-          {
-            practiceId: args.practiceId,
-            practitionerId: slot.practitionerId,
-            targetRuleSetId: args.activeRuleSetId,
-          },
-        );
-        activePractitionerLineageKey = await resolvePractitionerLineageKey(
-          ctx.db,
-          activePractitionerId,
-        );
-      } catch {
-        activePractitionerLineageKey = undefined;
-      }
-
-      return {
-        activePractitionerLineageKey,
-        isAllowedInSelectedRuleSet:
-          selectedPractitionerIdInRuleSet !== undefined &&
-          selectedAppointmentType.allowedPractitionerIds.includes(
-            selectedPractitionerIdInRuleSet,
-          ),
-        lastSeenAt: activePractitionerLineageKey
-          ? (latestSeenByPractitioner.get(activePractitionerLineageKey) ?? null)
-          : null,
-        name: slot.practitionerName,
-        selectedPractitionerId: selectedPractitionerIdInRuleSet,
-      };
-    }),
-  );
+  const candidates = matchingSlots.map((slot) => ({
+    activePractitionerLineageKey: slot.practitionerLineageKey,
+    isAllowedInSelectedRuleSet:
+      selectedAppointmentType.allowedPractitionerIds.includes(
+        slot.practitionerId,
+      ),
+    lastSeenAt:
+      latestSeenByPractitioner.get(slot.practitionerLineageKey) ?? null,
+    name: slot.practitionerName,
+    selectedPractitionerId: slot.practitionerId,
+  }));
 
   const bestCandidate = candidates
     .filter(
@@ -370,39 +352,45 @@ async function resolvePractitionerIdInRuleSet(
   db: DatabaseReader,
   args: {
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
+    practitionerLineageKey: PractitionerLineageKey;
     targetRuleSetId: Id<"ruleSets">;
   },
-): Promise<Id<"practitioners">> {
-  const practitioner = await db.get("practitioners", args.practitionerId);
+): Promise<PractitionerId> {
+  const practitioner = await db.get(
+    "practitioners",
+    args.practitionerLineageKey,
+  );
   if (!practitioner) {
     const mappedPractitioner = await db
       .query("practitioners")
       .withIndex("by_ruleSetId_lineageKey", (q) =>
         q
           .eq("ruleSetId", args.targetRuleSetId)
-          .eq("lineageKey", args.practitionerId),
+          .eq("lineageKey", args.practitionerLineageKey),
       )
       .first();
 
     if (mappedPractitioner?.practiceId !== args.practiceId) {
-      throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
+      throw new Error(
+        `Behandler ${args.practitionerLineageKey} nicht gefunden.`,
+      );
     }
 
-    return mappedPractitioner._id;
+    return asPractitionerId(mappedPractitioner._id);
   }
   if (practitioner.practiceId !== args.practiceId) {
     throw new Error("Behandler gehört nicht zu dieser Praxis.");
   }
   if (practitioner.ruleSetId === args.targetRuleSetId) {
-    return practitioner._id;
+    return asPractitionerId(practitioner._id);
   }
 
-  const lineageKey = practitioner.lineageKey ?? practitioner._id;
   const mappedPractitioner = await db
     .query("practitioners")
     .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", args.targetRuleSetId).eq("lineageKey", lineageKey),
+      q
+        .eq("ruleSetId", args.targetRuleSetId)
+        .eq("lineageKey", args.practitionerLineageKey),
     )
     .first();
 
@@ -412,7 +400,7 @@ async function resolvePractitionerIdInRuleSet(
     );
   }
 
-  return mappedPractitioner._id;
+  return asPractitionerId(mappedPractitioner._id);
 }
 
 export const previewPractitionerAbsenceCoverage = query({
@@ -443,13 +431,13 @@ export const previewPractitionerAbsenceCoverage = query({
       ctx.db,
       {
         practiceId: args.practiceId,
-        practitionerId: args.practitionerId,
+        practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
         ruleSetId: args.ruleSetId,
       },
     );
     const activePractitionerId = await resolvePractitionerIdForRuleSet(ctx.db, {
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
       ruleSetId: activeRuleSetId,
     });
     const activePractitionerLineageKey = await resolvePractitionerLineageKey(

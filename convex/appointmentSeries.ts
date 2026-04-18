@@ -16,6 +16,7 @@ import {
   type FollowUpStep,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
+import { asLocationId, asPractitionerId } from "./identity";
 import { isPublicHoliday } from "./publicHolidays";
 
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
@@ -211,8 +212,8 @@ export async function createAppointmentSeries(
     const occupancyReferences = await resolveOccupancyReferenceLineageKeys(
       ctx.db,
       {
-        locationId: step.locationId,
-        practitionerId: step.practitionerId,
+        locationId: asLocationId(step.locationId),
+        practitionerId: asPractitionerId(step.practitionerId),
       },
     );
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
@@ -1180,8 +1181,8 @@ async function validateRootCandidate(
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
       ...(await resolveOccupancyReferenceLineageKeys(ctx.db, {
-        locationId: args.locationId,
-        practitionerId: args.practitionerId,
+        locationId: asLocationId(args.locationId),
+        practitionerId: asPractitionerId(args.practitionerId),
       })),
       start: args.start,
     },
