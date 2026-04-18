@@ -7,7 +7,7 @@ import React, { useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ import {
 } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
+import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
 import {
   applyBatchCreateResultToRef,
   applyReplaceResultToRef,
@@ -58,7 +59,10 @@ import {
   buildPractitionerLineageByIdMap,
   type ExtendedSchedule,
   isBaseScheduleMissingError,
+  type LocationMatchEntity,
   matchesSchedulePayload,
+  type MaterializedSchedule,
+  type PractitionerMatchEntity,
   removeSchedulesFromRef,
   type SchedulePayload,
   toBatchCreateScheduleInput,
@@ -117,6 +121,48 @@ export default function BaseScheduleManagement({
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >({
+            entities: locationsQuery,
+            entityType: "location",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >({
+            entities: schedulesQuery,
+            entityType: "base schedule",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [schedulesQuery],
+  );
 
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
@@ -124,18 +170,18 @@ export default function BaseScheduleManagement({
   const replaceScheduleSetMutation = useMutation(
     api.entities.replaceBaseScheduleSet,
   );
-  const practitionersRef = React.useRef(practitionersQuery ?? []);
+  const practitionersRef = React.useRef(practitioners);
   useIsomorphicLayoutEffect(() => {
-    practitionersRef.current = practitionersQuery ?? [];
-  }, [practitionersQuery]);
-  const locationsRef = React.useRef(locationsQuery ?? []);
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
+  const locationsRef = React.useRef(locations);
   useIsomorphicLayoutEffect(() => {
-    locationsRef.current = locationsQuery ?? [];
-  }, [locationsQuery]);
-  const schedulesRef = React.useRef(schedulesQuery ?? []);
+    locationsRef.current = locations;
+  }, [locations]);
+  const schedulesRef = React.useRef(schedules);
   useIsomorphicLayoutEffect(() => {
-    schedulesRef.current = schedulesQuery ?? [];
-  }, [schedulesQuery]);
+    schedulesRef.current = schedules;
+  }, [schedules]);
   const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
   useIsomorphicLayoutEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -376,52 +422,48 @@ export default function BaseScheduleManagement({
     }[]
   > = {};
 
-  if (schedulesQuery) {
-    for (const schedule of schedulesQuery) {
-      // Look up practitioner name from ID
-      const practitioner = practitionersQuery?.find(
-        (p) => p._id === schedule.practitionerId,
-      );
-      const practitionerName = practitioner?.name ?? "Unknown";
-      const location = locationsQuery?.find(
-        (l) => l._id === schedule.locationId,
-      );
-      const locationName = location?.name;
+  for (const schedule of schedules) {
+    // Look up practitioner name from ID
+    const practitioner = practitioners.find(
+      (p) => p._id === schedule.practitionerId,
+    );
+    const practitionerName = practitioner?.name ?? "Unknown";
+    const location = locations.find((l) => l._id === schedule.locationId);
+    const locationName = location?.name;
 
-      schedulesByPractitioner[practitionerName] ??= [];
+    schedulesByPractitioner[practitionerName] ??= [];
 
-      // Look for existing group with same times, breaks, and location
-      const existingGroup = schedulesByPractitioner[practitionerName].find(
-        (item) =>
-          item.scheduleGroup.startTime === schedule.startTime &&
-          item.scheduleGroup.endTime === schedule.endTime &&
-          item.scheduleGroup.locationId === schedule.locationId &&
-          JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
-            JSON.stringify(schedule.breakTimes ?? []),
-      );
+    // Look for existing group with same times, breaks, and location
+    const existingGroup = schedulesByPractitioner[practitionerName].find(
+      (item) =>
+        item.scheduleGroup.startTime === schedule.startTime &&
+        item.scheduleGroup.endTime === schedule.endTime &&
+        item.scheduleGroup.locationId === schedule.locationId &&
+        JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
+          JSON.stringify(schedule.breakTimes ?? []),
+    );
 
-      if (existingGroup) {
-        // Add this day to existing group
-        existingGroup.scheduleGroup.daysOfWeek.push(schedule.dayOfWeek);
-        existingGroup.scheduleGroup.scheduleIds.push(schedule._id);
-        existingGroup.scheduleGroup.daysOfWeek =
-          existingGroup.scheduleGroup.daysOfWeek.toSorted();
-      } else {
-        // Create new group
-        schedulesByPractitioner[practitionerName].push({
-          practitionerName,
-          scheduleGroup: {
-            ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-            daysOfWeek: [schedule.dayOfWeek],
-            endTime: schedule.endTime,
-            ...(schedule.locationId && { locationId: schedule.locationId }),
-            ...(locationName && { locationName }),
-            practitionerId: schedule.practitionerId,
-            scheduleIds: [schedule._id],
-            startTime: schedule.startTime,
-          },
-        });
-      }
+    if (existingGroup) {
+      // Add this day to existing group
+      existingGroup.scheduleGroup.daysOfWeek.push(schedule.dayOfWeek);
+      existingGroup.scheduleGroup.scheduleIds.push(schedule._id);
+      existingGroup.scheduleGroup.daysOfWeek =
+        existingGroup.scheduleGroup.daysOfWeek.toSorted();
+    } else {
+      // Create new group
+      schedulesByPractitioner[practitionerName].push({
+        practitionerName,
+        scheduleGroup: {
+          ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+          daysOfWeek: [schedule.dayOfWeek],
+          endTime: schedule.endTime,
+          locationId: schedule.locationId,
+          ...(locationName && { locationName }),
+          practitionerId: schedule.practitionerId,
+          scheduleIds: [schedule._id],
+          startTime: schedule.startTime,
+        },
+      });
     }
   }
 
@@ -454,7 +496,7 @@ export default function BaseScheduleManagement({
           <div className="text-center py-8 text-muted-foreground">
             Lade Arbeitszeiten...
           </div>
-        ) : practitionersQuery.length === 0 ? (
+        ) : practitioners.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             Bitte erstellen Sie zuerst einen Arzt, bevor Sie Arbeitszeiten
             definieren.
@@ -576,18 +618,60 @@ function BaseScheduleDialog({
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
-  const practitionersRef = React.useRef(practitionersQuery ?? []);
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >({
+            entities: locationsQuery,
+            entityType: "location",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >({
+            entities: schedulesQuery,
+            entityType: "base schedule",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [schedulesQuery],
+  );
+  const practitionersRef = React.useRef(practitioners);
   React.useLayoutEffect(() => {
-    practitionersRef.current = practitionersQuery ?? [];
-  }, [practitionersQuery]);
-  const locationsRef = React.useRef(locationsQuery ?? []);
+    practitionersRef.current = practitioners;
+  }, [practitioners]);
+  const locationsRef = React.useRef(locations);
   React.useLayoutEffect(() => {
-    locationsRef.current = locationsQuery ?? [];
-  }, [locationsQuery]);
-  const schedulesRef = React.useRef(schedulesQuery ?? []);
+    locationsRef.current = locations;
+  }, [locations]);
+  const schedulesRef = React.useRef(schedules);
   useIsomorphicLayoutEffect(() => {
-    schedulesRef.current = schedulesQuery ?? [];
-  }, [schedulesQuery]);
+    schedulesRef.current = schedules;
+  }, [schedules]);
   const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
   useIsomorphicLayoutEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
@@ -633,7 +717,7 @@ function BaseScheduleDialog({
           : [schedule.dayOfWeek]
         : [],
       endTime: schedule?.endTime ?? "17:00",
-      locationId: schedule?.locationId ?? locationsQuery?.[0]?._id ?? "",
+      locationId: schedule?.locationId ?? locations[0]?._id ?? "",
       practitionerId: schedule?.practitionerId ?? "",
       startTime: schedule?.startTime ?? "08:00",
     },
@@ -641,7 +725,7 @@ function BaseScheduleDialog({
       try {
         const createdScheduleIds: Id<"baseSchedules">[] = [];
         const createdSchedulePayloads: SchedulePayload[] = [];
-        const deletedScheduleSnapshots: Doc<"baseSchedules">[] = [];
+        const deletedScheduleSnapshots: MaterializedSchedule[] = [];
         let oldSchedulePayloads: SchedulePayload[] = [];
         const practitionerLineageByIdAtSubmitStart =
           buildPractitionerLineageByIdMap(practitionersRef.current).match(
@@ -1113,7 +1197,10 @@ function BaseScheduleDialog({
       return;
     }
 
-    if (schedule && (!practitionersQuery || !locationsQuery)) {
+    if (
+      schedule &&
+      (practitionersQuery === undefined || locationsQuery === undefined)
+    ) {
       return;
     }
 
@@ -1122,8 +1209,6 @@ function BaseScheduleDialog({
       return;
     }
 
-    const practitioners = practitionersQuery ?? [];
-    const locations = locationsQuery ?? [];
     const practitionerExists =
       !!schedule &&
       practitioners.some(
@@ -1155,7 +1240,16 @@ function BaseScheduleDialog({
     });
 
     dialogInitializationKeyRef.current = initializationKey;
-  }, [form, isOpen, locationsQuery, practitionersQuery, ruleSetId, schedule]);
+  }, [
+    form,
+    isOpen,
+    locations,
+    locationsQuery,
+    practitioners,
+    practitionersQuery,
+    ruleSetId,
+    schedule,
+  ]);
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
@@ -1198,7 +1292,7 @@ function BaseScheduleDialog({
                         <SelectValue placeholder="Arzt auswählen" />
                       </SelectTrigger>
                       <SelectContent>
-                        {practitionersQuery?.map((practitioner) => (
+                        {practitioners.map((practitioner) => (
                           <SelectItem
                             key={practitioner._id}
                             value={practitioner._id}
@@ -1243,7 +1337,7 @@ function BaseScheduleDialog({
                         <SelectValue placeholder="Standort auswählen" />
                       </SelectTrigger>
                       <SelectContent>
-                        {locationsQuery?.map((location) => (
+                        {locations.map((location) => (
                           <SelectItem key={location._id} value={location._id}>
                             {location.name}
                           </SelectItem>

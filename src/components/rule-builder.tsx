@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConditionTreeNode } from "@/convex/ruleEngine";
 
@@ -13,7 +13,8 @@ import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
-import type { NamedEntity, RuleFromDB } from "./rule-builder-types";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleFromDB } from "./rule-builder-types";
 
 import { api } from "../../convex/_generated/api";
 import {
@@ -25,7 +26,21 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
+import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
 import { RuleEditDialog } from "./rule-builder-editor";
+
+type AppointmentTypeQueryResult =
+  (typeof api.entities.getAppointmentTypes)["_returnType"];
+
+type LocationQueryResult = (typeof api.entities.getLocations)["_returnType"];
+
+type PractitionerQueryResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+
+type RuleAppointmentType = FrontendLineageEntity<
+  "appointmentTypes",
+  AppointmentTypeQueryResult[number]
+>;
 
 interface RuleBuilderProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
@@ -34,20 +49,25 @@ interface RuleBuilderProps {
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
-
 type RuleConditionTreePreparation =
   | RuleConditionTreePreparationConflict
   | RuleConditionTreePreparationSuccess;
-
 interface RuleConditionTreePreparationConflict {
   message: string;
   status: "conflict";
 }
-
 interface RuleConditionTreePreparationSuccess {
   conditionTree: unknown;
   status: "ok";
 }
+type RuleLocation = FrontendLineageEntity<
+  "locations",
+  LocationQueryResult[number]
+>;
+type RulePractitioner = FrontendLineageEntity<
+  "practitioners",
+  PractitionerQueryResult[number]
+>;
 
 const isMissingEntityError = (error: unknown) =>
   error instanceof Error &&
@@ -73,25 +93,69 @@ export function RuleBuilder({
   const deleteRuleMutation = useMutation(api.entities.deleteRule);
 
   // Query data from Convex
-  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+  const appointmentTypesQuery = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
   });
-  const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
-  const locations = useQuery(api.entities.getLocations, { ruleSetId });
+  const practitionersQuery = useQuery(api.entities.getPractitioners, {
+    ruleSetId,
+  });
+  const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
   const existingRules = useQuery(api.entities.getRules, { ruleSetId });
-  const appointmentTypesRef = useRef(appointmentTypes ?? []);
-  const practitionersRef = useRef(practitioners ?? []);
-  const locationsRef = useRef(locations ?? []);
+  const appointmentTypes = appointmentTypesQuery ?? [];
+  const practitioners = practitionersQuery ?? [];
+  const locations = locationsQuery ?? [];
+  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(
+    () =>
+      appointmentTypesQuery
+        ? mapFrontendLineageEntities<
+            "appointmentTypes",
+            AppointmentTypeQueryResult[number]
+          >({
+            entities: appointmentTypesQuery,
+            entityType: "appointment type",
+            source: "RuleBuilder",
+          })
+        : [],
+    [appointmentTypesQuery],
+  );
+  const lineagePractitioners: RulePractitioner[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionerQueryResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "RuleBuilder",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const lineageLocations: RuleLocation[] = useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<"locations", LocationQueryResult[number]>({
+            entities: locationsQuery,
+            entityType: "location",
+            source: "RuleBuilder",
+          })
+        : [],
+    [locationsQuery],
+  );
+  const appointmentTypesRef = useRef(lineageAppointmentTypes);
+  const practitionersRef = useRef(lineagePractitioners);
+  const locationsRef = useRef(lineageLocations);
   const rulesRef = useRef(existingRules ?? []);
   useEffect(() => {
-    appointmentTypesRef.current = appointmentTypes ?? [];
-  }, [appointmentTypes]);
+    appointmentTypesRef.current = lineageAppointmentTypes;
+  }, [lineageAppointmentTypes]);
   useEffect(() => {
-    practitionersRef.current = practitioners ?? [];
-  }, [practitioners]);
+    practitionersRef.current = lineagePractitioners;
+  }, [lineagePractitioners]);
   useEffect(() => {
-    locationsRef.current = locations ?? [];
-  }, [locations]);
+    locationsRef.current = lineageLocations;
+  }, [lineageLocations]);
   useEffect(() => {
     rulesRef.current = existingRules ?? [];
   }, [existingRules]);
@@ -113,7 +177,10 @@ export function RuleBuilder({
   };
 
   // Check if all data is loaded
-  const dataReady = Boolean(appointmentTypes && practitioners && locations);
+  const dataReady =
+    appointmentTypesQuery !== undefined &&
+    practitionersQuery !== undefined &&
+    locationsQuery !== undefined;
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -142,9 +209,9 @@ export function RuleBuilder({
       const deletedRuleName = deletedRule
         ? generateRuleName(
             conditionTreeToConditions(deletedRule.conditionTree),
-            appointmentTypes ?? [],
-            practitioners ?? [],
-            locations ?? [],
+            appointmentTypes,
+            practitioners,
+            locations,
           )
         : "Regel";
 
@@ -268,7 +335,7 @@ export function RuleBuilder({
   const editingRule = existingRules?.find((r) => r._id === editingRuleId);
 
   // Early return for loading state
-  if (!dataReady || !appointmentTypes || !practitioners || !locations) {
+  if (!dataReady) {
     return (
       <div className="space-y-4">
         <div className="text-sm text-muted-foreground">Lade Daten...</div>
@@ -380,9 +447,9 @@ export function RuleBuilder({
               );
               const currentRuleLineageTree = normalizeConditionTreeToLineage(
                 conditionTree,
-                appointmentTypes,
-                practitioners,
-                locations,
+                lineageAppointmentTypes,
+                lineagePractitioners,
+                lineageLocations,
               );
               const currentRuleState = serializeRuleStateForComparison({
                 conditionTree: currentRuleLineageTree,
@@ -390,9 +457,9 @@ export function RuleBuilder({
               });
               const previousRuleLineageTree = normalizeConditionTreeToLineage(
                 previousRule.conditionTree,
-                appointmentTypes,
-                practitioners,
-                locations,
+                lineageAppointmentTypes,
+                lineagePractitioners,
+                lineageLocations,
               );
               const previousRuleState = serializeRuleStateForComparison({
                 conditionTree: previousRuleLineageTree,
@@ -608,9 +675,9 @@ export function RuleBuilder({
             } else {
               const createdRuleLineageTree = normalizeConditionTreeToLineage(
                 conditionTree,
-                appointmentTypes,
-                practitioners,
-                locations,
+                lineageAppointmentTypes,
+                lineagePractitioners,
+                lineageLocations,
               );
               onRegisterHistoryAction?.({
                 label: "Regel erstellt",
@@ -675,20 +742,15 @@ export function RuleBuilder({
 }
 
 function createEntityIdResolver(
-  entities: NamedEntity[],
+  entities: { _id: string; lineageKey: string }[],
   missingLabel: string,
   missingGroups: Set<string>,
 ): (lineageKey: string) => null | string {
-  const entityIds = new Set(entities.map((entry) => entry._id));
-  const entityIdByLineageKey = new Map(
-    entities.map((entry) => [entry.lineageKey ?? entry._id, entry._id]),
+  const entityIdByLineageKey = new Map<string, string>(
+    entities.map((entry) => [entry.lineageKey, entry._id] as const),
   );
 
   return (lineageKey) => {
-    if (entityIds.has(lineageKey)) {
-      return lineageKey;
-    }
-
     const entityId = entityIdByLineageKey.get(lineageKey);
     if (entityId) {
       return entityId;
@@ -700,10 +762,10 @@ function createEntityIdResolver(
 }
 
 function createLineageKeyResolver(
-  entities: NamedEntity[],
+  entities: { _id: string; lineageKey: string }[],
 ): (id: string) => string {
-  const lineageKeyById = new Map(
-    entities.map((entry) => [entry._id, entry.lineageKey ?? entry._id]),
+  const lineageKeyById = new Map<string, string>(
+    entities.map((entry) => [entry._id, entry.lineageKey] as const),
   );
 
   return (id) => lineageKeyById.get(id) ?? id;
@@ -783,9 +845,9 @@ function normalizeConditionTreeForComparison(
 
 function normalizeConditionTreeToLineage(
   conditionTree: unknown,
-  appointmentTypes: NamedEntity[],
-  practitioners: NamedEntity[],
-  locations: NamedEntity[],
+  appointmentTypes: RuleAppointmentType[],
+  practitioners: RulePractitioner[],
+  locations: RuleLocation[],
 ) {
   return normalizeConditionTreeForComparison(
     conditionTree,
@@ -797,9 +859,9 @@ function normalizeConditionTreeToLineage(
 
 function prepareRuleConditionTreeForReplay(
   conditionTree: unknown,
-  appointmentTypes: NamedEntity[],
-  practitioners: NamedEntity[],
-  locations: NamedEntity[],
+  appointmentTypes: RuleAppointmentType[],
+  practitioners: RulePractitioner[],
+  locations: RuleLocation[],
 ): RuleConditionTreePreparation {
   const missingGroups = new Set<string>();
   const remapAppointmentTypeId = createEntityIdResolver(

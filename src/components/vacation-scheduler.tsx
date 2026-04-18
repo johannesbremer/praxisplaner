@@ -15,6 +15,12 @@ import { Temporal } from "temporal-polyfill";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { CoverageSuggestion } from "@/convex/appointmentCoverage";
 import type { AppointmentResult } from "@/convex/appointments";
+import type {
+  MfaId,
+  MfaLineageKey,
+  PractitionerId,
+  PractitionerLineageKey,
+} from "@/convex/identity";
 
 import {
   Accordion,
@@ -35,6 +41,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
+import { asMfaId, asMfaLineageKey } from "@/convex/identity";
 import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -42,6 +49,7 @@ import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
+import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
@@ -50,6 +58,11 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
+import {
+  findFrontendEntityByEntityId,
+  findFrontendEntityByLineageKey,
+  mapFrontendLineageEntities,
+} from "../utils/frontend-lineage";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -80,17 +93,26 @@ interface CreateMfaResult extends DraftMutationResult {
   entityId: Id<"mfas">;
 }
 
+type MfaQueryResult = (typeof api.mfas.list)["_returnType"];
+type MfaRowEntity = FrontendLineageEntity<"mfas", MfaQueryResult[number]>;
+type PractitionerQueryResult =
+  (typeof api.entities.getPractitioners)["_returnType"];
+type PractitionerRowEntity = FrontendLineageEntity<
+  "practitioners",
+  PractitionerQueryResult[number]
+>;
+
 type StaffRow =
   | {
-      id: Id<"mfas">;
+      id: MfaId;
       kind: "mfa";
-      lineageKey: Id<"mfas">;
+      lineageKey: MfaLineageKey;
       name: string;
     }
   | {
-      id: Id<"practitioners">;
+      id: PractitionerId;
       kind: "practitioner";
-      lineageKey: Id<"practitioners">;
+      lineageKey: PractitionerLineageKey;
       name: string;
     };
 
@@ -234,9 +256,27 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
+  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(
+    () =>
+      mapFrontendLineageEntities({
+        entities: practitioners ?? [],
+        entityType: "practitioner",
+        source: "VacationScheduler",
+      }),
+    [practitioners],
+  );
+  const mappedMfas = useMemo<MfaRowEntity[]>(
+    () =>
+      mapFrontendLineageEntities({
+        entities: mfas ?? [],
+        entityType: "mfa",
+        source: "VacationScheduler",
+      }),
+    [mfas],
+  );
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
-  const mfasRef = useRef(mfas ?? []);
+  const mfasRef = useRef(mappedMfas);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const autoScrolledMonthRef = useRef<null | string>(null);
   const today = useMemo(() => Temporal.Now.plainDateISO("Europe/Berlin"), []);
@@ -250,8 +290,8 @@ export function VacationScheduler({
   }, [vacations]);
 
   useEffect(() => {
-    mfasRef.current = mfas ?? [];
-  }, [mfas]);
+    mfasRef.current = mappedMfas;
+  }, [mappedMfas]);
 
   useEffect(() => {
     void getPublicHolidaysData().then(() => {
@@ -273,7 +313,7 @@ export function VacationScheduler({
 
   const doctorRows = useMemo<StaffRow[]>(
     () =>
-      (practitioners ?? [])
+      mappedPractitioners
         .toSorted((left, right) => left.name.localeCompare(right.name, "de"))
         .map((row) => ({
           id: row._id,
@@ -281,20 +321,20 @@ export function VacationScheduler({
           lineageKey: row.lineageKey,
           name: row.name,
         })),
-    [practitioners],
+    [mappedPractitioners],
   );
 
   const mfaRows = useMemo<StaffRow[]>(
     () =>
-      (mfas ?? [])
+      mappedMfas
         .toSorted((left, right) => left.name.localeCompare(right.name, "de"))
         .map((row) => ({
           id: row._id,
           kind: "mfa" as const,
-          lineageKey: row.lineageKey ?? row._id,
+          lineageKey: row.lineageKey,
           name: row.name,
         })),
-    [mfas],
+    [mappedMfas],
   );
 
   const vacationKeys = useMemo(() => {
@@ -651,7 +691,7 @@ export function VacationScheduler({
       })) as CreateMfaResult;
       handleDraftMutationResult(result);
       setNewMfaName("");
-      const lineageKey = result.entityId;
+      const lineageKey = asMfaLineageKey(result.entityId);
       let currentMfaId = result.entityId;
       onRegisterHistoryAction?.({
         label: "MFA erstellt",
@@ -700,7 +740,10 @@ export function VacationScheduler({
 
   const handleRemoveMfa = async (mfaId: Id<"mfas">) => {
     try {
-      const currentMfa = mfasRef.current.find((entry) => entry._id === mfaId);
+      const currentMfa = findFrontendEntityByEntityId(
+        mfasRef.current,
+        asMfaId(mfaId),
+      );
       if (!currentMfa) {
         toast.error("MFA konnte nicht gefunden werden");
         return;
@@ -712,7 +755,7 @@ export function VacationScheduler({
       })) as DraftMutationResult;
       handleDraftMutationResult(result);
       let currentMfaId = currentMfa._id;
-      const lineageKey = currentMfa.lineageKey ?? currentMfa._id;
+      const lineageKey = currentMfa.lineageKey;
       onRegisterHistoryAction?.({
         label: "MFA entfernt",
         redo: async () => {
@@ -743,7 +786,7 @@ export function VacationScheduler({
             practiceId,
             ...getCowMutationArgs(),
           })) as CreateMfaResult;
-          currentMfaId = undoResult.entityId;
+          currentMfaId = asMfaId(undoResult.entityId);
           handleDraftMutationResult(undoResult);
           return { status: "applied" as const };
         },
@@ -1702,13 +1745,8 @@ function endExclusiveMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return startOfMonth(date).add({ months: 1 });
 }
 
-function findMfaByLineage(
-  rows: { _id: Id<"mfas">; lineageKey?: Id<"mfas"> }[],
-  lineageKey: Id<"mfas">,
-) {
-  return rows.find(
-    (entry) => entry._id === lineageKey || entry.lineageKey === lineageKey,
-  );
+function findMfaByLineage(rows: MfaRowEntity[], lineageKey: MfaLineageKey) {
+  return findFrontendEntityByLineageKey(rows, lineageKey);
 }
 
 function formatGermanDate(dateString: string) {
