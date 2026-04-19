@@ -1,131 +1,11 @@
-This is a `TanStack Start` + `Convex` project.
+---
+name: shadcn-forms
+description: Build forms in React using TanStack Form and Zod.
+links:
+  doc: https://tanstack.com/form
+---
 
-## Before You Start
-
-- Understand that this project is not yet deployed to production and we are free to make breaking changes in favour of simplicity and correctness.
-
-## Required Before Each Commit
-
-- Run the `Verify CI checks don't fail.` tool.
-
-## Repository Structure
-
-- `components/ui`: Shadcn UI components
-- `convex`: Convex schema and functions
-- `src`: Main application code (`components/`,`routes/`, `tests/`, `types/`, etc)
-
-## Notes
-
-- Please don't take shortcuts like `eslint-disable`. We have chosen this structure to enable e2e type safety from the DB (Convex) to the UI (TanStack Form). Fully leverage this by using modern TypeScript features and type narrowing etc like a TypeScript Wizard would.
-- In the `Agent Notes` section below you should add / edit and remove any notes about the codebase for future agents.
-
-<-- Agent Notes -->
-
-# OCC and Atomicity
-
-In [Queries](/functions/query-functions.md), we mentioned that determinism was important in the way optimistic concurrency control (OCC) was used within Convex. In this section, we'll dive much deeper into _why_.
-
-## Convex Financial, Inc.[​](#convex-financial-inc "Direct link to Convex Financial, Inc.")
-
-Imagine that you're building a banking app, and therefore your databases stores accounts with balances. You want your users to be able to give each other money, so you write a mutation function that transfers funds from one user's account to another.
-
-One run of that transaction might read Alice's account balance, and then Bob's. You then propose to deduct $5 from Alice's account and increase Bob's balance by the same $5.
-
-Here's our pseudocode:
-
-```
-$14 <- READ Alice
-$11 <- READ Bob
-WRITE Alice $9
-WRITE Bob $16
-```
-
-This ledger balance transfer is a classic database scenario that requires a guarantee that these write operations will only apply together. It is a really bad thing if only one operation succeeds!
-
-```
-$14 <- READ Alice
-$11 <- READ Bob
-WRITE Alice $9
-*crash* // $5 lost from your bank
-```
-
-You need a guarantee that this can never happen. You require transaction atomicity, and Convex provides it.
-
-The problem of data correctness is much deeper. Concurrent transactions that read and edit the same records can create _data races_.
-
-In the case of our app it's entirely possible that someone deducts Alice's balance right after we read it. Maybe she bought a Coke Zero at the airport with her debit card for $3.
-
-```
-$5 Transfer                           $3 Debit Card Charge
-----------------------------------------------------------
-$14 <- READ Alice
-$11 <- READ Bob
-                                        $14 <- READ Alice
-                                        WRITE Alice $11
-WRITE Alice $9 // Free coke!
-WRITE Bob $16
-```
-
-Clearly, we need to prevent these types of data races from happening. We need a way to handle these concurrent conflicts. Generally, there are two common approaches.
-
-Most traditional databases choose a _pessimistic locking_ strategy. (Pessimism in this case means the strategy assumes conflict will happen ahead of time so seeks to prevent it.) With pessimistic locking, you first need to acquire a lock on Alice's record, and then acquire a lock on Bob's record. Then you can proceed to conduct your transaction, knowing that any other transaction that needed to touch those records will wait until you are done and all your writes are committed.
-
-After decades of experience, the drawbacks of pessimistic locking are well understood and undeniable. The biggest limitation arises from real-life networks and computers being inherently unreliable. If the lock holder goes missing for whatever reason half way through its transaction, everyone else that wants to modify any of those records is waiting indefinitely. Not good!
-
-Optimistic concurrency control is, as the name states, optimistic. It assumes the transaction will succeed and doesn't worry about locking anything ahead of time. Very brash! How can it be so sure?
-
-It does this by treating the transaction as a _declarative proposal_ to write records on the basis of any read record versions (the "read set"). At the end of the transaction, the writes all commit if every version in the read set is still the latest version of that record. This means no concurrent conflict occurred.
-
-Now using our version read set, let's see how OCC would have prevented the soda-catastrophe above:
-
-```
-$5 Transfer                           $3 Debit Card Charge
-----------------------------------------------------------
-(v1, $14) <- READ Alice
-(v7, $11) <- READ Bob
-                                        (v1, $14) <- READ Alice
-                                        WRITE Alice $11
-                                        IF Alice.v = v1
-
-WRITE Alice = $9, Bob = $16
-    IF Alice.v = v1, Bob.v = v7 // Fails! Alice is = v2
-```
-
-This is akin to being unable to push your Git repository because you're not at HEAD. We all know in that circumstance, we need to pull, and rebase or merge, etc.
-
-## When OCC loses, determinism wins[​](#when-occ-loses-determinism-wins "Direct link to When OCC loses, determinism wins")
-
-A naive optimistic concurrency control solution would be to solve this the same way that Git does: require the user/application to resolve the conflict and determine if it is safe to retry.
-
-In Convex, however, we don't need to do that. We know the transaction is deterministic. It didn't charge money to Stripe, it didn't write a permanent value out to the filesystem. It had no effect at all other than proposing some atomic changes to Convex tables that were not applied.
-
-The determinism means that we can simply re-run the transaction; you never need to worry about temporary data races. We can run several retries if necessary until we succeed to execute the transaction without any conflicts.
-
-tip
-
-In fact, the Git analogy stays very apt. An OCC conflict means we cannot push because our HEAD is out of date, so we need to rebase our changes and try again. And determinism is what guarantees there is never a "merge conflict", so (unlike with Git) this rebase operation will always eventually succeed without developer intervention.
-
-## Snapshot Isolation vs Serializability[​](#snapshot-isolation-vs-serializability "Direct link to Snapshot Isolation vs Serializability")
-
-It is common for optimistic multi-version concurrency control databases to provide a guarantee of [snapshot isolation](https://en.wikipedia.org/wiki/Snapshot_isolation). This [isolation level](<https://en.wikipedia.org/wiki/Isolation_(database_systems)>) provides the illusion that all transactions execute on an atomic snapshot of the data but it is vulnerable to [anomalies](https://en.wikipedia.org/wiki/Snapshot_isolation#Definition) where certain combinations of concurrent transactions can yield incorrect results. The implementation of optimistic concurrency control in Convex instead provides true [serializability](https://en.wikipedia.org/wiki/Serializability) and will yield correct results regardless of what transactions are issued concurrently.
-
-## No need to think about this[​](#no-need-to-think-about-this "Direct link to No need to think about this")
-
-The beauty of this approach is that you can simply write your mutation functions as if they will _always succeed_, and always be guaranteed to be atomic.
-
-Aside from sheer curiosity about how Convex works, day to day there's no need to worry about conflicts, locking, or atomicity when you make changes to your tables and documents. The "obvious way" to write your mutation functions will just work.
-
-# Mental Model: Rule Sets
-
-Rule sets should be stored in a **git-like model**.
-
-- When a user saves, they must provide a name for the rule set (similar to a commit message).
-- The user can return to any previously saved rule set.
-- When the user makes modifications (e.g., changing active rules, documentation, work times, locations, or appointment types), we **do not** update the existing rule set. Instead, we create a new `ungespeichert` rule set, based on the rule set they started editing.
-- The user cannot switch to another rule set without first triggering the **"Regelset speichern"** modal, which requires them to either save or discard their changes. This ensures that there is never more than one conflicting `ungespeichert` state.
-- Note: The `ungespeichert` state is still persisted in Convex, just like all other rule sets (which can be confusing).
-
-# Build forms in React using shadcn, TanStack Form and Zod
+import { InfoIcon } from "lucide-react"
 
 This guide explores how to build forms using TanStack Form. You'll learn to create forms with the `<Field />` component, implement schema validation with Zod, handle errors, and ensure accessibility.
 
@@ -134,15 +14,15 @@ This guide explores how to build forms using TanStack Form. You'll learn to crea
 We'll start by building the following form. It has a simple text input and a textarea. On submit, we'll validate the form data and display any errors.
 
 <Callout icon={<InfoIcon />}>
-**Note:** For the purpose of this demo, we have intentionally disabled browser
-validation to show how schema validation and form errors work in TanStack
-Form. It is recommended to add basic browser validation in your production
-code.
+  **Note:** For the purpose of this demo, we have intentionally disabled browser
+  validation to show how schema validation and form errors work in TanStack
+  Form. It is recommended to add basic browser validation in your production
+  code.
 </Callout>
 
 <ComponentPreview
   name="form-tanstack-demo"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -163,8 +43,8 @@ Here's a basic example of a form using TanStack Form with the `<Field />` compon
 ```tsx showLineNumbers {15-31}
 <form
   onSubmit={(e) => {
-    e.preventDefault();
-    form.handleSubmit();
+    e.preventDefault()
+    form.handleSubmit()
   }}
 >
   <FieldGroup>
@@ -172,7 +52,7 @@ Here's a basic example of a form using TanStack Form with the `<Field />` compon
       name="title"
       children={(field) => {
         const isInvalid =
-          field.state.meta.isTouched && !field.state.meta.isValid;
+          field.state.meta.isTouched && !field.state.meta.isValid
         return (
           <Field data-invalid={isInvalid}>
             <FieldLabel htmlFor={field.name}>Bug Title</FieldLabel>
@@ -191,7 +71,7 @@ Here's a basic example of a form using TanStack Form with the `<Field />` compon
             </FieldDescription>
             {isInvalid && <FieldError errors={field.state.meta.errors} />}
           </Field>
-        );
+        )
       }}
     />
   </FieldGroup>
@@ -206,13 +86,13 @@ Here's a basic example of a form using TanStack Form with the `<Field />` compon
 We'll start by defining the shape of our form using a Zod schema.
 
 <Callout icon={<InfoIcon />}>
-**Note:** This example uses `zod v3` for schema validation. TanStack Form
-integrates seamlessly with Zod and other Standard Schema validation libraries
-through its validators API.
+  **Note:** This example uses `zod v3` for schema validation. TanStack Form
+  integrates seamlessly with Zod and other Standard Schema validation libraries
+  through its validators API.
 </Callout>
 
 ```tsx showLineNumbers title="form.tsx"
-import * as z from "zod";
+import * as z from "zod"
 
 const formSchema = z.object({
   title: z
@@ -223,21 +103,21 @@ const formSchema = z.object({
     .string()
     .min(20, "Description must be at least 20 characters.")
     .max(100, "Description must be at most 100 characters."),
-});
+})
 ```
 
-### Setup the form
+### Set up the form
 
 Use the `useForm` hook from TanStack Form to create your form instance with Zod validation.
 
 ```tsx showLineNumbers title="form.tsx" {10-21}
-import { useForm } from "@tanstack/react-form";
-import { toast } from "sonner";
-import * as z from "zod";
+import { useForm } from "@tanstack/react-form"
+import { toast } from "sonner"
+import * as z from "zod"
 
 const formSchema = z.object({
   // ...
-});
+})
 
 export function BugReportForm() {
   const form = useForm({
@@ -249,20 +129,20 @@ export function BugReportForm() {
       onSubmit: formSchema,
     },
     onSubmit: async ({ value }) => {
-      toast.success("Form submitted successfully");
+      toast.success("Form submitted successfully")
     },
-  });
+  })
 
   return (
     <form
       onSubmit={(e) => {
-        e.preventDefault();
-        form.handleSubmit();
+        e.preventDefault()
+        form.handleSubmit()
       }}
     >
       {/* ... */}
     </form>
-  );
+  )
 }
 ```
 
@@ -290,11 +170,11 @@ When you submit the form, the `onSubmit` function will be called with the valida
 TanStack Form validates your form data using the Zod schema. Validation happens in real-time as the user types.
 
 ```tsx showLineNumbers title="form.tsx" {13-15}
-import { useForm } from "@tanstack/react-form";
+import { useForm } from "@tanstack/react-form"
 
 const formSchema = z.object({
   // ...
-});
+})
 
 export function BugReportForm() {
   const form = useForm({
@@ -306,11 +186,11 @@ export function BugReportForm() {
       onSubmit: formSchema,
     },
     onSubmit: async ({ value }) => {
-      console.log(value);
+      console.log(value)
     },
-  });
+  })
 
-  return <form onSubmit={/* ... */}>{/* ... */}</form>;
+  return <form onSubmit={/* ... */}>{/* ... */}</form>
 }
 ```
 
@@ -335,7 +215,7 @@ const form = useForm({
     onChange: formSchema,
     onBlur: formSchema,
   },
-});
+})
 ```
 
 ## Displaying Errors
@@ -349,7 +229,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="email"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
 
     return (
       <Field data-invalid={isInvalid}>
@@ -365,7 +245,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         />
         {isInvalid && <FieldError errors={field.state.meta.errors} />}
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -379,7 +259,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-input"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -387,7 +267,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="username"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <Field data-invalid={isInvalid}>
         <FieldLabel htmlFor="form-tanstack-input-username">Username</FieldLabel>
@@ -407,7 +287,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         </FieldDescription>
         {isInvalid && <FieldError errors={field.state.meta.errors} />}
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -419,7 +299,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-textarea"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -427,7 +307,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="about"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <Field data-invalid={isInvalid}>
         <FieldLabel htmlFor="form-tanstack-textarea-about">
@@ -449,7 +329,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         </FieldDescription>
         {isInvalid && <FieldError errors={field.state.meta.errors} />}
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -461,7 +341,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-select"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -469,7 +349,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="language"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <Field orientation="responsive" data-invalid={isInvalid}>
         <FieldContent>
@@ -499,7 +379,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
           </SelectContent>
         </Select>
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -513,7 +393,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-checkbox"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -522,7 +402,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
   name="tasks"
   mode="array"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <FieldSet>
         <FieldLegend variant="label">Tasks</FieldLegend>
@@ -543,11 +423,11 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
                 checked={field.state.value.includes(task.id)}
                 onCheckedChange={(checked) => {
                   if (checked) {
-                    field.pushValue(task.id);
+                    field.pushValue(task.id)
                   } else {
-                    const index = field.state.value.indexOf(task.id);
+                    const index = field.state.value.indexOf(task.id)
                     if (index > -1) {
-                      field.removeValue(index);
+                      field.removeValue(index)
                     }
                   }
                 }}
@@ -563,7 +443,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         </FieldGroup>
         {isInvalid && <FieldError errors={field.state.meta.errors} />}
       </FieldSet>
-    );
+    )
   }}
 />
 ```
@@ -575,7 +455,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-radiogroup"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -583,7 +463,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="plan"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <FieldSet>
         <FieldLegend>Plan</FieldLegend>
@@ -616,7 +496,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         </RadioGroup>
         {isInvalid && <FieldError errors={field.state.meta.errors} />}
       </FieldSet>
-    );
+    )
   }}
 />
 ```
@@ -628,7 +508,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 
 <ComponentPreview
   name="form-tanstack-switch"
-  className="sm:[&_.preview]:h-[500px] sm:[&_pre]:!h-[500px]"
+  className="sm:[&_.preview]:h-[500px]"
   chromeLessOnMobile
 />
 
@@ -636,7 +516,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
 <form.Field
   name="twoFactor"
   children={(field) => {
-    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+    const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
     return (
       <Field orientation="horizontal" data-invalid={isInvalid}>
         <FieldContent>
@@ -656,7 +536,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
           aria-invalid={isInvalid}
         />
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -667,7 +547,7 @@ Here is an example of a more complex form with multiple fields and validation.
 
 <ComponentPreview
   name="form-tanstack-complex"
-  className="sm:[&_.preview]:h-[1100px] sm:[&_pre]:!h-[1100px]"
+  className="sm:[&_.preview]:h-[1100px]"
   chromeLessOnMobile
 />
 
@@ -687,7 +567,7 @@ TanStack Form provides powerful array field management with `mode="array"`. This
 
 <ComponentPreview
   name="form-tanstack-array"
-  className="sm:[&_.preview]:h-[700px] sm:[&_pre]:!h-[700px]"
+  className="sm:[&_.preview]:h-[700px]"
   chromeLessOnMobile
 />
 
@@ -728,7 +608,7 @@ Access individual array items using bracket notation: `fieldName[index].property
   name={`emails[${index}].address`}
   children={(subField) => {
     const isSubFieldInvalid =
-      subField.state.meta.isTouched && !subField.state.meta.isValid;
+      subField.state.meta.isTouched && !subField.state.meta.isValid
     return (
       <Field orientation="horizontal" data-invalid={isSubFieldInvalid}>
         <FieldContent>
@@ -762,7 +642,7 @@ Access individual array items using bracket notation: `fieldName[index].property
           )}
         </FieldContent>
       </Field>
-    );
+    )
   }}
 />
 ```
@@ -796,7 +676,7 @@ Use `field.removeValue(index)` to remove items from an array field. You can cond
     >
       <XIcon />
     </InputGroupButton>
-  );
+  )
 }
 ```
 
@@ -810,9 +690,9 @@ const formSchema = z.object({
     .array(
       z.object({
         address: z.string().email("Enter a valid email address."),
-      }),
+      })
     )
     .min(1, "Add at least one email address.")
     .max(5, "You can add up to 5 email addresses."),
-});
+})
 ```
