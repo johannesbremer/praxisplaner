@@ -211,4 +211,8 @@ declare global {
     // Declare FileSystemObserver as it's part of the File System Access API
     FileSystemObserver: typeof FileSystemObserver;
   }
+
+  var showDirectoryPicker: (
+    options?: DirectoryPickerOptions,
+  ) => Promise<FileSystemDirectoryHandle>;
 }

@@ -2,6 +2,13 @@
 
 import { errAsync, ResultAsync } from "neverthrow";
 
+import type {
+  FileSystemDirectoryHandle as AppFileSystemDirectoryHandle,
+  FileSystemFileHandle as AppFileSystemFileHandle,
+  FileSystemChangeRecord,
+  FileSystemObserverOptions,
+} from "../types";
+
 import {
   browserApiError,
   captureFrontendError,
@@ -11,6 +18,51 @@ import {
 /**
  * Utility functions for safely using browser APIs that may not be available in all environments.
  */
+
+type FileSystemObserverCallback = (
+  records: readonly FileSystemObserverRecord[],
+) => Promise<void> | void;
+
+type FileSystemObserverConstructor = new (
+  callback: FileSystemObserverCallback,
+) => FileSystemObserverInstance;
+
+interface FileSystemObserverInstance {
+  disconnect(): void;
+  observe(
+    handle: FileSystemDirectoryHandle,
+    options?: { recursive?: boolean },
+  ): Promise<void>;
+  unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
+}
+
+interface FileSystemObserverRecord {
+  readonly changedHandle: FileSystemDirectoryHandle | FileSystemFileHandle;
+  readonly relativePathComponents: readonly string[];
+  readonly type: "appeared" | "disappeared" | "modified";
+}
+
+function getFileSystemObserverConstructor(): FileSystemObserverConstructor | null {
+  const candidate: unknown = Reflect.get(globalThis, "FileSystemObserver");
+  return isFileSystemObserverConstructor(candidate) ? candidate : null;
+}
+
+function hasDirectoryPicker(
+  value: typeof globalThis,
+): value is typeof globalThis & {
+  showDirectoryPicker: Window["showDirectoryPicker"];
+} {
+  return (
+    "showDirectoryPicker" in value &&
+    typeof Reflect.get(value, "showDirectoryPicker") === "function"
+  );
+}
+
+function isFileSystemObserverConstructor(
+  value: unknown,
+): value is FileSystemObserverConstructor {
+  return typeof value === "function";
+}
 
 /**
  * Safely creates and dispatches a CustomEvent if available.
@@ -38,18 +90,14 @@ export function dispatchCustomEvent(
  * Check if FileSystemObserver is available.
  */
 export function isFileSystemObserverSupported(): boolean {
-  return (
-    "FileSystemObserver" in globalThis &&
-    typeof (globalThis as unknown as { FileSystemObserver?: unknown })
-      .FileSystemObserver === "function"
-  );
+  return getFileSystemObserverConstructor() !== null;
 }
 
 /**
  * Check if we're in a secure context with File System Access API support.
  */
 export function isFileSystemAccessSupported(): boolean {
-  return globalThis.isSecureContext && "showDirectoryPicker" in globalThis;
+  return globalThis.isSecureContext && hasDirectoryPicker(globalThis);
 }
 
 /**
@@ -59,36 +107,32 @@ export function isDOMException(error: unknown): error is DOMException {
   return typeof DOMException !== "undefined" && error instanceof DOMException;
 }
 
-// Type definitions for the experimental FileSystemObserver API
-type FileSystemObserverCallback = (
-  records: readonly FileSystemObserverRecord[],
-) => Promise<void> | void;
+function toAppFileSystemHandle(
+  handle: FileSystemDirectoryHandle | FileSystemFileHandle,
+): AppFileSystemDirectoryHandle | AppFileSystemFileHandle {
+  return handle as unknown as
+    | AppFileSystemDirectoryHandle
+    | AppFileSystemFileHandle;
+}
 
-interface FileSystemObserverRecord {
-  readonly changedHandle: FileSystemDirectoryHandle | FileSystemFileHandle;
-  readonly relativePathComponents: readonly string[];
-  readonly type: "appeared" | "disappeared" | "modified";
+function toBrowserFileSystemDirectoryHandle(
+  handle: AppFileSystemDirectoryHandle,
+): FileSystemDirectoryHandle {
+  return handle as unknown as FileSystemDirectoryHandle;
 }
 
 /**
  * Typed wrapper for FileSystemObserver that handles browser compatibility.
  */
 export class SafeFileSystemObserver {
-  private observer: null | {
-    disconnect(): void;
-    observe(
-      handle: FileSystemDirectoryHandle,
-      options?: { recursive?: boolean },
-    ): Promise<void>;
-    unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
-  } = null;
+  private observer: FileSystemObserverInstance | null = null;
 
   constructor(
-    callback: (
-      records: import("../types").FileSystemChangeRecord[],
-    ) => Promise<void> | void,
+    callback: (records: FileSystemChangeRecord[]) => Promise<void> | void,
   ) {
-    if (!isFileSystemObserverSupported()) {
+    const FileSystemObserverCtor = getFileSystemObserverConstructor();
+
+    if (!FileSystemObserverCtor) {
       const error = browserApiError(
         "FileSystemObserver is not supported in this environment",
         "SafeFileSystemObserver.constructor",
@@ -102,29 +146,16 @@ export class SafeFileSystemObserver {
       return;
     }
 
-    // Create the observer with proper error handling
-    const WindowWithObserver = globalThis as unknown as {
-      FileSystemObserver: new (cb: FileSystemObserverCallback) => {
-        disconnect(): void;
-        observe(
-          handle: FileSystemDirectoryHandle,
-          options?: { recursive?: boolean },
-        ): Promise<void>;
-        unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
-      };
-    };
-
-    this.observer = new WindowWithObserver.FileSystemObserver(
+    this.observer = new FileSystemObserverCtor(
       async (records: readonly FileSystemObserverRecord[]) => {
         // Convert records to our typed format
-        const typedRecords: import("../types").FileSystemChangeRecord[] =
-          records.map((record) => ({
-            changedHandle: record.changedHandle as unknown as
-              | import("../types").FileSystemDirectoryHandle
-              | import("../types").FileSystemFileHandle,
+        const typedRecords: FileSystemChangeRecord[] = records.map(
+          (record) => ({
+            changedHandle: toAppFileSystemHandle(record.changedHandle),
             relativePathComponents: [...record.relativePathComponents],
             type: record.type,
-          }));
+          }),
+        );
 
         await callback(typedRecords);
       },
@@ -136,8 +167,8 @@ export class SafeFileSystemObserver {
   }
 
   observe(
-    handle: import("../types").FileSystemDirectoryHandle,
-    options?: import("../types").FileSystemObserverOptions,
+    handle: AppFileSystemDirectoryHandle,
+    options?: FileSystemObserverOptions,
   ): ResultAsync<void, ReturnType<typeof browserApiError>> {
     if (!this.observer) {
       const error = browserApiError(
@@ -152,7 +183,7 @@ export class SafeFileSystemObserver {
     }
     return ResultAsync.fromPromise(
       this.observer.observe(
-        handle as unknown as FileSystemDirectoryHandle,
+        toBrowserFileSystemDirectoryHandle(handle),
         options,
       ),
       (error) =>
@@ -166,7 +197,7 @@ export class SafeFileSystemObserver {
   }
 
   unobserve(
-    handle: import("../types").FileSystemDirectoryHandle,
+    handle: AppFileSystemDirectoryHandle,
   ): ResultAsync<void, ReturnType<typeof browserApiError>> {
     if (!this.observer) {
       const error = browserApiError(
@@ -180,7 +211,7 @@ export class SafeFileSystemObserver {
       return errAsync(error);
     }
     return ResultAsync.fromPromise(
-      this.observer.unobserve(handle as unknown as FileSystemDirectoryHandle),
+      this.observer.unobserve(toBrowserFileSystemDirectoryHandle(handle)),
       (error) =>
         frontendErrorFromUnknown(error, {
           expected: false,

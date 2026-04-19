@@ -985,7 +985,7 @@ export const updateAppointmentType = mutation({
       const validatedFollowUpPlan = await validateFollowUpPlan(
         ctx.db,
         ruleSetId,
-        args.followUpPlan as FollowUpPlan,
+        args.followUpPlan,
         requireAppointmentTypeLineageKey(appointmentType),
       );
       updates.followUpPlan = validatedFollowUpPlan ?? [];

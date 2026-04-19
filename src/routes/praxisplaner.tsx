@@ -44,6 +44,7 @@ import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
   isDOMException,
+  isFileSystemAccessSupported,
   isFileSystemObserverSupported,
   SafeFileSystemObserver,
 } from "../utils/browser-api";
@@ -159,7 +160,7 @@ function PraxisPlanerComponent() {
   }, [standortParam, locationsData]);
 
   const isHydrated = useHydrated();
-  const isFsaSupported = isHydrated && "showDirectoryPicker" in globalThis;
+  const isFsaSupported = isHydrated && isFileSystemAccessSupported();
   const isSecureContext = isHydrated && globalThis.isSecureContext;
   let environmentGdtError: null | string = null;
   if (isFsaSupported) {
@@ -488,11 +489,9 @@ function PraxisPlanerComponent() {
       // Set flag to prevent race condition with loadPersistedHandle
       isUserSelectingRef.current = true;
 
-      // Experimental browser API - type assertion needed
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-      const handle = (await (globalThis as any).showDirectoryPicker({
+      const handle = await globalThis.showDirectoryPicker({
         mode: "readwrite",
-      })) as FileSystemDirectoryHandle;
+      });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);

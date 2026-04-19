@@ -203,7 +203,7 @@ export default function BaseScheduleManagement({
     breakTimes?: { end: string; start: string }[];
     daysOfWeek: number[];
     endTime: string;
-    locationId?: Id<"locations">;
+    locationId: Id<"locations">;
     locationName?: string;
     practitionerId: Id<"practitioners">;
     scheduleIds: Id<"baseSchedules">[];
@@ -233,7 +233,7 @@ export default function BaseScheduleManagement({
       ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
-      locationId: scheduleGroup.locationId || ("" as Id<"locations">),
+      locationId: scheduleGroup.locationId,
       practiceId,
       practitionerId: scheduleGroup.practitionerId,
       ruleSetId,
@@ -413,7 +413,7 @@ export default function BaseScheduleManagement({
         breakTimes?: { end: string; start: string }[];
         daysOfWeek: number[];
         endTime: string;
-        locationId?: Id<"locations">;
+        locationId: Id<"locations">;
         locationName?: string;
         practitionerId: Id<"practitioners">;
         scheduleIds: Id<"baseSchedules">[];
@@ -607,6 +607,17 @@ function BaseScheduleDialog({
 }: BaseScheduleDialogProps) {
   const { captureError } = useErrorTracking();
   const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
+  const resolveSelectedLocationId = (
+    value: string,
+    currentLocations: readonly LocationMatchEntity[],
+  ): Id<"locations"> | null =>
+    currentLocations.find((location) => location._id === value)?._id ?? null;
+  const resolveSelectedPractitionerId = (
+    value: string,
+    currentPractitioners: readonly PractitionerMatchEntity[],
+  ): Id<"practitioners"> | null =>
+    currentPractitioners.find((practitioner) => practitioner._id === value)
+      ?._id ?? null;
 
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
@@ -759,6 +770,11 @@ function BaseScheduleDialog({
           return;
         }
 
+        const selectedLocationId = resolveSelectedLocationId(
+          value.locationId,
+          locationsRef.current,
+        );
+
         if (schedule) {
           // When editing, check if it's a group edit
           const isGroupEdit = schedule._isGroup ?? false;
@@ -832,7 +848,7 @@ function BaseScheduleDialog({
                 ...(existingPayload
                   ? { lineageKey: existingPayload.lineageKey }
                   : {}),
-                locationId: value.locationId as Id<"locations">,
+                locationId: selectedLocationId ?? schedule.locationId,
                 practitionerId: schedule.practitionerId,
                 startTime: value.startTime,
               };
@@ -870,7 +886,12 @@ function BaseScheduleDialog({
           );
         } else {
           // Create new schedule(s) - one for each selected day
-          if (!value.practitionerId) {
+          const selectedPractitionerId = resolveSelectedPractitionerId(
+            value.practitionerId,
+            practitionersRef.current,
+          );
+
+          if (!selectedPractitionerId) {
             const error = new Error("Bitte wählen Sie einen Arzt aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -883,7 +904,7 @@ function BaseScheduleDialog({
             return;
           }
 
-          if (!value.locationId) {
+          if (!selectedLocationId) {
             const error = new Error("Bitte wählen Sie einen Standort aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -917,8 +938,8 @@ function BaseScheduleDialog({
               : {}),
             dayOfWeek,
             endTime: value.endTime,
-            locationId: value.locationId as Id<"locations">,
-            practitionerId: value.practitionerId as Id<"practitioners">,
+            locationId: selectedLocationId,
+            practitionerId: selectedPractitionerId,
             startTime: value.startTime,
           }));
           const batchResult = await createScheduleBatchMutation({

@@ -76,8 +76,6 @@ const formSchema = z.object({
   personalData: personalDataSchema,
 });
 
-type FormValues = z.infer<typeof formSchema>;
-
 export function DataInputStep({ sessionId, state }: StepComponentProps) {
   const isNewPatient =
     state.step === "new-data-input" || state.step === "new-data-input-complete";
@@ -203,7 +201,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
     },
     validators: {
       onSubmit: ({ value }) => {
-        const result = formSchema.safeParse(value as FormValues);
+        const result = formSchema.safeParse(value);
         return result.success ? undefined : result.error;
       },
     },
