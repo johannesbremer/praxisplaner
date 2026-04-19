@@ -13,9 +13,7 @@ import {
 
 function literalUnionValidator<
   const TValues extends readonly [string, string, ...string[]],
->(
-  values: TValues,
-): Validator<TValues[number]> {
+>(values: TValues): Validator<TValues[number]> {
   const [first, second, ...rest] = values;
   return v.union(
     v.literal(first),

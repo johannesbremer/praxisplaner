@@ -1164,9 +1164,7 @@ export type {
 
 function literalUnionValidator<
   const TValues extends readonly [string, string, ...string[]],
->(
-  values: TValues,
-): Validator<TValues[number]> {
+>(values: TValues): Validator<TValues[number]> {
   const [first, second, ...rest] = values;
   return v.union(
     v.literal(first),
@@ -1217,7 +1215,9 @@ const ruleConditionDocumentValidator = v.object({
   enabled: v.optional(v.boolean()),
   isRoot: v.boolean(),
   lastModified: v.int64(),
-  nodeType: v.optional(v.union(logicalNodeTypeValidator, v.literal("CONDITION"))),
+  nodeType: v.optional(
+    v.union(logicalNodeTypeValidator, v.literal("CONDITION")),
+  ),
   operator: v.optional(conditionOperatorValidator),
   parentConditionId: v.optional(v.id("ruleConditions")),
   practiceId: v.id("practices"),

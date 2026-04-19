@@ -195,15 +195,13 @@ export class SafeFileSystemObserver {
       });
       return errAsync(error);
     }
-    return ResultAsync.fromPromise(
-      this.observer.unobserve(handle),
-      (error) =>
-        frontendErrorFromUnknown(error, {
-          expected: false,
-          kind: "browser_api",
-          message: "Observer could not stop observing the directory",
-          source: "SafeFileSystemObserver.unobserve",
-        }),
+    return ResultAsync.fromPromise(this.observer.unobserve(handle), (error) =>
+      frontendErrorFromUnknown(error, {
+        expected: false,
+        kind: "browser_api",
+        message: "Observer could not stop observing the directory",
+        source: "SafeFileSystemObserver.unobserve",
+      }),
     );
   }
 }

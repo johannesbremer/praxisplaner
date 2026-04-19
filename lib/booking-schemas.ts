@@ -144,7 +144,9 @@ export const personalDataFormSchema = z
     firstName: requiredTextInputSchema("Vorname ist erforderlich"),
     gender: optionalEnumInputSchema(GENDER_VALUES),
     lastName: requiredTextInputSchema("Nachname ist erforderlich"),
-    phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
+    phoneNumber: z.e164(
+      "Bitte gültige Telefonnummer im Format +49... eingeben",
+    ),
     postalCode: optionalTrimmedTextInputSchema,
     street: optionalTrimmedTextInputSchema,
     title: optionalTrimmedTextInputSchema,
@@ -176,7 +178,9 @@ export const dataSharingContactFormSchema = z
       "Geschlecht ist erforderlich",
     ),
     lastName: requiredTextInputSchema("Nachname ist erforderlich"),
-    phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
+    phoneNumber: z.e164(
+      "Bitte gültige Telefonnummer im Format +49... eingeben",
+    ),
     postalCode: requiredTextInputSchema("PLZ ist erforderlich"),
     street: requiredTextInputSchema("Straße ist erforderlich"),
     title: optionalTrimmedTextInputSchema,
@@ -202,19 +206,17 @@ export type DataSharingContactFormValue = z.input<
 export type MedicalHistoryFormValue = z.input<typeof medicalHistoryFormSchema>;
 export type PkvDetailsFormValue = z.input<typeof pkvDetailsFormSchema>;
 
-export function toDataSharingContactInput(
-  value: {
-    city: string;
-    dateOfBirth: string;
-    firstName: string;
-    gender: (typeof GENDER_VALUES)[number];
-    lastName: string;
-    phoneNumber: string;
-    postalCode: string;
-    street: string;
-    title?: string | undefined;
-  },
-): DataSharingContactInput {
+export function toDataSharingContactInput(value: {
+  city: string;
+  dateOfBirth: string;
+  firstName: string;
+  gender: (typeof GENDER_VALUES)[number];
+  lastName: string;
+  phoneNumber: string;
+  postalCode: string;
+  street: string;
+  title?: string | undefined;
+}): DataSharingContactInput {
   const contact: DataSharingContactInput = {
     city: value.city,
     dateOfBirth: value.dateOfBirth,
@@ -281,20 +283,18 @@ export function toOptionalMedicalHistory(
   return hasMedicalHistory ? normalized : undefined;
 }
 
-export function toPersonalDataInput(
-  value: {
-    city?: string | undefined;
-    dateOfBirth: string;
-    email?: string | undefined;
-    firstName: string;
-    gender?: (typeof GENDER_VALUES)[number] | undefined;
-    lastName: string;
-    phoneNumber: string;
-    postalCode?: string | undefined;
-    street?: string | undefined;
-    title?: string | undefined;
-  },
-): PersonalDataInput {
+export function toPersonalDataInput(value: {
+  city?: string | undefined;
+  dateOfBirth: string;
+  email?: string | undefined;
+  firstName: string;
+  gender?: (typeof GENDER_VALUES)[number] | undefined;
+  lastName: string;
+  phoneNumber: string;
+  postalCode?: string | undefined;
+  street?: string | undefined;
+  title?: string | undefined;
+}): PersonalDataInput {
   const personalData: PersonalDataInput = {
     dateOfBirth: value.dateOfBirth,
     firstName: value.firstName,
@@ -324,13 +324,11 @@ export function toPersonalDataInput(
   return personalData;
 }
 
-export function toPkvDetailsInput(
-  value: {
-    beihilfeStatus?: (typeof BEIHILFE_STATUS_VALUES)[number] | undefined;
-    pkvInsuranceType?: (typeof PKV_INSURANCE_TYPE_VALUES)[number] | undefined;
-    pkvTariff?: (typeof PKV_TARIFF_VALUES)[number] | undefined;
-  },
-): PkvDetailsInput {
+export function toPkvDetailsInput(value: {
+  beihilfeStatus?: (typeof BEIHILFE_STATUS_VALUES)[number] | undefined;
+  pkvInsuranceType?: (typeof PKV_INSURANCE_TYPE_VALUES)[number] | undefined;
+  pkvTariff?: (typeof PKV_TARIFF_VALUES)[number] | undefined;
+}): PkvDetailsInput {
   const details: PkvDetailsInput = {};
 
   if (value.beihilfeStatus !== undefined) {
