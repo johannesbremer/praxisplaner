@@ -3,7 +3,7 @@
  * Used by both the UI (rule-builder.tsx) and tests (ruleEngine.test.ts).
  */
 
-import type { ConditionTreeNode } from "../convex/ruleEngine";
+import type { ConditionTreeNode } from "./condition-tree";
 
 // Condition types matching the UI
 interface Condition {

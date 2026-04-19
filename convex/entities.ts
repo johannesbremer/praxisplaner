@@ -23,6 +23,7 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
+import { parseConditionTreeNode } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
@@ -76,8 +77,6 @@ import {
 import {
   type ConditionTreeNode,
   conditionTreeNodeValidator,
-  getTypedChildren,
-  isLogicalNode,
   validateConditionTree,
 } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -3124,25 +3123,20 @@ async function remapConditionTreeEntityIds(
     };
   }
 
-  if (isLogicalNode(node)) {
-    const typedChildren = getTypedChildren(node);
-    const remappedChildren: ConditionTreeNode[] = [];
-    for (const child of typedChildren) {
-      const remappedChild = await remapConditionTreeEntityIds(
-        db,
-        child,
-        targetRuleSetId,
-      );
-      remappedChildren.push(remappedChild);
-    }
-
-    return {
-      ...node,
-      children: remappedChildren,
-    };
+  const remappedChildren: ConditionTreeNode[] = [];
+  for (const child of node.children) {
+    const remappedChild = await remapConditionTreeEntityIds(
+      db,
+      child,
+      targetRuleSetId,
+    );
+    remappedChildren.push(remappedChild);
   }
 
-  return node;
+  return {
+    ...node,
+    children: remappedChildren,
+  };
 }
 
 /**
@@ -3230,9 +3224,7 @@ async function insertConditionTreeNode(
       ruleSetId,
     });
 
-    // Recursively insert children (getTypedChildren validates all children exist)
-    const typedChildren = getTypedChildren(node);
-    for (const [i, child] of typedChildren.entries()) {
+    for (const [i, child] of node.children.entries()) {
       await insertConditionTreeNode(
         db,
         child,
@@ -3299,9 +3291,10 @@ export const createRule = mutation({
     // Remap entity IDs in the condition tree if the source and target rule sets differ
     // This handles the case where the UI passes entity IDs from the source rule set
     // but we need to use entity IDs from the target (unsaved) rule set
+    const parsedConditionTree = parseConditionTreeNode(args.conditionTree);
     const remappedConditionTree = await remapConditionTreeEntityIds(
       ctx.db,
-      args.conditionTree,
+      parsedConditionTree,
       ruleSetId,
     );
     const validationErrors = validateConditionTree(remappedConditionTree);

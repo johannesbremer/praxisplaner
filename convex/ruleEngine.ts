@@ -16,10 +16,12 @@ import type { Infer } from "convex/values";
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { ConditionTreeNode } from "../lib/condition-tree.js";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import { isConditionNode, isLogicalNode } from "../lib/condition-tree.js";
 import {
   conditionTreeToConditions,
   generateRuleName,
@@ -1153,72 +1155,21 @@ export const scopeValidator = v.union(
   v.literal("practitioner"),
 );
 
-/**
- * Type for scope (practice, location, or practitioner level).
- */
-export type Scope = "location" | "practice" | "practitioner";
-
-/**
- * Condition types supported by the rule engine.
- */
-export type ConditionType =
-  | "APPOINTMENT_TYPE"
-  | "CLIENT_TYPE"
-  | "CONCURRENT_COUNT"
-  | "DAILY_CAPACITY"
-  | "DATE_RANGE"
-  | "DAY_OF_WEEK"
-  | "DAYS_AHEAD"
-  | "HOURS_AHEAD"
-  | "LOCATION"
-  | "PATIENT_AGE"
-  | "PRACTITIONER"
-  | "PRACTITIONER_TAG"
-  | "TIME_RANGE";
-
-/**
- * Operators supported by conditions.
- */
-export type ConditionOperator =
-  | "EQUALS"
-  | "GREATER_THAN_OR_EQUAL"
-  | "IS"
-  | "IS_NOT"
-  | "LESS_THAN"
-  | "LESS_THAN_OR_EQUAL";
-
-/**
- * A logical node (AND/NOT) that contains child nodes.
- */
-export interface LogicalNode {
-  children: ConditionTreeNode[];
-  nodeType: "AND" | "NOT";
-}
-
-/**
- * A leaf condition node with actual condition data.
- */
-export interface ConditionNode {
-  conditionType: ConditionType;
-  nodeType: "CONDITION";
-  operator: ConditionOperator;
-  scope?: Scope;
-  valueIds?: string[];
-  valueNumber?: number;
-}
-
-/**
- * A node in the condition tree - either a logical operator or a leaf condition.
- * This is a properly typed recursive type (not using Infer to avoid `any` in children).
- */
-export type ConditionTreeNode = ConditionNode | LogicalNode;
+export type {
+  ConditionNode,
+  ConditionOperator,
+  ConditionTreeNode,
+  ConditionType,
+  LogicalNode,
+  Scope,
+} from "../lib/condition-tree.js";
 
 /**
  * Validator for condition tree nodes used in rule creation/updates.
  *
- * Note: Convex validators don't support recursive types, so we use v.any() for children.
- * The actual type safety comes from the ConditionTreeNode type above, which is properly
- * recursive. Runtime validation is done via validateConditionTree().
+ * Note: Convex validators don't support recursive types, so children still come through
+ * a permissive validator. The recursive tree is narrowed back to `ConditionTreeNode`
+ * at the mutation/query boundary before it is used elsewhere.
  */
 export const conditionTreeNodeValidator = v.union(
   v.object({
@@ -1255,61 +1206,6 @@ export const conditionTreeNodeValidator = v.union(
     valueNumber: v.optional(v.number()),
   }),
 );
-
-/**
- * Type guard to check if a node is a logical operator node (AND/NOT).
- */
-export function isLogicalNode(node: ConditionTreeNode): node is LogicalNode {
-  return node.nodeType === "AND" || node.nodeType === "NOT";
-}
-
-/**
- * Type guard to check if a node is a condition leaf node.
- */
-export function isConditionNode(
-  node: ConditionTreeNode,
-): node is ConditionNode {
-  return node.nodeType === "CONDITION";
-}
-
-/**
- * Type guard to check if unknown value is a valid condition tree node.
- * Use this to safely cast children from the validator's `any[]` to ConditionTreeNode.
- */
-export function isValidNode(value: unknown): value is ConditionTreeNode {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  if (!("nodeType" in value)) {
-    return false;
-  }
-  const nodeType = (value as { nodeType: unknown }).nodeType;
-  // Check for logical nodes
-  if (nodeType === "AND" || nodeType === "NOT") {
-    return (
-      "children" in value &&
-      Array.isArray((value as { children: unknown }).children)
-    );
-  }
-  // Check for condition nodes
-  if (nodeType === "CONDITION") {
-    return "conditionType" in value && "operator" in value;
-  }
-  return false;
-}
-
-/**
- * Safely get typed children from a logical node.
- * Validates each child and throws if any are invalid.
- */
-export function getTypedChildren(node: LogicalNode): ConditionTreeNode[] {
-  return node.children.map((child: unknown, index: number) => {
-    if (!isValidNode(child)) {
-      throw new Error(`Invalid child at index ${index}`);
-    }
-    return child;
-  });
-}
 
 /**
  * Validate condition tree structure.
@@ -1368,18 +1264,15 @@ export function validateConditionTree(
     }
     // Recursively validate children
     for (let i = 0; i < node.children.length; i++) {
-      const child: unknown = node.children[i];
-      if (isValidNode(child)) {
-        const childErrors = validateConditionTree(child, depth + 1);
-        errors.push(...childErrors.map((err) => `Child ${i}: ${err}`));
-      } else {
-        errors.push(`Child ${i} is not a valid condition node`);
+      const child = node.children[i];
+      if (!child) {
+        errors.push(`Child ${i} is missing`);
+        continue;
       }
+
+      const childErrors = validateConditionTree(child, depth + 1);
+      errors.push(...childErrors.map((err) => `Child ${i}: ${err}`));
     }
-  } else {
-    errors.push(
-      `Unknown node type: ${String((node as { nodeType?: unknown }).nodeType)}`,
-    );
   }
 
   return errors;

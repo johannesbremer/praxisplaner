@@ -1,8 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { Plus, X } from "lucide-react";
 
-import type { ConditionTreeNode } from "@/convex/ruleEngine";
-
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -29,6 +27,7 @@ import {
 } from "@/components/ui/select";
 
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { ConditionTreeNode } from "../../lib/condition-tree";
 import type {
   Condition,
   ConditionType,
@@ -84,7 +83,7 @@ interface RuleEditDialogProps {
   isOpen: boolean;
   locations: Doc<"locations">[];
   onClose: () => void;
-  onCreate: (conditionTree: unknown) => Promise<void>;
+  onCreate: (conditionTree: ConditionTreeNode) => Promise<void>;
   practitioners: Doc<"practitioners">[];
 }
 
@@ -114,7 +113,7 @@ export function RuleEditDialog({
   practitioners,
 }: RuleEditDialogProps) {
   const initialConditions: Condition[] = existingRule
-    ? conditionTreeToConditions(existingRule.conditionTree as ConditionTreeNode)
+    ? conditionTreeToConditions(existingRule.conditionTree)
     : [
         {
           id: "1",
@@ -508,8 +507,8 @@ function ConditionEditor({
   );
 }
 
-function conditionsToConditionTree(conditions: Condition[]): unknown {
-  const nodes: unknown[] = [];
+function conditionsToConditionTree(conditions: Condition[]): ConditionTreeNode {
+  const nodes: ConditionTreeNode[] = [];
 
   for (const condition of conditions) {
     switch (condition.type) {
@@ -603,11 +602,17 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
   }
 
   if (nodes.length === 0) {
-    return null;
+    return {
+      children: [],
+      nodeType: "AND",
+    };
   }
 
   if (nodes.length === 1) {
-    return nodes[0];
+    const firstNode = nodes[0];
+    if (firstNode) {
+      return firstNode;
+    }
   }
 
   return {
