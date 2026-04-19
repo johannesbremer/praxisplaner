@@ -9,7 +9,6 @@ import type { AppointmentResult } from "../../../convex/appointments";
 import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
-import { ISO_DATE_REGEX } from "../../../lib/typed-regex.js";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   getPractitionerAvailabilityRangesForDate,
@@ -30,6 +29,7 @@ import {
   safeParseISOToPlainDate,
   safeParseISOToZoned,
   temporalDayToLegacy,
+  toZonedDateTimeString,
 } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 import {
@@ -400,10 +400,9 @@ export function useCalendarLogic({
                 appointmentTypeId: selectedAppointmentTypeId,
                 isNewPatient: patient?.isNewPatient ?? false,
                 locationId: selectedLocationId,
-                ...(patientDateOfBirth !== undefined &&
-                  ISO_DATE_REGEX.test(patientDateOfBirth) && {
-                    patientDateOfBirth,
-                  }),
+                ...(patientDateOfBirth !== undefined && {
+                  patientDateOfBirth,
+                }),
               }),
             };
           })()
@@ -637,12 +636,12 @@ export function useCalendarLogic({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             appointmentTypeTitle,
             createdAt: BigInt(now),
-            end: optimisticEnd,
+            end: toZonedDateTimeString(optimisticEnd),
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
-            start: optimisticArgs.start,
+            start: toZonedDateTimeString(optimisticArgs.start),
             title: optimisticArgs.title,
           };
 
@@ -710,10 +709,10 @@ export function useCalendarLogic({
         return {
           ...appointment,
           ...(optimisticArgs.start !== undefined && {
-            start: optimisticArgs.start,
+            start: toZonedDateTimeString(optimisticArgs.start),
           }),
           ...(optimisticArgs.end !== undefined && {
-            end: optimisticArgs.end,
+            end: toZonedDateTimeString(optimisticArgs.end),
           }),
           ...(optimisticArgs.practitionerId !== undefined && {
             practitionerId: optimisticArgs.practitionerId,
@@ -1040,9 +1039,13 @@ export function useCalendarLogic({
       };
 
       const afterState = {
-        end: args.end ?? before.end,
+        end:
+          args.end === undefined ? before.end : toZonedDateTimeString(args.end),
         practitionerId: args.practitionerId ?? before.practitionerId,
-        start: args.start ?? before.start,
+        start:
+          args.start === undefined
+            ? before.start
+            : toZonedDateTimeString(args.start),
       };
 
       const matchesState = (
@@ -1056,11 +1059,11 @@ export function useCalendarLogic({
       const candidatePayload = (
         state: typeof beforeState,
       ): {
-        end: string;
+        end: AppointmentResult["end"];
         isSimulation: boolean;
         locationId: Id<"locations">;
         practitionerId?: Id<"practitioners">;
-        start: string;
+        start: AppointmentResult["start"];
       } => ({
         end: state.end,
         isSimulation: before.isSimulation ?? false,
@@ -3915,10 +3918,9 @@ export function useCalendarLogic({
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
-        ...(patientDateOfBirth !== undefined &&
-          ISO_DATE_REGEX.test(patientDateOfBirth) && {
-            patientDateOfBirth,
-          }),
+        ...(patientDateOfBirth !== undefined && {
+          patientDateOfBirth,
+        }),
         ...(locationId && {
           locationId,
         }),

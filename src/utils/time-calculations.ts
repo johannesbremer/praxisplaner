@@ -6,6 +6,8 @@ import {
   type TimeString,
 } from "@/lib/typed-regex";
 
+import type { ZonedDateTimeString } from "../../convex/typedDtos";
+
 /**
  * Duration of each time slot in minutes
  */
@@ -99,6 +101,10 @@ export function dateToTemporal(date: Date): Temporal.PlainDate {
 
 export function toInstantString(date: Date): InstantString {
   return date.toISOString() as InstantString;
+}
+
+export function toZonedDateTimeString(value: string): ZonedDateTimeString {
+  return Temporal.ZonedDateTime.from(value).toString() as ZonedDateTimeString;
 }
 
 /**

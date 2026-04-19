@@ -1,9 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { InternalSchedulingResultSlot } from "./scheduling";
+import type { ZonedDateTimeString } from "./typedDtos";
 
 import { internal } from "./_generated/api";
 import {
@@ -25,8 +27,13 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
+import {
+  asInstantString,
+  asIsoDateString,
+  asOptionalIsoDateString,
+  asZonedDateTimeString,
+} from "./typedDtos";
 
-const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const MAX_SERIES_SEARCH_DAYS = 370;
 
 export const appointmentSeriesPreviewStepValidator = v.object({
@@ -94,13 +101,13 @@ export interface PlannedSeriesStep {
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
   durationMinutes: number;
-  end: string;
+  end: ZonedDateTimeString;
   locationId: Id<"locations">;
   note?: string;
   practitionerId: Id<"practitioners">;
   practitionerName: string;
   seriesStepIndex: number;
-  start: string;
+  start: ZonedDateTimeString;
   stepId: string;
 }
 
@@ -114,13 +121,13 @@ interface RootSeriesCandidate {
   excludedAppointmentIds?: Id<"appointments">[];
   isNewPatient?: boolean;
   locationId: Id<"locations">;
-  patientDateOfBirth?: string;
+  patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
   practiceId: Id<"practices">;
   practitionerId: Id<"practitioners">;
   scope?: AppointmentBookingScope;
   simulationRuleSetId?: Id<"ruleSets">;
-  start: string;
+  start: ZonedDateTimeString;
   title?: string;
   userId?: Id<"users">;
 }
@@ -154,7 +161,7 @@ export async function createAppointmentSeries(
   args: {
     isNewPatient?: boolean;
     locationId: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
@@ -164,7 +171,7 @@ export async function createAppointmentSeries(
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
-    start: string;
+    start: ZonedDateTimeString;
     userId?: Id<"users">;
   },
 ) {
@@ -326,7 +333,7 @@ export async function planSeriesFromRootCandidate(
   ctx: SeriesPlannerCtx,
   args: {
     planningState: SeriesPlanningState;
-    requestedAt: string;
+    requestedAt: InstantString;
     rootCandidate: RootSeriesCandidate;
     seriesSpecification: SeriesSpecification;
   },
@@ -475,7 +482,7 @@ export async function previewAppointmentSeries(
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
@@ -483,7 +490,7 @@ export async function previewAppointmentSeries(
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
-    start: string;
+    start: ZonedDateTimeString;
     userId?: Id<"users">;
   },
   planningState = createSeriesPlanningState(),
@@ -495,9 +502,7 @@ export async function previewAppointmentSeries(
     }),
     ...(args.patientId && { patientId: args.patientId }),
   });
-  const requestedAt = Temporal.Now.instant()
-    .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
-    .toString();
+  const requestedAt = asInstantString(Temporal.Now.instant().toString());
   const simulationRuleSetId = resolveSeriesSimulationRuleSetId(args);
 
   return await planSeriesFromRootCandidate(ctx, {
@@ -539,14 +544,14 @@ export async function replanAppointmentSeries(
     excludedAppointmentIds: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     rootDurationMinutes: number;
     scope: AppointmentBookingScope;
     series: Doc<"appointmentSeries">;
-    start: string;
+    start: ZonedDateTimeString;
     userId?: Id<"users">;
   },
 ): Promise<PlannedSeriesStep[]> {
@@ -555,9 +560,7 @@ export async function replanAppointmentSeries(
     rootAppointmentTypeId: args.series.rootAppointmentTypeId,
     ruleSetId: args.series.ruleSetIdAtBooking,
   });
-  const requestedAt = Temporal.Now.instant()
-    .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
-    .toString();
+  const requestedAt = asInstantString(Temporal.Now.instant().toString());
   const planningState = createSeriesPlanningState();
   const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
     ruleSetId: args.series.ruleSetIdAtBooking,
@@ -660,10 +663,15 @@ function appointmentSeriesError(code: string, message: string) {
   return new ConvexError({ code, message });
 }
 
-function calculateEndTime(startTime: string, durationMinutes: number): string {
-  return Temporal.ZonedDateTime.from(startTime)
-    .add({ minutes: durationMinutes })
-    .toString();
+function calculateEndTime(
+  startTime: ZonedDateTimeString,
+  durationMinutes: number,
+): ZonedDateTimeString {
+  return asZonedDateTimeString(
+    Temporal.ZonedDateTime.from(startTime)
+      .add({ minutes: durationMinutes })
+      .toString(),
+  );
 }
 
 function createSeriesId(): string {
@@ -684,12 +692,12 @@ async function findSlotForFollowUpStep(
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     previousStep: PlannedSeriesStep;
-    requestedAt: string;
+    requestedAt: InstantString;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
@@ -715,7 +723,7 @@ async function findSlotForFollowUpStep(
   if (searchPolicy === "exact_after_previous") {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
-      date: earliestStart.toPlainDate().toString(),
+      date: asIsoDateString(earliestStart.toPlainDate().toString()),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -745,7 +753,7 @@ async function findSlotForFollowUpStep(
   if (searchPolicy === "same_day_after_offset") {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
-      date: earliestStart.toPlainDate().toString(),
+      date: asIsoDateString(earliestStart.toPlainDate().toString()),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -789,7 +797,7 @@ async function findSlotForFollowUpStep(
   for (const searchDate of searchDates) {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
-      date: searchDate.toString(),
+      date: asIsoDateString(searchDate.toString()),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -994,15 +1002,15 @@ async function queryAvailableSlotsForDay(
   ctx: Pick<MutationCtx, "runQuery"> | Pick<QueryCtx, "runQuery">,
   args: {
     appointmentType: Doc<"appointmentTypes">;
-    date: string;
+    date: IsoDateString;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
-    requestedAt: string;
+    requestedAt: InstantString;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
@@ -1068,10 +1076,10 @@ async function queryAvailableSlotsForDay(
 async function resolvePatientDateOfBirth(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
   },
-): Promise<string | undefined> {
+): Promise<IsoDateString | undefined> {
   if (args.patientDateOfBirth) {
     return args.patientDateOfBirth;
   }
@@ -1081,7 +1089,7 @@ async function resolvePatientDateOfBirth(
   }
 
   const patient = await ctx.db.get("patients", args.patientId);
-  return patient?.dateOfBirth;
+  return asOptionalIsoDateString(patient?.dateOfBirth);
 }
 
 function resolveSeriesSimulationRuleSetId(args: {
@@ -1114,16 +1122,16 @@ async function validateRootCandidate(
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
-    requestedAt: string;
+    requestedAt: InstantString;
     rootDurationMinutes: number;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
-    start: string;
+    start: ZonedDateTimeString;
   },
 ): Promise<
   | {
@@ -1150,7 +1158,9 @@ async function validateRootCandidate(
 
   const rootSlots = await queryAvailableSlotsForDay(ctx, {
     appointmentType: args.appointmentType,
-    date: Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
     ...(args.excludedAppointmentIds && {
       excludedAppointmentIds: args.excludedAppointmentIds,
     }),

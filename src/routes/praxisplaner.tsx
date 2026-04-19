@@ -28,6 +28,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import type { IsoDateString } from "../../lib/typed-regex";
 import type { PatientInfo } from "../types";
 import type {
   BrowserPermissionState,
@@ -578,13 +579,13 @@ function PraxisPlanerComponent() {
           const patientId = patientIdField
             ? Number.parseInt(patientIdField.content, 10)
             : 0;
-          let normalizedBirthDate: string | undefined;
+          let normalizedBirthDate: IsoDateString | undefined;
           if (birthDateField?.content === undefined) {
             normalizedBirthDate = undefined;
           } else {
             const validation = isValidDate(birthDateField.content);
             normalizedBirthDate = validation.isValid
-              ? validation.value
+              ? (validation.value as IsoDateString)
               : undefined;
           }
 

@@ -16,6 +16,7 @@ import type { Infer } from "convex/values";
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
@@ -366,10 +367,64 @@ export const appointmentContextValidator = v.object({
   requestedAt: v.optional(v.string()), // ISO zoned datetime string
 });
 
+type RuleEngineZonedDateTimeString = `${IsoDateString}T${string}`;
+
 /**
  * Type-safe appointment context derived from validator.
  */
-export type AppointmentContext = Infer<typeof appointmentContextValidator>;
+export type AppointmentContext = Omit<
+  Infer<typeof appointmentContextValidator>,
+  "dateTime" | "patientDateOfBirth" | "requestedAt"
+> & {
+  dateTime: RuleEngineZonedDateTimeString;
+  patientDateOfBirth?: IsoDateString;
+  requestedAt?: RuleEngineZonedDateTimeString;
+};
+
+export function asAppointmentContextInput(
+  value: Infer<typeof appointmentContextValidator>,
+): AppointmentContext {
+  const {
+    dateTime,
+    patientDateOfBirth: rawPatientDateOfBirth,
+    requestedAt: rawRequestedAt,
+    ...rest
+  } = value;
+  const patientDateOfBirth =
+    rawPatientDateOfBirth === undefined
+      ? undefined
+      : (() => {
+          if (!ISO_DATE_REGEX.test(rawPatientDateOfBirth)) {
+            throw new Error(
+              `Expected YYYY-MM-DD date string, got "${rawPatientDateOfBirth}".`,
+            );
+          }
+
+          return rawPatientDateOfBirth;
+        })();
+  const requestedAt =
+    rawRequestedAt === undefined
+      ? undefined
+      : asRuleEngineZonedDateTimeString(rawRequestedAt);
+
+  return {
+    ...rest,
+    dateTime: asRuleEngineZonedDateTimeString(dateTime),
+    ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+    ...(requestedAt !== undefined && { requestedAt }),
+  };
+}
+
+function asRuleEngineZonedDateTimeString(
+  value: string,
+): RuleEngineZonedDateTimeString {
+  try {
+    const normalized = Temporal.ZonedDateTime.from(value).toString();
+    return normalized as RuleEngineZonedDateTimeString;
+  } catch {
+    throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
+  }
+}
 
 /**
  * Day-invariant condition types - these only depend on the date and fixed query context,
@@ -864,6 +919,8 @@ export const checkRulesForAppointment = internalQuery({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    const context = asAppointmentContextInput(args.context);
+
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -893,18 +950,16 @@ export const checkRulesForAppointment = internalQuery({
     // Build preloaded data for condition evaluation
     const practitioners = await ctx.db
       .query("practitioners")
-      .withIndex("by_practiceId", (q) =>
-        q.eq("practiceId", args.context.practiceId),
-      )
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", context.practiceId))
       .collect();
 
     // Extract date from ISO ZonedDateTime string
-    const dateStr = Temporal.ZonedDateTime.from(args.context.dateTime)
+    const dateStr = Temporal.ZonedDateTime.from(context.dateTime)
       .toPlainDate()
       .toString();
     const preloadedData = await buildPreloadedDayData(
       ctx.db,
-      args.context.practiceId,
+      context.practiceId,
       dateStr,
       args.ruleSetId,
       practitioners,
@@ -943,7 +998,7 @@ export const checkRulesForAppointment = internalQuery({
       // Evaluate the condition tree (synchronously with pre-loaded data)
       const isBlocked = evaluateConditionTree(
         rootChild._id,
-        args.context,
+        context,
         preloadedData,
         conditionsMap,
         allConditions,

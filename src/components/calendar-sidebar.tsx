@@ -17,7 +17,6 @@ import {
   SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { ISO_DATE_REGEX } from "@/lib/typed-regex.js";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { captureFrontendError } from "../utils/frontend-errors";
@@ -193,10 +192,9 @@ export function CalendarSidebar() {
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
-        ...(patientDateOfBirth !== undefined &&
-          ISO_DATE_REGEX.test(patientDateOfBirth) && {
-            patientDateOfBirth,
-          }),
+        ...(patientDateOfBirth !== undefined && {
+          patientDateOfBirth,
+        }),
         ...(effectiveLocationId && {
           locationId: effectiveLocationId,
         }),

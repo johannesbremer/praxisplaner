@@ -6,6 +6,9 @@ export const ISO_DATE_REGEX = regex.as<
 >(String.raw`^(\d{4})-(\d{2})-(\d{2})$`);
 export type InstantString = `${IsoDateString}T${string}Z`;
 export type IsoDateString = typeof ISO_DATE_REGEX.infer;
+export function isIsoDateString(value: string): value is IsoDateString {
+  return ISO_DATE_REGEX.test(value);
+}
 
 export const DE_DATE_REGEX = regex.as<
   `${number}.${number}.${number}`,
@@ -24,6 +27,9 @@ export const TIME_OF_DAY_REGEX = regex.as<
   { captures: [`${number}`, `${number}`] }
 >(String.raw`^([01]\d|2[0-3]):([0-5]\d)$`);
 export type TimeString = typeof TIME_OF_DAY_REGEX.infer;
+export function isTimeString(value: string): value is TimeString {
+  return TIME_OF_DAY_REGEX.test(value);
+}
 
 export const GDT_LINE_REGEX = regex.as<
   string,

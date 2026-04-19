@@ -1,7 +1,11 @@
 // src/types.ts
 
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import type { InstantString } from "../lib/typed-regex";
+import type {
+  PersonalDataInput,
+  SimulatedContextInput,
+} from "../convex/typedDtos";
+import type { InstantString, IsoDateString } from "../lib/typed-regex";
 
 // Use getSlotsForDay as the base query type since getAvailableSlots was removed
 export interface SchedulingDateRange {
@@ -11,36 +15,44 @@ export interface SchedulingDateRange {
 export type SchedulingResult = SchedulingQuery["_returnType"];
 
 export type SchedulingRuleSetId = SchedulingQuery["_args"]["ruleSetId"];
-export type SchedulingSimulatedContext =
-  SchedulingQuery["_args"]["simulatedContext"];
+export type SchedulingSimulatedContext = SimulatedContextInput;
 
 export type SchedulingSlot = SchedulingQuery["_returnType"]["slots"][number];
-type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
+type BookingPersonalData = Partial<PersonalDataInput>;
 type ConvexApi = typeof import("../convex/_generated/api").api;
-type PvsPatientInfo = Partial<BookingPersonalData> &
-  Pick<Doc<"patients">, "city" | "dateOfBirth" | "patientId" | "street"> & {
-    convexPatientId: Id<"patients">;
-    isNewPatient: boolean;
-    phoneNumber?: string;
-    recordType: "pvs";
-    userId?: undefined;
-  };
+type PvsPatientInfo = Omit<
+  BookingPersonalData &
+    Pick<Doc<"patients">, "city" | "dateOfBirth" | "patientId" | "street">,
+  "dateOfBirth"
+> & {
+  convexPatientId: Id<"patients">;
+  dateOfBirth?: IsoDateString;
+  isNewPatient: boolean;
+  phoneNumber?: string;
+  recordType: "pvs";
+  userId?: undefined;
+};
 
 type SchedulingQuery = ConvexApi["scheduling"]["getSlotsForDay"];
 
-type TemporaryPatientInfo = Partial<BookingPersonalData> &
-  Pick<Doc<"patients">, "city" | "dateOfBirth" | "street"> & {
-    convexPatientId?: Id<"patients">;
-    isNewPatient: boolean;
-    name: string;
-    patientId?: undefined;
-    phoneNumber: string;
-    recordType: "temporary";
-    userId?: undefined;
-  };
+type TemporaryPatientInfo = Omit<
+  BookingPersonalData &
+    Pick<Doc<"patients">, "city" | "dateOfBirth" | "street">,
+  "dateOfBirth"
+> & {
+  convexPatientId?: Id<"patients">;
+  dateOfBirth?: IsoDateString;
+  isNewPatient: boolean;
+  name: string;
+  patientId?: undefined;
+  phoneNumber: string;
+  recordType: "temporary";
+  userId?: undefined;
+};
 
-type UserPatientInfo = Partial<BookingPersonalData> & {
+type UserPatientInfo = Omit<BookingPersonalData, "dateOfBirth"> & {
   convexPatientId?: undefined;
+  dateOfBirth?: IsoDateString;
   email?: string;
   isNewPatient?: boolean;
   patientId?: undefined;

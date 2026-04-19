@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type { ZonedDateTimeString } from "@/convex/typedDtos";
+import type { IsoDateString } from "@/lib/typed-regex";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +36,7 @@ import {
   resultFromNullable,
 } from "../utils/frontend-errors";
 import { getPatientInfoDisplayName } from "../utils/patient-info";
+import { toZonedDateTimeString } from "../utils/time-calculations";
 import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
@@ -78,12 +81,12 @@ interface StaffAppointmentCreationModalProps {
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
-    patientDateOfBirth?: string;
+    patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
-    start: string;
+    start: ZonedDateTimeString;
     temporaryPatientName?: string;
     temporaryPatientPhoneNumber?: string;
     title: string;
@@ -295,6 +298,9 @@ export function StaffAppointmentCreationModal({
     if (!selectedAppointmentType) {
       return;
     }
+    const start = toZonedDateTimeString(
+      Temporal.ZonedDateTime.from(slot.startTime).toString(),
+    );
 
     await ResultAsync.fromPromise(
       runCreateAppointment(
@@ -310,7 +316,7 @@ export function StaffAppointmentCreationModal({
               patientId: createTarget.patientId,
               practiceId,
               practitionerId: slot.practitionerId,
-              start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+              start,
               title,
             }
           : "userId" in createTarget
@@ -324,7 +330,7 @@ export function StaffAppointmentCreationModal({
                 }),
                 practiceId,
                 practitionerId: slot.practitionerId,
-                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                start,
                 title,
                 userId: createTarget.userId,
               }
@@ -338,7 +344,7 @@ export function StaffAppointmentCreationModal({
                 }),
                 practiceId,
                 practitionerId: slot.practitionerId,
-                start: Temporal.ZonedDateTime.from(slot.startTime).toString(),
+                start,
                 temporaryPatientName: createTarget.temporaryPatientName,
                 temporaryPatientPhoneNumber:
                   createTarget.temporaryPatientPhoneNumber,

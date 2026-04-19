@@ -68,7 +68,10 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
-import { formatDateFull } from "../utils/time-calculations";
+import {
+  formatDateFull,
+  toZonedDateTimeString,
+} from "../utils/time-calculations";
 
 type AppointmentConflict = Pick<
   AppointmentResult,
@@ -949,13 +952,13 @@ export function VacationScheduler({
     () =>
       (coveragePreview?.suggestions ?? []).map((suggestion) => ({
         conflict: {
-          end: suggestion.end,
+          end: toZonedDateTimeString(suggestion.end),
           id: suggestion.appointmentId,
           locationId: suggestion.locationId,
           ...(suggestion.patientId === undefined
             ? {}
             : { patientId: suggestion.patientId }),
-          start: suggestion.start,
+          start: toZonedDateTimeString(suggestion.start),
           title: suggestion.title,
           ...(suggestion.userId ? { userId: suggestion.userId } : {}),
         },

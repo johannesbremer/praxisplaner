@@ -103,6 +103,11 @@ export interface TypedBreakTime {
   start: TimeString;
 }
 
+export interface TypedDateTimeRange {
+  end: ZonedDateTimeString;
+  start: ZonedDateTimeString;
+}
+
 export type ZonedDateTimeString = `${IsoDateString}T${string}`;
 
 export function asAvailableSlotsResult(
@@ -184,6 +189,16 @@ export function asIsoDateString(value: string): IsoDateString {
   return value;
 }
 
+export function asOptionalIsoDateString(
+  value?: string,
+): IsoDateString | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return asIsoDateString(value);
+}
+
 export function asPersonalDataInput(
   value: Infer<typeof personalDataValidator>,
 ): PersonalDataInput {
@@ -236,6 +251,16 @@ export function asTimeString(value: string): TimeString {
   }
 
   return value;
+}
+
+export function asTypedDateTimeRange(value: {
+  end: string;
+  start: string;
+}): TypedDateTimeRange {
+  return {
+    end: asZonedDateTimeString(value.end),
+    start: asZonedDateTimeString(value.start),
+  };
 }
 
 export function asZonedDateTimeString(value: string): ZonedDateTimeString {

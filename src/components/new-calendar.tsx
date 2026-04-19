@@ -18,7 +18,10 @@ import { api } from "@/convex/_generated/api";
 import type { Appointment, NewCalendarProps } from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
-import { patientDocToInfo } from "../utils/patient-info";
+import {
+  normalizePatientDateOfBirth,
+  patientDocToInfo,
+} from "../utils/patient-info";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -175,7 +178,13 @@ export function NewCalendar({
         userId: selectedUserData._id,
       };
       if (bookingPersonalData) {
-        Object.assign(info, bookingPersonalData);
+        const dateOfBirth = normalizePatientDateOfBirth(
+          bookingPersonalData.dateOfBirth,
+        );
+        Object.assign(info, {
+          ...bookingPersonalData,
+          ...(dateOfBirth !== undefined && { dateOfBirth }),
+        });
       }
 
       if (

@@ -612,7 +612,7 @@ async function getSlotsForDayImpl(
       if (firstSlot) {
         const dayContext = {
           appointmentTypeId,
-          dateTime: firstSlot.startTime, // Any slot time works for day-invariant rules
+          dateTime: asZonedDateTimeString(firstSlot.startTime), // Any slot time works for day-invariant rules
           ...(args.simulatedContext.patient.dateOfBirth && {
             patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
           }),
@@ -652,7 +652,7 @@ async function getSlotsForDayImpl(
 
       const appointmentContext = {
         appointmentTypeId,
-        dateTime: slot.startTime,
+        dateTime: asZonedDateTimeString(slot.startTime),
         ...(args.simulatedContext.patient.dateOfBirth && {
           patientDateOfBirth: args.simulatedContext.patient.dateOfBirth,
         }),
@@ -1065,7 +1065,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
 
       const appointmentContext: AppointmentContext = {
         appointmentTypeId: dummyAppointmentTypeId,
-        dateTime: slot.startTime,
+        dateTime: asZonedDateTimeString(slot.startTime),
         locationId: slot.locationId,
         practiceId: args.practiceId,
         practitionerId: slot.practitionerId,

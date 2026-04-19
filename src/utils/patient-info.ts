@@ -1,6 +1,8 @@
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { PatientInfo } from "../types";
 
+import { isIsoDateString } from "../../lib/typed-regex.js";
+
 export function formatPatientOptionLabel(patient: Doc<"patients">): string {
   const name = getPatientDocumentName(patient);
 
@@ -52,14 +54,22 @@ export function getPatientInfoDisplayName(patient: PatientInfo): string {
   return patient.email ?? "";
 }
 
+export function normalizePatientDateOfBirth(dateOfBirth?: string) {
+  if (dateOfBirth === undefined) {
+    return;
+  }
+
+  return isIsoDateString(dateOfBirth) ? dateOfBirth : undefined;
+}
+
 export function patientDocToInfo(patient: Doc<"patients">): PatientInfo {
+  const dateOfBirth = normalizePatientDateOfBirth(patient.dateOfBirth);
+
   if (patient.recordType === "temporary") {
     return {
       ...(patient.city !== undefined && { city: patient.city }),
       convexPatientId: patient._id,
-      ...(patient.dateOfBirth !== undefined && {
-        dateOfBirth: patient.dateOfBirth,
-      }),
+      ...(dateOfBirth !== undefined && { dateOfBirth }),
       isNewPatient: false,
       name:
         patient.name ??
@@ -73,9 +83,7 @@ export function patientDocToInfo(patient: Doc<"patients">): PatientInfo {
   return {
     ...(patient.city !== undefined && { city: patient.city }),
     convexPatientId: patient._id,
-    ...(patient.dateOfBirth !== undefined && {
-      dateOfBirth: patient.dateOfBirth,
-    }),
+    ...(dateOfBirth !== undefined && { dateOfBirth }),
     ...(patient.firstName !== undefined && { firstName: patient.firstName }),
     isNewPatient: false,
     ...(patient.lastName !== undefined && { lastName: patient.lastName }),
