@@ -1,3 +1,10 @@
+---
+name: convex-occ-atomicity
+description: Explains Convex optimistic concurrency control, atomicity, determinism, and serializability. Use when working on concurrent mutations, OCC conflicts, retry behavior, or transaction correctness in Convex.
+links:
+  doc: https://docs.convex.dev/database/advanced/occ
+---
+
 # OCC and Atomicity
 
 In [Queries](/functions/query-functions.md), we mentioned that determinism was important in the way optimistic concurrency control (OCC) was used within Convex. In this section, we'll dive much deeper into *why*.
@@ -91,4 +98,3 @@ It is common for optimistic multi-version concurrency control databases to provi
 The beauty of this approach is that you can simply write your mutation functions as if they will *always succeed*, and always be guaranteed to be atomic.
 
 Aside from sheer curiosity about how Convex works, day to day there's no need to worry about conflicts, locking, or atomicity when you make changes to your tables and documents. The "obvious way" to write your mutation functions will just work.
-

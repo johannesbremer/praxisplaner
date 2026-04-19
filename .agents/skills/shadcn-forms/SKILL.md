@@ -1,5 +1,5 @@
 ---
-title: TanStack Form
+name: shadcn-forms
 description: Build forms in React using TanStack Form and Zod.
 links:
   doc: https://tanstack.com/form
@@ -696,4 +696,3 @@ const formSchema = z.object({
     .max(5, "You can add up to 5 email addresses."),
 })
 ```
-
