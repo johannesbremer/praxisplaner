@@ -1,0 +1,37 @@
+diff --git a/dist/cli.mjs b/dist/cli.mjs
+index be1a0d1c38e6747065d59f4217ceb7e45da63e7c..6c01e0d7ea83aeefa1146953ba119a3aaa6aef0e 100755
+--- a/dist/cli.mjs
++++ b/dist/cli.mjs
+@@ -3075,6 +3075,7 @@ async function runAdd(args, options = {}) {
+ 						source: lockSource || parsed.url,
+ 						ref: parsed.ref,
+ 						sourceType: parsed.type,
++						skillPath: skillFiles[skill.name],
+ 						computedHash
+ 					}, cwd);
+ 				} catch {}
+@@ -4112,7 +4113,14 @@ function buildUpdateInstallSource(entry) {
+ 	if (entry.ref) installSource = `${installSource}#${entry.ref}`;
+ 	return installSource;
+ }
+-function buildLocalUpdateSource(entry) {
++function buildLocalUpdateSource(entry, skillName) {
++	if (entry.skillPath) return buildUpdateInstallSource({
++		source: entry.source,
++		sourceUrl: entry.source,
++		ref: entry.ref,
++		skillPath: entry.skillPath
++	});
++	if (skillName && typeof entry.source === "string" && /^(?:[^/]+)\/(?:[^/]+)$/.test(entry.source) && (entry.sourceType === "github" || entry.sourceType === "gitlab")) return formatSourceInput(`${entry.source}@${skillName}`, entry.ref);
+ 	return formatSourceInput(entry.source, entry.ref);
+ }
+ const __dirname = dirname(fileURLToPath(import.meta.url));
+@@ -4611,7 +4619,7 @@ async function updateProjectSkills(skillFilter) {
+ 	console.log();
+ 	for (const skill of projectSkills) {
+ 		console.log(`${TEXT}Updating ${skill.name}...${RESET}`);
+-		const installUrl = buildLocalUpdateSource(skill.entry);
++		const installUrl = buildLocalUpdateSource(skill.entry, skill.name);
+ 		const cliEntry = join(__dirname, "..", "bin", "cli.mjs");
+ 		if (!existsSync(cliEntry)) {
+ 			failCount++;
