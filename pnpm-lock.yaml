@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  skills@1.5.1:
+    hash: 57e8b6d405dd129d653032bb025acf68cc2ea584107b6250e18b627284345210
+    path: patches/skills@1.5.1.patch
+
 importers:
 
   .:
@@ -285,6 +290,9 @@ importers:
       prettier-plugin-sh:
         specifier: ^0.18.1
         version: 0.18.1(prettier@3.8.3)
+      skills:
+        specifier: 1.5.1
+        version: 1.5.1(patch_hash=57e8b6d405dd129d653032bb025acf68cc2ea584107b6250e18b627284345210)
       solid-js:
         specifier: ^1.9.12
         version: 1.9.12
@@ -5115,6 +5123,11 @@ packages:
 
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
+
+  skills@1.5.1:
+    resolution: {integrity: sha512-8LQFrbFPexuV8U1B0LnIexL2KRjGBNiy+9+rLp8iDrBQrVPhb6TbFon7ngspnTTqkA/Up+GkBbCeUGx0gtK2VQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   solid-js@1.9.12:
     resolution: {integrity: sha512-QzKaSJq2/iDrWR1As6MHZQ8fQkdOBf8GReYb7L5iKwMGceg7HxDcaOHk0at66tNgn9U2U7dXo8ZZpLIAmGMzgw==}
@@ -10885,6 +10898,10 @@ snapshots:
   siginfo@2.0.0: {}
 
   sisteransi@1.0.5: {}
+
+  skills@1.5.1(patch_hash=57e8b6d405dd129d653032bb025acf68cc2ea584107b6250e18b627284345210):
+    dependencies:
+      yaml: 2.8.3
 
   solid-js@1.9.12:
     dependencies:

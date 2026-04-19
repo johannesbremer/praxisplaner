@@ -8,6 +8,7 @@ package-lock.json
 .output
 .nitro
 .tanstack
+.claude/skills/
 
 src/routeTree.gen.ts
 bundle-analysis.json
