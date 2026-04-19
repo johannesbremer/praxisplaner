@@ -1,6 +1,10 @@
 import { Temporal } from "temporal-polyfill";
 
-import { TIME_OF_DAY_REGEX, type TimeString } from "@/lib/typed-regex";
+import {
+  type InstantString,
+  TIME_OF_DAY_REGEX,
+  type TimeString,
+} from "@/lib/typed-regex";
 
 /**
  * Duration of each time slot in minutes
@@ -95,6 +99,10 @@ export function safeParseISOToPlainDate(
 export function dateToTemporal(date: Date): Temporal.PlainDate {
   const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
   return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
+}
+
+export function toInstantString(date: Date): InstantString {
+  return date.toISOString() as InstantString;
 }
 
 /**

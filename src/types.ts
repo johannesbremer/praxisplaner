@@ -1,11 +1,12 @@
 // src/types.ts
 
 import type { Doc, Id } from "../convex/_generated/dataModel";
+import type { InstantString } from "../lib/typed-regex";
 
 // Use getSlotsForDay as the base query type since getAvailableSlots was removed
 export interface SchedulingDateRange {
-  end: string;
-  start: string;
+  end: InstantString;
+  start: InstantString;
 }
 export type SchedulingResult = SchedulingQuery["_returnType"];
 

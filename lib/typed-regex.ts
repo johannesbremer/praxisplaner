@@ -4,6 +4,7 @@ export const ISO_DATE_REGEX = regex.as<
   `${number}-${number}-${number}`,
   { captures: [`${number}`, `${number}`, `${number}`] }
 >(String.raw`^(\d{4})-(\d{2})-(\d{2})$`);
+export type InstantString = `${IsoDateString}T${string}Z`;
 export type IsoDateString = typeof ISO_DATE_REGEX.infer;
 
 export const DE_DATE_REGEX = regex.as<

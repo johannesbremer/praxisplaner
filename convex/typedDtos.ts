@@ -4,6 +4,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type {
   DeDateString,
+  InstantString,
   IsoDateString,
   TimeString,
 } from "../lib/typed-regex";
@@ -59,8 +60,8 @@ export type DataSharingContactInput = Omit<
 };
 
 export interface DateRangeInput {
-  end: ZonedDateTimeString;
-  start: ZonedDateTimeString;
+  end: InstantString;
+  start: InstantString;
 }
 
 export type PersonalDataInput = Omit<
@@ -154,8 +155,8 @@ export function asDateRangeInput(
   value: Infer<typeof dateRangeValidator>,
 ): DateRangeInput {
   return {
-    end: asZonedDateTimeString(value.end),
-    start: asZonedDateTimeString(value.start),
+    end: asInstantString(value.end),
+    start: asInstantString(value.start),
   };
 }
 
@@ -165,6 +166,14 @@ export function asDeDateString(value: string): DeDateString {
   }
 
   return value;
+}
+
+export function asInstantString(value: string): InstantString {
+  try {
+    return Temporal.Instant.from(value).toString() as InstantString;
+  } catch {
+    throw new Error(`Expected ISO instant string, got "${value}".`);
+  }
 }
 
 export function asIsoDateString(value: string): IsoDateString {

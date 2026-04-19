@@ -62,6 +62,7 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
+import { toInstantString } from "../utils/time-calculations";
 import {
   type RuleSetDiff,
   RuleSetDiffChangeCount,
@@ -889,8 +890,8 @@ function LogicView() {
   const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
 
   const dateRange = {
-    end: endOfDay.toISOString(),
-    start: startOfDay.toISOString(),
+    end: toInstantString(endOfDay),
+    start: toInstantString(startOfDay),
   };
 
   // With CoW, we don't need to explicitly create copies

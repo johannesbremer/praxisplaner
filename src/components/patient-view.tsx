@@ -37,6 +37,7 @@ import {
   formatDateLong,
   formatTime,
   safeParseISOToZoned,
+  toInstantString,
 } from "../utils/time-calculations";
 import { AppointmentTypeSelector } from "./appointment-type-selector";
 import { LocationSelector } from "./location-selector";
@@ -98,8 +99,8 @@ export function PatientView({
   })();
 
   const calendarDateRange = {
-    end: calendarEndDate.toISOString(),
-    start: calendarStartDate.toISOString(),
+    end: toInstantString(calendarEndDate),
+    start: toInstantString(calendarStartDate),
   } satisfies SchedulingDateRange;
 
   // Get available dates for the calendar (lightweight query, no rule evaluation)
