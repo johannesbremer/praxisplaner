@@ -1,5 +1,5 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "eslint.config.js"],
+  "include": ["**/*.ts", "**/*.tsx", "eslint.config.ts"],
   "compilerOptions": {
     "strict": true,
     "jsx": "react-jsx",

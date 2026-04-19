@@ -466,20 +466,22 @@ export function LocationsManagement({
                 ),
             );
             if (missingSchedules.length > 0) {
-              const scheduleResult = await createBaseScheduleBatchMutation({
-                practiceId,
-                schedules: missingSchedules.map((schedule) => {
+              const missingSchedulePayloads = Result.combine(
+                missingSchedules.map((schedule) => {
                   const practitionerByLineage = findFrontendEntityByLineageKey(
                     practitionersRef.current,
                     schedule.practitionerLineageKey,
                   );
                   if (!practitionerByLineage) {
-                    throw new Error(
-                      `[HISTORY:LOCATION_DELETE_PRACTITIONER_LINEAGE_MISSING] Behandler mit lineageKey ${schedule.practitionerLineageKey} konnte nicht geladen werden.`,
+                    return err(
+                      invalidStateError(
+                        `[HISTORY:LOCATION_DELETE_PRACTITIONER_LINEAGE_MISSING] Behandler mit lineageKey ${schedule.practitionerLineageKey} konnte nicht geladen werden.`,
+                        "LocationsManagement",
+                      ),
                     );
                   }
 
-                  return {
+                  return ok({
                     ...(schedule.breakTimes && {
                       breakTimes: schedule.breakTimes,
                     }),
@@ -489,8 +491,31 @@ export function LocationsManagement({
                     locationId: currentLocationId,
                     practitionerId: practitionerByLineage._id,
                     startTime: schedule.startTime,
-                  };
+                  });
                 }),
+              ).match(
+                (payloads) => payloads,
+                (error) => {
+                  captureFrontendError(error, {
+                    context:
+                      "location_delete_restore_schedule_practitioner_resolution",
+                    locationId: currentLocationId,
+                    practiceId,
+                    ruleSetId,
+                  });
+                  return {
+                    message: error.message,
+                    status: "conflict" as const,
+                  };
+                },
+              );
+              if ("status" in missingSchedulePayloads) {
+                return missingSchedulePayloads;
+              }
+
+              const scheduleResult = await createBaseScheduleBatchMutation({
+                practiceId,
+                schedules: missingSchedulePayloads,
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(scheduleResult);

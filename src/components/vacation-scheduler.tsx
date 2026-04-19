@@ -706,9 +706,13 @@ export function VacationScheduler({
             currentMfaId = redoResult.entityId;
             handleDraftMutationResult(redoResult);
           } catch (error) {
-            if (!isAlreadyExistingMfaError(error)) {
-              throw error;
+            if (isAlreadyExistingMfaError(error)) {
+              return { status: "applied" as const };
             }
+            return toLocalHistoryConflictResult(
+              error,
+              "MFA konnte nicht erneut erstellt werden.",
+            );
           }
           return { status: "applied" as const };
         },
@@ -722,9 +726,13 @@ export function VacationScheduler({
             })) as DraftMutationResult;
             handleDraftMutationResult(undoResult);
           } catch (error) {
-            if (!isMissingMfaError(error)) {
-              throw error;
+            if (isMissingMfaError(error)) {
+              return { status: "applied" as const };
             }
+            return toLocalHistoryConflictResult(
+              error,
+              "MFA konnte nicht entfernt werden.",
+            );
           }
           return { status: "applied" as const };
         },
@@ -768,9 +776,13 @@ export function VacationScheduler({
             })) as DraftMutationResult;
             handleDraftMutationResult(redoResult);
           } catch (error) {
-            if (!isMissingMfaError(error)) {
-              throw error;
+            if (isMissingMfaError(error)) {
+              return { status: "applied" as const };
             }
+            return toLocalHistoryConflictResult(
+              error,
+              "MFA konnte nicht erneut entfernt werden.",
+            );
           }
           return { status: "applied" as const };
         },
@@ -1791,6 +1803,13 @@ function isWeekend(date: Temporal.PlainDate) {
 
 function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return date.with({ day: 1 });
+}
+
+function toLocalHistoryConflictResult(error: unknown, fallbackMessage: string) {
+  return {
+    message: error instanceof Error ? error.message : fallbackMessage,
+    status: "conflict" as const,
+  };
 }
 
 function vacationStaffLineageMutationArgs(staff: StaffRow) {

@@ -1,9 +1,11 @@
+import { err, ok, type Result } from "neverthrow";
+
 import type { Id, TableNames } from "@/convex/_generated/dataModel";
 import type { EntityId, LineageKey } from "@/convex/identity";
 
 import { asEntityId, asLineageKey } from "@/convex/identity";
 
-import { frontendErrorToError, invalidStateError } from "./frontend-errors";
+import { captureFrontendError, invalidStateError } from "./frontend-errors";
 
 export type FrontendLineageEntity<
   TableName extends FrontendLineageTableName,
@@ -73,13 +75,33 @@ export function mapFrontendLineageEntities<
   entityType: string;
   source: string;
 }): FrontendLineageEntity<TableName, TEntity>[] {
-  return params.entities.map((entity) =>
-    toFrontendLineageEntity({
+  const mappedEntities: FrontendLineageEntity<TableName, TEntity>[] = [];
+
+  for (const entity of params.entities) {
+    toFrontendLineageEntity<TableName, TEntity>({
       entity,
       entityType: params.entityType,
       source: params.source,
-    }),
-  );
+    }).match(
+      (frontendEntity) => {
+        mappedEntities.push(frontendEntity);
+      },
+      (error) => {
+        captureFrontendError(
+          error,
+          {
+            context: "map_frontend_lineage_entities",
+            entityId: entity._id,
+            entityType: params.entityType,
+            source: params.source,
+          },
+          `${params.source}:${params.entityType}:${entity._id}:lineage`,
+        );
+      },
+    );
+  }
+
+  return mappedEntities;
 }
 
 export function requireFrontendLineageKey<
@@ -88,9 +110,9 @@ export function requireFrontendLineageKey<
   entity: FrontendLineageRecord<TableName>;
   entityType: string;
   source: string;
-}): LineageKey<TableName> {
+}): Result<LineageKey<TableName>, ReturnType<typeof invalidStateError>> {
   if (!params.entity.lineageKey) {
-    throw frontendErrorToError(
+    return err(
       invalidStateError(
         `[FRONTEND:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entity._id} hat keinen lineageKey.`,
         params.source,
@@ -98,7 +120,7 @@ export function requireFrontendLineageKey<
     );
   }
 
-  return asLineageKey(params.entity.lineageKey);
+  return ok(asLineageKey(params.entity.lineageKey));
 }
 
 export function toFrontendLineageEntity<
@@ -108,14 +130,17 @@ export function toFrontendLineageEntity<
   entity: TEntity;
   entityType: string;
   source: string;
-}): FrontendLineageEntity<TableName, TEntity> {
-  return {
+}): Result<
+  FrontendLineageEntity<TableName, TEntity>,
+  ReturnType<typeof invalidStateError>
+> {
+  return requireFrontendLineageKey({
+    entity: params.entity,
+    entityType: params.entityType,
+    source: params.source,
+  }).map((lineageKey) => ({
     ...params.entity,
     _id: asEntityId(params.entity._id),
-    lineageKey: requireFrontendLineageKey({
-      entity: params.entity,
-      entityType: params.entityType,
-      source: params.source,
-    }),
-  };
+    lineageKey,
+  }));
 }
