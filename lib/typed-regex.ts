@@ -6,6 +6,10 @@ export const ISO_DATE_REGEX = regex.as<
 >(String.raw`^(\d{4})-(\d{2})-(\d{2})$`);
 export type InstantString = `${IsoDateString}T${string}Z`;
 export type IsoDateString = typeof ISO_DATE_REGEX.infer;
+export function isInstantString(value: string): value is InstantString {
+  return value.endsWith("Z") && isZonedDateTimeString(value.slice(0, -1));
+}
+
 export function isIsoDateString(value: string): value is IsoDateString {
   return ISO_DATE_REGEX.test(value);
 }
@@ -29,6 +33,13 @@ export const TIME_OF_DAY_REGEX = regex.as<
 export type TimeString = typeof TIME_OF_DAY_REGEX.infer;
 export function isTimeString(value: string): value is TimeString {
   return TIME_OF_DAY_REGEX.test(value);
+}
+
+export function isZonedDateTimeString(
+  value: string,
+): value is `${IsoDateString}T${string}` {
+  const separatorIndex = value.indexOf("T");
+  return separatorIndex > 0 && isIsoDateString(value.slice(0, separatorIndex));
 }
 
 export const GDT_LINE_REGEX = regex.as<

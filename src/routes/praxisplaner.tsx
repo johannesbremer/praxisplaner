@@ -585,7 +585,7 @@ function PraxisPlanerComponent() {
           } else {
             const validation = isValidDate(birthDateField.content);
             normalizedBirthDate = validation.isValid
-              ? (validation.value as IsoDateString)
+              ? validation.value
               : undefined;
           }
 

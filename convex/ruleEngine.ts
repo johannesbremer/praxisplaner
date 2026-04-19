@@ -24,7 +24,11 @@ import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../lib/rule-name-generator.js";
-import { ISO_DATE_REGEX } from "../lib/typed-regex.js";
+import {
+  isIsoDateString,
+  ISO_DATE_REGEX,
+  isZonedDateTimeString,
+} from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
 import { requireLineageKey } from "./lineage";
 
@@ -390,18 +394,14 @@ export function asAppointmentContextInput(
     requestedAt: rawRequestedAt,
     ...rest
   } = value;
-  const patientDateOfBirth =
-    rawPatientDateOfBirth === undefined
-      ? undefined
-      : (() => {
-          if (!ISO_DATE_REGEX.test(rawPatientDateOfBirth)) {
-            throw new Error(
-              `Expected YYYY-MM-DD date string, got "${rawPatientDateOfBirth}".`,
-            );
-          }
-
-          return rawPatientDateOfBirth;
-        })();
+  if (
+    rawPatientDateOfBirth !== undefined &&
+    !isIsoDateString(rawPatientDateOfBirth)
+  ) {
+    throw new Error(
+      `Expected YYYY-MM-DD date string, got "${rawPatientDateOfBirth}".`,
+    );
+  }
   const requestedAt =
     rawRequestedAt === undefined
       ? undefined
@@ -410,7 +410,9 @@ export function asAppointmentContextInput(
   return {
     ...rest,
     dateTime: asRuleEngineZonedDateTimeString(dateTime),
-    ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+    ...(rawPatientDateOfBirth !== undefined && {
+      patientDateOfBirth: rawPatientDateOfBirth,
+    }),
     ...(requestedAt !== undefined && { requestedAt }),
   };
 }
@@ -420,7 +422,11 @@ function asRuleEngineZonedDateTimeString(
 ): RuleEngineZonedDateTimeString {
   try {
     const normalized = Temporal.ZonedDateTime.from(value).toString();
-    return normalized as RuleEngineZonedDateTimeString;
+    if (!isZonedDateTimeString(normalized)) {
+      throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
+    }
+
+    return normalized;
   } catch {
     throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
   }

@@ -2,6 +2,8 @@ import { Temporal } from "temporal-polyfill";
 
 import {
   type InstantString,
+  isInstantString,
+  isZonedDateTimeString,
   TIME_OF_DAY_REGEX,
   type TimeString,
 } from "@/lib/typed-regex";
@@ -100,11 +102,21 @@ export function dateToTemporal(date: Date): Temporal.PlainDate {
 }
 
 export function toInstantString(date: Date): InstantString {
-  return date.toISOString() as InstantString;
+  const instant = date.toISOString();
+  if (!isInstantString(instant)) {
+    return "1970-01-01T00:00:00Z";
+  }
+
+  return instant;
 }
 
 export function toZonedDateTimeString(value: string): ZonedDateTimeString {
-  return Temporal.ZonedDateTime.from(value).toString() as ZonedDateTimeString;
+  const normalized = Temporal.ZonedDateTime.from(value).toString();
+  if (!isZonedDateTimeString(normalized)) {
+    return "1970-01-01T00:00:00+00:00[UTC]";
+  }
+
+  return normalized;
 }
 
 /**

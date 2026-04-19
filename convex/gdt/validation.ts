@@ -5,7 +5,11 @@ import type {
 } from "./types";
 
 import { regex } from "../../lib/arkregex.js";
-import { GDT_DATE_REGEX, GDT_LINE_REGEX } from "../../lib/typed-regex.js";
+import {
+  GDT_DATE_REGEX,
+  GDT_LINE_REGEX,
+  isIsoDateString,
+} from "../../lib/typed-regex.js";
 import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
 
 const GDT_LINE_SPLIT_REGEX = regex.as(String.raw`\r?\n`);
@@ -78,9 +82,20 @@ export function isValidDate(date: string): DateValidationResult {
   }
 
   // Convert to YYYY-MM-DD format
+  const normalizedDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (!isIsoDateString(normalizedDate)) {
+    return {
+      error: {
+        message: "Failed to normalize date to YYYY-MM-DD",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
+  }
+
   return {
     isValid: true,
-    value: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    value: normalizedDate,
   };
 }
 

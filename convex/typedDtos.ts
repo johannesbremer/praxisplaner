@@ -11,7 +11,9 @@ import type {
 
 import {
   DE_DATE_REGEX,
-  ISO_DATE_REGEX,
+  isInstantString,
+  isIsoDateString,
+  isZonedDateTimeString,
   TIME_OF_DAY_REGEX,
 } from "../lib/typed-regex.js";
 import {
@@ -175,14 +177,19 @@ export function asDeDateString(value: string): DeDateString {
 
 export function asInstantString(value: string): InstantString {
   try {
-    return Temporal.Instant.from(value).toString() as InstantString;
+    const normalized = Temporal.Instant.from(value).toString();
+    if (!isInstantString(normalized)) {
+      throw new Error(`Expected ISO instant string, got "${value}".`);
+    }
+
+    return normalized;
   } catch {
     throw new Error(`Expected ISO instant string, got "${value}".`);
   }
 }
 
 export function asIsoDateString(value: string): IsoDateString {
-  if (!ISO_DATE_REGEX.test(value)) {
+  if (!isIsoDateString(value)) {
     throw new Error(`Expected YYYY-MM-DD date string, got "${value}".`);
   }
 
@@ -267,7 +274,11 @@ export function asZonedDateTimeString(value: string): ZonedDateTimeString {
   try {
     const zonedDateTime = Temporal.ZonedDateTime.from(value);
     const normalized = zonedDateTime.toString();
-    return normalized as ZonedDateTimeString;
+    if (!isZonedDateTimeString(normalized)) {
+      throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
+    }
+
+    return normalized;
   } catch {
     throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
   }

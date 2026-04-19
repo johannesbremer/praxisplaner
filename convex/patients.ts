@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 
-import { ISO_DATE_REGEX } from "../lib/typed-regex.js";
+import { isIsoDateString } from "../lib/typed-regex.js";
 import { mutation, query } from "./_generated/server";
 import { isValidDate } from "./gdt/validation";
 import {
@@ -70,13 +70,13 @@ function normalizePatientDateOfBirth(
     return undefined;
   }
 
-  if (ISO_DATE_REGEX.test(value)) {
+  if (isIsoDateString(value)) {
     return value;
   }
 
   const validation = isValidDate(value);
   if (validation.isValid) {
-    return validation.value as IsoDateString;
+    return validation.value;
   }
 
   throw new Error(
