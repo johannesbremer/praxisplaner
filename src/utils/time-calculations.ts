@@ -1,3 +1,4 @@
+import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
 
 import {
@@ -9,6 +10,8 @@ import {
 } from "@/lib/typed-regex";
 
 import type { ZonedDateTimeString } from "../../convex/typedDtos";
+
+import { invalidStateError } from "./frontend-errors";
 
 /**
  * Duration of each time slot in minutes
@@ -25,6 +28,23 @@ const TIMEZONE = "Europe/Berlin";
  * Noon is chosen because it's far from DST transitions which typically occur at 2-3 AM.
  */
 const SAFE_TIME_OF_DAY = "12:00:00";
+
+export function dateToInstantStringResult(
+  date: Date,
+  source: string,
+): Result<InstantString, ReturnType<typeof invalidStateError>> {
+  const instant = date.toISOString();
+  if (!isInstantString(instant)) {
+    return err(
+      invalidStateError(
+        `Expected Date to serialize to ISO instant, got "${instant}".`,
+        source,
+      ),
+    );
+  }
+
+  return ok(instant);
+}
 
 export function isTimeString(value: unknown): value is TimeString {
   return typeof value === "string" && TIME_OF_DAY_REGEX.test(value);
@@ -47,6 +67,46 @@ function parseTimeParts(
     hours: Number(hours),
     minutes: Number(minutes),
   };
+}
+
+/**
+ * Converts a JS Date to Temporal.PlainDate.
+ * Uses the Europe/Berlin timezone.
+ */
+export function dateToTemporal(date: Date): Temporal.PlainDate {
+  const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
+  return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
+}
+
+export function parseTimeStringResult(
+  value: string,
+  source: string,
+): Result<TimeString, ReturnType<typeof invalidStateError>> {
+  if (!isTimeString(value)) {
+    return err(
+      invalidStateError(`Expected HH:mm time string, got "${value}".`, source),
+    );
+  }
+
+  return ok(value);
+}
+
+/**
+ * Safely parses a ZonedDateTime ISO string to a Temporal.PlainDate.
+ * Expects format: `2024-01-15T10:30:00+01:00[Europe/Berlin]`.
+ * @param isoString The ZonedDateTime ISO 8601 string to parse.
+ * @returns The parsed Temporal.PlainDate, or null if parsing fails.
+ * @example
+ * ```ts
+ * safeParseISOToPlainDate("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.PlainDate
+ * safeParseISOToPlainDate("invalid") // null
+ * ```
+ */
+export function safeParseISOToPlainDate(
+  isoString: string,
+): null | Temporal.PlainDate {
+  const zoned = safeParseISOToZoned(isoString);
+  return zoned ? zoned.toPlainDate() : null;
 }
 
 /**
@@ -74,49 +134,31 @@ export function safeParseISOToZoned(
   }
 }
 
-/**
- * Safely parses a ZonedDateTime ISO string to a Temporal.PlainDate.
- * Expects format: `2024-01-15T10:30:00+01:00[Europe/Berlin]`.
- * @param isoString The ZonedDateTime ISO 8601 string to parse.
- * @returns The parsed Temporal.PlainDate, or null if parsing fails.
- * @example
- * ```ts
- * safeParseISOToPlainDate("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.PlainDate
- * safeParseISOToPlainDate("invalid") // null
- * ```
- */
-export function safeParseISOToPlainDate(
-  isoString: string,
-): null | Temporal.PlainDate {
-  const zoned = safeParseISOToZoned(isoString);
-  return zoned ? zoned.toPlainDate() : null;
-}
+export function zonedDateTimeStringResult(
+  value: string,
+  source: string,
+): Result<ZonedDateTimeString, ReturnType<typeof invalidStateError>> {
+  try {
+    const normalized = Temporal.ZonedDateTime.from(value).toString();
+    if (!isZonedDateTimeString(normalized)) {
+      return err(
+        invalidStateError(
+          `Expected ISO zoned datetime string, got "${value}".`,
+          source,
+        ),
+      );
+    }
 
-/**
- * Converts a JS Date to Temporal.PlainDate.
- * Uses the Europe/Berlin timezone.
- */
-export function dateToTemporal(date: Date): Temporal.PlainDate {
-  const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
-  return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
-}
-
-export function toInstantString(date: Date): InstantString {
-  const instant = date.toISOString();
-  if (!isInstantString(instant)) {
-    return "1970-01-01T00:00:00Z";
+    return ok(normalized);
+  } catch (error) {
+    return err(
+      invalidStateError(
+        `Expected ISO zoned datetime string, got "${value}".`,
+        source,
+        error,
+      ),
+    );
   }
-
-  return instant;
-}
-
-export function toZonedDateTimeString(value: string): ZonedDateTimeString {
-  const normalized = Temporal.ZonedDateTime.from(value).toString();
-  if (!isZonedDateTimeString(normalized)) {
-    return "1970-01-01T00:00:00+00:00[UTC]";
-  }
-
-  return normalized;
 }
 
 /**

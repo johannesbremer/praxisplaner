@@ -6,6 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentResult } from "../../../convex/appointments";
+import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
@@ -17,6 +18,7 @@ import {
 import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
+import { createOptimisticId } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
@@ -29,7 +31,7 @@ import {
   safeParseISOToPlainDate,
   safeParseISOToZoned,
   temporalDayToLegacy,
-  toZonedDateTimeString,
+  zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
 import {
@@ -227,8 +229,8 @@ export function useCalendarLogic({
       return false;
     }
 
-    const appointmentDoc = appointmentDocMapRef.current.get(
-      appointmentId as Id<"appointments">,
+    const appointmentDoc = [...appointmentDocMapRef.current.values()].find(
+      (appointment) => appointment._id === appointmentId,
     );
     return (
       appointmentDoc?.seriesId !== undefined &&
@@ -242,6 +244,18 @@ export function useCalendarLogic({
       "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
     );
   }, []);
+
+  const parseZonedDateTime = useCallback(
+    (value: string, source: string): null | ZonedDateTimeString =>
+      zonedDateTimeStringResult(value, source).match(
+        (typedValue) => typedValue,
+        (error) => {
+          captureFrontendError(error, { source, value });
+          return null;
+        },
+      ),
+    [],
+  );
 
   // Use ruleSetId if provided (simulation mode), otherwise get from active
   const practitionersData = useQuery(
@@ -619,7 +633,7 @@ export function useCalendarLogic({
           }
 
           const now = Date.now();
-          const tempId = globalThis.crypto.randomUUID() as Id<"appointments">;
+          const tempId = createOptimisticId<"appointments">();
 
           const appointmentTypeInfo = appointmentTypeMap.get(
             optimisticArgs.appointmentTypeId,
@@ -629,6 +643,17 @@ export function useCalendarLogic({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             start: optimisticArgs.start,
           });
+          const typedStart = parseZonedDateTime(
+            optimisticArgs.start,
+            "useCalendarLogic.optimisticCreate.start",
+          );
+          const typedEnd = parseZonedDateTime(
+            optimisticEnd,
+            "useCalendarLogic.optimisticCreate.end",
+          );
+          if (!typedStart || !typedEnd) {
+            return;
+          }
 
           const newAppointment: AppointmentResult = {
             _creationTime: now,
@@ -636,12 +661,12 @@ export function useCalendarLogic({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             appointmentTypeTitle,
             createdAt: BigInt(now),
-            end: toZonedDateTimeString(optimisticEnd),
+            end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
             locationId: optimisticArgs.locationId,
             practiceId: optimisticArgs.practiceId,
-            start: toZonedDateTimeString(optimisticArgs.start),
+            start: typedStart,
             title: optimisticArgs.title,
           };
 
@@ -678,10 +703,11 @@ export function useCalendarLogic({
       )(args);
     },
     [
-      createAppointmentMutation,
-      appointmentsQueryArgs,
       appointmentTypeMap,
+      appointmentsQueryArgs,
+      createAppointmentMutation,
       getAppointmentCreationEnd,
+      parseZonedDateTime,
     ],
   );
 
@@ -706,14 +732,39 @@ export function useCalendarLogic({
           return appointment;
         }
 
+        const nextStart =
+          optimisticArgs.start === undefined
+            ? undefined
+            : parseZonedDateTime(
+                optimisticArgs.start,
+                "useCalendarLogic.optimisticUpdate.start",
+              );
+        const nextEnd =
+          optimisticArgs.end === undefined
+            ? undefined
+            : parseZonedDateTime(
+                optimisticArgs.end,
+                "useCalendarLogic.optimisticUpdate.end",
+              );
+        if (
+          (optimisticArgs.start !== undefined && nextStart === null) ||
+          (optimisticArgs.end !== undefined && nextEnd === null)
+        ) {
+          return appointment;
+        }
+
+        const timeUpdates: Partial<Pick<AppointmentResult, "end" | "start">> =
+          {};
+        if (nextStart !== undefined && nextStart !== null) {
+          timeUpdates.start = nextStart;
+        }
+        if (nextEnd !== undefined && nextEnd !== null) {
+          timeUpdates.end = nextEnd;
+        }
+
         return {
           ...appointment,
-          ...(optimisticArgs.start !== undefined && {
-            start: toZonedDateTimeString(optimisticArgs.start),
-          }),
-          ...(optimisticArgs.end !== undefined && {
-            end: toZonedDateTimeString(optimisticArgs.end),
-          }),
+          ...timeUpdates,
           ...(optimisticArgs.practitionerId !== undefined && {
             practitionerId: optimisticArgs.practitionerId,
           }),
@@ -733,7 +784,7 @@ export function useCalendarLogic({
         updatedAppointments,
       );
     },
-    [appointmentsQueryArgs, updateAppointmentMutation],
+    [appointmentsQueryArgs, parseZonedDateTime, updateAppointmentMutation],
   );
 
   const getAppointmentUpdateMutation = useCallback(
@@ -813,7 +864,7 @@ export function useCalendarLogic({
           }
 
           const now = Date.now();
-          const tempId = globalThis.crypto.randomUUID() as Id<"blockedSlots">;
+          const tempId = createOptimisticId<"blockedSlots">();
 
           const newBlockedSlot: Doc<"blockedSlots"> = {
             _creationTime: now,
@@ -1037,15 +1088,25 @@ export function useCalendarLogic({
         practitionerId: before.practitionerId,
         start: before.start,
       };
+      const typedEnd =
+        args.end === undefined
+          ? undefined
+          : parseZonedDateTime(args.end, "useCalendarLogic.afterState.end");
+      const typedStart =
+        args.start === undefined
+          ? undefined
+          : parseZonedDateTime(args.start, "useCalendarLogic.afterState.start");
+      if (
+        (args.end !== undefined && typedEnd === null) ||
+        (args.start !== undefined && typedStart === null)
+      ) {
+        return;
+      }
 
       const afterState = {
-        end:
-          args.end === undefined ? before.end : toZonedDateTimeString(args.end),
+        end: typedEnd ?? before.end,
         practitionerId: args.practitionerId ?? before.practitionerId,
-        start:
-          args.start === undefined
-            ? before.start
-            : toZonedDateTimeString(args.start),
+        start: typedStart ?? before.start,
       };
 
       const matchesState = (
@@ -1135,6 +1196,7 @@ export function useCalendarLogic({
     [
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
+      parseZonedDateTime,
       pushHistoryAction,
       runUpdateAppointmentInternal,
     ],
@@ -1877,6 +1939,13 @@ export function useCalendarLogic({
     blockedSlotsData,
     vacationsData,
   ]);
+
+  const getPractitionerIdForColumn = useCallback(
+    (column: string): Id<"practitioners"> | undefined =>
+      workingPractitioners.find((practitioner) => practitioner.id === column)
+        ?.id,
+    [workingPractitioners],
+  );
 
   // Filter appointments by date
   const dateFilteredAppointments = useMemo(() => {
@@ -2754,9 +2823,8 @@ export function useCalendarLogic({
       // Extract practitioner ID with proper type safety
       const practitionerId: Id<"practitioners"> | undefined =
         options.practitionerId ??
-        (appointment.column !== "ekg" && appointment.column !== "labor"
-          ? (appointment.column as Id<"practitioners">)
-          : appointment.resource?.practitionerId);
+        getPractitionerIdForColumn(appointment.column) ??
+        appointment.resource?.practitionerId;
 
       // Use validated simulatedContext with proper typing
       const contextLocationId: Id<"locations"> | undefined =
@@ -2905,6 +2973,7 @@ export function useCalendarLogic({
         );
     },
     [
+      getPractitionerIdForColumn,
       patientDateOfBirth,
       patientIsNewPatient,
       practiceId,
@@ -3175,10 +3244,7 @@ export function useCalendarLogic({
           minutes: blockedSlot.duration ?? 30,
         });
 
-        const newPractitionerId =
-          column !== "ekg" && column !== "labor"
-            ? (column as Id<"practitioners">)
-            : undefined;
+        const newPractitionerId = getPractitionerIdForColumn(column);
 
         if (simulatedContext) {
           if (!blockedSlot.id || !blockedSlotDoc) {
@@ -3209,10 +3275,10 @@ export function useCalendarLogic({
                 : {}),
             });
           }
-        } else if (blockedSlot.id) {
+        } else if (blockedSlotDoc) {
           await runUpdateBlockedSlot({
             end: endZoned.toString(),
-            id: blockedSlot.id as Id<"blockedSlots">,
+            id: blockedSlotDoc._id,
             ...(newPractitionerId && { practitionerId: newPractitionerId }),
             start: startZoned.toString(),
           });
@@ -3255,9 +3321,8 @@ export function useCalendarLogic({
 
       if (draggedAppointment.convexId) {
         const newPractitionerId =
-          column !== "ekg" && column !== "labor"
-            ? (column as Id<"practitioners">)
-            : draggedAppointment.resource?.practitionerId;
+          getPractitionerIdForColumn(column) ??
+          draggedAppointment.resource?.practitionerId;
 
         if (simulatedContext && !draggedAppointment.isSimulation) {
           await convertRealAppointmentToSimulation(draggedAppointment, {
@@ -3817,8 +3882,13 @@ export function useCalendarLogic({
         const blockedSlot = manualBlockedSlots.find(
           (bs) => bs.id === resizingBlockedSlot.blockedSlotId,
         );
+        const blockedSlotDoc =
+          blockedSlot?.id === undefined
+            ? undefined
+            : blockedSlotDocMapRef.current.get(blockedSlot.id);
         if (
           blockedSlot?.startSlot !== undefined &&
+          blockedSlotDoc !== undefined &&
           !checkCollision(
             blockedSlot.column,
             blockedSlot.startSlot,
@@ -3839,7 +3909,7 @@ export function useCalendarLogic({
 
               await runUpdateBlockedSlot({
                 end: endZoned.toString(),
-                id: resizingBlockedSlot.blockedSlotId as Id<"blockedSlots">,
+                id: blockedSlotDoc._id,
                 ...(simulatedContext && { isSimulation: true }),
               });
             } catch (error) {

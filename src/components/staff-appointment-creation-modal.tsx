@@ -36,7 +36,7 @@ import {
   resultFromNullable,
 } from "../utils/frontend-errors";
 import { getPatientInfoDisplayName } from "../utils/patient-info";
-import { toZonedDateTimeString } from "../utils/time-calculations";
+import { zonedDateTimeStringResult } from "../utils/time-calculations";
 import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
@@ -298,9 +298,19 @@ export function StaffAppointmentCreationModal({
     if (!selectedAppointmentType) {
       return;
     }
-    const start = toZonedDateTimeString(
+    const start = zonedDateTimeStringResult(
       Temporal.ZonedDateTime.from(slot.startTime).toString(),
+      "StaffAppointmentCreationModal.start",
+    ).match(
+      (typedStart) => typedStart,
+      (error) => {
+        toast.error(error.message);
+        return null;
+      },
     );
+    if (!start) {
+      return;
+    }
 
     await ResultAsync.fromPromise(
       runCreateAppointment(

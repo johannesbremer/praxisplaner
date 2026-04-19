@@ -49,6 +49,7 @@ import { VacationScheduler } from "../components/vacation-scheduler";
 import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../hooks/use-local-history";
+import { findIdInList } from "../utils/convex-ids";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -62,7 +63,7 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
-import { toInstantString } from "../utils/time-calculations";
+import { dateToInstantStringResult } from "../utils/time-calculations";
 import {
   type RuleSetDiff,
   RuleSetDiffChangeCount,
@@ -819,7 +820,7 @@ function LogicView() {
       return;
     }
 
-    pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
+    pushUrl({ ruleSetId: unsavedRuleSet._id });
   }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
 
   React.useEffect(() => {
@@ -882,17 +883,22 @@ function LogicView() {
 
   // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
   // This is still used by PatientBookingFlow which hasn't been converted to Temporal yet
-  const year = selectedDate.getFullYear();
-  const month = selectedDate.getMonth();
-  const date = selectedDate.getDate();
+  const dateRange = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    const date = selectedDate.getDate();
+    const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
 
-  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
-  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
-
-  const dateRange = {
-    end: toInstantString(endOfDay),
-    start: toInstantString(startOfDay),
-  };
+    return dateToInstantStringResult(startOfDay, "Regeln.startOfDay").match(
+      (start) =>
+        dateToInstantStringResult(endOfDay, "Regeln.endOfDay").match(
+          (end) => ({ end, start }),
+          () => null,
+        ),
+      () => null,
+    );
+  }, [selectedDate]);
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
@@ -903,7 +909,14 @@ function LogicView() {
         return;
       }
 
-      const versionId = version.hash as Id<"ruleSets">;
+      const versionId = findIdInList(
+        (ruleSetsQuery ?? []).map((ruleSet) => ruleSet._id),
+        version.hash,
+      );
+      if (!versionId) {
+        toast.error("Regelset-Version konnte nicht aufgelöst werden");
+        return;
+      }
 
       // If we have unsaved changes and the target is not the unsaved draft, show save dialog
       if (hasBlockingUnsavedChanges && versionId !== unsavedRuleSet?._id) {
@@ -917,7 +930,13 @@ function LogicView() {
       setUnsavedRuleSetId(null);
       pushUrl({ ruleSetId: versionId });
     },
-    [currentPractice, hasBlockingUnsavedChanges, pushUrl, unsavedRuleSet],
+    [
+      currentPractice,
+      hasBlockingUnsavedChanges,
+      pushUrl,
+      ruleSetsQuery,
+      unsavedRuleSet,
+    ],
   );
 
   // Show loading state if practice is being initialized
@@ -1311,7 +1330,7 @@ function LogicView() {
 
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
-                {resolvedCurrentWorkingRuleSet ? (
+                {resolvedCurrentWorkingRuleSet && dateRange ? (
                   <div className="flex justify-center">
                     <PatientBookingFlow
                       dateRange={dateRange}

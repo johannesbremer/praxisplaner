@@ -356,7 +356,7 @@ export async function buildPreloadedDayData(
  * This is the data available when evaluating whether a rule should block an appointment.
  */
 export const appointmentContextValidator = v.object({
-  appointmentTypeId: v.id("appointmentTypes"),
+  appointmentTypeId: v.optional(v.id("appointmentTypes")),
   // Client type (e.g., "Online", "MFA", "Phone-AI")
   clientType: v.optional(v.string()),
   // ISO datetime string
@@ -557,11 +557,7 @@ function evaluateCondition(
   switch (conditionType) {
     case "APPOINTMENT_TYPE": {
       // Compare appointment type IDs
-      const isMatch =
-        valueIds && valueIds.length > 0
-          ? valueIds.includes(context.appointmentTypeId)
-          : false;
-      return operator === "IS" ? isMatch : !isMatch;
+      return checkIdMembership(context.appointmentTypeId, valueIds);
     }
 
     case "CLIENT_TYPE": {
@@ -1475,11 +1471,19 @@ function isRuleTreeAppointmentTypeIndependent(
  *
  * Returns a structured object containing all rules and all their conditions pre-loaded.
  */
+interface LoadedRulesForRuleSetResult {
+  conditions: Doc<"ruleConditions">[];
+  dayInvariantCount: number;
+  rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+  timeVariantCount: number;
+  totalConditions: number;
+}
+
 export const loadRulesForRuleSet = internalQuery({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<LoadedRulesForRuleSetResult> => {
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -1526,7 +1530,6 @@ export const loadRulesForRuleSet = internalQuery({
 
     return {
       conditions: allConditions,
-      conditionsMap: Object.fromEntries(conditionsMap),
       dayInvariantCount: classifiedRules.filter((r) => r.isDayInvariant).length,
       rules: classifiedRules,
       timeVariantCount: classifiedRules.filter((r) => !r.isDayInvariant).length,
@@ -1535,7 +1538,6 @@ export const loadRulesForRuleSet = internalQuery({
   },
   returns: v.object({
     conditions: v.array(v.any()),
-    conditionsMap: v.any(),
     dayInvariantCount: v.number(),
     rules: v.array(
       v.object({
@@ -1556,7 +1558,10 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<AppointmentTypeIndependentRulesResult> => {
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -1631,7 +1636,6 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
 
     return {
       conditions: relevantConditions,
-      conditionsMap: Object.fromEntries(filteredConditionsMap),
       rules: appointmentTypeIndependentRules.map((r) => ({
         _id: r._id,
         isDayInvariant: false, // Not used in this context
@@ -1640,7 +1644,6 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
   },
   returns: v.object({
     conditions: v.array(v.any()),
-    conditionsMap: v.any(),
     rules: v.array(
       v.object({
         _id: v.id("ruleConditions"),
@@ -1649,6 +1652,11 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
     ),
   }),
 });
+
+interface AppointmentTypeIndependentRulesResult {
+  conditions: Doc<"ruleConditions">[];
+  rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+}
 
 /**
  * PERFORMANCE OPTIMIZATION: Pre-evaluate day-invariant rules once per query execution.

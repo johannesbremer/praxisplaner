@@ -70,7 +70,7 @@ import {
 } from "../utils/public-holidays";
 import {
   formatDateFull,
-  toZonedDateTimeString,
+  zonedDateTimeStringResult,
 } from "../utils/time-calculations";
 
 type AppointmentConflict = Pick<
@@ -950,20 +950,37 @@ export function VacationScheduler({
     editable && conflictDialog?.staff.kind === "practitioner";
   const coveragePreviewEntries = useMemo<ConflictEntry[]>(
     () =>
-      (coveragePreview?.suggestions ?? []).map((suggestion) => ({
-        conflict: {
-          end: toZonedDateTimeString(suggestion.end),
-          id: suggestion.appointmentId,
-          locationId: suggestion.locationId,
-          ...(suggestion.patientId === undefined
-            ? {}
-            : { patientId: suggestion.patientId }),
-          start: toZonedDateTimeString(suggestion.start),
-          title: suggestion.title,
-          ...(suggestion.userId ? { userId: suggestion.userId } : {}),
-        },
-        coverageSuggestion: suggestion,
-      })),
+      (coveragePreview?.suggestions ?? []).flatMap((suggestion) => {
+        return zonedDateTimeStringResult(
+          suggestion.start,
+          "VacationScheduler.coverageSuggestion.start",
+        ).match(
+          (start) =>
+            zonedDateTimeStringResult(
+              suggestion.end,
+              "VacationScheduler.coverageSuggestion.end",
+            ).match(
+              (end) => [
+                {
+                  conflict: {
+                    end,
+                    id: suggestion.appointmentId,
+                    locationId: suggestion.locationId,
+                    ...(suggestion.patientId === undefined
+                      ? {}
+                      : { patientId: suggestion.patientId }),
+                    start,
+                    title: suggestion.title,
+                    ...(suggestion.userId ? { userId: suggestion.userId } : {}),
+                  },
+                  coverageSuggestion: suggestion,
+                },
+              ],
+              () => [],
+            ),
+          () => [],
+        );
+      }),
     [coveragePreview],
   );
   const coverageDialogEntries = useMemo(

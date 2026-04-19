@@ -528,11 +528,8 @@ async function getSlotsForDayImpl(
       { ruleSetId },
     );
 
-    // Reconstruct the Map ONCE here to avoid repeated serialization
     const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
-      Object.entries(
-        rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
-      ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
+      rulesResultRaw.conditions.map((condition) => [condition._id, condition]),
     );
 
     const rulesData = {
@@ -1025,11 +1022,8 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       return { slots: [] };
     }
 
-    // Reconstruct the Map
     const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
-      Object.entries(
-        rulesResultRaw.conditionsMap as Record<string, Doc<"ruleConditions">>,
-      ).map(([id, condition]) => [id as Id<"ruleConditions">, condition]),
+      rulesResultRaw.conditions.map((condition) => [condition._id, condition]),
     );
 
     const rulesData = {
@@ -1054,17 +1048,12 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       practitioners,
     );
 
-    // Evaluate appointment-type-independent rules for each slot
-    // We use a dummy appointment type ID since these rules don't depend on it
-    const dummyAppointmentTypeId = "" as Id<"appointmentTypes">;
-
     for (const slot of candidateSlots) {
       if (slot.status === "BLOCKED") {
         continue;
       }
 
       const appointmentContext: AppointmentContext = {
-        appointmentTypeId: dummyAppointmentTypeId,
         dateTime: asZonedDateTimeString(slot.startTime),
         locationId: slot.locationId,
         practiceId: args.practiceId,

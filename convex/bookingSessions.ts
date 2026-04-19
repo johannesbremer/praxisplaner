@@ -672,6 +672,10 @@ async function getStepRow<T extends StepTableName>(
   return rows[0] ?? null;
 }
 
+function getStepRowId<T extends StepTableName>(row: StepTableDocMap[T]): Id<T> {
+  return row._id as Id<T>;
+}
+
 async function hasValidStepEntryUserAssociation(
   ctx: QueryCtx,
   session: Doc<"bookingSessions">,
@@ -727,6 +731,27 @@ async function setSessionStep(
   });
 }
 
+function toStepInsertData<T extends StepTableName>(
+  data: StepTableInput<T>,
+  now: bigint,
+): StepTableInsert<T> {
+  return {
+    ...data,
+    createdAt: now,
+    lastModified: now,
+  } as StepTableInsert<T>;
+}
+
+function toStepPatchData<T extends StepTableName>(
+  data: StepTableInput<T>,
+  now: bigint,
+): Partial<StepTableInsert<T>> {
+  return {
+    ...data,
+    lastModified: now,
+  } as unknown as Partial<StepTableInsert<T>>;
+}
+
 async function upsertStep<T extends StepTableName>(
   ctx: MutationCtx,
   tableName: T,
@@ -752,20 +777,15 @@ async function upsertStep<T extends StepTableName>(
 
   const existingRow = await getStepRow(ctx, tableName, expectedSessionId);
   if (existingRow) {
-    const patchData = {
-      ...data,
-      lastModified: now,
-    } as unknown as Partial<StepTableInsert<T>>;
-    await STEP_PATCH_MAP[tableName](ctx, existingRow._id as Id<T>, patchData);
+    await STEP_PATCH_MAP[tableName](
+      ctx,
+      getStepRowId(existingRow),
+      toStepPatchData(data, now),
+    );
     return;
   }
 
-  const insertData = {
-    ...data,
-    createdAt: now,
-    lastModified: now,
-  } as StepTableInsert<T>;
-  await STEP_INSERT_MAP[tableName](ctx, insertData);
+  await STEP_INSERT_MAP[tableName](ctx, toStepInsertData(data, now));
 }
 
 /**
