@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import { ISO_DATE_REGEX } from "@/lib/typed-regex";
 
 import type { StepComponentProps } from "./types";
 
@@ -53,10 +54,7 @@ const dataSharingPersonSchema = z.object({
   city: z.string().trim().min(1, "Ort ist erforderlich"),
   dateOfBirth: z
     .string()
-    .regex(
-      /^\d{4}-\d{2}-\d{2}$/,
-      "Geburtsdatum muss im Format YYYY-MM-DD sein",
-    ),
+    .regex(ISO_DATE_REGEX, "Geburtsdatum muss im Format YYYY-MM-DD sein"),
   firstName: z.string().trim().min(1, "Vorname ist erforderlich"),
   gender: z.enum(["male", "female", "diverse"], {
     error: "Geschlecht ist erforderlich",

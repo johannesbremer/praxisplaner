@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
 import { asMfaId, asMfaLineageKey } from "@/convex/identity";
+import { GDT_DATE_REGEX } from "@/lib/typed-regex";
 import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -1773,10 +1774,9 @@ function formatGermanDate(dateString: string) {
     const date = Temporal.PlainDate.from(dateString);
     return `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`;
   } catch {
-    if (/^\d{8}$/.test(dateString)) {
-      const day = dateString.slice(0, 2);
-      const month = dateString.slice(2, 4);
-      const year = dateString.slice(4, 8);
+    const gdtDateMatch = GDT_DATE_REGEX.exec(dateString);
+    if (gdtDateMatch) {
+      const [, day, month, year] = gdtDateMatch;
       return `${day}.${month}.${year}`;
     }
 

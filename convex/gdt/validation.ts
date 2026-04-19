@@ -4,6 +4,7 @@ import type {
   GdtValidationResult,
 } from "./types";
 
+import { GDT_DATE_REGEX, GDT_LINE_REGEX } from "../../lib/typed-regex.js";
 import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
 
 /**
@@ -11,7 +12,7 @@ import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
  * Returns a DateValidationResult with either a converted date string or an error.
  */
 export function isValidDate(date: string): DateValidationResult {
-  if (!/^\d{8}$/.test(date)) {
+  if (!GDT_DATE_REGEX.test(date)) {
     return {
       error: {
         message: "Date must be exactly 8 digits",
@@ -86,16 +87,18 @@ export function parseGdtLine(line: string): GdtField | null {
     return null;
   }
 
-  const lengthStr = line.slice(0, 3);
-  const fieldId = line.slice(3, 7);
-  const content = line.slice(7).trim();
+  const match = GDT_LINE_REGEX.exec(line);
+  if (!match) {
+    return null;
+  }
 
+  const [, lengthStr, fieldId, rawContent] = match;
   const length = Number.parseInt(lengthStr, 10);
   if (Number.isNaN(length)) {
     return null;
   }
 
-  return { content, fieldId, length };
+  return { content: rawContent.trim(), fieldId, length };
 }
 
 /** Validates GDT content according to specification. */

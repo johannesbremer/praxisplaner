@@ -1,10 +1,12 @@
+import type { DeDateString } from "@/lib/typed-regex";
+
 import { isValidDateDE } from "./date-utils";
 
 export const NERDS_TAB_SEARCH_VALUE = "nerds" as const;
 export const VACATION_TAB_SEARCH_VALUE = "urlaub" as const;
 
 export interface PraxisplanerSearchParams {
-  datum?: string;
+  datum?: DeDateString;
   standort?: string;
   tab?: PraxisplanerTabParam;
 }

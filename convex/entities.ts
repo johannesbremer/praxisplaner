@@ -81,6 +81,10 @@ import {
   validateConditionTree,
 } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import {
+  asBaseScheduleCreatePayload,
+  asBaseSchedulePayload,
+} from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 // Type aliases for cleaner code
@@ -2141,7 +2145,10 @@ export const createBaseScheduleBatch = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    if (args.schedules.length === 0) {
+    const schedules = args.schedules.map((schedule) =>
+      asBaseScheduleCreatePayload(schedule),
+    );
+    if (schedules.length === 0) {
       throw new Error(
         "[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY] Mindestens eine Arbeitszeit muss uebergeben werden.",
       );
@@ -2175,7 +2182,7 @@ export const createBaseScheduleBatch = mutation({
     const seenLineageKeys = new Set<Id<"baseSchedules">>();
     const createdScheduleIds: Id<"baseSchedules">[] = [];
 
-    for (const schedule of args.schedules) {
+    for (const schedule of schedules) {
       let practitionerId = resolvedPractitionerIds.get(schedule.practitionerId);
       if (!practitionerId) {
         practitionerId = await resolvePractitionerIdInRuleSet(
@@ -2369,6 +2376,9 @@ export const updateBaseScheduleSet = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const schedules = args.schedules.map((schedule) =>
+      asBaseScheduleCreatePayload(schedule),
+    );
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -2382,7 +2392,7 @@ export const updateBaseScheduleSet = mutation({
       );
     }
 
-    if (args.schedules.length === 0) {
+    if (schedules.length === 0) {
       throw new Error(
         "Mindestens eine Arbeitszeit muss für die Aktualisierung angegeben werden.",
       );
@@ -2473,7 +2483,7 @@ export const updateBaseScheduleSet = mutation({
     }[] = [];
     const seenExplicitLineages = new Set<Id<"baseSchedules">>();
 
-    for (const schedule of args.schedules) {
+    for (const schedule of schedules) {
       const practitionerId = await resolvePractitionerId(
         schedule.practitionerId,
       );
@@ -2710,6 +2720,9 @@ export const replaceBaseScheduleSet = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const replacementSchedules = args.replacementSchedules.map((schedule) =>
+      asBaseSchedulePayload(schedule),
+    );
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -2749,7 +2762,7 @@ export const replaceBaseScheduleSet = mutation({
 
     const expectedAbsentLineageKeys = new Set(args.expectedAbsentLineageKeys);
     const replacementLineageKeys = new Set(
-      args.replacementSchedules.map((schedule) => schedule.lineageKey),
+      replacementSchedules.map((schedule) => schedule.lineageKey),
     );
     const expectedPresentLineageKeySet = new Set(
       args.expectedPresentLineageKeys,
@@ -2864,7 +2877,7 @@ export const replaceBaseScheduleSet = mutation({
       startTime: string;
     }[] = [];
     const createdScheduleIds: Id<"baseSchedules">[] = [];
-    for (const schedule of args.replacementSchedules) {
+    for (const schedule of replacementSchedules) {
       let practitionerId = resolvedPractitionerIds.get(schedule.practitionerId);
       if (!practitionerId) {
         practitionerId = await resolvePractitionerIdInRuleSet(

@@ -56,6 +56,7 @@ import {
   asPractitionerId,
   asPractitionerLineageKey,
 } from "@/convex/identity";
+import { APPOINTMENT_TYPE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
@@ -73,6 +74,7 @@ import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import {
   findFrontendEntityByEntityId,
   mapFrontendLineageEntities,
@@ -372,11 +374,7 @@ const samePractitionerLineageIds = (
 };
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|appointment type not found|terminart.*nicht gefunden/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, APPOINTMENT_TYPE_MISSING_ENTITY_REGEX);
 
 const resolveSelectedAppointmentTypeLineageKey = (
   step: FollowUpPlanFormStep,

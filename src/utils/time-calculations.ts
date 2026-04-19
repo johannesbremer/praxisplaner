@@ -1,5 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 
+import { TIME_OF_DAY_REGEX, type TimeString } from "@/lib/typed-regex";
+
 /**
  * Duration of each time slot in minutes
  */
@@ -15,6 +17,33 @@ const TIMEZONE = "Europe/Berlin";
  * Noon is chosen because it's far from DST transitions which typically occur at 2-3 AM.
  */
 const SAFE_TIME_OF_DAY = "12:00:00";
+
+export function isTimeString(value: unknown): value is TimeString {
+  return typeof value === "string" && TIME_OF_DAY_REGEX.test(value);
+}
+
+function buildTimeString(hours: number, minutes: number): TimeString {
+  const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  if (!TIME_OF_DAY_REGEX.test(value)) {
+    throw new Error(`Invalid time string: "${value}"`);
+  }
+  return value;
+}
+
+function parseTimeParts(
+  value: string,
+): null | { hours: number; minutes: number } {
+  const match = TIME_OF_DAY_REGEX.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const [, hours, minutes] = match;
+  return {
+    hours: Number(hours),
+    minutes: Number(minutes),
+  };
+}
 
 /**
  * Safely parses a ZonedDateTime ISO string to a Temporal.ZonedDateTime.
@@ -240,12 +269,12 @@ export function formatDateFull(date: Temporal.PlainDate): string {
  * ```
  */
 export function timeToMinutes(timeStr: string): number {
-  try {
-    const time = Temporal.PlainTime.from(timeStr);
-    return time.hour * 60 + time.minute;
-  } catch {
+  const parts = parseTimeParts(timeStr);
+  if (!parts) {
     return 0;
   }
+
+  return parts.hours * 60 + parts.minutes;
 }
 
 /**
@@ -277,12 +306,11 @@ export function timeToSlot(time: string, businessStartHour: number): number {
  * slotToTime(12, 8)    // '09:00' (start at 8AM, 12 slots * 5 min = 60 min after 8AM)
  * ```
  */
-export function slotToTime(slot: number, businessStartHour = 0): string {
+export function slotToTime(slot: number, businessStartHour = 0): TimeString {
   const minutesFromMidnight = businessStartHour * 60 + slot * SLOT_DURATION;
   const hours = Math.floor(minutesFromMidnight / 60);
   const minutes = minutesFromMidnight % 60;
-  const time = Temporal.PlainTime.from({ hour: hours, minute: minutes });
-  return time.toString().slice(0, 5); // "HH:mm"
+  return buildTimeString(hours, minutes);
 }
 
 /**
@@ -423,6 +451,6 @@ export function calculateBusinessHours(
  * formatTime(Temporal.PlainTime.from({ hour: 14, minute: 30 })) // "14:30"
  * ```
  */
-export function formatTime(time: Temporal.PlainTime): string {
-  return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
+export function formatTime(time: Temporal.PlainTime): TimeString {
+  return buildTimeString(time.hour, time.minute);
 }

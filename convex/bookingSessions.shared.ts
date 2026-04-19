@@ -1,7 +1,14 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 
+export { ISO_DATE_REGEX } from "../lib/typed-regex.js";
+
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { BookingSessionStep } from "./schema";
+import type {
+  PersonalDataInput,
+  SelectedSlotInput,
+  DataSharingContactInput as TypedDataSharingContactInput,
+} from "./typedDtos";
 
 export type MutationCtx = GenericMutationCtx<DataModel>;
 export type QueryCtx = GenericQueryCtx<DataModel>;
@@ -13,13 +20,14 @@ export interface StepReadCtx {
 }
 
 export const SESSION_TTL_MS = 30 * 60 * 1000;
-export const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 export const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
+export type BookingPersonalData = PersonalDataInput;
+export type BookingSelectedSlot = SelectedSlotInput;
 export type BookingSessionState = BookingSessionStep;
 export type DataSharingContact =
   Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
-export type DataSharingContactInput = Omit<DataSharingContact, "userId">;
+export type DataSharingContactInput = TypedDataSharingContactInput;
 
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
   BookingSessionState,

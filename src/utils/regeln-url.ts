@@ -1,6 +1,7 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type { DeDateString } from "@/lib/typed-regex";
 
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
@@ -10,7 +11,7 @@ export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
 
 export interface RegelnSearchParams {
-  datum?: string;
+  datum?: DeDateString;
   patientType?: typeof EXISTING_PATIENT_SEGMENT | typeof NEW_PATIENT_SEGMENT;
   regelwerk?: string;
   standort?: string;
@@ -27,7 +28,7 @@ interface LocationSummary {
 }
 
 interface RegelnNavigationState {
-  dateDE?: string | undefined;
+  dateDE?: DeDateString | undefined;
   locationName?: string | undefined;
   patientTypeSegment?:
     | typeof EXISTING_PATIENT_SEGMENT

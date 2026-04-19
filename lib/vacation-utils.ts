@@ -1,5 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 
+import { TIME_OF_DAY_REGEX } from "./typed-regex";
+
 export interface BreakTimeLike {
   end: string;
   start: string;
@@ -323,6 +325,12 @@ function normalizeBreaks(
 }
 
 function plainTimeToMinutes(value: string): number {
+  const match = TIME_OF_DAY_REGEX.exec(value);
+  if (match) {
+    const [, hours, minutes] = match;
+    return Number(hours) * 60 + Number(minutes);
+  }
+
   const time = Temporal.PlainTime.from(
     value.length === 5 ? `${value}:00` : value,
   );

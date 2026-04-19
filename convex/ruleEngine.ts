@@ -23,6 +23,7 @@ import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../lib/rule-name-generator.js";
+import { GDT_DATE_REGEX, ISO_DATE_REGEX } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
 import { requireLineageKey } from "./lineage";
 
@@ -402,17 +403,16 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
  */
 function parsePatientBirthDate(dateString: string): Temporal.PlainDate {
   // Supported format: YYYY-MM-DD (booking flow)
-  const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (isoPattern.test(dateString)) {
-    return Temporal.PlainDate.from(dateString);
+  const isoMatch = ISO_DATE_REGEX.exec(dateString);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return Temporal.PlainDate.from(`${year}-${month}-${day}`);
   }
 
   // Supported format: TTMMJJJJ (legacy GDT)
-  const gdtPattern = /^\d{8}$/;
-  if (gdtPattern.test(dateString)) {
-    const day = dateString.slice(0, 2);
-    const month = dateString.slice(2, 4);
-    const year = dateString.slice(4, 8);
+  const gdtMatch = GDT_DATE_REGEX.exec(dateString);
+  if (gdtMatch) {
+    const [, day, month, year] = gdtMatch;
     return Temporal.PlainDate.from(`${year}-${month}-${day}`);
   }
 

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import type {
@@ -39,6 +40,16 @@ import {
   slotOverlapsAppointment,
   slotOverlapsBlockedSlot,
 } from "./schedulingCore";
+import {
+  asAvailableSlotsResult,
+  asDateRangeInput,
+  asIsoDateString,
+  asSchedulingResultSlot,
+  asSimulatedContextInput,
+  asZonedDateTimeString,
+  type SimulatedContextInput,
+  type ZonedDateTimeString,
+} from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 import {
   availableSlotsResultValidator,
@@ -64,7 +75,7 @@ export interface SchedulingResultSlot {
   practitionerId: Id<"practitioners">;
   practitionerName: string;
   reason?: string; // Natural language explanation for blocked slots
-  startTime: string; // ISO string
+  startTime: ZonedDateTimeString; // ISO string
   status: "AVAILABLE" | "BLOCKED";
 }
 
@@ -99,11 +110,11 @@ const internalAvailableSlotsResultValidator = v.object({
   slots: v.array(internalSchedulingResultSlotValidator),
 });
 
-function formatDateForIndex(date: Date): string {
+function formatDateForIndex(date: Date): IsoDateString {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return asIsoDateString(`${year}-${month}-${day}`);
 }
 
 function getCachedVacationRangesForPractitionerLocation(
@@ -153,7 +164,7 @@ function toPublicSchedulingResultSlot(
     locationId: slot.locationId,
     practitionerId: slot.practitionerId,
     practitionerName: slot.practitionerName,
-    startTime: slot.startTime,
+    startTime: asZonedDateTimeString(slot.startTime),
     status: slot.status,
     ...(slot.blockedByBlockedSlotId && {
       blockedByBlockedSlotId: slot.blockedByBlockedSlotId,
@@ -179,6 +190,8 @@ export const getAvailableDates = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const dateRange = asDateRangeInput(args.dateRange);
+    const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const availableDates = new Set<string>();
     const practice = await ctx.db.get("practices", args.practiceId);
     const ruleSetId = practice?.currentActiveRuleSetId;
@@ -201,14 +214,14 @@ export const getAvailableDates = query({
         .withIndex("by_ruleSetId_date", (q) =>
           q
             .eq("ruleSetId", ruleSetId)
-            .gte("date", formatDateForIndex(new Date(args.dateRange.start)))
-            .lte("date", formatDateForIndex(new Date(args.dateRange.end))),
+            .gte("date", formatDateForIndex(new Date(dateRange.start)))
+            .lte("date", formatDateForIndex(new Date(dateRange.end))),
         )
         .collect(),
     ]);
 
-    const startDate = new Date(args.dateRange.start);
-    const endDate = new Date(args.dateRange.end);
+    const startDate = new Date(dateRange.start);
+    const endDate = new Date(dateRange.end);
 
     for (const practitioner of practitioners) {
       // Check each day in the range
@@ -226,7 +239,7 @@ export const getAvailableDates = query({
           plainDate,
           practitioner._id,
           baseSchedules,
-          args.simulatedContext.locationId,
+          simulatedContext.locationId,
         );
         if (workingRanges.length === 0) {
           continue;
@@ -237,7 +250,7 @@ export const getAvailableDates = query({
           practitioner._id,
           baseSchedules,
           vacations,
-          args.simulatedContext.locationId,
+          simulatedContext.locationId,
         );
 
         const hasAvailableMinutes = workingRanges.some(
@@ -289,21 +302,13 @@ const getSlotsForDayArgs = {
 async function getSlotsForDayImpl(
   ctx: QueryCtx,
   args: {
-    date: string;
+    date: IsoDateString;
     enforceFutureOnly?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     practiceId: Id<"practices">;
     ruleSetId?: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
-    simulatedContext: {
-      appointmentTypeId?: Id<"appointmentTypes">;
-      locationId?: Id<"locations">;
-      patient: {
-        dateOfBirth?: string;
-        isNew: boolean;
-      };
-      requestedAt?: string;
-    };
+    simulatedContext: SimulatedContextInput;
   },
 ): Promise<{ log: string[]; slots: InternalSchedulingResultSlot[] }> {
   // Ensure appointmentTypeId is present for rule evaluation
@@ -676,7 +681,7 @@ async function getSlotsForDayImpl(
         practitionerLineageKey: slot.practitionerLineageKey,
         practitionerName: slot.practitionerName ?? "Unknown Practitioner",
         ...(slot.reason && { reason: slot.reason }),
-        startTime: slot.startTime,
+        startTime: asZonedDateTimeString(slot.startTime),
         status: slot.status,
       };
 
@@ -786,7 +791,15 @@ export const getSlotsForDay = query({
   ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return toPublicSchedulingResult(await getSlotsForDayImpl(ctx, args));
+    return asAvailableSlotsResult(
+      toPublicSchedulingResult(
+        await getSlotsForDayImpl(ctx, {
+          ...args,
+          date: asIsoDateString(args.date),
+          simulatedContext: asSimulatedContextInput(args.simulatedContext),
+        }),
+      ),
+    );
   },
   returns: availableSlotsResultValidator,
 });
@@ -802,8 +815,10 @@ export const getNextAvailableSlot = query({
   handler: async (ctx, args): Promise<null | SchedulingResultSlot> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const date = asIsoDateString(args.date);
+    const simulatedContext = asSimulatedContextInput(args.simulatedContext);
 
-    const appointmentTypeId = args.simulatedContext.appointmentTypeId;
+    const appointmentTypeId = simulatedContext.appointmentTypeId;
     if (!appointmentTypeId) {
       throw new Error(
         "appointmentTypeId is required in simulatedContext for scheduling queries",
@@ -818,7 +833,7 @@ export const getNextAvailableSlot = query({
     const allowedPractitionerIds = new Set(
       appointmentType.allowedPractitionerIds,
     );
-    const startDate = Temporal.PlainDate.from(args.date);
+    const startDate = Temporal.PlainDate.from(date);
     const maxSearchDays = 90;
     let effectiveRuleSetId = args.ruleSetId;
 
@@ -848,8 +863,8 @@ export const getNextAvailableSlot = query({
           }
 
           if (
-            args.simulatedContext.locationId &&
-            schedule.locationId !== args.simulatedContext.locationId
+            simulatedContext.locationId &&
+            schedule.locationId !== simulatedContext.locationId
           ) {
             return false;
           }
@@ -877,6 +892,7 @@ export const getNextAvailableSlot = query({
           date: day.toString(),
           enforceFutureOnly: true,
           ruleSetId: effectiveRuleSetId,
+          simulatedContext,
         });
 
       const nextSlot: InternalSchedulingResultSlot | null =
@@ -891,7 +907,7 @@ export const getNextAvailableSlot = query({
           )[0] ?? null;
 
       if (nextSlot) {
-        return toPublicSchedulingResultSlot(nextSlot);
+        return asSchedulingResultSlot(toPublicSchedulingResultSlot(nextSlot));
       }
     }
 
@@ -906,7 +922,11 @@ export const getSlotsForDayInternal = internalQuery({
     ctx,
     args,
   ): Promise<{ log: string[]; slots: InternalSchedulingResultSlot[] }> => {
-    return await getSlotsForDayImpl(ctx, args);
+    return await getSlotsForDayImpl(ctx, {
+      ...args,
+      date: asIsoDateString(args.date),
+      simulatedContext: asSimulatedContextInput(args.simulatedContext),
+    });
   },
   returns: internalAvailableSlotsResultValidator,
 });
@@ -945,7 +965,8 @@ export const getBlockedSlotsWithoutAppointmentType = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const targetPlainDate = Temporal.PlainDate.from(args.date);
+    const date = asIsoDateString(args.date);
+    const targetPlainDate = Temporal.PlainDate.from(date);
 
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
@@ -1098,7 +1119,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
           duration: slot.duration,
           locationId: slot.locationId,
           practitionerId: slot.practitionerId,
-          startTime: slot.startTime,
+          startTime: asZonedDateTimeString(slot.startTime),
           status: "BLOCKED" as const,
         };
 

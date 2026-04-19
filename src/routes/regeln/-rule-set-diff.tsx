@@ -15,6 +15,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
+import { ISO_DATE_REGEX } from "@/lib/typed-regex";
 
 import {
   conditionTreeToConditions,
@@ -438,8 +439,9 @@ function formatFieldValue(key: string, value: unknown) {
 
 function formatPrimitiveValue(value: unknown) {
   if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      const [year, month, day] = value.split("-");
+    const isoDateMatch = ISO_DATE_REGEX.exec(value);
+    if (isoDateMatch) {
+      const [, year, month, day] = isoDateMatch;
       return `${day}.${month}.${year}`;
     }
     return value;

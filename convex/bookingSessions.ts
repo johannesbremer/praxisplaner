@@ -42,6 +42,13 @@ import {
   selectedSlotValidator,
 } from "./schema";
 import {
+  asDataSharingContactInput,
+  asPersonalDataInput,
+  asSelectedSlotInput,
+  type PersonalDataInput,
+  type ZonedDateTimeString,
+} from "./typedDtos";
+import {
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQuery,
 } from "./userIdentity";
@@ -781,8 +788,8 @@ function assertStep<S extends BookingSessionState["step"]>(
  * Validates data-sharing contact payload semantics.
  */
 function assertValidDataSharingContacts(
-  contacts: DataSharingContactInput[],
-): void {
+  contacts: Parameters<typeof asDataSharingContactInput>[0][],
+): asserts contacts is DataSharingContactInput[] {
   for (const [index, contact] of contacts.entries()) {
     const requiredTextFields: [keyof DataSharingContactInput, string][] = [
       ["city", "Ort"],
@@ -821,7 +828,7 @@ function attachOwnerToDataSharingContacts(
   userId: Id<"users">,
 ): DataSharingContact[] {
   return contacts.map((contact) => ({
-    ...contact,
+    ...asDataSharingContactInput(contact),
     userId,
   }));
 }
@@ -834,11 +841,11 @@ async function assertSlotAllowedByRules(
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
     locationId: Id<"locations">;
-    patientDateOfBirth: string;
+    patientDateOfBirth: PersonalDataInput["dateOfBirth"];
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     ruleSetId: Id<"ruleSets">;
-    startTime: string;
+    startTime: ZonedDateTimeString;
   },
 ): Promise<void> {
   const ruleCheckResult = await ctx.runQuery(
@@ -1742,6 +1749,7 @@ export const submitNewPatientData = mutation({
     }
 
     const state = session.state;
+    const personalData = asPersonalDataInput(args.personalData);
 
     await setSessionStep(ctx, args.sessionId, "new-data-sharing");
 
@@ -1751,7 +1759,7 @@ export const submitNewPatientData = mutation({
       insuranceType: state.insuranceType,
       isNewPatient: true,
       locationId: state.locationId,
-      personalData: args.personalData,
+      personalData,
       ...(args.medicalHistory === undefined
         ? {}
         : { medicalHistory: args.medicalHistory }),
@@ -1787,6 +1795,7 @@ export const submitNewDataSharing = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "new-data-sharing");
+    const personalData = asPersonalDataInput(state.personalData);
     assertValidDataSharingContacts(args.dataSharingContacts);
     const ownedContacts = attachOwnerToDataSharingContacts(
       args.dataSharingContacts,
@@ -1802,7 +1811,7 @@ export const submitNewDataSharing = mutation({
       insuranceType: state.insuranceType,
       isNewPatient: true,
       locationId: state.locationId,
-      personalData: state.personalData,
+      personalData,
       ...(state.medicalHistory === undefined
         ? {}
         : { medicalHistory: state.medicalHistory }),
@@ -1848,12 +1857,14 @@ export const selectNewPatientSlot = mutation({
     }
 
     const state = session.state;
+    const personalData = asPersonalDataInput(state.personalData);
+    const selectedSlot = asSelectedSlotInput(args.selectedSlot);
     const reasonDescription = args.reasonDescription.trim();
 
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsInFuture(args.selectedSlot.startTime);
+    assertSlotStartIsInFuture(selectedSlot.startTime);
 
     const selectedAppointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
@@ -1863,11 +1874,11 @@ export const selectNewPatientSlot = mutation({
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId: args.appointmentTypeId,
       locationId: state.locationId,
-      patientDateOfBirth: state.personalData.dateOfBirth,
+      patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
-      practitionerId: args.selectedSlot.practitionerId,
+      practitionerId: selectedSlot.practitionerId,
       ruleSetId: session.ruleSetId,
-      startTime: args.selectedSlot.startTime,
+      startTime: selectedSlot.startTime,
     });
 
     const base = getStepBase(session);
@@ -1878,9 +1889,9 @@ export const selectNewPatientSlot = mutation({
       insuranceType: state.insuranceType,
       isNewPatient: true,
       locationId: state.locationId,
-      personalData: state.personalData,
+      personalData,
       reasonDescription,
-      selectedSlot: args.selectedSlot,
+      selectedSlot,
       ...(state.medicalHistory === undefined
         ? {}
         : { medicalHistory: state.medicalHistory }),
@@ -1911,10 +1922,10 @@ export const selectNewPatientSlot = mutation({
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: true,
       locationId: state.locationId,
-      patientDateOfBirth: state.personalData.dateOfBirth,
+      patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
-      practitionerId: args.selectedSlot.practitionerId,
-      start: args.selectedSlot.startTime,
+      practitionerId: selectedSlot.practitionerId,
+      start: selectedSlot.startTime,
       title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
     });
@@ -1932,9 +1943,9 @@ export const selectNewPatientSlot = mutation({
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
         locationId: state.locationId,
-        personalData: state.personalData,
+        personalData,
         reasonDescription,
-        selectedSlot: args.selectedSlot,
+        selectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
           : { medicalHistory: state.medicalHistory }),
@@ -1953,9 +1964,9 @@ export const selectNewPatientSlot = mutation({
         insuranceType: "pkv",
         isNewPatient: true,
         locationId: state.locationId,
-        personalData: state.personalData,
+        personalData,
         reasonDescription,
-        selectedSlot: args.selectedSlot,
+        selectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
           : { medicalHistory: state.medicalHistory }),
@@ -2056,6 +2067,7 @@ export const submitExistingPatientData = mutation({
       );
     }
     const state = session.state;
+    const personalData = asPersonalDataInput(args.personalData);
 
     await setSessionStep(ctx, args.sessionId, "existing-calendar-selection");
 
@@ -2064,7 +2076,7 @@ export const submitExistingPatientData = mutation({
       ...base,
       isNewPatient: false as const,
       locationId: state.locationId,
-      personalData: args.personalData,
+      personalData,
       practitionerId: state.practitionerId,
     });
     await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
@@ -2072,7 +2084,7 @@ export const submitExistingPatientData = mutation({
       dataSharingContacts: [],
       isNewPatient: false as const,
       locationId: state.locationId,
-      personalData: args.personalData,
+      personalData,
       practitionerId: state.practitionerId,
     });
 
@@ -2099,6 +2111,7 @@ export const submitExistingDataSharing = mutation({
       );
     }
     const state = session.state;
+    const personalData = asPersonalDataInput(state.personalData);
     assertValidDataSharingContacts(args.dataSharingContacts);
     const ownedContacts = attachOwnerToDataSharingContacts(
       args.dataSharingContacts,
@@ -2113,7 +2126,7 @@ export const submitExistingDataSharing = mutation({
       dataSharingContacts: ownedContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
-      personalData: state.personalData,
+      personalData,
       practitionerId: state.practitionerId,
     });
 
@@ -2137,12 +2150,14 @@ export const selectExistingPatientSlot = mutation({
   handler: async (ctx, args) => {
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = assertStep(session.state, "existing-calendar-selection");
+    const personalData = asPersonalDataInput(state.personalData);
+    const selectedSlot = asSelectedSlotInput(args.selectedSlot);
     const reasonDescription = args.reasonDescription.trim();
 
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsInFuture(args.selectedSlot.startTime);
+    assertSlotStartIsInFuture(selectedSlot.startTime);
 
     const appointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
@@ -2152,21 +2167,21 @@ export const selectExistingPatientSlot = mutation({
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId: args.appointmentTypeId,
       locationId: state.locationId,
-      patientDateOfBirth: state.personalData.dateOfBirth,
+      patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,
       ruleSetId: session.ruleSetId,
-      startTime: args.selectedSlot.startTime,
+      startTime: selectedSlot.startTime,
     });
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: false,
       locationId: state.locationId,
-      patientDateOfBirth: state.personalData.dateOfBirth,
+      patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerId: state.practitionerId,
-      start: args.selectedSlot.startTime,
+      start: selectedSlot.startTime,
       title: `Online-Termin: ${appointmentType.name}`,
       userId: session.userId,
     });
@@ -2181,10 +2196,10 @@ export const selectExistingPatientSlot = mutation({
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
-      personalData: state.personalData,
+      personalData,
       practitionerId: state.practitionerId,
       reasonDescription,
-      selectedSlot: args.selectedSlot,
+      selectedSlot,
     });
 
     await upsertStep(ctx, "bookingExistingConfirmationSteps", session, {
@@ -2195,10 +2210,10 @@ export const selectExistingPatientSlot = mutation({
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
       locationId: state.locationId,
-      personalData: state.personalData,
+      personalData,
       practitionerId: state.practitionerId,
       reasonDescription,
-      selectedSlot: args.selectedSlot,
+      selectedSlot,
     });
 
     await refreshSession(ctx, args.sessionId);

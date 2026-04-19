@@ -1,16 +1,17 @@
 // convex/users.ts
 import { v } from "convex/values";
 
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
 import { personalDataValidator } from "./schema";
+import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
 import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
-type BookingPersonalData = Doc<"bookingNewConfirmationSteps">["personalData"];
+type BookingPersonalData = PersonalDataInput;
 
 async function getLatestBookingPersonalData(
   db: DatabaseReader,
@@ -33,16 +34,16 @@ async function getLatestBookingPersonalData(
   if (latestExistingConfirmationStep && latestNewConfirmationStep) {
     return latestExistingConfirmationStep.lastModified >
       latestNewConfirmationStep.lastModified
-      ? latestExistingConfirmationStep.personalData
-      : latestNewConfirmationStep.personalData;
+      ? asPersonalDataInput(latestExistingConfirmationStep.personalData)
+      : asPersonalDataInput(latestNewConfirmationStep.personalData);
   }
 
   if (latestExistingConfirmationStep) {
-    return latestExistingConfirmationStep.personalData;
+    return asPersonalDataInput(latestExistingConfirmationStep.personalData);
   }
 
   if (latestNewConfirmationStep) {
-    return latestNewConfirmationStep.personalData;
+    return asPersonalDataInput(latestNewConfirmationStep.personalData);
   }
 
   return null;

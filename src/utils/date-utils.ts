@@ -1,27 +1,52 @@
 import { Temporal } from "temporal-polyfill";
 
+import { DE_DATE_REGEX, type DeDateString } from "@/lib/typed-regex";
+
 /**
  * Result type for parsing operations.
  * Discriminated union that makes success/failure explicit.
  */
 export type ParseResult<T> = { ok: false } | { ok: true; value: T };
 
+function formatDeDate(day: number, month: number, year: number): DeDateString {
+  const value = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+  if (!DE_DATE_REGEX.test(value)) {
+    throw new Error(`Invalid German date string: "${value}"`);
+  }
+  return value;
+}
+
+function parseDeDateParts(
+  dateDE: string,
+): null | { day: number; month: number; year: number } {
+  const match = DE_DATE_REGEX.exec(dateDE);
+  if (!match) {
+    return null;
+  }
+
+  const [, day, month, year] = match;
+  return {
+    day: Number(day),
+    month: Number(month),
+    year: Number(year),
+  };
+}
+
 /**
  * Parse a German date string (dd.mm.yyyy) to a Temporal.PlainDate.
  * Uses Result type for explicit success/failure handling.
  */
 export function parseDateDE(dateDE: string): ParseResult<Temporal.PlainDate> {
-  const parts = dateDE.split(".");
-  if (parts.length !== 3) {
+  const parts = parseDeDateParts(dateDE);
+  if (!parts) {
     return { ok: false };
   }
 
-  const [d, m, y] = parts;
   try {
     const value = Temporal.PlainDate.from({
-      day: Number(d),
-      month: Number(m),
-      year: Number(y),
+      day: parts.day,
+      month: parts.month,
+      year: parts.year,
     });
     return { ok: true, value };
   } catch {
@@ -32,17 +57,15 @@ export function parseDateDE(dateDE: string): ParseResult<Temporal.PlainDate> {
 /**
  * Format a Temporal.PlainDate to German format (dd.mm.yyyy).
  */
-export function formatDateDE(dt: Temporal.PlainDate): string {
-  const d = String(dt.day).padStart(2, "0");
-  const m = String(dt.month).padStart(2, "0");
-  return `${d}.${m}.${dt.year}`;
+export function formatDateDE(dt: Temporal.PlainDate): DeDateString {
+  return formatDeDate(dt.day, dt.month, dt.year);
 }
 
 /**
  * Check if a string is a valid German date format.
  * Simply tries to parse it - if parsing succeeds, it's valid.
  */
-export function isValidDateDE(value: unknown): value is string {
+export function isValidDateDE(value: unknown): value is DeDateString {
   return typeof value === "string" && parseDateDE(value).ok;
 }
 
@@ -89,11 +112,8 @@ export function isTodayJS(dt?: Date): boolean {
  * Format a JavaScript Date to German format (dd.mm.yyyy).
  * Useful for legacy code still using Date objects.
  */
-export function formatJSDateDE(dt: Date): string {
-  const d = String(dt.getDate()).padStart(2, "0");
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const y = dt.getFullYear();
-  return `${d}.${m}.${y}`;
+export function formatJSDateDE(dt: Date): DeDateString {
+  return formatDeDate(dt.getDate(), dt.getMonth() + 1, dt.getFullYear());
 }
 
 /**
@@ -102,35 +122,31 @@ export function formatJSDateDE(dt: Date): string {
  * Useful for legacy code still using Date objects.
  */
 export function parseJSDateDE(dateDE: string): ParseResult<Date> {
-  const parts = dateDE.split(".");
-  if (parts.length !== 3) {
+  const parts = parseDeDateParts(dateDE);
+  if (!parts) {
     return { ok: false };
   }
 
-  const [ds, ms, ys] = parts;
-  const d = Number(ds);
-  const m = Number(ms);
-  const y = Number(ys);
-
   // Validate the numbers are reasonable
   if (
-    !Number.isFinite(d) ||
-    !Number.isFinite(m) ||
-    !Number.isFinite(y) ||
-    d < 1 ||
-    d > 31 ||
-    m < 1 ||
-    m > 12 ||
-    y < 2000 ||
-    y > 2100
+    parts.day < 1 ||
+    parts.day > 31 ||
+    parts.month < 1 ||
+    parts.month > 12 ||
+    parts.year < 2000 ||
+    parts.year > 2100
   ) {
     return { ok: false };
   }
 
-  const dt = new Date(y, m - 1, d);
+  const dt = new Date(parts.year, parts.month - 1, parts.day);
 
   // Check the date didn't overflow (e.g., Feb 30 -> Mar 2)
-  if (dt.getDate() !== d || dt.getMonth() !== m - 1 || dt.getFullYear() !== y) {
+  if (
+    dt.getDate() !== parts.day ||
+    dt.getMonth() !== parts.month - 1 ||
+    dt.getFullYear() !== parts.year
+  ) {
     return { ok: false };
   }
 

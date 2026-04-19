@@ -26,6 +26,7 @@ import {
   asLocationLineageKey,
   asPractitionerId,
 } from "@/convex/identity";
+import { LOCATION_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
@@ -43,6 +44,7 @@ import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
   captureFrontendError,
@@ -55,11 +57,7 @@ import {
 } from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|location not found|standort.*nicht gefunden/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, LOCATION_MISSING_ENTITY_REGEX);
 
 type BaseScheduleRow = FrontendLineageEntity<
   "baseSchedules",

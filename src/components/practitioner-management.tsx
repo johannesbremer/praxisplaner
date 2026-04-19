@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { asPractitionerId, asPractitionerLineageKey } from "@/convex/identity";
+import { PRACTITIONER_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
@@ -37,6 +38,7 @@ import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
   findFrontendEntityByEntityId,
@@ -45,11 +47,7 @@ import {
 } from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|practitioner not found|arzt.*nicht gefunden|behandler.*nicht gefunden|PRACTITIONER_RESOLVE_FAILED/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, PRACTITIONER_MISSING_ENTITY_REGEX);
 
 interface PractitionerDialogProps {
   isOpen: boolean;

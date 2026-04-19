@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import type { DataModel } from "../_generated/dataModel";
 
+import { regex } from "../../lib/arkregex";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -64,8 +65,13 @@ function createTestContext() {
   return convexTest(schema, modules);
 }
 
-const SELF_LINEAGE_INSERT_PATTERN =
-  /\b(?:ctx\.)?db\.insert\("(?<table>appointmentTypes|baseSchedules|locations|mfas|practitioners|vacations)"/g;
+const SELF_LINEAGE_INSERT_PATTERN = regex.as<
+  string,
+  { captures: [SelfLineageTableName] }
+>(
+  String.raw`\b(?:ctx\.)?db\.insert\("(appointmentTypes|baseSchedules|locations|mfas|practitioners|vacations)"`,
+  "g",
+);
 
 const ALLOWED_DIRECT_SELF_LINEAGE_INSERT_FILES = new Set([
   "convex/lineage.ts",
@@ -103,14 +109,18 @@ async function collectUnexpectedDirectSelfLineageInserts() {
     const relativePath = path.relative(repoRoot, filePath);
     const content = await readFile(filePath, "utf8");
 
-    for (const match of content.matchAll(SELF_LINEAGE_INSERT_PATTERN)) {
+    SELF_LINEAGE_INSERT_PATTERN.lastIndex = 0;
+    let match = SELF_LINEAGE_INSERT_PATTERN.exec(content);
+    while (match) {
       if (ALLOWED_DIRECT_SELF_LINEAGE_INSERT_FILES.has(relativePath)) {
+        match = SELF_LINEAGE_INSERT_PATTERN.exec(content);
         continue;
       }
       const beforeMatch = content.slice(0, match.index);
       const lineNumber = beforeMatch.split("\n").length;
-      const tableName = match.groups?.["table"] ?? "unknown";
+      const tableName = match[1];
       violations.push(`${relativePath}:${lineNumber} inserts ${tableName}`);
+      match = SELF_LINEAGE_INSERT_PATTERN.exec(content);
     }
   }
 

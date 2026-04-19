@@ -6,6 +6,7 @@ import type { ConditionTreeNode } from "@/convex/ruleEngine";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
+import { RULE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { Id } from "../../convex/_generated/dataModel";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -26,6 +27,7 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
 import { RuleEditDialog } from "./rule-builder-editor";
 
@@ -70,11 +72,7 @@ type RulePractitioner = FrontendLineageEntity<
 >;
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|rule not found|regel.*nicht gefunden/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, RULE_MISSING_ENTITY_REGEX);
 
 const getReplayCopySource = (
   rule: Pick<RuleFromDB, "_id" | "copyFromId">,
