@@ -8,6 +8,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { err, ok, Result } from "neverthrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -188,24 +189,30 @@ const getFollowUpSearchMode = (
 
 const normalizeFollowUpPlanForSubmit = (
   steps: FollowUpPlanFormStep[],
-): FollowUpPlanStep[] | undefined => {
+): Result<FollowUpPlanStep[], string> => {
   if (steps.length === 0) {
-    return undefined;
+    return ok([]);
   }
 
-  return steps.map((step, index) => ({
-    appointmentTypeLineageKey: resolveSelectedAppointmentTypeLineageKey(step),
-    locationMode: "inherit",
-    offsetUnit: step.offsetUnit,
-    offsetValue: normalizeFollowUpOffsetValue(
-      step.offsetUnit,
-      step.offsetValue,
+  return Result.combine(
+    steps.map((step, index) =>
+      resolveSelectedAppointmentTypeLineageKey(step).map(
+        (appointmentTypeLineageKey) => ({
+          appointmentTypeLineageKey,
+          locationMode: "inherit" as const,
+          offsetUnit: step.offsetUnit,
+          offsetValue: normalizeFollowUpOffsetValue(
+            step.offsetUnit,
+            step.offsetValue,
+          ),
+          practitionerMode: "inherit" as const,
+          required: true,
+          searchMode: getFollowUpSearchMode(step),
+          stepId: `step-${index + 1}`,
+        }),
+      ),
     ),
-    practitionerMode: "inherit",
-    required: true,
-    searchMode: getFollowUpSearchMode(step),
-    stepId: `step-${index + 1}`,
-  }));
+  );
 };
 
 const createFollowUpPlanCreateArgs = (
@@ -373,12 +380,12 @@ const isMissingEntityError = (error: unknown) =>
 
 const resolveSelectedAppointmentTypeLineageKey = (
   step: FollowUpPlanFormStep,
-): AppointmentTypeLineageKey => {
+): Result<AppointmentTypeLineageKey, string> => {
   if (step.appointmentTypeLineageKey === "") {
-    throw new Error("Bitte wählen Sie eine Terminart.");
+    return err("Bitte wählen Sie eine Terminart.");
   }
 
-  return step.appointmentTypeLineageKey;
+  return ok(step.appointmentTypeLineageKey);
 };
 
 export function AppointmentTypesManagement({
@@ -531,7 +538,19 @@ export function AppointmentTypesManagement({
         const trimmedName = value.name.trim();
         const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
           value.followUpPlan,
+        ).match(
+          (normalizedPlan) =>
+            normalizedPlan.length === 0 ? undefined : normalizedPlan,
+          (message) => {
+            toast.error("Fehler beim Speichern", {
+              description: message,
+            });
+            return null;
+          },
         );
+        if (normalizedFollowUpPlan === null) {
+          return;
+        }
         const formPractitionerSnapshots = createPractitionerSnapshots(
           value.practitionerIds,
         );

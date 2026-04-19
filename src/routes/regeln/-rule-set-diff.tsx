@@ -1,4 +1,5 @@
 import { useForm } from "@tanstack/react-form";
+import { err, ok } from "neverthrow";
 import React from "react";
 
 import type {
@@ -19,6 +20,10 @@ import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../../../lib/rule-name-generator";
+import {
+  captureFrontendError,
+  invalidStateError,
+} from "../../utils/frontend-errors";
 
 interface EntityRenameMaps {
   appointmentTypes: Map<string, string>;
@@ -562,19 +567,19 @@ function formatValue(value: unknown): string {
 }
 
 function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
-  const parsed = parseDiffValue(value);
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error(
-      `[INVARIANT:DIFF_VALUE_INVALID] Abschnitt ${section.key} enthaelt keinen gueltigen Diff-Wert.`,
-    );
-  }
-
-  if (typeof parsed["__diffKey"] === "string") {
-    return parsed["__diffKey"];
-  }
-
-  throw new Error(
-    `[INVARIANT:DIFF_KEY_MISSING] Abschnitt ${section.key} hat keinen stabilen Diff-Schluessel.`,
+  return resolveDiffItemMatchKey(section, value).match(
+    (key) => key,
+    (error) => {
+      captureFrontendError(
+        error,
+        {
+          context: "rule_set_diff_match_key",
+          sectionKey: section.key,
+        },
+        `rule-set-diff:${section.key}:${error.message}`,
+      );
+      return value;
+    },
   );
 }
 
@@ -1051,6 +1056,29 @@ function parseRuleDiffTree(
       : value;
 
   return parseConditionTreeNode(treeRoot);
+}
+
+function resolveDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
+  const parsed = parseDiffValue(value);
+  if (!parsed || typeof parsed !== "object") {
+    return err(
+      invalidStateError(
+        `[INVARIANT:DIFF_VALUE_INVALID] Abschnitt ${section.key} enthaelt keinen gueltigen Diff-Wert.`,
+        "RuleSetDiff",
+      ),
+    );
+  }
+
+  if (typeof parsed["__diffKey"] === "string") {
+    return ok(parsed["__diffKey"]);
+  }
+
+  return err(
+    invalidStateError(
+      `[INVARIANT:DIFF_KEY_MISSING] Abschnitt ${section.key} hat keinen stabilen Diff-Schluessel.`,
+      "RuleSetDiff",
+    ),
+  );
 }
 
 function RuleSetDiffChangeCount({
