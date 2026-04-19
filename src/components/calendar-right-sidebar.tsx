@@ -504,7 +504,6 @@ function RightSidebarContent({
 
 // Helper to format dates in German format
 function formatGermanDate(dateString: string) {
-  // Handle ISO date format (YYYY-MM-DD)
   const date = new Date(dateString);
   if (!Number.isNaN(date.getTime())) {
     return date.toLocaleDateString("de-DE", {
@@ -512,14 +511,6 @@ function formatGermanDate(dateString: string) {
       month: "2-digit",
       year: "numeric",
     });
-  }
-
-  // Fallback: if it's in GDT format TTMMJJJJ
-  if (dateString.length === 8) {
-    const day = dateString.slice(0, 2);
-    const month = dateString.slice(2, 4);
-    const year = dateString.slice(4, 8);
-    return `${day}.${month}.${year}`;
   }
 
   return dateString;

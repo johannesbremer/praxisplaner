@@ -30,7 +30,7 @@ export const simulatedContextValidator = v.object({
     dateOfBirth: v.optional(v.string()),
     isNew: v.boolean(),
   }),
-  requestedAt: v.optional(v.string()), // ISO datetime string for when appointment is being requested
+  requestedAt: v.optional(v.string()), // ISO instant string for when appointment is being requested
 });
 
 // Patient update data (based on schema fields)

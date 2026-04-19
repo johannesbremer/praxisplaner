@@ -23,7 +23,7 @@ import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../lib/rule-name-generator.js";
-import { GDT_DATE_REGEX, ISO_DATE_REGEX } from "../lib/typed-regex.js";
+import { ISO_DATE_REGEX } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
 import { requireLineageKey } from "./lineage";
 
@@ -357,12 +357,13 @@ export const appointmentContextValidator = v.object({
   // ISO datetime string
   dateTime: v.string(),
   locationId: v.optional(v.id("locations")),
-  // Patient birth date as YYYY-MM-DD (booking flow) or TTMMJJJJ (GDT)
+  // Patient birth date as YYYY-MM-DD
   patientDateOfBirth: v.optional(v.string()),
   practiceId: v.id("practices"),
   practitionerId: v.id("practitioners"),
-  // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested?
-  requestedAt: v.optional(v.string()), // ISO datetime string
+  // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested
+  // in the scheduling timezone?
+  requestedAt: v.optional(v.string()), // ISO zoned datetime string
 });
 
 /**
@@ -402,22 +403,15 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
  * Parses a patient birth date.
  */
 function parsePatientBirthDate(dateString: string): Temporal.PlainDate {
-  // Supported format: YYYY-MM-DD (booking flow)
+  // Supported format: YYYY-MM-DD
   const isoMatch = ISO_DATE_REGEX.exec(dateString);
   if (isoMatch) {
     const [, year, month, day] = isoMatch;
     return Temporal.PlainDate.from(`${year}-${month}-${day}`);
   }
 
-  // Supported format: TTMMJJJJ (legacy GDT)
-  const gdtMatch = GDT_DATE_REGEX.exec(dateString);
-  if (gdtMatch) {
-    const [, day, month, year] = gdtMatch;
-    return Temporal.PlainDate.from(`${year}-${month}-${day}`);
-  }
-
   throw new Error(
-    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD" or "TTMMJJJJ".`,
+    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD".`,
   );
 }
 

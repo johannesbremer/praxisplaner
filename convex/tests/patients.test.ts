@@ -14,6 +14,27 @@ function createAuthedTestContext() {
 }
 
 describe("patients", () => {
+  test("createOrUpdatePatient normalizes GDT birth dates to ISO on ingestion", async () => {
+    const t = createAuthedTestContext();
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Patients Test Practice",
+    });
+
+    const result = await t.mutation(api.patients.createOrUpdatePatient, {
+      dateOfBirth: "01101945",
+      firstName: "Max",
+      lastName: "Mustermann",
+      patientId: 12345,
+      practiceId,
+    });
+
+    const patient = await t.run(
+      async (ctx) => await ctx.db.get("patients", result.convexPatientId),
+    );
+
+    expect(patient?.dateOfBirth).toBe("1945-10-01");
+  });
+
   test("createTemporaryPatient trims persisted values", async () => {
     const t = createAuthedTestContext();
     const practiceId = await t.mutation(api.practices.createPractice, {

@@ -9,6 +9,7 @@ import type { AppointmentResult } from "../../../convex/appointments";
 import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import { ISO_DATE_REGEX } from "../../../lib/typed-regex.js";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   getPractitionerAvailabilityRangesForDate,
@@ -388,20 +389,24 @@ export function useCalendarLogic({
           selectedLocationId &&
           practiceId &&
           ruleSetId
-        ? {
-            date: selectedDate.toString(),
-            practiceId,
-            ruleSetId,
-            scope: "real",
-            simulatedContext: createSimulatedContext({
-              appointmentTypeId: selectedAppointmentTypeId,
-              isNewPatient: patient?.isNewPatient ?? false,
-              locationId: selectedLocationId,
-              ...(patient?.dateOfBirth && {
-                patientDateOfBirth: patient.dateOfBirth,
+        ? (() => {
+            const patientDateOfBirth = patient?.dateOfBirth;
+            return {
+              date: selectedDate.toString(),
+              practiceId,
+              ruleSetId,
+              scope: "real" as const,
+              simulatedContext: createSimulatedContext({
+                appointmentTypeId: selectedAppointmentTypeId,
+                isNewPatient: patient?.isNewPatient ?? false,
+                locationId: selectedLocationId,
+                ...(patientDateOfBirth !== undefined &&
+                  ISO_DATE_REGEX.test(patientDateOfBirth) && {
+                    patientDateOfBirth,
+                  }),
               }),
-            }),
-          }
+            };
+          })()
         : "skip",
   );
 
@@ -3904,15 +3909,19 @@ export function useCalendarLogic({
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
+      const patientDateOfBirth = simulatedContext.patient.dateOfBirth;
       const newContext = createSimulatedContext({
         ...(simulatedContext.appointmentTypeId && {
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
-        ...(simulatedContext.patient.dateOfBirth && {
-          patientDateOfBirth: simulatedContext.patient.dateOfBirth,
+        ...(patientDateOfBirth !== undefined &&
+          ISO_DATE_REGEX.test(patientDateOfBirth) && {
+            patientDateOfBirth,
+          }),
+        ...(locationId && {
+          locationId,
         }),
-        ...(locationId && { locationId }),
       });
 
       onUpdateSimulatedContext(newContext);

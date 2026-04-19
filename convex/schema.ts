@@ -922,7 +922,7 @@ export default defineSchema({
   patients: defineTable({
     // Patient identification fields (from GDT file)
     city: v.optional(v.string()), // FK 3106 - City
-    dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
+    dateOfBirth: v.optional(v.string()), // FK 3103, normalized to YYYY-MM-DD on import
     firstName: v.optional(v.string()), // FK 3102
     lastName: v.optional(v.string()), // FK 3101
     name: v.optional(v.string()), // Temporary patients use a single display name

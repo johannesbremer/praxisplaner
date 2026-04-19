@@ -1,8 +1,11 @@
 import { v } from "convex/values";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 
+import { ISO_DATE_REGEX } from "../lib/typed-regex.js";
 import { mutation, query } from "./_generated/server";
+import { isValidDate } from "./gdt/validation";
 import {
   buildPatientSearchFirstName,
   buildPatientSearchLastName,
@@ -60,6 +63,27 @@ const patientSidebarDetailsValidator = v.object({
   street: v.optional(v.string()),
 });
 
+function normalizePatientDateOfBirth(
+  value?: string,
+): IsoDateString | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (ISO_DATE_REGEX.test(value)) {
+    return value;
+  }
+
+  const validation = isValidDate(value);
+  if (validation.isValid) {
+    return validation.value as IsoDateString;
+  }
+
+  throw new Error(
+    `Patient dateOfBirth must be a valid YYYY-MM-DD or GDT DDMMYYYY string, got "${value}".`,
+  );
+}
+
 /** Create or update a patient from GDT data */
 export const createOrUpdatePatient = mutation({
   args: {
@@ -75,7 +99,9 @@ export const createOrUpdatePatient = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const { dateOfBirth: rawDateOfBirth, ...restArgs } = args;
     const now = BigInt(Date.now());
+    const dateOfBirth = normalizePatientDateOfBirth(rawDateOfBirth);
 
     // Check if patient exists
     const existingPatient = await ctx.db
@@ -88,7 +114,8 @@ export const createOrUpdatePatient = mutation({
     if (!existingPatient) {
       // Create new patient using spread operator with schema types
       const newPatientId = await ctx.db.insert("patients", {
-        ...args,
+        ...restArgs,
+        ...(dateOfBirth !== undefined && { dateOfBirth }),
         createdAt: now,
         lastModified: now,
         recordType: "pvs",
@@ -126,7 +153,7 @@ export const createOrUpdatePatient = mutation({
       }),
       ...(args.firstName && { firstName: args.firstName }),
       ...(args.lastName && { lastName: args.lastName }),
-      ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
+      ...(dateOfBirth && { dateOfBirth }),
       ...(args.street && { street: args.street }),
       ...(args.city && { city: args.city }),
       ...(args.sourceGdtFileName && {

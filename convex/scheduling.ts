@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { IsoDateString } from "../lib/typed-regex";
+import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import type {
@@ -142,8 +142,24 @@ function getCachedVacationRangesForPractitionerLocation(
   return ranges;
 }
 
-function getNowAsZonedString(): string {
-  return Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString();
+function getNowAsZonedString(): ZonedDateTimeString {
+  return asZonedDateTimeString(
+    Temporal.Now.zonedDateTimeISO(SCHEDULING_TIMEZONE).toString(),
+  );
+}
+
+function getRequestedAtForRuleEvaluation(
+  requestedAt?: InstantString,
+): ZonedDateTimeString {
+  if (requestedAt === undefined) {
+    return getNowAsZonedString();
+  }
+
+  return asZonedDateTimeString(
+    Temporal.Instant.from(requestedAt)
+      .toZonedDateTimeISO(SCHEDULING_TIMEZONE)
+      .toString(),
+  );
 }
 
 function toPublicSchedulingResult(args: {
@@ -604,8 +620,9 @@ async function getSlotsForDayImpl(
           // Note: We use the first slot's practitionerId here, but PRACTITIONER conditions
           // should NOT be in the day-invariant set since practitionerId varies per slot
           practitionerId: firstSlot.practitionerId,
-          requestedAt:
-            args.simulatedContext.requestedAt ?? getNowAsZonedString(),
+          requestedAt: getRequestedAtForRuleEvaluation(
+            args.simulatedContext.requestedAt,
+          ),
           // locationId comes from simulatedContext (fixed for entire query) or slot's default
           ...(args.simulatedContext.locationId && {
             locationId: args.simulatedContext.locationId,
@@ -642,7 +659,9 @@ async function getSlotsForDayImpl(
         locationId: slot.locationId,
         practiceId: args.practiceId,
         practitionerId: slot.practitionerId,
-        requestedAt: args.simulatedContext.requestedAt ?? getNowAsZonedString(),
+        requestedAt: getRequestedAtForRuleEvaluation(
+          args.simulatedContext.requestedAt,
+        ),
       };
 
       // PERFORMANCE: Call helper directly to avoid serialization overhead

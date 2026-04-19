@@ -95,7 +95,7 @@ export type SimulatedContextInput = Omit<
   > & {
     dateOfBirth?: IsoDateString;
   };
-  requestedAt?: ZonedDateTimeString;
+  requestedAt?: InstantString;
 };
 
 export interface TypedBreakTime {
@@ -225,7 +225,7 @@ export function asSimulatedContextInput(
       }),
     },
     ...(requestedAt !== undefined && {
-      requestedAt: asZonedDateTimeString(requestedAt),
+      requestedAt: asInstantString(requestedAt),
     }),
   };
 }

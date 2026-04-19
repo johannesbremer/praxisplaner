@@ -38,6 +38,7 @@ import type {
 
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
+import { isValidDate } from "../../convex/gdt/validation";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
@@ -577,6 +578,15 @@ function PraxisPlanerComponent() {
           const patientId = patientIdField
             ? Number.parseInt(patientIdField.content, 10)
             : 0;
+          let normalizedBirthDate: string | undefined;
+          if (birthDateField?.content === undefined) {
+            normalizedBirthDate = undefined;
+          } else {
+            const validation = isValidDate(birthDateField.content);
+            normalizedBirthDate = validation.isValid
+              ? validation.value
+              : undefined;
+          }
 
           if (patientId > 0) {
             // Build patient data with only defined optional fields
@@ -601,8 +611,8 @@ function PraxisPlanerComponent() {
             if (lastNameField?.content) {
               patientData.lastName = lastNameField.content;
             }
-            if (birthDateField?.content) {
-              patientData.dateOfBirth = birthDateField.content;
+            if (normalizedBirthDate) {
+              patientData.dateOfBirth = normalizedBirthDate;
             }
             if (streetField?.content) {
               patientData.street = streetField.content;
@@ -631,8 +641,8 @@ function PraxisPlanerComponent() {
             if (patientData.city) {
               patientInfo.city = patientData.city;
             }
-            if (patientData.dateOfBirth) {
-              patientInfo.dateOfBirth = patientData.dateOfBirth;
+            if (normalizedBirthDate) {
+              patientInfo.dateOfBirth = normalizedBirthDate;
             }
             if (patientData.firstName) {
               patientInfo.firstName = patientData.firstName;

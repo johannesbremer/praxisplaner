@@ -17,6 +17,7 @@ import {
   SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { ISO_DATE_REGEX } from "@/lib/typed-regex.js";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { captureFrontendError } from "../utils/frontend-errors";
@@ -185,17 +186,20 @@ export function CalendarSidebar() {
       // Simulation mode: update simulated context
       // Use the new locationId if provided, otherwise keep the existing one
       const effectiveLocationId = locationId ?? simulatedContext.locationId;
+      const patientDateOfBirth = simulatedContext.patient.dateOfBirth;
 
       const newContext = createSimulatedContext({
         ...(simulatedContext.appointmentTypeId && {
           appointmentTypeId: simulatedContext.appointmentTypeId,
         }),
         isNewPatient: simulatedContext.patient.isNew,
-        ...(simulatedContext.patient.dateOfBirth && {
-          patientDateOfBirth: simulatedContext.patient.dateOfBirth,
+        ...(patientDateOfBirth !== undefined &&
+          ISO_DATE_REGEX.test(patientDateOfBirth) && {
+            patientDateOfBirth,
+          }),
+        ...(effectiveLocationId && {
+          locationId: effectiveLocationId,
         }),
-        // Only include locationId if we have one
-        ...(effectiveLocationId && { locationId: effectiveLocationId }),
       });
 
       onUpdateSimulatedContext(newContext);
