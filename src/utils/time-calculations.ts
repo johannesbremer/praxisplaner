@@ -27,11 +27,7 @@ export function isTimeString(value: unknown): value is TimeString {
 }
 
 function buildTimeString(hours: number, minutes: number): TimeString {
-  const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  if (!TIME_OF_DAY_REGEX.test(value)) {
-    throw new Error(`Invalid time string: "${value}"`);
-  }
-  return value;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}` as TimeString;
 }
 
 function parseTimeParts(

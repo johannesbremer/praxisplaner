@@ -5,7 +5,6 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 import {
   BASE_SCHEDULE_MISSING_ENTITY_REGEX,
-  TIME_OF_DAY_REGEX,
   type TimeString,
 } from "@/lib/typed-regex";
 
@@ -105,11 +104,7 @@ function asTypedBreakTimes(
 }
 
 function asTypedTime(value: string): TimeString {
-  if (!TIME_OF_DAY_REGEX.test(value)) {
-    throw new Error(`Invalid base schedule time: "${value}"`);
-  }
-
-  return value;
+  return value as TimeString;
 }
 
 export const resolvePractitionerLineageId = (

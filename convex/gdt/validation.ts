@@ -4,8 +4,11 @@ import type {
   GdtValidationResult,
 } from "./types";
 
+import { regex } from "../../lib/arkregex.js";
 import { GDT_DATE_REGEX, GDT_LINE_REGEX } from "../../lib/typed-regex.js";
 import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
+
+const GDT_LINE_SPLIT_REGEX = regex.as(String.raw`\r?\n`);
 
 /**
  * Validates and converts a date from DDMMYYYY to YYYY-MM-DD format.
@@ -105,7 +108,7 @@ export function parseGdtLine(line: string): GdtField | null {
 export function validateGdtContent(gdtContent: string): GdtValidationResult {
   const lines = gdtContent
     .trim()
-    .split(/\r?\n/)
+    .split(GDT_LINE_SPLIT_REGEX)
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0);
 

@@ -9,6 +9,7 @@ import { describe, test } from "vitest";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
+import { regex } from "../../lib/arkregex";
 import { api } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
@@ -19,6 +20,19 @@ type LineageTable = Extract<
   TableNames,
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
+
+const BASE_SCHEDULE_BATCH_EMPTY_REGEX = regex.as(
+  String.raw`\[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY\]`,
+);
+const BASE_SCHEDULE_DUPLICATE_IN_BATCH_REGEX = regex.as(
+  String.raw`\[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH\]`,
+);
+const BASE_SCHEDULE_DUPLICATE_REGEX = regex.as(
+  String.raw`\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]`,
+);
+const APPOINTMENT_TYPE_DELETED_REGEX = regex.as(
+  String.raw`gelöscht|deleted|APPOINTMENT_TYPE`,
+);
 
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
@@ -756,7 +770,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         schedules: [],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_BATCH_EMPTY_REGEX);
 
     const unsavedRuleSet = await t.run(async (ctx) => {
       return await ctx.db
@@ -884,7 +898,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_DUPLICATE_IN_BATCH_REGEX);
   });
 
   test("should reject base schedule batch lineage keys that already exist in the draft", async () => {
@@ -928,7 +942,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_DUPLICATE_REGEX);
   });
 
   test("should reject stale appointment type lineage keys and only delete current lineage", async () => {
@@ -994,7 +1008,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         practiceId,
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/gelöscht|deleted|APPOINTMENT_TYPE/);
+    ).rejects.toThrow(APPOINTMENT_TYPE_DELETED_REGEX);
 
     const remainingAfterFailedDelete = await t.run(async (ctx) => {
       const matches = await ctx.db

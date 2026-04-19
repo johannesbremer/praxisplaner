@@ -9,11 +9,7 @@ import { DE_DATE_REGEX, type DeDateString } from "@/lib/typed-regex";
 export type ParseResult<T> = { ok: false } | { ok: true; value: T };
 
 function formatDeDate(day: number, month: number, year: number): DeDateString {
-  const value = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
-  if (!DE_DATE_REGEX.test(value)) {
-    throw new Error(`Invalid German date string: "${value}"`);
-  }
-  return value;
+  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}` as DeDateString;
 }
 
 function parseDeDateParts(
