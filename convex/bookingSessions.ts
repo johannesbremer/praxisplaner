@@ -27,6 +27,7 @@ import {
   type StepTableInput,
   type StepTableInsert,
   type StepTableName,
+  type StepTablePatch,
 } from "./bookingSessions.shared";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
@@ -745,11 +746,11 @@ function toStepInsertData<T extends StepTableName>(
 function toStepPatchData<T extends StepTableName>(
   data: StepTableInput<T>,
   now: bigint,
-): Partial<StepTableInsert<T>> {
+): StepTablePatch<T> {
   return {
     ...data,
     lastModified: now,
-  } as unknown as Partial<StepTableInsert<T>>;
+  };
 }
 
 async function upsertStep<T extends StepTableName>(

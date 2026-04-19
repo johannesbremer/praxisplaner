@@ -3,7 +3,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { z } from "zod";
 
 import { PhoneInput } from "@/components/phone-input";
 import { Button } from "@/components/ui/button";
@@ -31,50 +30,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import {
+  bookingDataInputFormSchema,
+  type DataInputFormValue,
+  toOptionalMedicalHistory,
+} from "@/lib/booking-schemas";
 
 import type { StepComponentProps } from "./types";
-
-const optionalText = z.preprocess(
-  (value) =>
-    typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().optional(),
-);
-
-const optionalGender = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.enum(["male", "female", "diverse"]).optional(),
-);
-
-// Schema for personal data validation
-const personalDataSchema = z.object({
-  city: optionalText,
-  dateOfBirth: z.string().min(1, "Geburtsdatum ist erforderlich"),
-  email: optionalText,
-  firstName: z.string().min(1, "Vorname ist erforderlich"),
-  gender: optionalGender,
-  lastName: z.string().min(1, "Nachname ist erforderlich"),
-  phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
-  postalCode: optionalText,
-  street: optionalText,
-  title: optionalText,
-});
-
-// Medical history schema (new patients only)
-const medicalHistorySchema = z.object({
-  allergiesDescription: z.string(),
-  currentMedications: z.string(),
-  hasAllergies: z.boolean(),
-  hasDiabetes: z.boolean(),
-  hasHeartCondition: z.boolean(),
-  hasLungCondition: z.boolean(),
-  otherConditions: z.string(),
-});
-
-// Combined form schema that works for both paths
-const formSchema = z.object({
-  medicalHistory: medicalHistorySchema,
-  personalData: personalDataSchema,
-});
 
 export function DataInputStep({ sessionId, state }: StepComponentProps) {
   const isNewPatient =
@@ -115,61 +77,15 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         street: initialPersonalData?.street ?? "",
         title: initialPersonalData?.title ?? "",
       },
-    },
+    } satisfies DataInputFormValue,
     onSubmit: async ({ value }) => {
-      const parsed = formSchema.parse(value);
-      const parsedPersonalData = parsed.personalData;
-      const parsedMedicalHistory = parsed.medicalHistory;
-
-      // Build personal data, only including optional fields if they have values
-      const personalData = {
-        dateOfBirth: parsedPersonalData.dateOfBirth,
-        firstName: parsedPersonalData.firstName,
-        lastName: parsedPersonalData.lastName,
-        phoneNumber: parsedPersonalData.phoneNumber,
-        ...(parsedPersonalData.city && { city: parsedPersonalData.city }),
-        ...(parsedPersonalData.email && { email: parsedPersonalData.email }),
-        ...(parsedPersonalData.gender && { gender: parsedPersonalData.gender }),
-        ...(parsedPersonalData.postalCode && {
-          postalCode: parsedPersonalData.postalCode,
-        }),
-        ...(parsedPersonalData.street && { street: parsedPersonalData.street }),
-        ...(parsedPersonalData.title && { title: parsedPersonalData.title }),
-      };
+      const parsed = bookingDataInputFormSchema.parse(value);
+      const medicalHistory = toOptionalMedicalHistory(parsed.medicalHistory);
 
       if (isNewPatient) {
-        // Check if medical history has any filled values
-        const hasMedicalHistory =
-          parsedMedicalHistory.hasAllergies ||
-          parsedMedicalHistory.hasDiabetes ||
-          parsedMedicalHistory.hasHeartCondition ||
-          parsedMedicalHistory.hasLungCondition ||
-          parsedMedicalHistory.allergiesDescription ||
-          parsedMedicalHistory.currentMedications ||
-          parsedMedicalHistory.otherConditions;
-
-        // Build medical history only including optional strings if they have values
-        const medicalHistory = hasMedicalHistory
-          ? {
-              hasAllergies: parsedMedicalHistory.hasAllergies,
-              hasDiabetes: parsedMedicalHistory.hasDiabetes,
-              hasHeartCondition: parsedMedicalHistory.hasHeartCondition,
-              hasLungCondition: parsedMedicalHistory.hasLungCondition,
-              ...(parsedMedicalHistory.allergiesDescription && {
-                allergiesDescription: parsedMedicalHistory.allergiesDescription,
-              }),
-              ...(parsedMedicalHistory.currentMedications && {
-                currentMedications: parsedMedicalHistory.currentMedications,
-              }),
-              ...(parsedMedicalHistory.otherConditions && {
-                otherConditions: parsedMedicalHistory.otherConditions,
-              }),
-            }
-          : undefined;
-
         try {
           await submitNewPatientData({
-            personalData,
+            personalData: parsed.personalData,
             sessionId,
             ...(medicalHistory && { medicalHistory }),
           });
@@ -185,7 +101,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
       } else {
         try {
           await submitExistingPatientData({
-            personalData,
+            personalData: parsed.personalData,
             sessionId,
           });
         } catch (error: unknown) {
@@ -201,7 +117,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
     },
     validators: {
       onSubmit: ({ value }) => {
-        const result = formSchema.safeParse(value);
+        const result = bookingDataInputFormSchema.safeParse(value);
         return result.success ? undefined : result.error;
       },
     },

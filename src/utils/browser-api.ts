@@ -30,14 +30,16 @@ type FileSystemObserverConstructor = new (
 interface FileSystemObserverInstance {
   disconnect(): void;
   observe(
-    handle: FileSystemDirectoryHandle,
+    handle: AppFileSystemDirectoryHandle,
     options?: { recursive?: boolean },
   ): Promise<void>;
-  unobserve(handle: FileSystemDirectoryHandle): Promise<void>;
+  unobserve(handle: AppFileSystemDirectoryHandle): Promise<void>;
 }
 
 interface FileSystemObserverRecord {
-  readonly changedHandle: FileSystemDirectoryHandle | FileSystemFileHandle;
+  readonly changedHandle:
+    | AppFileSystemDirectoryHandle
+    | AppFileSystemFileHandle;
   readonly relativePathComponents: readonly string[];
   readonly type: "appeared" | "disappeared" | "modified";
 }
@@ -107,20 +109,6 @@ export function isDOMException(error: unknown): error is DOMException {
   return typeof DOMException !== "undefined" && error instanceof DOMException;
 }
 
-function toAppFileSystemHandle(
-  handle: FileSystemDirectoryHandle | FileSystemFileHandle,
-): AppFileSystemDirectoryHandle | AppFileSystemFileHandle {
-  return handle as unknown as
-    | AppFileSystemDirectoryHandle
-    | AppFileSystemFileHandle;
-}
-
-function toBrowserFileSystemDirectoryHandle(
-  handle: AppFileSystemDirectoryHandle,
-): FileSystemDirectoryHandle {
-  return handle as unknown as FileSystemDirectoryHandle;
-}
-
 /**
  * Typed wrapper for FileSystemObserver that handles browser compatibility.
  */
@@ -151,7 +139,7 @@ export class SafeFileSystemObserver {
         // Convert records to our typed format
         const typedRecords: FileSystemChangeRecord[] = records.map(
           (record) => ({
-            changedHandle: toAppFileSystemHandle(record.changedHandle),
+            changedHandle: record.changedHandle,
             relativePathComponents: [...record.relativePathComponents],
             type: record.type,
           }),
@@ -182,10 +170,7 @@ export class SafeFileSystemObserver {
       return errAsync(error);
     }
     return ResultAsync.fromPromise(
-      this.observer.observe(
-        toBrowserFileSystemDirectoryHandle(handle),
-        options,
-      ),
+      this.observer.observe(handle, options),
       (error) =>
         frontendErrorFromUnknown(error, {
           expected: false,
@@ -211,7 +196,7 @@ export class SafeFileSystemObserver {
       return errAsync(error);
     }
     return ResultAsync.fromPromise(
-      this.observer.unobserve(toBrowserFileSystemDirectoryHandle(handle)),
+      this.observer.unobserve(handle),
       (error) =>
         frontendErrorFromUnknown(error, {
           expected: false,

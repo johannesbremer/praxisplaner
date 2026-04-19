@@ -11,7 +11,7 @@
  * - buildPreloadedDayData: Pre-load all data needed for condition evaluation (called once per query)
  */
 
-import type { Infer } from "convex/values";
+import type { Infer, Validator } from "convex/values";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
@@ -21,7 +21,14 @@ import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
-import { isConditionNode, isLogicalNode } from "../lib/condition-tree.js";
+import {
+  CONDITION_OPERATORS,
+  CONDITION_TYPES,
+  isConditionNode,
+  isLogicalNode,
+  LOGICAL_NODE_TYPES,
+  SCOPES,
+} from "../lib/condition-tree.js";
 import {
   conditionTreeToConditions,
   generateRuleName,
@@ -1146,15 +1153,6 @@ export const getRuleDescription = internalQuery({
   }),
 });
 
-/**
- * Scope validator for conditions that operate at different levels.
- */
-export const scopeValidator = v.union(
-  v.literal("practice"),
-  v.literal("location"),
-  v.literal("practitioner"),
-);
-
 export type {
   ConditionNode,
   ConditionOperator,
@@ -1164,47 +1162,79 @@ export type {
   Scope,
 } from "../lib/condition-tree.js";
 
+function literalUnionValidator<
+  const TValues extends readonly [string, string, ...string[]],
+>(
+  values: TValues,
+): Validator<TValues[number]> {
+  const [first, second, ...rest] = values;
+  return v.union(
+    v.literal(first),
+    v.literal(second),
+    ...rest.map((value) => v.literal(value)),
+  ) as Validator<TValues[number]>;
+}
+
+export const scopeValidator = literalUnionValidator(SCOPES);
+
+const CONDITION_TREE_MAX_DEPTH = 20;
+const conditionTypeValidator = literalUnionValidator(CONDITION_TYPES);
+const conditionOperatorValidator = literalUnionValidator(CONDITION_OPERATORS);
+const logicalNodeTypeValidator = literalUnionValidator(LOGICAL_NODE_TYPES);
+const conditionLeafValidator = v.object({
+  conditionType: conditionTypeValidator,
+  nodeType: v.literal("CONDITION"),
+  operator: conditionOperatorValidator,
+  scope: v.optional(scopeValidator),
+  valueIds: v.optional(v.array(v.string())),
+  valueNumber: v.optional(v.number()),
+});
+
+function createConditionTreeNodeValidator(
+  depth: number,
+): Validator<ConditionTreeNode> {
+  if (depth <= 0) {
+    return conditionLeafValidator as unknown as Validator<ConditionTreeNode>;
+  }
+
+  const childValidator = createConditionTreeNodeValidator(depth - 1);
+  return v.union(
+    v.object({
+      children: v.array(childValidator),
+      nodeType: logicalNodeTypeValidator,
+    }),
+    conditionLeafValidator,
+  ) as unknown as Validator<ConditionTreeNode>;
+}
+
+const ruleConditionDocumentValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("ruleConditions"),
+  childOrder: v.number(),
+  conditionType: v.optional(conditionTypeValidator),
+  copyFromId: v.optional(v.id("ruleConditions")),
+  createdAt: v.int64(),
+  enabled: v.optional(v.boolean()),
+  isRoot: v.boolean(),
+  lastModified: v.int64(),
+  nodeType: v.optional(v.union(logicalNodeTypeValidator, v.literal("CONDITION"))),
+  operator: v.optional(conditionOperatorValidator),
+  parentConditionId: v.optional(v.id("ruleConditions")),
+  practiceId: v.id("practices"),
+  ruleSetId: v.id("ruleSets"),
+  scope: v.optional(scopeValidator),
+  valueIds: v.optional(v.array(v.string())),
+  valueNumber: v.optional(v.number()),
+});
+
 /**
  * Validator for condition tree nodes used in rule creation/updates.
  *
- * Note: Convex validators don't support recursive types, so children still come through
- * a permissive validator. The recursive tree is narrowed back to `ConditionTreeNode`
- * at the mutation/query boundary before it is used elsewhere.
+ * Convex validators don't have native recursion, so we build an explicit
+ * depth-bounded recursive validator that still preserves the node shape.
  */
-export const conditionTreeNodeValidator = v.union(
-  v.object({
-    children: v.array(v.any()),
-    nodeType: v.union(v.literal("AND"), v.literal("NOT")),
-  }),
-  v.object({
-    conditionType: v.union(
-      v.literal("APPOINTMENT_TYPE"),
-      v.literal("DAY_OF_WEEK"),
-      v.literal("LOCATION"),
-      v.literal("PRACTITIONER"),
-      v.literal("PRACTITIONER_TAG"),
-      v.literal("DATE_RANGE"),
-      v.literal("TIME_RANGE"),
-      v.literal("DAYS_AHEAD"),
-      v.literal("HOURS_AHEAD"),
-      v.literal("DAILY_CAPACITY"),
-      v.literal("CONCURRENT_COUNT"),
-      v.literal("CLIENT_TYPE"),
-      v.literal("PATIENT_AGE"),
-    ),
-    nodeType: v.literal("CONDITION"),
-    operator: v.union(
-      v.literal("IS"),
-      v.literal("IS_NOT"),
-      v.literal("GREATER_THAN_OR_EQUAL"),
-      v.literal("LESS_THAN"),
-      v.literal("LESS_THAN_OR_EQUAL"),
-      v.literal("EQUALS"),
-    ),
-    scope: v.optional(scopeValidator),
-    valueIds: v.optional(v.array(v.string())),
-    valueNumber: v.optional(v.number()),
-  }),
+export const conditionTreeNodeValidator = createConditionTreeNodeValidator(
+  CONDITION_TREE_MAX_DEPTH,
 );
 
 /**
@@ -1430,7 +1460,7 @@ export const loadRulesForRuleSet = internalQuery({
     };
   },
   returns: v.object({
-    conditions: v.array(v.any()),
+    conditions: v.array(ruleConditionDocumentValidator),
     dayInvariantCount: v.number(),
     rules: v.array(
       v.object({
@@ -1536,7 +1566,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
     };
   },
   returns: v.object({
-    conditions: v.array(v.any()),
+    conditions: v.array(ruleConditionDocumentValidator),
     rules: v.array(
       v.object({
         _id: v.id("ruleConditions"),

@@ -45,7 +45,7 @@ export type StepPatchMap = {
   [K in StepTableName]: (
     ctx: MutationCtx,
     id: Id<K>,
-    data: Partial<StepTableInsert<K>>,
+    data: StepTablePatch<K>,
   ) => Promise<void>;
 };
 
@@ -114,3 +114,7 @@ export type StepTableName = keyof Pick<
   | "bookingPatientStatusSteps"
   | "bookingPrivacySteps"
 >;
+
+export type StepTablePatch<T extends StepTableName> = StepTableInput<T> & {
+  lastModified: bigint;
+};

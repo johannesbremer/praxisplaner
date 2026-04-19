@@ -3,7 +3,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,18 +26,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import {
+  pkvDetailsFormSchema,
+  type PkvDetailsFormValue,
+} from "@/lib/booking-schemas";
 
 import type { StepComponentProps } from "./types";
-
-const pkvFormSchema = z.object({
-  beihilfeStatus: z.enum(["yes", "no", ""]).transform((v) => v || undefined),
-  pkvInsuranceType: z
-    .enum(["postb", "kvb", "other", ""])
-    .transform((v) => v || undefined),
-  pkvTariff: z
-    .enum(["basis", "standard", "premium", ""])
-    .transform((v) => v || undefined),
-});
 
 export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
@@ -50,18 +43,22 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
       beihilfeStatus: completedState?.beihilfeStatus ?? "",
       pkvInsuranceType: completedState?.pkvInsuranceType ?? "",
       pkvTariff: completedState?.pkvTariff ?? "",
-    },
+    } satisfies PkvDetailsFormValue,
     onSubmit: async ({ value }) => {
       try {
-        const parsed = pkvFormSchema.parse(value);
+        const parsed = pkvDetailsFormSchema.parse(value);
         const payload = {
           pvsConsent: true as const, // Already consented in previous step
           sessionId,
-          ...pickDefined({
-            beihilfeStatus: parsed.beihilfeStatus,
-            pkvInsuranceType: parsed.pkvInsuranceType,
-            pkvTariff: parsed.pkvTariff,
-          }),
+          ...(parsed.beihilfeStatus === undefined
+            ? {}
+            : { beihilfeStatus: parsed.beihilfeStatus }),
+          ...(parsed.pkvInsuranceType === undefined
+            ? {}
+            : { pkvInsuranceType: parsed.pkvInsuranceType }),
+          ...(parsed.pkvTariff === undefined
+            ? {}
+            : { pkvTariff: parsed.pkvTariff }),
         };
         await confirmPkvDetails(payload);
       } catch (error) {
@@ -75,7 +72,7 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
       }
     },
     validators: {
-      onSubmit: pkvFormSchema,
+      onSubmit: pkvDetailsFormSchema,
     },
   });
 
@@ -104,7 +101,9 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
                   </FieldLabel>
                   <Select
                     onValueChange={(value) => {
-                      field.handleChange(value as "" | "no" | "yes");
+                      if (value === "" || value === "no" || value === "yes") {
+                        field.handleChange(value);
+                      }
                     }}
                     value={field.state.value}
                   >
@@ -135,9 +134,14 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
                   </FieldLabel>
                   <Select
                     onValueChange={(value) => {
-                      field.handleChange(
-                        value as "" | "kvb" | "other" | "postb",
-                      );
+                      if (
+                        value === "" ||
+                        value === "kvb" ||
+                        value === "other" ||
+                        value === "postb"
+                      ) {
+                        field.handleChange(value);
+                      }
                     }}
                     value={field.state.value}
                   >
@@ -200,12 +204,4 @@ export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
       </CardContent>
     </Card>
   );
-}
-
-function pickDefined<T extends Record<string, unknown>>(value: T) {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, item]) => item !== undefined),
-  ) as {
-    [K in keyof T]?: Exclude<T[K], undefined>;
-  };
 }

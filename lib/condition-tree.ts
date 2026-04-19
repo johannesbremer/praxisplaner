@@ -40,7 +40,7 @@ export interface LogicalNode {
 export type Scope = "location" | "practice" | "practitioner";
 
 const CONDITION_NODE_TYPE = "CONDITION";
-const CONDITION_OPERATORS = [
+export const CONDITION_OPERATORS = [
   "EQUALS",
   "GREATER_THAN_OR_EQUAL",
   "IS",
@@ -48,7 +48,7 @@ const CONDITION_OPERATORS = [
   "LESS_THAN",
   "LESS_THAN_OR_EQUAL",
 ] as const satisfies readonly ConditionOperator[];
-const CONDITION_TYPES = [
+export const CONDITION_TYPES = [
   "APPOINTMENT_TYPE",
   "CLIENT_TYPE",
   "CONCURRENT_COUNT",
@@ -63,11 +63,11 @@ const CONDITION_TYPES = [
   "PRACTITIONER_TAG",
   "TIME_RANGE",
 ] as const satisfies readonly ConditionType[];
-const LOGICAL_NODE_TYPES = [
+export const LOGICAL_NODE_TYPES = [
   "AND",
   "NOT",
 ] as const satisfies readonly LogicalNode["nodeType"][];
-const SCOPES = [
+export const SCOPES = [
   "location",
   "practice",
   "practitioner",
