@@ -1,53 +1,23 @@
 import { z } from "zod";
 
+import type {
+  DataSharingContactInput,
+  MedicalHistoryInput,
+  PersonalDataInput,
+  PkvDetailsInput,
+} from "../convex/typedDtos";
+
 import {
   BEIHILFE_STATUS_VALUES,
   GENDER_VALUES,
   PKV_INSURANCE_TYPE_VALUES,
   PKV_TARIFF_VALUES,
 } from "./booking-models";
-import { ISO_DATE_REGEX } from "./typed-regex";
-
-export interface DataSharingContactInput {
-  city: string;
-  dateOfBirth: string;
-  firstName: string;
-  gender: (typeof GENDER_VALUES)[number];
-  lastName: string;
-  phoneNumber: string;
-  postalCode: string;
-  street: string;
-  title?: string;
-}
-
-export interface MedicalHistoryInput {
-  allergiesDescription?: string;
-  currentMedications?: string;
-  hasAllergies: boolean;
-  hasDiabetes: boolean;
-  hasHeartCondition: boolean;
-  hasLungCondition: boolean;
-  otherConditions?: string;
-}
-
-export interface PersonalDataInput {
-  city?: string;
-  dateOfBirth: string;
-  email?: string;
-  firstName: string;
-  gender?: (typeof GENDER_VALUES)[number];
-  lastName: string;
-  phoneNumber: string;
-  postalCode?: string;
-  street?: string;
-  title?: string;
-}
-
-export interface PkvDetailsInput {
-  beihilfeStatus?: (typeof BEIHILFE_STATUS_VALUES)[number];
-  pkvInsuranceType?: (typeof PKV_INSURANCE_TYPE_VALUES)[number];
-  pkvTariff?: (typeof PKV_TARIFF_VALUES)[number];
-}
+import {
+  isIsoDateString,
+  ISO_DATE_REGEX,
+  type IsoDateString,
+} from "./typed-regex";
 
 const optionalTextSchema = z.string().optional();
 const optionalTrimmedTextInputSchema = z
@@ -219,7 +189,7 @@ export function toDataSharingContactInput(value: {
 }): DataSharingContactInput {
   const contact: DataSharingContactInput = {
     city: value.city,
-    dateOfBirth: value.dateOfBirth,
+    dateOfBirth: toIsoDateString(value.dateOfBirth),
     firstName: value.firstName,
     gender: value.gender,
     lastName: value.lastName,
@@ -296,7 +266,7 @@ export function toPersonalDataInput(value: {
   title?: string | undefined;
 }): PersonalDataInput {
   const personalData: PersonalDataInput = {
-    dateOfBirth: value.dateOfBirth,
+    dateOfBirth: toIsoDateString(value.dateOfBirth),
     firstName: value.firstName,
     lastName: value.lastName,
     phoneNumber: value.phoneNumber,
@@ -342,4 +312,12 @@ export function toPkvDetailsInput(value: {
   }
 
   return details;
+}
+
+function toIsoDateString(value: string): IsoDateString {
+  if (!isIsoDateString(value)) {
+    throw new Error(`Expected YYYY-MM-DD date string, got "${value}".`);
+  }
+
+  return value;
 }

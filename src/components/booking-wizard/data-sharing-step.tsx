@@ -120,9 +120,12 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
       for (const issue of parsed.error.issues) {
         const [index, field] = issue.path;
         if (typeof index === "number" && typeof field === "string") {
-          const typedField = field as ContactField;
+          if (!isContactField(field)) {
+            nextFormError ||= issue.message;
+            continue;
+          }
           const existing = nextErrors[index] ?? {};
-          nextErrors[index] = { ...existing, [typedField]: issue.message };
+          nextErrors[index] = { ...existing, [field]: issue.message };
         } else {
           nextFormError ||= issue.message;
         }
@@ -448,4 +451,18 @@ function createEmptyContact(): ContactFormValue {
     street: "",
     title: "",
   };
+}
+
+function isContactField(value: string): value is ContactField {
+  return (
+    value === "city" ||
+    value === "dateOfBirth" ||
+    value === "firstName" ||
+    value === "gender" ||
+    value === "lastName" ||
+    value === "phoneNumber" ||
+    value === "postalCode" ||
+    value === "street" ||
+    value === "title"
+  );
 }

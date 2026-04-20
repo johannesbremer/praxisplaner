@@ -22,7 +22,9 @@ import {
 } from "./entities.validators";
 import {
   dataSharingContactInputValidator,
+  medicalHistoryValidator,
   personalDataValidator,
+  pkvDetailsValidator,
   selectedSlotValidator,
 } from "./schema";
 import {
@@ -66,12 +68,19 @@ export interface DateRangeInput {
   start: InstantString;
 }
 
+export type MedicalHistoryInput = Infer<typeof medicalHistoryValidator>;
+
 export type PersonalDataInput = Omit<
   Infer<typeof personalDataValidator>,
   "dateOfBirth"
 > & {
   dateOfBirth: IsoDateString;
 };
+
+export type PkvDetailsInput = Omit<
+  Infer<typeof pkvDetailsValidator>,
+  "insuranceType" | "pvsConsent"
+>;
 
 export type SchedulingResultSlot = Omit<
   Infer<typeof availableSlotsResultValidator>["slots"][number],
