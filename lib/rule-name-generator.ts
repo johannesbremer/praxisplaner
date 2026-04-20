@@ -35,6 +35,10 @@ interface Entity {
   name: string;
 }
 
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
 function isSupportedConditionType(value: string): value is ConditionType {
   switch (value) {
     case "APPOINTMENT_TYPE":
@@ -148,9 +152,10 @@ export function generateRuleName(
 
     switch (condition.type) {
       case "APPOINTMENT_TYPE": {
-        const names = (condition.valueIds
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Termintyp]";
@@ -161,9 +166,10 @@ export function generateRuleName(
       }
       case "CONCURRENT_COUNT": {
         const count = condition.count ?? 0;
-        const atNames = (condition.appointmentTypes
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const atNames =
+          condition.appointmentTypes
+            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
             ? "in der gesamten Praxis"
@@ -177,9 +183,10 @@ export function generateRuleName(
       }
       case "DAILY_CAPACITY": {
         const count = condition.count ?? 0;
-        const atNames = (condition.appointmentTypes
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const atNames =
+          condition.appointmentTypes
+            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
             ? "in der gesamten Praxis"
@@ -203,9 +210,9 @@ export function generateRuleName(
           TUESDAY: "Dienstag",
           WEDNESDAY: "Mittwoch",
         };
-        const names = (condition.valueIds
-          ?.map((day) => dayLabels[day])
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds?.map((day) => dayLabels[day]).filter(isDefined) ??
+          [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Wochentag]";
@@ -229,9 +236,10 @@ export function generateRuleName(
         break;
       }
       case "LOCATION": {
-        const names = (condition.valueIds
-          ?.map((id) => locations.find((l) => l._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => locations.find((l) => l._id === id)?.name)
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Standort]";
@@ -250,9 +258,10 @@ export function generateRuleName(
         break;
       }
       case "PRACTITIONER": {
-        const names = (condition.valueIds
-          ?.map((id) => practitioners.find((p) => p._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => practitioners.find((p) => p._id === id)?.name)
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Behandler]";

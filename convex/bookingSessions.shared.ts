@@ -37,7 +37,7 @@ export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
 export type StepInsertMap = {
   [K in StepTableName]: (
     ctx: MutationCtx,
-    data: StepTableInsert<K>,
+    data: StepTableInsertData<K>,
   ) => Promise<Id<K>>;
 };
 
@@ -94,6 +94,11 @@ export type StepTableInsert<T extends StepTableName> = Omit<
   StepTableDocMap[T],
   "_creationTime" | "_id"
 >;
+
+export type StepTableInsertData<T extends StepTableName> = StepTableInput<T> & {
+  createdAt: bigint;
+  lastModified: bigint;
+};
 
 export type StepTableName = keyof Pick<
   DataModel,

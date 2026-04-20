@@ -1404,7 +1404,7 @@ export const deletePractitionerWithDependencies = mutation({
       );
     }
 
-    const practitionerIdAsString = practitioner._id as string;
+    const practitionerIdAsString: string = practitioner._id;
     const now = BigInt(Date.now());
 
     const baseSchedules = await ctx.db
@@ -1597,7 +1597,7 @@ export const restorePractitionerWithDependencies = mutation({
     );
     const now = BigInt(Date.now());
     const previousPractitionerId = args.snapshot.practitioner.id;
-    const previousPractitionerIdAsString = previousPractitionerId as string;
+    const previousPractitionerIdAsString: string = previousPractitionerId;
 
     const existingByLineage = await ctx.db
       .query("practitioners")
@@ -1794,7 +1794,7 @@ export const restorePractitionerWithDependencies = mutation({
 
       const restoredValueIds = patch.beforeValueIds.map((valueId) =>
         valueId === previousPractitionerIdAsString
-          ? (restoredPractitionerId as string)
+          ? restoredPractitionerId
           : valueId,
       );
 

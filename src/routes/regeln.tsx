@@ -60,12 +60,11 @@ import {
   EXISTING_PATIENT_SEGMENT,
   NEW_PATIENT_SEGMENT,
   type RegelnSearchParams,
-  type RegelnTabParam,
+  type RegelnTab,
   useRegelnUrl,
 } from "../utils/regeln-url";
 import { dateToInstantStringResult } from "../utils/time-calculations";
 import {
-  type RuleSetDiff,
   RuleSetDiffChangeCount,
   RuleSetDiffView,
   SaveDialogForm,
@@ -75,6 +74,14 @@ import { SimulationControls } from "./regeln/-simulation-controls";
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+function isRegelnTab(value: string): value is RegelnTab {
+  return (
+    value === "rule-management" ||
+    value === "staff-view" ||
+    value === "vacation-scheduler"
+  );
+}
+
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
   validateSearch: (search): RegelnSearchParams => {
@@ -82,12 +89,9 @@ export const Route = createFileRoute("/regeln")({
 
     const result: RegelnSearchParams = {};
 
-    if (
-      params["tab"] === "mitarbeiter" ||
-      params["tab"] === "debug" ||
-      params["tab"] === "urlaub"
-    ) {
-      result.tab = params["tab"] as RegelnTabParam;
+    const tab = params["tab"];
+    if (tab === "mitarbeiter" || tab === "debug" || tab === "urlaub") {
+      result.tab = tab;
     }
 
     if (
@@ -565,6 +569,7 @@ function LogicView() {
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
+  const selectedVersionId = ruleSetIdFromUrl ?? unsavedRuleSetId ?? undefined;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
     currentPractice && unsavedRuleSet && !isDraftEquivalentToParent
@@ -573,7 +578,7 @@ function LogicView() {
           ruleSetId: unsavedRuleSet._id,
         }
       : "skip",
-  ) as RuleSetDiff | undefined;
+  );
   React.useEffect(() => {
     if (
       !raw.ruleSet ||
@@ -1034,9 +1039,8 @@ function LogicView() {
   };
 
   // Save dialog handlers
-  // Note: name parameter is required by the interface but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleSaveOnly = (_name: string) => {
+  const handleSaveOnly = (name: string) => {
+    void name;
     if (!currentWorkingRuleSet) {
       return;
     }
@@ -1084,9 +1088,8 @@ function LogicView() {
     })();
   };
 
-  // Note: name parameter is required by the interface but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleSaveAndActivate = (_name: string) => {
+  const handleSaveAndActivate = (name: string) => {
+    void name;
     if (currentWorkingRuleSet) {
       void handleActivateRuleSet(currentWorkingRuleSet._id);
     }
@@ -1198,7 +1201,9 @@ function LogicView() {
         <Tabs
           className="space-y-6"
           onValueChange={(val) => {
-            navigateTab(val as typeof activeTab);
+            if (isRegelnTab(val)) {
+              navigateTab(val);
+            }
           }}
           value={activeTab}
         >
@@ -1235,9 +1240,8 @@ function LogicView() {
                           <div className="border rounded-lg p-4">
                             <VersionGraph
                               onVersionClick={handleVersionClick}
-                              {...((ruleSetIdFromUrl || unsavedRuleSetId) && {
-                                selectedVersionId: (ruleSetIdFromUrl ||
-                                  unsavedRuleSetId) as string,
+                              {...(selectedVersionId && {
+                                selectedVersionId,
                               })}
                               versions={versionsQuery}
                             />

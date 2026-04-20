@@ -823,7 +823,7 @@ function evaluateCondition(
     default: {
       // Unknown condition type - this indicates data corruption
       throw new Error(
-        `Unknown condition type: ${conditionType as string | undefined}. ` +
+        `Unknown condition type: ${String(conditionType)}. ` +
           `This indicates data corruption in rule conditions.`,
       );
     }
@@ -1167,23 +1167,66 @@ export type {
   Scope,
 } from "../lib/condition-tree.js";
 
-function literalUnionValidator<
-  const TValues extends readonly [string, string, ...string[]],
->(values: TValues): Validator<TValues[number]> {
-  const [first, second, ...rest] = values;
-  return v.union(
-    v.literal(first),
-    v.literal(second),
-    ...rest.map((value) => v.literal(value)),
-  ) as Validator<TValues[number]>;
-}
+const [SCOPE_LOCATION, SCOPE_PRACTICE, SCOPE_PRACTITIONER] = SCOPES;
+const [
+  CONDITION_OPERATOR_EQUALS,
+  CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL,
+  CONDITION_OPERATOR_IS,
+  CONDITION_OPERATOR_IS_NOT,
+  CONDITION_OPERATOR_LESS_THAN,
+  CONDITION_OPERATOR_LESS_THAN_OR_EQUAL,
+] = CONDITION_OPERATORS;
+const [
+  CONDITION_TYPE_APPOINTMENT_TYPE,
+  CONDITION_TYPE_CLIENT_TYPE,
+  CONDITION_TYPE_CONCURRENT_COUNT,
+  CONDITION_TYPE_DAILY_CAPACITY,
+  CONDITION_TYPE_DATE_RANGE,
+  CONDITION_TYPE_DAY_OF_WEEK,
+  CONDITION_TYPE_DAYS_AHEAD,
+  CONDITION_TYPE_HOURS_AHEAD,
+  CONDITION_TYPE_LOCATION,
+  CONDITION_TYPE_PATIENT_AGE,
+  CONDITION_TYPE_PRACTITIONER,
+  CONDITION_TYPE_PRACTITIONER_TAG,
+  CONDITION_TYPE_TIME_RANGE,
+] = CONDITION_TYPES;
+const [LOGICAL_NODE_AND, LOGICAL_NODE_NOT] = LOGICAL_NODE_TYPES;
 
-export const scopeValidator = literalUnionValidator(SCOPES);
+export const scopeValidator = v.union(
+  v.literal(SCOPE_LOCATION),
+  v.literal(SCOPE_PRACTICE),
+  v.literal(SCOPE_PRACTITIONER),
+);
 
 const CONDITION_TREE_MAX_DEPTH = 20;
-const conditionTypeValidator = literalUnionValidator(CONDITION_TYPES);
-const conditionOperatorValidator = literalUnionValidator(CONDITION_OPERATORS);
-const logicalNodeTypeValidator = literalUnionValidator(LOGICAL_NODE_TYPES);
+const conditionTypeValidator = v.union(
+  v.literal(CONDITION_TYPE_APPOINTMENT_TYPE),
+  v.literal(CONDITION_TYPE_CLIENT_TYPE),
+  v.literal(CONDITION_TYPE_CONCURRENT_COUNT),
+  v.literal(CONDITION_TYPE_DAILY_CAPACITY),
+  v.literal(CONDITION_TYPE_DATE_RANGE),
+  v.literal(CONDITION_TYPE_DAY_OF_WEEK),
+  v.literal(CONDITION_TYPE_DAYS_AHEAD),
+  v.literal(CONDITION_TYPE_HOURS_AHEAD),
+  v.literal(CONDITION_TYPE_LOCATION),
+  v.literal(CONDITION_TYPE_PATIENT_AGE),
+  v.literal(CONDITION_TYPE_PRACTITIONER),
+  v.literal(CONDITION_TYPE_PRACTITIONER_TAG),
+  v.literal(CONDITION_TYPE_TIME_RANGE),
+);
+const conditionOperatorValidator = v.union(
+  v.literal(CONDITION_OPERATOR_EQUALS),
+  v.literal(CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL),
+  v.literal(CONDITION_OPERATOR_IS),
+  v.literal(CONDITION_OPERATOR_IS_NOT),
+  v.literal(CONDITION_OPERATOR_LESS_THAN),
+  v.literal(CONDITION_OPERATOR_LESS_THAN_OR_EQUAL),
+);
+const logicalNodeTypeValidator = v.union(
+  v.literal(LOGICAL_NODE_AND),
+  v.literal(LOGICAL_NODE_NOT),
+);
 const conditionLeafValidator: Validator<ConditionNode, "required", string> =
   v.object({
     conditionType: conditionTypeValidator,

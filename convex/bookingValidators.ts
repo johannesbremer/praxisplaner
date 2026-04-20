@@ -1,5 +1,3 @@
-import type { Validator } from "convex/values";
-
 import { v } from "convex/values";
 
 import {
@@ -11,34 +9,48 @@ import {
   PKV_TARIFF_VALUES,
 } from "../lib/booking-models";
 
-function literalUnionValidator<
-  const TValues extends readonly [string, string, ...string[]],
->(values: TValues): Validator<TValues[number]> {
-  const [first, second, ...rest] = values;
-  return v.union(
-    v.literal(first),
-    v.literal(second),
-    ...rest.map((value) => v.literal(value)),
-  ) as Validator<TValues[number]>;
-}
+const [GKV_INSURANCE_TYPE, PKV_INSURANCE_TYPE] = INSURANCE_TYPE_VALUES;
+const [HZV_HAS_CONTRACT, HZV_INTERESTED, HZV_NO_INTEREST] = HZV_STATUS_VALUES;
+const [BEIHILFE_YES, BEIHILFE_NO] = BEIHILFE_STATUS_VALUES;
+const [PKV_TARIFF_BASIS, PKV_TARIFF_STANDARD, PKV_TARIFF_PREMIUM] =
+  PKV_TARIFF_VALUES;
+const [PKV_INSURANCE_POSTB, PKV_INSURANCE_KVB, PKV_INSURANCE_OTHER] =
+  PKV_INSURANCE_TYPE_VALUES;
+const [GENDER_MALE, GENDER_FEMALE, GENDER_DIVERSE] = GENDER_VALUES;
 
-export const insuranceTypeValidator = literalUnionValidator(
-  INSURANCE_TYPE_VALUES,
+export const insuranceTypeValidator = v.union(
+  v.literal(GKV_INSURANCE_TYPE),
+  v.literal(PKV_INSURANCE_TYPE),
 );
 
-export const hzvStatusValidator = literalUnionValidator(HZV_STATUS_VALUES);
-
-export const beihilfeStatusValidator = literalUnionValidator(
-  BEIHILFE_STATUS_VALUES,
+export const hzvStatusValidator = v.union(
+  v.literal(HZV_HAS_CONTRACT),
+  v.literal(HZV_INTERESTED),
+  v.literal(HZV_NO_INTEREST),
 );
 
-export const pkvTariffValidator = literalUnionValidator(PKV_TARIFF_VALUES);
-
-export const pkvInsuranceTypeValidator = literalUnionValidator(
-  PKV_INSURANCE_TYPE_VALUES,
+export const beihilfeStatusValidator = v.union(
+  v.literal(BEIHILFE_YES),
+  v.literal(BEIHILFE_NO),
 );
 
-export const genderValidator = literalUnionValidator(GENDER_VALUES);
+export const pkvTariffValidator = v.union(
+  v.literal(PKV_TARIFF_BASIS),
+  v.literal(PKV_TARIFF_STANDARD),
+  v.literal(PKV_TARIFF_PREMIUM),
+);
+
+export const pkvInsuranceTypeValidator = v.union(
+  v.literal(PKV_INSURANCE_POSTB),
+  v.literal(PKV_INSURANCE_KVB),
+  v.literal(PKV_INSURANCE_OTHER),
+);
+
+export const genderValidator = v.union(
+  v.literal(GENDER_MALE),
+  v.literal(GENDER_FEMALE),
+  v.literal(GENDER_DIVERSE),
+);
 
 export const personalDataValidator = v.object({
   city: v.optional(v.string()),
