@@ -19,6 +19,7 @@ import { api } from "../../convex/_generated/api";
 import {
   type ConditionTreeNode,
   parseConditionTreeNode,
+  serializeConditionTreeTransport,
 } from "../../lib/condition-tree";
 import {
   conditionTreeToConditions,
@@ -196,7 +197,12 @@ export function RuleBuilder({
     name: string;
   }) =>
     await createRuleMutation({
-      ...params,
+      conditionTree: serializeConditionTreeTransport(params.conditionTree),
+      enabled: params.enabled,
+      name: params.name,
+      ...(params.copyFromId === undefined
+        ? {}
+        : { copyFromId: params.copyFromId }),
       practiceId,
       ...getCowMutationArgs(),
     });

@@ -23,7 +23,7 @@ import { Temporal } from "temporal-polyfill";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
-import { parseConditionTreeNode } from "../lib/condition-tree.js";
+import { parseConditionTreeTransport } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
@@ -48,6 +48,7 @@ import {
   baseScheduleCreatePayloadValidator,
   baseSchedulePayloadValidator,
   baseScheduleResultValidator,
+  conditionTreeTransportValidator,
   deletePractitionerWithDependenciesResultValidator,
   expectedDraftRevisionValidator,
   locationResultValidator,
@@ -75,11 +76,7 @@ import {
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
-import {
-  type ConditionTreeNode,
-  conditionTreeNodeValidator,
-  validateConditionTree,
-} from "./ruleEngine";
+import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   asBaseScheduleCreatePayload,
@@ -3271,7 +3268,7 @@ async function resolveValidatedRuleCopyFromId(
  */
 export const createRule = mutation({
   args: {
-    conditionTree: conditionTreeNodeValidator,
+    conditionTree: conditionTreeTransportValidator,
     copyFromId: v.optional(v.id("ruleConditions")),
     enabled: v.optional(v.boolean()),
     expectedDraftRevision: expectedDraftRevisionValidator,
@@ -3292,7 +3289,7 @@ export const createRule = mutation({
     // Remap entity IDs in the condition tree if the source and target rule sets differ
     // This handles the case where the UI passes entity IDs from the source rule set
     // but we need to use entity IDs from the target (unsaved) rule set
-    const parsedConditionTree = parseConditionTreeNode(args.conditionTree);
+    const parsedConditionTree = parseConditionTreeTransport(args.conditionTree);
     const remappedConditionTree = await remapConditionTreeEntityIds(
       ctx.db,
       parsedConditionTree,

@@ -6,10 +6,12 @@ import { convexTest } from "convex-test";
 import { expect } from "vitest";
 import { describe, test } from "vitest";
 
+import type { ConditionTreeNode } from "../../lib/condition-tree";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { regex } from "../../lib/arkregex";
+import { serializeConditionTreeTransport } from "../../lib/condition-tree";
 import { api } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
@@ -38,6 +40,24 @@ function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "copyonwrite@example.com",
     subject: "workos_copyonwrite",
+  });
+}
+
+async function createRule(
+  t: ReturnType<typeof createAuthedTestContext>,
+  args: {
+    conditionTree: ConditionTreeNode;
+    copyFromId?: Id<"ruleConditions">;
+    enabled?: boolean;
+    expectedDraftRevision: null | number;
+    name: string;
+    practiceId: Id<"practices">;
+    selectedRuleSetId: Id<"ruleSets">;
+  },
+) {
+  return await t.mutation(api.entities.createRule, {
+    ...args,
+    conditionTree: serializeConditionTreeTransport(args.conditionTree),
   });
 }
 
@@ -217,7 +237,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       throw new Error("Unsaved rule set not found");
     }
 
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -302,7 +322,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a rule referencing the appointment type from the SAME rule set
     // This should SUCCEED
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -384,7 +404,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     // Create a rule that uses this appointment type
-    await t.mutation(api.entities.createRule, {
+    await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -563,7 +583,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a CONCURRENT_COUNT rule
     // scope is now a separate field, valueIds contains only appointment type IDs
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -627,7 +647,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     await expect(
-      t.mutation(api.entities.createRule, {
+      createRule(t, {
         conditionTree: {
           children: [
             {
@@ -1085,7 +1105,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       selectedRuleSetId: initialRuleSetId,
     });
 
-    const createdRule = await t.mutation(api.entities.createRule, {
+    const createdRule = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -1165,7 +1185,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       selectedRuleSetId: initialRuleSetId,
     });
 
-    const createdRule = await t.mutation(api.entities.createRule, {
+    const createdRule = await createRule(t, {
       conditionTree: {
         children: [
           {
