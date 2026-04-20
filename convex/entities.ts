@@ -67,6 +67,7 @@ import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerId,
+  toTableId,
 } from "./identity";
 import { insertSelfLineageEntity } from "./lineage";
 import {
@@ -3039,7 +3040,7 @@ async function remapConditionTreeEntityIds(
       ) {
         const sourceEntity = await db.get(
           "appointmentTypes",
-          rawId as Id<"appointmentTypes">,
+          toTableId<"appointmentTypes">(rawId),
         );
         if (!sourceEntity) {
           throw new Error(
@@ -3065,7 +3066,7 @@ async function remapConditionTreeEntityIds(
       if (node.conditionType === "PRACTITIONER") {
         const sourceEntity = await db.get(
           "practitioners",
-          rawId as Id<"practitioners">,
+          toTableId<"practitioners">(rawId),
         );
         if (!sourceEntity) {
           throw new Error(
@@ -3091,7 +3092,7 @@ async function remapConditionTreeEntityIds(
       if (node.conditionType === "LOCATION") {
         const sourceEntity = await db.get(
           "locations",
-          rawId as Id<"locations">,
+          toTableId<"locations">(rawId),
         );
         if (!sourceEntity) {
           throw new Error(

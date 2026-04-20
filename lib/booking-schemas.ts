@@ -43,16 +43,30 @@ const isoDateInputSchema = z
 const requiredTextInputSchema = (message: string) =>
   z.string().trim().min(1, message);
 
+function isOneOfStringLiterals<const TValues extends readonly string[]>(
+  values: TValues,
+  value: string,
+): value is TValues[number] {
+  return values.includes(value);
+}
+
 const requiredEnumInputSchema = <
   const TValues extends readonly [string, ...string[]],
 >(
   values: TValues,
   error: string,
 ) =>
-  z
-    .union([z.literal(""), z.enum(values)])
-    .refine((value) => value !== "", error)
-    .transform((value) => value as TValues[number]);
+  z.string().transform((value, ctx): TValues[number] | typeof z.NEVER => {
+    if (isOneOfStringLiterals(values, value)) {
+      return value;
+    }
+
+    ctx.addIssue({
+      code: "custom",
+      message: error,
+    });
+    return z.NEVER;
+  });
 
 const optionalEnumInputSchema = <
   const TValues extends readonly [string, ...string[]],
@@ -60,10 +74,22 @@ const optionalEnumInputSchema = <
   values: TValues,
 ) =>
   z
-    .union([z.literal(""), z.enum(values)])
-    .transform((value) =>
-      value === "" ? undefined : (value as TValues[number]),
-    );
+    .string()
+    .transform((value, ctx): TValues[number] | typeof z.NEVER | undefined => {
+      if (value === "") {
+        return undefined;
+      }
+
+      if (isOneOfStringLiterals(values, value)) {
+        return value;
+      }
+
+      ctx.addIssue({
+        code: "custom",
+        message: "Ungültiger Wert",
+      });
+      return z.NEVER;
+    });
 
 export const personalDataInputSchema = z.object({
   city: optionalTextSchema,

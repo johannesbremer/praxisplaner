@@ -76,6 +76,12 @@ type RulePractitioner = FrontendLineageEntity<
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, RULE_MISSING_ENTITY_REGEX);
 
+function isSerializableRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const getReplayCopySource = (
   rule: Pick<RuleFromDB, "_id" | "copyFromId">,
 ): { copyFromId?: Id<"ruleConditions"> } =>
@@ -928,12 +934,11 @@ function serializeRuleState(
       enabled,
     },
     (_, value: unknown) => {
-      if (!value || Array.isArray(value) || typeof value !== "object") {
+      if (!isSerializableRecord(value)) {
         return value;
       }
 
-      const objectValue = value as Record<string, unknown>;
-      const sortedEntries = Object.entries(objectValue).toSorted(([a], [b]) =>
+      const sortedEntries = Object.entries(value).toSorted(([a], [b]) =>
         a.localeCompare(b),
       );
       return Object.fromEntries(sortedEntries);

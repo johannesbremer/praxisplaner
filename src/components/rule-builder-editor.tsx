@@ -403,18 +403,22 @@ function ConditionEditor({
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <Select
             onValueChange={(value) => {
+              const nextType = parseConditionType(value);
+              if (!nextType) {
+                return;
+              }
               const nextOperator: Condition["operator"] =
-                value === "HOURS_AHEAD"
+                nextType === "HOURS_AHEAD"
                   ? "LESS_THAN"
-                  : value === "DAYS_AHEAD" ||
-                      value === "PATIENT_AGE" ||
-                      value === "CONCURRENT_COUNT" ||
-                      value === "DAILY_CAPACITY"
+                  : nextType === "DAYS_AHEAD" ||
+                      nextType === "PATIENT_AGE" ||
+                      nextType === "CONCURRENT_COUNT" ||
+                      nextType === "DAILY_CAPACITY"
                     ? "GREATER_THAN_OR_EQUAL"
                     : "IS";
               onUpdate({
                 operator: nextOperator,
-                type: value as ConditionType,
+                type: nextType,
                 valueIds: [],
                 valueNumber: null,
               });
@@ -771,6 +775,25 @@ function HoursAheadCondition({
       value={condition.valueNumber || ""}
     />
   );
+}
+
+function parseConditionType(value: string): ConditionType | undefined {
+  switch (value) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY":
+    case "DAY_OF_WEEK":
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD":
+    case "LOCATION":
+    case "PATIENT_AGE":
+    case "PRACTITIONER": {
+      return value;
+    }
+    default: {
+      return undefined;
+    }
+  }
 }
 
 function PatientAgeCondition({

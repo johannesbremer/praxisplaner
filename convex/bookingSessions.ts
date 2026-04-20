@@ -916,7 +916,9 @@ async function loadStepSnapshot(
       continue;
     }
 
-    const snapshot = stripStepSnapshotFields(row) as Record<string, unknown>;
+    const snapshot = Object.fromEntries(
+      Object.entries(stripStepSnapshotFields(row)),
+    );
     return filterStepSnapshot(step, snapshot);
   }
 

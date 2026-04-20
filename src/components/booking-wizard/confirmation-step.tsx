@@ -43,7 +43,7 @@ interface AppointmentConfirmationCardProps {
 interface BookedAppointmentsSummaryProps {
   appointments: AppointmentResult[];
   onCancelled?: () => Promise<void> | void;
-  practitionerNamesById?: Partial<Record<Id<"practitioners">, string>>;
+  practitionerNamesById?: ReadonlyMap<Id<"practitioners">, string>;
 }
 
 interface BookedAppointmentSummaryProps {
@@ -71,7 +71,7 @@ export function BookedAppointmentsSummary({
       <CardContent className="space-y-4">
         {appointments.map((appointment) => {
           const practitionerName = appointment.practitionerId
-            ? practitionerNamesById?.[appointment.practitionerId]
+            ? practitionerNamesById?.get(appointment.practitionerId)
             : undefined;
 
           return (

@@ -2,12 +2,7 @@ import { useForm } from "@tanstack/react-form";
 import { err, ok } from "neverthrow";
 import React from "react";
 
-import type {
-  ConditionOperator,
-  ConditionTreeNode,
-  ConditionType,
-  Scope,
-} from "@/convex/ruleEngine";
+import type { ConditionTreeNode } from "@/lib/condition-tree";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +10,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validateRuleSetDescriptionSync } from "@/convex/ruleSetValidation";
+import { parseConditionTreeNode as parseSharedConditionTreeNode } from "@/lib/condition-tree";
 import { ISO_DATE_REGEX } from "@/lib/typed-regex";
 
 import {
@@ -701,14 +697,13 @@ function getRuleSummary(value: Record<string, unknown>) {
     ? value["children"]
     : [];
   const firstChild: unknown = children[0];
-  if (firstChild && typeof firstChild === "object") {
-    const child = firstChild as Record<string, unknown>;
+  if (isRecord(firstChild)) {
     return [
       "Regel",
-      stringValue(child["nodeType"]),
-      stringValue(child["conditionType"]),
-      formatValue(child["valueIds"]),
-      formatValue(child["valueNumber"]),
+      stringValue(firstChild["nodeType"]),
+      stringValue(firstChild["conditionType"]),
+      formatValue(firstChild["valueIds"]),
+      formatValue(firstChild["valueNumber"]),
     ]
       .filter((part) => part && part !== "undefined")
       .join(" > ");
@@ -799,6 +794,10 @@ function isOnlyReferenceRename(
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function isSameAfterNormalizingReferences(
   sectionKey: string,
   before: Record<string, unknown>,
@@ -842,15 +841,14 @@ function normalizeFollowUpPlanReferences(
 
   const steps: unknown[] = value;
   return steps.map((step) => {
-    if (!step || typeof step !== "object") {
+    if (!isRecord(step)) {
       return step;
     }
 
-    const parsedStep = step as Record<string, unknown>;
     return {
-      ...parsedStep,
+      ...step,
       appointmentTypeName: normalizeRenamedValue(
-        stringValue(parsedStep["appointmentTypeName"]),
+        stringValue(step["appointmentTypeName"]),
         renames,
       ),
     };
@@ -962,12 +960,7 @@ function normalizeRuleReferences(
   if (Array.isArray(normalized["children"])) {
     const children: unknown[] = normalized["children"];
     normalized["children"] = children.map((child) =>
-      child && typeof child === "object"
-        ? normalizeRuleReferences(
-            child as Record<string, unknown>,
-            entityRenames,
-          )
-        : child,
+      isRecord(child) ? normalizeRuleReferences(child, entityRenames) : child,
     );
   }
 
@@ -980,68 +973,20 @@ function omitKey(value: Record<string, unknown>, keyToOmit: string) {
   );
 }
 
-function parseConditionTreeNode(value: unknown): ConditionTreeNode | null {
-  if (!value || typeof value !== "object") {
+function parseConditionTreeNodeOrNull(
+  value: unknown,
+): ConditionTreeNode | null {
+  try {
+    return parseSharedConditionTreeNode(value);
+  } catch {
     return null;
   }
-
-  const parsed = value as Record<string, unknown>;
-  const nodeType = stringValue(parsed["nodeType"]);
-
-  if (nodeType === "CONDITION") {
-    const conditionType = stringValue(parsed["conditionType"]);
-    const operator = stringValue(parsed["operator"]);
-    if (!conditionType || !operator) {
-      return null;
-    }
-
-    const conditionNode: ConditionTreeNode = {
-      conditionType: conditionType as ConditionType,
-      nodeType: "CONDITION",
-      operator: operator as ConditionOperator,
-    };
-
-    const scope = stringValue(parsed["scope"]);
-    if (scope) {
-      conditionNode.scope = scope as Scope;
-    }
-
-    if (Array.isArray(parsed["valueIds"])) {
-      conditionNode.valueIds = parsed["valueIds"].filter(
-        (entry): entry is string => typeof entry === "string",
-      );
-    }
-
-    if (typeof parsed["valueNumber"] === "number") {
-      conditionNode.valueNumber = parsed["valueNumber"];
-    }
-
-    return conditionNode;
-  }
-
-  if (nodeType === "AND" || nodeType === "NOT") {
-    const childValues = Array.isArray(parsed["children"])
-      ? parsed["children"]
-      : [];
-    const parsedChildren = childValues
-      .map((child) => parseConditionTreeNode(child))
-      .filter((child): child is ConditionTreeNode => child !== null);
-
-    return {
-      children: parsedChildren,
-      nodeType,
-    };
-  }
-
-  return null;
 }
 
 function parseDiffValue(value: string): null | Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(value);
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : null;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -1057,7 +1002,7 @@ function parseRuleDiffTree(
       ? firstChild
       : value;
 
-  return parseConditionTreeNode(treeRoot);
+  return parseConditionTreeNodeOrNull(treeRoot);
 }
 
 function resolveDiffItemMatchKey(section: RuleSetDiffSection, value: string) {

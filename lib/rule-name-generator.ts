@@ -35,6 +35,25 @@ interface Entity {
   name: string;
 }
 
+function isSupportedConditionType(value: string): value is ConditionType {
+  switch (value) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY":
+    case "DAY_OF_WEEK":
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD":
+    case "LOCATION":
+    case "PATIENT_AGE":
+    case "PRACTITIONER": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
+}
+
 /**
  * Helper to format a list of names with proper German conjunction.
  */
@@ -301,19 +320,7 @@ function parseConditionNode(
   const { conditionType, operator, scope, valueIds, valueNumber } = node;
 
   // Filter out condition types not supported by the UI
-  const supportedTypes: ConditionType[] = [
-    "APPOINTMENT_TYPE",
-    "CONCURRENT_COUNT",
-    "DAILY_CAPACITY",
-    "DAY_OF_WEEK",
-    "DAYS_AHEAD",
-    "HOURS_AHEAD",
-    "LOCATION",
-    "PATIENT_AGE",
-    "PRACTITIONER",
-  ];
-
-  if (!supportedTypes.includes(conditionType as ConditionType)) {
+  if (!isSupportedConditionType(conditionType)) {
     // Skip unsupported condition types
     return null;
   }
@@ -326,7 +333,7 @@ function parseConditionNode(
       return {
         id,
         operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
-        type: conditionType as ConditionType,
+        type: conditionType,
         valueIds: valueIds ?? [],
       };
     }

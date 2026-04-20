@@ -65,6 +65,7 @@ import type {
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
+import { findIdInList } from "../utils/convex-ids";
 import {
   ruleSetIdFromReplayTarget,
   toCowMutationArgs,
@@ -122,56 +123,6 @@ const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
   name: "",
   practitionerIds: [],
 };
-
-const appointmentTypeLineageSelectionSchema =
-  z.custom<FollowUpPlanTargetSelection>(
-    (value) => typeof value === "string",
-    "Bitte wählen Sie eine Terminart",
-  );
-
-const practitionerIdSchema = z.custom<Id<"practitioners">>(
-  (value) => typeof value === "string",
-  "Ungültiger Behandler",
-);
-
-const followUpStepSchema = z
-  .object({
-    appointmentTypeLineageKey: appointmentTypeLineageSelectionSchema.refine(
-      (value) => value !== "",
-      "Bitte wählen Sie eine Terminart",
-    ),
-    offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
-    offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
-  })
-  .superRefine((step, ctx) => {
-    if (step.offsetUnit === "minutes") {
-      if (step.offsetValue < 0) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Minuten dürfen nicht negativ sein",
-          path: ["offsetValue"],
-        });
-      }
-
-      if (step.offsetValue % 5 !== 0) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Minuten müssen in 5er-Schritten angegeben werden",
-          path: ["offsetValue"],
-        });
-      }
-
-      return;
-    }
-
-    if (step.offsetValue < 1) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Tage, Wochen und Monate müssen mindestens 1 sein",
-        path: ["offsetValue"],
-      });
-    }
-  });
 
 const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   appointmentTypeLineageKey: "",
@@ -312,28 +263,121 @@ const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
     })),
   );
 
-// Form schema using Zod
-const formSchema = z.object({
-  duration: z
-    .number()
-    .min(5, "Dauer muss mindestens 5 Minuten betragen")
-    .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
-    .refine((val) => val % 5 === 0, {
-      message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
-    }),
-  followUpPlan: z.array(followUpStepSchema),
-  name: z
-    .string()
-    .min(2, "Name muss mindestens 2 Zeichen lang sein")
-    .max(50, "Name darf maximal 50 Zeichen lang sein"),
-  practitionerIds: z
-    .array(practitionerIdSchema)
-    .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
-}) satisfies z.ZodType<AppointmentTypeFormValues>;
-
 interface PractitionerHistorySnapshot {
   lineageId: Id<"practitioners">;
   name: string;
+}
+
+function createAppointmentTypeFormSchema(params: {
+  appointmentTypeLineageKeys: readonly AppointmentTypeLineageKey[];
+  practitionerIds: readonly Id<"practitioners">[];
+}) {
+  return z.object({
+    duration: z
+      .number()
+      .min(5, "Dauer muss mindestens 5 Minuten betragen")
+      .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
+      .refine((val) => val % 5 === 0, {
+        message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
+      }),
+    followUpPlan: z.array(
+      createFollowUpStepSchema(params.appointmentTypeLineageKeys),
+    ),
+    name: z
+      .string()
+      .trim()
+      .min(2, "Name muss mindestens 2 Zeichen lang sein")
+      .max(50, "Name darf maximal 50 Zeichen lang sein"),
+    practitionerIds: z
+      .array(createPractitionerIdSchema(params.practitionerIds))
+      .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
+  }) satisfies z.ZodType<AppointmentTypeFormValues>;
+}
+
+function createAppointmentTypeLineageSelectionSchema(
+  availableLineageKeys: readonly AppointmentTypeLineageKey[],
+) {
+  return z
+    .string()
+    .transform((value, ctx): FollowUpPlanTargetSelection | typeof z.NEVER => {
+      if (value === "") {
+        return "";
+      }
+
+      const matchingLineageKey = availableLineageKeys.find(
+        (lineageKey) => lineageKey === value,
+      );
+      if (!matchingLineageKey) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Bitte wählen Sie eine gültige Terminart",
+        });
+        return z.NEVER;
+      }
+
+      return matchingLineageKey;
+    });
+}
+
+function createFollowUpStepSchema(
+  availableLineageKeys: readonly AppointmentTypeLineageKey[],
+) {
+  return z
+    .object({
+      appointmentTypeLineageKey: createAppointmentTypeLineageSelectionSchema(
+        availableLineageKeys,
+      ).refine((value) => value !== "", "Bitte wählen Sie eine Terminart"),
+      offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
+      offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
+    })
+    .superRefine((step, ctx) => {
+      if (step.offsetUnit === "minutes") {
+        if (step.offsetValue < 0) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Minuten dürfen nicht negativ sein",
+            path: ["offsetValue"],
+          });
+        }
+
+        if (step.offsetValue % 5 !== 0) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Minuten müssen in 5er-Schritten angegeben werden",
+            path: ["offsetValue"],
+          });
+        }
+
+        return;
+      }
+
+      if (step.offsetValue < 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Tage, Wochen und Monate müssen mindestens 1 sein",
+          path: ["offsetValue"],
+        });
+      }
+    });
+}
+
+function createPractitionerIdSchema(
+  availablePractitionerIds: readonly Id<"practitioners">[],
+) {
+  return z
+    .string()
+    .transform((value, ctx): Id<"practitioners"> | typeof z.NEVER => {
+      const practitionerId = findIdInList(availablePractitionerIds, value);
+      if (!practitionerId) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Ungültiger Behandler",
+        });
+        return z.NEVER;
+      }
+
+      return practitionerId;
+    });
 }
 
 const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
@@ -431,6 +475,16 @@ export function AppointmentTypesManagement({
         source: "AppointmentTypesManagement",
       }),
     [practitionersQuery],
+  );
+  const formSchema = useMemo(
+    () =>
+      createAppointmentTypeFormSchema({
+        appointmentTypeLineageKeys: appointmentTypes.map(
+          (appointmentType) => appointmentType.lineageKey,
+        ),
+        practitionerIds: practitioners.map((practitioner) => practitioner._id),
+      }),
+    [appointmentTypes, practitioners],
   );
   const appointmentTypesRef = useRef(appointmentTypes);
   useEffect(() => {
@@ -533,9 +587,17 @@ export function AppointmentTypesManagement({
     defaultValues: defaultAppointmentTypeFormValues,
     onSubmit: async ({ value }) => {
       try {
-        const trimmedName = value.name.trim();
+        const parseResult = formSchema.safeParse(value);
+        if (!parseResult.success) {
+          toast.error("Fehler beim Speichern", {
+            description: "Bitte prüfen Sie die markierten Felder.",
+          });
+          return;
+        }
+
+        const parsedValue = parseResult.data;
         const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
-          value.followUpPlan,
+          parsedValue.followUpPlan,
         ).match(
           (normalizedPlan) =>
             normalizedPlan.length === 0 ? undefined : normalizedPlan,
@@ -550,7 +612,7 @@ export function AppointmentTypesManagement({
           return;
         }
         const formPractitionerSnapshots = createPractitionerSnapshots(
-          value.practitionerIds,
+          parsedValue.practitionerIds,
         );
         const resolvedFormPractitionerIds = practitionerIdsFromSnapshots(
           formPractitionerSnapshots,
@@ -572,9 +634,9 @@ export function AppointmentTypesManagement({
             practitionerIds: editingAppointmentType.allowedPractitionerIds,
           };
           const afterState = {
-            duration: value.duration,
+            duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan,
-            name: trimmedName,
+            name: parsedValue.name,
             practitionerIds: resolvedFormPractitionerIds.ids,
           };
           const beforePractitionerSnapshots = createPractitionerSnapshots(
@@ -587,8 +649,8 @@ export function AppointmentTypesManagement({
           // Update existing appointment type
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
-            duration: value.duration,
-            name: trimmedName,
+            duration: parsedValue.duration,
+            name: parsedValue.name,
             practiceId,
             practitionerIds: afterState.practitionerIds,
             ...getCowMutationArgs(),
@@ -694,7 +756,7 @@ export function AppointmentTypesManagement({
           });
 
           toast.success("Terminart aktualisiert", {
-            description: `Terminart "${value.name}" wurde erfolgreich aktualisiert.`,
+            description: `Terminart "${parsedValue.name}" wurde erfolgreich aktualisiert.`,
           });
 
           setIsDialogOpen(false);
@@ -703,8 +765,8 @@ export function AppointmentTypesManagement({
         } else {
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
-            duration: value.duration,
-            name: trimmedName,
+            duration: parsedValue.duration,
+            name: parsedValue.name,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
@@ -719,11 +781,11 @@ export function AppointmentTypesManagement({
             _id: asAppointmentTypeId(createResult.entityId),
             allowedPractitionerIds: resolvedFormPractitionerIds.ids,
             createdAt: 0n,
-            duration: value.duration,
+            duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
             lastModified: 0n,
             lineageKey: appointmentTypeLineageKey,
-            name: trimmedName,
+            name: parsedValue.name,
             practiceId,
             ruleSetId: createResult.ruleSetId,
           });
@@ -738,9 +800,9 @@ export function AppointmentTypesManagement({
             onRegisterHistoryAction,
             runCreate: async () => {
               const recreateResult = await createAppointmentTypeMutation({
-                duration: value.duration,
+                duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
-                name: trimmedName,
+                name: parsedValue.name,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 ...getCowMutationArgs(),
@@ -761,17 +823,17 @@ export function AppointmentTypesManagement({
             },
             validateBeforeCreate: () => {
               const existingByName = appointmentTypesRef.current.find(
-                (type) => type.name === trimmedName,
+                (type) => type.name === parsedValue.name,
               );
               if (existingByName) {
-                return `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${trimmedName}" existiert.`;
+                return `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${parsedValue.name}" existiert.`;
               }
               return null;
             },
           });
 
           toast.success("Terminart erstellt", {
-            description: `Terminart "${value.name}" wurde erfolgreich erstellt.`,
+            description: `Terminart "${parsedValue.name}" wurde erfolgreich erstellt.`,
           });
 
           setIsDialogOpen(false);
@@ -811,12 +873,10 @@ export function AppointmentTypesManagement({
 
   const openEditDialog = (appointmentType: AppointmentType) => {
     const availablePractitionerIds = new Set(
-      practitioners.map(
-        (practitioner) => practitioner._id as Id<"practitioners">,
-      ),
+      practitioners.map((practitioner) => String(practitioner._id)),
     );
     const validPractitionerIds = appointmentType.allowedPractitionerIds.filter(
-      (practitionerId) => availablePractitionerIds.has(practitionerId),
+      (practitionerId) => availablePractitionerIds.has(String(practitionerId)),
     );
 
     setEditingAppointmentType(appointmentType);

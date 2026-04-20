@@ -97,3 +97,14 @@ export function asPractitionerLineageKey(
 export function asVacationLineageKey(id: Id<"vacations">): VacationLineageKey {
   return asLineageKey(id);
 }
+
+/**
+ * Convex document IDs are opaque strings at runtime.
+ * This helper centralizes the type narrowing at the boundary where a string is
+ * already known to be a stored Convex ID for a specific table.
+ */
+export function toTableId<TableName extends TableNames>(
+  value: string,
+): Id<TableName> {
+  return value as Id<TableName>;
+}

@@ -88,24 +88,46 @@ export function parseConditionTreeNode(value: unknown): ConditionTreeNode {
 }
 
 function isConditionOperator(value: unknown): value is ConditionOperator {
-  return (
-    typeof value === "string" &&
-    CONDITION_OPERATORS.includes(value as ConditionOperator)
-  );
+  switch (value) {
+    case "EQUALS":
+    case "GREATER_THAN_OR_EQUAL":
+    case "IS":
+    case "IS_NOT":
+    case "LESS_THAN":
+    case "LESS_THAN_OR_EQUAL": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
 }
 
 function isConditionType(value: unknown): value is ConditionType {
-  return (
-    typeof value === "string" &&
-    CONDITION_TYPES.includes(value as ConditionType)
-  );
+  switch (value) {
+    case "APPOINTMENT_TYPE":
+    case "CLIENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY":
+    case "DATE_RANGE":
+    case "DAY_OF_WEEK":
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD":
+    case "LOCATION":
+    case "PATIENT_AGE":
+    case "PRACTITIONER":
+    case "PRACTITIONER_TAG":
+    case "TIME_RANGE": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
 }
 
 function isLogicalNodeType(value: unknown): value is LogicalNode["nodeType"] {
-  return (
-    typeof value === "string" &&
-    LOGICAL_NODE_TYPES.includes(value as LogicalNode["nodeType"])
-  );
+  return value === "AND" || value === "NOT";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -113,7 +135,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isScope(value: unknown): value is Scope {
-  return typeof value === "string" && SCOPES.includes(value as Scope);
+  return (
+    value === "location" || value === "practice" || value === "practitioner"
+  );
 }
 
 function isStringArray(value: unknown): value is string[] {
