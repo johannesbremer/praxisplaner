@@ -16,7 +16,11 @@ import type { Infer, Validator } from "convex/values";
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { ConditionTreeNode } from "../lib/condition-tree.js";
+import type {
+  ConditionNode,
+  ConditionTreeNode,
+  LogicalNode,
+} from "../lib/condition-tree.js";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -40,6 +44,7 @@ import {
 } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
 import { requireLineageKey } from "./lineage";
+import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -1179,30 +1184,23 @@ const CONDITION_TREE_MAX_DEPTH = 20;
 const conditionTypeValidator = literalUnionValidator(CONDITION_TYPES);
 const conditionOperatorValidator = literalUnionValidator(CONDITION_OPERATORS);
 const logicalNodeTypeValidator = literalUnionValidator(LOGICAL_NODE_TYPES);
-const conditionLeafValidator = v.object({
-  conditionType: conditionTypeValidator,
-  nodeType: v.literal("CONDITION"),
-  operator: conditionOperatorValidator,
-  scope: v.optional(scopeValidator),
-  valueIds: v.optional(v.array(v.string())),
-  valueNumber: v.optional(v.number()),
-});
+const conditionLeafValidator: Validator<ConditionNode, "required", string> =
+  v.object({
+    conditionType: conditionTypeValidator,
+    nodeType: v.literal("CONDITION"),
+    operator: conditionOperatorValidator,
+    scope: v.optional(scopeValidator),
+    valueIds: v.optional(v.array(v.string())),
+    valueNumber: v.optional(v.number()),
+  });
 
-function createConditionTreeNodeValidator(
-  depth: number,
-): Validator<ConditionTreeNode> {
-  if (depth <= 0) {
-    return conditionLeafValidator as unknown as Validator<ConditionTreeNode>;
-  }
-
-  const childValidator = createConditionTreeNodeValidator(depth - 1);
-  return v.union(
-    v.object({
-      children: v.array(childValidator),
-      nodeType: logicalNodeTypeValidator,
-    }),
-    conditionLeafValidator,
-  ) as unknown as Validator<ConditionTreeNode>;
+function createLogicalNodeValidator(
+  childValidator: Validator<ConditionTreeNode, "required", string>,
+): Validator<LogicalNode, "required", string> {
+  return v.object({
+    children: v.array(childValidator),
+    nodeType: logicalNodeTypeValidator,
+  });
 }
 
 const ruleConditionDocumentValidator = v.object({
@@ -1230,12 +1228,16 @@ const ruleConditionDocumentValidator = v.object({
 /**
  * Validator for condition tree nodes used in rule creation/updates.
  *
- * Convex validators don't have native recursion, so we build an explicit
- * depth-bounded recursive validator that still preserves the node shape.
+ * Convex validators serialize to a finite JSON tree and don't support lazy
+ * references, so recursion must stay depth-bounded at the validator layer.
+ * The recursive boundary is isolated in `createDepthBoundedRecursiveUnionValidator`.
  */
-export const conditionTreeNodeValidator = createConditionTreeNodeValidator(
-  CONDITION_TREE_MAX_DEPTH,
-);
+export const conditionTreeNodeValidator =
+  createDepthBoundedRecursiveUnionValidator<ConditionNode, LogicalNode>({
+    branch: createLogicalNodeValidator,
+    depth: CONDITION_TREE_MAX_DEPTH,
+    leaf: conditionLeafValidator,
+  });
 
 /**
  * Validate condition tree structure.
