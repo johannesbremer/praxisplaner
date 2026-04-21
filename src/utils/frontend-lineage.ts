@@ -5,7 +5,11 @@ import type { EntityId, LineageKey } from "@/convex/identity";
 
 import { asEntityId, asLineageKey } from "@/convex/identity";
 
-import { captureFrontendError, invalidStateError } from "./frontend-errors";
+import {
+  captureFrontendError,
+  frontendErrorToError,
+  invalidStateError,
+} from "./frontend-errors";
 
 export type FrontendLineageEntity<
   TableName extends FrontendLineageTableName,
@@ -75,18 +79,13 @@ export function mapFrontendLineageEntities<
   entityType: string;
   source: string;
 }): FrontendLineageEntity<TableName, TEntity>[] {
-  const mappedEntities: FrontendLineageEntity<TableName, TEntity>[] = [];
-
-  for (const entity of params.entities) {
+  return params.entities.map((entity) =>
     toFrontendLineageEntity<TableName, TEntity>({
       entity,
       entityType: params.entityType,
       source: params.source,
-    }).match(
-      (frontendEntity) => {
-        mappedEntities.push(frontendEntity);
-      },
-      (error) => {
+    })
+      .mapErr((error) => {
         captureFrontendError(
           error,
           {
@@ -97,11 +96,11 @@ export function mapFrontendLineageEntities<
           },
           `${params.source}:${params.entityType}:${entity._id}:lineage`,
         );
-      },
-    );
-  }
 
-  return mappedEntities;
+        return frontendErrorToError(error);
+      })
+      ._unsafeUnwrap(),
+  );
 }
 
 export function requireFrontendLineageKey<

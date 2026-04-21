@@ -14,14 +14,14 @@ function createAuthedTestContext() {
 }
 
 describe("patients", () => {
-  test("createOrUpdatePatient normalizes GDT birth dates to ISO on ingestion", async () => {
+  test("createOrUpdatePatient persists ISO birth dates unchanged", async () => {
     const t = createAuthedTestContext();
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Patients Test Practice",
     });
 
     const result = await t.mutation(api.patients.createOrUpdatePatient, {
-      dateOfBirth: "01101945",
+      dateOfBirth: "1945-10-01",
       firstName: "Max",
       lastName: "Mustermann",
       patientId: 12345,
@@ -33,6 +33,25 @@ describe("patients", () => {
     );
 
     expect(patient?.dateOfBirth).toBe("1945-10-01");
+  });
+
+  test("createOrUpdatePatient rejects legacy GDT birth date strings", async () => {
+    const t = createAuthedTestContext();
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Patients Test Practice",
+    });
+
+    await expect(
+      t.mutation(api.patients.createOrUpdatePatient, {
+        dateOfBirth: "01101945",
+        firstName: "Max",
+        lastName: "Mustermann",
+        patientId: 12345,
+        practiceId,
+      }),
+    ).rejects.toThrow(
+      'Patient dateOfBirth must be a valid YYYY-MM-DD string, got "01101945".',
+    );
   });
 
   test("createTemporaryPatient trims persisted values", async () => {

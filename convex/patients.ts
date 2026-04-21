@@ -5,7 +5,6 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 import { isIsoDateString } from "../lib/typed-regex.js";
 import { mutation, query } from "./_generated/server";
-import { isValidDate } from "./gdt/validation";
 import {
   buildPatientSearchFirstName,
   buildPatientSearchLastName,
@@ -74,13 +73,8 @@ function normalizePatientDateOfBirth(
     return value;
   }
 
-  const validation = isValidDate(value);
-  if (validation.isValid) {
-    return validation.value;
-  }
-
   throw new Error(
-    `Patient dateOfBirth must be a valid YYYY-MM-DD or GDT DDMMYYYY string, got "${value}".`,
+    `Patient dateOfBirth must be a valid YYYY-MM-DD string, got "${value}".`,
   );
 }
 

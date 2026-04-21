@@ -19,6 +19,7 @@ import {
 } from "../../../lib/rule-name-generator";
 import {
   captureFrontendError,
+  frontendErrorToError,
   invalidStateError,
 } from "../../utils/frontend-errors";
 
@@ -565,9 +566,8 @@ function formatValue(value: unknown): string {
 }
 
 function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
-  return resolveDiffItemMatchKey(section, value).match(
-    (key) => key,
-    (error) => {
+  return resolveDiffItemMatchKey(section, value)
+    .mapErr((error) => {
       captureFrontendError(
         error,
         {
@@ -576,9 +576,10 @@ function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
         },
         `rule-set-diff:${section.key}:${error.message}`,
       );
-      return value;
-    },
-  );
+
+      return frontendErrorToError(error);
+    })
+    ._unsafeUnwrap();
 }
 
 function getDiffItemPath(
