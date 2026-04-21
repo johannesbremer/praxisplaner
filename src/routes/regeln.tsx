@@ -569,7 +569,8 @@ function LogicView() {
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
-  const selectedVersionId = ruleSetIdFromUrl ?? unsavedRuleSetId ?? undefined;
+  const selectedVersionId =
+    resolvedRuleSetIdFromUrl ?? unsavedRuleSet?._id ?? undefined;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
     currentPractice && unsavedRuleSet && !isDraftEquivalentToParent

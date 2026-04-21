@@ -620,39 +620,6 @@ async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
  * Verify that the session exists and belongs to the authenticated user.
  * Returns the session if valid.
  */
-async function getVerifiedSession(
-  ctx: MutationCtx,
-  sessionId: Id<"bookingSessions">,
-): Promise<SessionWithState> {
-  const userId = await getAuthenticatedUserId(ctx);
-
-  const session = await ctx.db.get("bookingSessions", sessionId);
-  if (!session) {
-    throw new Error("Session not found");
-  }
-
-  if (session.userId !== userId) {
-    throw new Error("Access denied");
-  }
-
-  // Check if session has expired
-  const now = BigInt(Date.now());
-  if (session.expiresAt < now) {
-    throw new Error("Session has expired");
-  }
-
-  const state = await tryHydrateSessionState(ctx, session);
-  if (!state) {
-    throw new Error(
-      "Session data is incomplete. Please start the booking again.",
-    );
-  }
-  return withHydratedState(session, state);
-}
-
-/**
- * Refresh session expiry on any update.
- */
 type StepRowIdParams = {
   [K in StepTableName]: [tableName: K, row: StepTableDocMap[K]];
 }[StepTableName];
@@ -701,6 +668,36 @@ function getStepRowId(...params: StepRowIdParams) {
       return row._id;
     }
   }
+}
+
+async function getVerifiedSession(
+  ctx: MutationCtx,
+  sessionId: Id<"bookingSessions">,
+): Promise<SessionWithState> {
+  const userId = await getAuthenticatedUserId(ctx);
+
+  const session = await ctx.db.get("bookingSessions", sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
+  if (session.userId !== userId) {
+    throw new Error("Access denied");
+  }
+
+  // Check if session has expired
+  const now = BigInt(Date.now());
+  if (session.expiresAt < now) {
+    throw new Error("Session has expired");
+  }
+
+  const state = await tryHydrateSessionState(ctx, session);
+  if (!state) {
+    throw new Error(
+      "Session data is incomplete. Please start the booking again.",
+    );
+  }
+  return withHydratedState(session, state);
 }
 
 async function hasValidStepEntryUserAssociation(
@@ -762,21 +759,14 @@ function toStepInsertData<T extends StepTableName>(
   data: StepTableInput<T>,
   now: bigint,
 ): StepTableInsertData<T> {
-  return {
-    ...data,
-    createdAt: now,
-    lastModified: now,
-  };
+  return withCreatedAndLastModified(data, now);
 }
 
 function toStepPatchData<T extends StepTableName>(
   data: StepTableInput<T>,
   now: bigint,
 ): StepTablePatch<T> {
-  return {
-    ...data,
-    lastModified: now,
-  };
+  return withLastModified(data, now);
 }
 
 async function upsertStep<T extends StepTableName>(
@@ -813,6 +803,21 @@ async function upsertStep<T extends StepTableName>(
   }
 
   await STEP_INSERT_MAP[tableName](ctx, toStepInsertData(data, now));
+}
+
+function withCreatedAndLastModified<T extends object>(data: T, now: bigint) {
+  return {
+    ...data,
+    createdAt: now,
+    lastModified: now,
+  };
+}
+
+function withLastModified<T extends object>(data: T, now: bigint) {
+  return {
+    ...data,
+    lastModified: now,
+  };
 }
 
 /**

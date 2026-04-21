@@ -32,6 +32,7 @@ import type { IsoDateString } from "../../lib/typed-regex";
 import type { PatientInfo } from "../types";
 import type {
   BrowserPermissionState,
+  FileSystemChangeRecord,
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
   PermissionStatus,
@@ -73,6 +74,28 @@ const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
     : tab === VACATION_TAB_SEARCH_VALUE
       ? VACATION_TAB
       : CALENDAR_TAB;
+
+function getObservedFileName(record: {
+  relativePathComponents: string[];
+}): string | undefined {
+  return record.relativePathComponents[
+    record.relativePathComponents.length - 1
+  ];
+}
+
+function isObservedGdtFileRecord(
+  record: FileSystemChangeRecord,
+): record is FileSystemChangeRecord & {
+  changedHandle: FileSystemFileHandle;
+  type: "appeared";
+} {
+  const fileName = getObservedFileName(record);
+  return (
+    record.type === "appeared" &&
+    record.changedHandle.kind === "file" &&
+    fileName?.toLowerCase().endsWith(".gdt") === true
+  );
+}
 
 const buildSearchFromState = (
   date: Temporal.PlainDate,
@@ -866,17 +889,7 @@ function PraxisPlanerComponent() {
             }
 
             // Process file change records
-            const gdtFiles = records.filter((record) => {
-              const fileName =
-                record.relativePathComponents[
-                  record.relativePathComponents.length - 1
-                ];
-              return (
-                record.type === "appeared" &&
-                record.changedHandle.kind === "file" &&
-                fileName?.toLowerCase().endsWith(".gdt")
-              );
-            });
+            const gdtFiles = records.filter(isObservedGdtFileRecord);
 
             if (gdtFiles.length > 0) {
               addGdtLog(
@@ -887,7 +900,7 @@ function PraxisPlanerComponent() {
                 try {
                   await parseAndProcessGdtFile(
                     gdtDirectoryHandle,
-                    record.changedHandle as FileSystemFileHandle,
+                    record.changedHandle,
                   );
                 } catch (error) {
                   const errorMsg =
@@ -905,10 +918,7 @@ function PraxisPlanerComponent() {
                       ? error.name
                       : undefined,
                     errorType: "file_system_observer",
-                    fileName:
-                      record.relativePathComponents[
-                        record.relativePathComponents.length - 1
-                      ],
+                    fileName: getObservedFileName(record),
                     handleKind: record.changedHandle.kind,
                     isDOMException: isDOMException(error),
                     relativePathComponents: record.relativePathComponents,
