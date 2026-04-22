@@ -106,6 +106,7 @@ export function LocationsManagement({
   const baseSchedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+<<<<<<< ours
   const locations: LocationRow[] = useMemo(() => {
     if (!locationsQuery) {
       return [];
@@ -157,6 +158,79 @@ export function LocationsManagement({
       () => [],
     );
   }, [baseSchedulesQuery]);
+||||||| base
+  const locations: LocationRow[] = useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<"locations", LocationsQueryResult[number]>(
+            {
+              entities: locationsQuery,
+              entityType: "location",
+              source: "LocationsManagement",
+            },
+          )
+        : [],
+    [locationsQuery],
+  );
+  const practitioners: PractitionerRow[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersQueryResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "LocationsManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const baseSchedules: BaseScheduleRow[] = useMemo(
+    () =>
+      baseSchedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            BaseSchedulesQueryResult[number]
+          >({
+            entities: baseSchedulesQuery,
+            entityType: "base schedule",
+            source: "LocationsManagement",
+          })
+        : [],
+    [baseSchedulesQuery],
+  );
+=======
+  const locations: LocationRow[] = useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<"locations", LocationsQueryResult[number]>(
+            locationsQuery,
+          )
+        : [],
+    [locationsQuery],
+  );
+  const practitioners: PractitionerRow[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersQueryResult[number]
+          >(practitionersQuery)
+        : [],
+    [practitionersQuery],
+  );
+  const baseSchedules: BaseScheduleRow[] = useMemo(
+    () =>
+      baseSchedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            BaseSchedulesQueryResult[number]
+          >(baseSchedulesQuery)
+        : [],
+    [baseSchedulesQuery],
+  );
+>>>>>>> theirs
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);

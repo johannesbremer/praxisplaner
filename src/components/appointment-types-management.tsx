@@ -458,6 +458,7 @@ export function AppointmentTypesManagement({
     api.entities.deleteAppointmentType,
   );
 
+<<<<<<< ours
   const appointmentTypes: AppointmentType[] = useMemo(() => {
     if (!appointmentTypesQuery) {
       return [];
@@ -501,6 +502,33 @@ export function AppointmentTypesManagement({
         practitionerIds: practitioners.map((practitioner) => practitioner._id),
       }),
     [appointmentTypes, practitioners],
+||||||| base
+  const appointmentTypes: AppointmentType[] = useMemo(
+    () =>
+      mapFrontendLineageEntities({
+        entities: appointmentTypesQuery ?? [],
+        entityType: "appointment type",
+        source: "AppointmentTypesManagement",
+      }),
+    [appointmentTypesQuery],
+  );
+  const practitioners: Practitioner[] = useMemo(
+    () =>
+      mapFrontendLineageEntities({
+        entities: practitionersQuery ?? [],
+        entityType: "practitioner",
+        source: "AppointmentTypesManagement",
+      }),
+    [practitionersQuery],
+=======
+  const appointmentTypes: AppointmentType[] = useMemo(
+    () => mapFrontendLineageEntities(appointmentTypesQuery ?? []),
+    [appointmentTypesQuery],
+  );
+  const practitioners: Practitioner[] = useMemo(
+    () => mapFrontendLineageEntities(practitionersQuery ?? []),
+    [practitionersQuery],
+>>>>>>> theirs
   );
   const appointmentTypesRef = useRef(appointmentTypes);
   useEffect(() => {

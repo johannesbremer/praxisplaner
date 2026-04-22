@@ -121,6 +121,7 @@ export default function BaseScheduleManagement({
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+<<<<<<< ours
   const practitioners: PractitionerMatchEntity[] = React.useMemo(() => {
     if (!practitionersQuery) {
       return [];
@@ -172,6 +173,81 @@ export default function BaseScheduleManagement({
       () => [],
     );
   }, [schedulesQuery]);
+||||||| base
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >({
+            entities: locationsQuery,
+            entityType: "location",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >({
+            entities: schedulesQuery,
+            entityType: "base schedule",
+            source: "BaseScheduleManagement",
+          })
+        : [],
+    [schedulesQuery],
+  );
+=======
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >(practitionersQuery)
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >(locationsQuery)
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >(schedulesQuery)
+        : [],
+    [schedulesQuery],
+  );
+>>>>>>> theirs
 
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
@@ -638,6 +714,7 @@ function BaseScheduleDialog({
   const schedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
+<<<<<<< ours
   const practitioners: PractitionerMatchEntity[] = React.useMemo(() => {
     if (!practitionersQuery) {
       return [];
@@ -689,6 +766,81 @@ function BaseScheduleDialog({
       () => [],
     );
   }, [schedulesQuery]);
+||||||| base
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >({
+            entities: locationsQuery,
+            entityType: "location",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >({
+            entities: schedulesQuery,
+            entityType: "base schedule",
+            source: "BaseScheduleDialog",
+          })
+        : [],
+    [schedulesQuery],
+  );
+=======
+  const practitioners: PractitionerMatchEntity[] = React.useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            (typeof api.entities.getPractitioners)["_returnType"][number]
+          >(practitionersQuery)
+        : [],
+    [practitionersQuery],
+  );
+  const locations: LocationMatchEntity[] = React.useMemo(
+    () =>
+      locationsQuery
+        ? mapFrontendLineageEntities<
+            "locations",
+            (typeof api.entities.getLocations)["_returnType"][number]
+          >(locationsQuery)
+        : [],
+    [locationsQuery],
+  );
+  const schedules: MaterializedSchedule[] = React.useMemo(
+    () =>
+      schedulesQuery
+        ? mapFrontendLineageEntities<
+            "baseSchedules",
+            (typeof api.entities.getBaseSchedules)["_returnType"][number]
+          >(schedulesQuery)
+        : [],
+    [schedulesQuery],
+  );
+>>>>>>> theirs
   const practitionersRef = React.useRef(practitioners);
   React.useLayoutEffect(() => {
     practitionersRef.current = practitioners;

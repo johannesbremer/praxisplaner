@@ -261,6 +261,7 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
+<<<<<<< ours
   const mappedPractitioners = useMemo<PractitionerRowEntity[]>(() => {
     if (!practitioners) {
       return [];
@@ -292,6 +293,35 @@ export function VacationScheduler({
       () => [],
     );
   }, [mfas]);
+||||||| base
+  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(
+    () =>
+      mapFrontendLineageEntities({
+        entities: practitioners ?? [],
+        entityType: "practitioner",
+        source: "VacationScheduler",
+      }),
+    [practitioners],
+  );
+  const mappedMfas = useMemo<MfaRowEntity[]>(
+    () =>
+      mapFrontendLineageEntities({
+        entities: mfas ?? [],
+        entityType: "mfa",
+        source: "VacationScheduler",
+      }),
+    [mfas],
+  );
+=======
+  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(
+    () => mapFrontendLineageEntities(practitioners ?? []),
+    [practitioners],
+  );
+  const mappedMfas = useMemo<MfaRowEntity[]>(
+    () => mapFrontendLineageEntities(mfas ?? []),
+    [mfas],
+  );
+>>>>>>> theirs
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mappedMfas);

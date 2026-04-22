@@ -93,6 +93,7 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
+<<<<<<< ours
   const practitioners: PractitionerWithLineage[] = useMemo(() => {
     if (!practitionersQuery) {
       return [];
@@ -110,6 +111,33 @@ export default function PractitionerManagement({
       () => [],
     );
   }, [practitionersQuery]);
+||||||| base
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "PractitionerManagement",
+          })
+        : [],
+    [practitionersQuery],
+  );
+=======
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >(practitionersQuery)
+        : [],
+    [practitionersQuery],
+  );
+>>>>>>> theirs
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;
@@ -381,6 +409,7 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
+<<<<<<< ours
   const practitioners: PractitionerWithLineage[] = useMemo(() => {
     if (!practitionersQuery) {
       return [];
@@ -398,6 +427,33 @@ function PractitionerDialog({
       () => [],
     );
   }, [practitionersQuery]);
+||||||| base
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >({
+            entities: practitionersQuery,
+            entityType: "practitioner",
+            source: "PractitionerDialog",
+          })
+        : [],
+    [practitionersQuery],
+  );
+=======
+  const practitioners: PractitionerWithLineage[] = useMemo(
+    () =>
+      practitionersQuery
+        ? mapFrontendLineageEntities<
+            "practitioners",
+            PractitionersResult[number]
+          >(practitionersQuery)
+        : [],
+    [practitionersQuery],
+  );
+>>>>>>> theirs
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;
