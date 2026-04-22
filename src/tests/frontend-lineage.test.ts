@@ -30,7 +30,7 @@ describe("frontend lineage mapping", () => {
     }
   });
 
-  test("returns an Err instead of silently dropping invalid lineage entities", () => {
+  test("throws instead of silently dropping invalid lineage entities", () => {
     const result = mapFrontendLineageEntities({
       entities: [{ _id: "mfa_1" as Id<"mfas">, name: "Alice" }],
       entityType: "mfa",
@@ -60,18 +60,25 @@ describe("frontend lineage mapping", () => {
     );
   });
 
-  test("requires callers to pick an explicit fallback when invalid lineage data is encountered", () => {
-    const result = mapFrontendLineageEntities({
-      entities: [{ _id: "mfa_2" as Id<"mfas">, name: "Bob" }],
-      entityType: "mfa",
-      source: "frontend-lineage.test",
-    });
-
-    const handled = result.match(
-      (value) => value,
-      () => [],
-    );
-
-    expect(handled).toEqual([]);
+  test("returns typed lineage entities when lineage keys are present", () => {
+    expect(
+      mapFrontendLineageEntities({
+        entities: [
+          {
+            _id: "mfa_2" as Id<"mfas">,
+            lineageKey: "mfa_1" as Id<"mfas">,
+            name: "Bob",
+          },
+        ],
+        entityType: "mfa",
+        source: "frontend-lineage.test",
+      })._unsafeUnwrap(),
+    ).toEqual([
+      {
+        _id: "mfa_2",
+        lineageKey: "mfa_1",
+        name: "Bob",
+      },
+    ]);
   });
 });

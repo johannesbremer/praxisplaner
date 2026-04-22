@@ -118,10 +118,7 @@ export function LocationsManagement({
       entities: locationsQuery,
       entityType: "location",
       source: "LocationsManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [locationsQuery]);
   const practitioners: PractitionerRow[] = useMemo(() => {
     if (!practitionersQuery) {
@@ -135,10 +132,7 @@ export function LocationsManagement({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "LocationsManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const baseSchedules: BaseScheduleRow[] = useMemo(() => {
     if (!baseSchedulesQuery) {
@@ -152,10 +146,7 @@ export function LocationsManagement({
       entities: baseSchedulesQuery,
       entityType: "base schedule",
       source: "LocationsManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [baseSchedulesQuery]);
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);

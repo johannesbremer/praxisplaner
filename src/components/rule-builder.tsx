@@ -18,7 +18,6 @@ import type { RuleFromDB } from "./rule-builder-types";
 import { api } from "../../convex/_generated/api";
 import {
   type ConditionTreeNode,
-  parseConditionTreeNode,
   serializeConditionTreeTransport,
 } from "../../lib/condition-tree";
 import {
@@ -112,11 +111,7 @@ export function RuleBuilder({
   const practitioners = practitionersQuery ?? [];
   const locations = locationsQuery ?? [];
   const existingRules: RuleFromDB[] = useMemo(
-    () =>
-      (existingRulesQuery ?? []).map((rule) => ({
-        ...rule,
-        conditionTree: parseConditionTreeNode(rule.conditionTree),
-      })),
+    () => existingRulesQuery ?? [],
     [existingRulesQuery],
   );
   const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(() => {
@@ -131,10 +126,7 @@ export function RuleBuilder({
       entities: appointmentTypesQuery,
       entityType: "appointment type",
       source: "RuleBuilder",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [appointmentTypesQuery]);
   const lineagePractitioners: RulePractitioner[] = useMemo(() => {
     if (!practitionersQuery) {
@@ -148,10 +140,7 @@ export function RuleBuilder({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "RuleBuilder",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const lineageLocations: RuleLocation[] = useMemo(() => {
     if (!locationsQuery) {
@@ -164,10 +153,7 @@ export function RuleBuilder({
         entityType: "location",
         source: "RuleBuilder",
       },
-    ).match(
-      (value) => value,
-      () => [],
-    );
+    )._unsafeUnwrap();
   }, [locationsQuery]);
   const appointmentTypesRef = useRef(lineageAppointmentTypes);
   const practitionersRef = useRef(lineagePractitioners);

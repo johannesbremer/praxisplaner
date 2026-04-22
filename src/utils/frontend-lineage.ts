@@ -84,19 +84,6 @@ export function mapFrontendLineageEntities<
         entity,
         entityType: params.entityType,
         source: params.source,
-      }).mapErr((error) => {
-        captureFrontendError(
-          error,
-          {
-            context: "map_frontend_lineage_entities",
-            entityId: entity._id,
-            entityType: params.entityType,
-            source: params.source,
-          },
-          `${params.source}:${params.entityType}:${entity._id}:lineage`,
-        );
-
-        return error;
       }),
     ),
   );
@@ -110,12 +97,21 @@ export function requireFrontendLineageKey<
   source: string;
 }): Result<LineageKey<TableName>, ReturnType<typeof invalidStateError>> {
   if (!params.entity.lineageKey) {
-    return err(
-      invalidStateError(
-        `[FRONTEND:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entity._id} hat keinen lineageKey.`,
-        params.source,
-      ),
+    const error = invalidStateError(
+      `[FRONTEND:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entity._id} hat keinen lineageKey.`,
+      params.source,
     );
+    captureFrontendError(
+      error,
+      {
+        context: "map_frontend_lineage_entities",
+        entityId: params.entity._id,
+        entityType: params.entityType,
+        source: params.source,
+      },
+      `${params.source}:${params.entityType}:${params.entity._id}:lineage`,
+    );
+    return err(error);
   }
 
   return ok(asLineageKey(params.entity.lineageKey));

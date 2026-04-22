@@ -273,10 +273,7 @@ export function VacationScheduler({
       entities: practitioners,
       entityType: "practitioner",
       source: "VacationScheduler",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitioners]);
   const mappedMfas = useMemo<MfaRowEntity[]>(() => {
     if (!mfas) {
@@ -287,10 +284,7 @@ export function VacationScheduler({
       entities: mfas,
       entityType: "mfa",
       source: "VacationScheduler",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [mfas]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);

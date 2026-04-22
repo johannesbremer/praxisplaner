@@ -105,10 +105,7 @@ export default function PractitionerManagement({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "PractitionerManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
@@ -393,10 +390,7 @@ function PractitionerDialog({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "PractitionerDialog",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {

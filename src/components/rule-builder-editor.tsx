@@ -340,9 +340,7 @@ function ConcurrentCountCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({
-            appointmentTypes: Array.isArray(value) ? value : [value],
-          });
+          onUpdate({ appointmentTypes: value });
         }}
         options={appointmentTypeOptions}
         placeholder="Wählen..."
@@ -665,7 +663,7 @@ function DayOfWeekCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+          onUpdate({ valueIds: value });
         }}
         options={dayOptions}
         placeholder="Wählen..."
@@ -882,9 +880,7 @@ function SameDayCountCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({
-            appointmentTypes: Array.isArray(value) ? value : [value],
-          });
+          onUpdate({ appointmentTypes: value });
         }}
         options={appointmentTypeOptions}
         placeholder="Wählen..."
@@ -976,7 +972,7 @@ function SimpleValueCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+          onUpdate({ valueIds: value });
         }}
         options={getOptions()}
         placeholder="Wählen..."

@@ -133,10 +133,7 @@ export default function BaseScheduleManagement({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "BaseScheduleManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const locations: LocationMatchEntity[] = React.useMemo(() => {
     if (!locationsQuery) {
@@ -150,10 +147,7 @@ export default function BaseScheduleManagement({
       entities: locationsQuery,
       entityType: "location",
       source: "BaseScheduleManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [locationsQuery]);
   const schedules: MaterializedSchedule[] = React.useMemo(() => {
     if (!schedulesQuery) {
@@ -167,10 +161,7 @@ export default function BaseScheduleManagement({
       entities: schedulesQuery,
       entityType: "base schedule",
       source: "BaseScheduleManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [schedulesQuery]);
 
   const createScheduleBatchMutation = useMutation(
@@ -650,10 +641,7 @@ function BaseScheduleDialog({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "BaseScheduleDialog",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const locations: LocationMatchEntity[] = React.useMemo(() => {
     if (!locationsQuery) {
@@ -667,10 +655,7 @@ function BaseScheduleDialog({
       entities: locationsQuery,
       entityType: "location",
       source: "BaseScheduleDialog",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [locationsQuery]);
   const schedules: MaterializedSchedule[] = React.useMemo(() => {
     if (!schedulesQuery) {
@@ -684,10 +669,7 @@ function BaseScheduleDialog({
       entities: schedulesQuery,
       entityType: "base schedule",
       source: "BaseScheduleDialog",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [schedulesQuery]);
   const practitionersRef = React.useRef(practitioners);
   React.useLayoutEffect(() => {

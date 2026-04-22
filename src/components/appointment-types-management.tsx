@@ -470,10 +470,7 @@ export function AppointmentTypesManagement({
       entities: appointmentTypesQuery,
       entityType: "appointment type",
       source: "AppointmentTypesManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [appointmentTypesQuery]);
   const practitioners: Practitioner[] = useMemo(() => {
     if (!practitionersQuery) {
@@ -487,10 +484,7 @@ export function AppointmentTypesManagement({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "AppointmentTypesManagement",
-    }).match(
-      (value) => value,
-      () => [],
-    );
+    })._unsafeUnwrap();
   }, [practitionersQuery]);
   const formSchema = useMemo(
     () =>
