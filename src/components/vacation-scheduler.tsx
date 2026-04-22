@@ -59,6 +59,7 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
+import { captureErrorGlobal } from "../utils/error-tracking";
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
@@ -260,24 +261,37 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
-  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(
-    () =>
-      mapFrontendLineageEntities({
-        entities: practitioners ?? [],
-        entityType: "practitioner",
-        source: "VacationScheduler",
-      }),
-    [practitioners],
-  );
-  const mappedMfas = useMemo<MfaRowEntity[]>(
-    () =>
-      mapFrontendLineageEntities({
-        entities: mfas ?? [],
-        entityType: "mfa",
-        source: "VacationScheduler",
-      }),
-    [mfas],
-  );
+  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(() => {
+    if (!practitioners) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<
+      "practitioners",
+      PractitionerQueryResult[number]
+    >({
+      entities: practitioners,
+      entityType: "practitioner",
+      source: "VacationScheduler",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [practitioners]);
+  const mappedMfas = useMemo<MfaRowEntity[]>(() => {
+    if (!mfas) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<"mfas", MfaQueryResult[number]>({
+      entities: mfas,
+      entityType: "mfa",
+      source: "VacationScheduler",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [mfas]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mappedMfas);
@@ -713,10 +727,20 @@ export function VacationScheduler({
             if (isAlreadyExistingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht erneut erstellt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA erstellt",
+              context: "vacation_scheduler_history_redo_create_mfa",
+              lineageKey,
+              operation: "redo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht erneut erstellt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -733,10 +757,20 @@ export function VacationScheduler({
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht entfernt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA erstellt",
+              context: "vacation_scheduler_history_undo_create_mfa",
+              lineageKey,
+              operation: "undo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht entfernt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -783,10 +817,20 @@ export function VacationScheduler({
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht erneut entfernt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA entfernt",
+              context: "vacation_scheduler_history_redo_remove_mfa",
+              lineageKey,
+              operation: "redo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht erneut entfernt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -1823,13 +1867,6 @@ function isWeekend(date: Temporal.PlainDate) {
 
 function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return date.with({ day: 1 });
-}
-
-function toLocalHistoryConflictResult(error: unknown, fallbackMessage: string) {
-  return {
-    message: error instanceof Error ? error.message : fallbackMessage,
-    status: "conflict" as const,
-  };
 }
 
 function vacationStaffLineageMutationArgs(staff: StaffRow) {

@@ -93,20 +93,23 @@ export default function PractitionerManagement({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitioners: PractitionerWithLineage[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionersResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "PractitionerManagement",
-          })
-        : [],
-    [practitionersQuery],
-  );
+  const practitioners: PractitionerWithLineage[] = useMemo(() => {
+    if (!practitionersQuery) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<
+      "practitioners",
+      PractitionersResult[number]
+    >({
+      entities: practitionersQuery,
+      entityType: "practitioner",
+      source: "PractitionerManagement",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;
@@ -378,20 +381,23 @@ function PractitionerDialog({
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
-  const practitioners: PractitionerWithLineage[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionersResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "PractitionerDialog",
-          })
-        : [],
-    [practitionersQuery],
-  );
+  const practitioners: PractitionerWithLineage[] = useMemo(() => {
+    if (!practitionersQuery) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<
+      "practitioners",
+      PractitionersResult[number]
+    >({
+      entities: practitionersQuery,
+      entityType: "practitioner",
+      source: "PractitionerDialog",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
     practitionersRef.current = practitioners;

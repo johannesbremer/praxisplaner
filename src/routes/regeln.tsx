@@ -169,7 +169,15 @@ function LogicView() {
     redo: redoRegelnHistoryAction,
     redoDepth: redoRegelnHistoryDepth,
     undo: undoRegelnHistoryAction,
-  } = useLocalHistory();
+  } = useLocalHistory({
+    onError: (action, operation, error) => {
+      captureError(error, {
+        actionLabel: action.label,
+        context: "regeln_history_operation",
+        operation,
+      });
+    },
+  });
 
   const registerRegelnHistoryAction = useCallback(
     (action: LocalHistoryAction) => {

@@ -1,15 +1,11 @@
-import { err, ok, type Result } from "neverthrow";
+import { err, ok, Result } from "neverthrow";
 
 import type { Id, TableNames } from "@/convex/_generated/dataModel";
 import type { EntityId, LineageKey } from "@/convex/identity";
 
 import { asEntityId, asLineageKey } from "@/convex/identity";
 
-import {
-  captureFrontendError,
-  frontendErrorToError,
-  invalidStateError,
-} from "./frontend-errors";
+import { captureFrontendError, invalidStateError } from "./frontend-errors";
 
 export type FrontendLineageEntity<
   TableName extends FrontendLineageTableName,
@@ -78,14 +74,17 @@ export function mapFrontendLineageEntities<
   entities: TEntity[];
   entityType: string;
   source: string;
-}): FrontendLineageEntity<TableName, TEntity>[] {
-  return params.entities.map((entity) =>
-    toFrontendLineageEntity<TableName, TEntity>({
-      entity,
-      entityType: params.entityType,
-      source: params.source,
-    })
-      .mapErr((error) => {
+}): Result<
+  FrontendLineageEntity<TableName, TEntity>[],
+  ReturnType<typeof invalidStateError>
+> {
+  return Result.combine(
+    params.entities.map((entity) =>
+      toFrontendLineageEntity<TableName, TEntity>({
+        entity,
+        entityType: params.entityType,
+        source: params.source,
+      }).mapErr((error) => {
         captureFrontendError(
           error,
           {
@@ -97,9 +96,9 @@ export function mapFrontendLineageEntities<
           `${params.source}:${params.entityType}:${entity._id}:lineage`,
         );
 
-        return frontendErrorToError(error);
-      })
-      ._unsafeUnwrap(),
+        return error;
+      }),
+    ),
   );
 }
 

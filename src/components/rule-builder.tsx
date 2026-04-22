@@ -119,45 +119,56 @@ export function RuleBuilder({
       })),
     [existingRulesQuery],
   );
-  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(
-    () =>
-      appointmentTypesQuery
-        ? mapFrontendLineageEntities<
-            "appointmentTypes",
-            AppointmentTypeQueryResult[number]
-          >({
-            entities: appointmentTypesQuery,
-            entityType: "appointment type",
-            source: "RuleBuilder",
-          })
-        : [],
-    [appointmentTypesQuery],
-  );
-  const lineagePractitioners: RulePractitioner[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionerQueryResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "RuleBuilder",
-          })
-        : [],
-    [practitionersQuery],
-  );
-  const lineageLocations: RuleLocation[] = useMemo(
-    () =>
-      locationsQuery
-        ? mapFrontendLineageEntities<"locations", LocationQueryResult[number]>({
-            entities: locationsQuery,
-            entityType: "location",
-            source: "RuleBuilder",
-          })
-        : [],
-    [locationsQuery],
-  );
+  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(() => {
+    if (!appointmentTypesQuery) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<
+      "appointmentTypes",
+      AppointmentTypeQueryResult[number]
+    >({
+      entities: appointmentTypesQuery,
+      entityType: "appointment type",
+      source: "RuleBuilder",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [appointmentTypesQuery]);
+  const lineagePractitioners: RulePractitioner[] = useMemo(() => {
+    if (!practitionersQuery) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<
+      "practitioners",
+      PractitionerQueryResult[number]
+    >({
+      entities: practitionersQuery,
+      entityType: "practitioner",
+      source: "RuleBuilder",
+    }).match(
+      (value) => value,
+      () => [],
+    );
+  }, [practitionersQuery]);
+  const lineageLocations: RuleLocation[] = useMemo(() => {
+    if (!locationsQuery) {
+      return [];
+    }
+
+    return mapFrontendLineageEntities<"locations", LocationQueryResult[number]>(
+      {
+        entities: locationsQuery,
+        entityType: "location",
+        source: "RuleBuilder",
+      },
+    ).match(
+      (value) => value,
+      () => [],
+    );
+  }, [locationsQuery]);
   const appointmentTypesRef = useRef(lineageAppointmentTypes);
   const practitionersRef = useRef(lineagePractitioners);
   const locationsRef = useRef(lineageLocations);
