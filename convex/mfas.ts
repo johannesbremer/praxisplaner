@@ -72,20 +72,10 @@ export const list = query({
   },
   handler: async (ctx, args) => {
     await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
-    const mfas = await ctx.db
+    return await ctx.db
       .query("mfas")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
-
-    return mfas.map((mfa) => ({
-      ...mfa,
-      lineageKey: requireLineageKey({
-        entityId: mfa._id,
-        entityType: "mfa",
-        lineageKey: mfa.lineageKey,
-        ruleSetId: mfa.ruleSetId,
-      }),
-    }));
   },
 });
 

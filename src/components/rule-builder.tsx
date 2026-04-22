@@ -111,85 +111,13 @@ export function RuleBuilder({
   const appointmentTypes = appointmentTypesQuery ?? [];
   const practitioners = practitionersQuery ?? [];
   const locations = locationsQuery ?? [];
-<<<<<<< ours
   const existingRules: RuleFromDB[] = useMemo(
-||||||| base
-  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(
     () =>
-      appointmentTypesQuery
-        ? mapFrontendLineageEntities<
-            "appointmentTypes",
-            AppointmentTypeQueryResult[number]
-          >({
-            entities: appointmentTypesQuery,
-            entityType: "appointment type",
-            source: "RuleBuilder",
-          })
-        : [],
-    [appointmentTypesQuery],
-  );
-  const lineagePractitioners: RulePractitioner[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionerQueryResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "RuleBuilder",
-          })
-        : [],
-    [practitionersQuery],
-  );
-  const lineageLocations: RuleLocation[] = useMemo(
-=======
-  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(
-    () =>
-      appointmentTypesQuery
-        ? mapFrontendLineageEntities<
-            "appointmentTypes",
-            AppointmentTypeQueryResult[number]
-          >(appointmentTypesQuery)
-        : [],
-    [appointmentTypesQuery],
-  );
-  const lineagePractitioners: RulePractitioner[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionerQueryResult[number]
-          >(practitionersQuery)
-        : [],
-    [practitionersQuery],
-  );
-  const lineageLocations: RuleLocation[] = useMemo(
->>>>>>> theirs
-    () =>
-<<<<<<< ours
       (existingRulesQuery ?? []).map((rule) => ({
         ...rule,
         conditionTree: parseConditionTreeNode(rule.conditionTree),
       })),
     [existingRulesQuery],
-||||||| base
-      locationsQuery
-        ? mapFrontendLineageEntities<"locations", LocationQueryResult[number]>({
-            entities: locationsQuery,
-            entityType: "location",
-            source: "RuleBuilder",
-          })
-        : [],
-    [locationsQuery],
-=======
-      locationsQuery
-        ? mapFrontendLineageEntities<"locations", LocationQueryResult[number]>(
-            locationsQuery,
-          )
-        : [],
-    [locationsQuery],
->>>>>>> theirs
   );
   const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(() => {
     if (!appointmentTypesQuery) {

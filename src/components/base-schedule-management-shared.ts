@@ -63,21 +63,21 @@ export interface ExtendedSchedule extends Omit<
 
 export type LocationMatchEntity = FrontendLineageEntity<
   "locations",
-  Pick<Doc<"locations">, "_id" | "name"> & { lineageKey: Id<"locations"> }
+  Pick<Doc<"locations">, "_id" | "name"> & { lineageKey?: Id<"locations"> }
 >;
 
 export type MaterializedSchedule = FrontendLineageEntity<
   "baseSchedules",
   Doc<"baseSchedules"> & {
     _creationTime: number;
-    lineageKey: Id<"baseSchedules">;
+    lineageKey?: Id<"baseSchedules">;
   }
 >;
 
 export type PractitionerMatchEntity = FrontendLineageEntity<
   "practitioners",
   Pick<Doc<"practitioners">, "_id" | "name"> & {
-    lineageKey: Id<"practitioners">;
+    lineageKey?: Id<"practitioners">;
   }
 >;
 export interface SchedulePayload {

@@ -17,20 +17,11 @@ import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../../../lib/rule-name-generator";
-<<<<<<< ours
 import {
   captureFrontendError,
   frontendErrorToError,
   invalidStateError,
 } from "../../utils/frontend-errors";
-||||||| base
-import {
-  captureFrontendError,
-  invalidStateError,
-} from "../../utils/frontend-errors";
-=======
-import { invalidStateError } from "../../utils/frontend-errors";
->>>>>>> theirs
 
 interface EntityRenameMaps {
   appointmentTypes: Map<string, string>;
@@ -575,7 +566,6 @@ function formatValue(value: unknown): string {
 }
 
 function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
-<<<<<<< ours
   return resolveDiffItemMatchKey(section, value)
     .mapErr((error) => {
       captureFrontendError(
@@ -590,24 +580,6 @@ function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
       return frontendErrorToError(error);
     })
     ._unsafeUnwrap();
-||||||| base
-  return resolveDiffItemMatchKey(section, value).match(
-    (key) => key,
-    (error) => {
-      captureFrontendError(
-        error,
-        {
-          context: "rule_set_diff_match_key",
-          sectionKey: section.key,
-        },
-        `rule-set-diff:${section.key}:${error.message}`,
-      );
-      return value;
-    },
-  );
-=======
-  return resolveDiffItemMatchKey(section, value)._unsafeUnwrap();
->>>>>>> theirs
 }
 
 function getDiffItemPath(
