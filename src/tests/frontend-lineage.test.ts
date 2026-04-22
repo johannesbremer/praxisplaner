@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
+import {
+  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
+} from "../utils/frontend-lineage";
 
 describe("frontend lineage mapping", () => {
   type MutableGlobals = typeof globalThis & {
@@ -62,7 +65,7 @@ describe("frontend lineage mapping", () => {
 
   test("returns typed lineage entities when lineage keys are present", () => {
     expect(
-      mapFrontendLineageEntities({
+      requireFrontendLineageEntities({
         entities: [
           {
             _id: "mfa_2" as Id<"mfas">,
@@ -72,7 +75,7 @@ describe("frontend lineage mapping", () => {
         ],
         entityType: "mfa",
         source: "frontend-lineage.test",
-      })._unsafeUnwrap(),
+      }),
     ).toEqual([
       {
         _id: "mfa_2",

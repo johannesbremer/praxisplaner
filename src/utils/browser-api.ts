@@ -1,6 +1,6 @@
 // src/utils/browser-api.ts
 
-import { errAsync, ResultAsync } from "neverthrow";
+import { err, ok, type Result, ResultAsync } from "neverthrow";
 
 import type {
   FileSystemDirectoryHandle as AppFileSystemDirectoryHandle,
@@ -113,11 +113,15 @@ export function isDOMException(error: unknown): error is DOMException {
  * Typed wrapper for FileSystemObserver that handles browser compatibility.
  */
 export class SafeFileSystemObserver {
-  private observer: FileSystemObserverInstance | null = null;
+  private readonly observer: FileSystemObserverInstance;
 
-  constructor(
+  private constructor(observer: FileSystemObserverInstance) {
+    this.observer = observer;
+  }
+
+  static create(
     callback: (records: FileSystemChangeRecord[]) => Promise<void> | void,
-  ) {
+  ): Result<SafeFileSystemObserver, ReturnType<typeof browserApiError>> {
     const FileSystemObserverCtor = getFileSystemObserverConstructor();
 
     if (!FileSystemObserverCtor) {
@@ -129,12 +133,10 @@ export class SafeFileSystemObserver {
         context: "FileSystemObserver not supported",
         errorType: "browser_compatibility",
       });
-      // Set observer to null instead of throwing - let the methods handle the error state
-      this.observer = null;
-      return;
+      return err(error);
     }
 
-    this.observer = new FileSystemObserverCtor(
+    const observer = new FileSystemObserverCtor(
       async (records: readonly FileSystemObserverRecord[]) => {
         // Convert records to our typed format
         const typedRecords: FileSystemChangeRecord[] = records.map(
@@ -148,27 +150,17 @@ export class SafeFileSystemObserver {
         await callback(typedRecords);
       },
     );
+    return ok(new SafeFileSystemObserver(observer));
   }
 
   disconnect(): void {
-    this.observer?.disconnect();
+    this.observer.disconnect();
   }
 
   observe(
     handle: AppFileSystemDirectoryHandle,
     options?: FileSystemObserverOptions,
   ): ResultAsync<void, ReturnType<typeof browserApiError>> {
-    if (!this.observer) {
-      const error = browserApiError(
-        "Observer not initialized",
-        "SafeFileSystemObserver.observe",
-      );
-      captureFrontendError(error, {
-        context: "FileSystemObserver observe called without initialization",
-        errorType: "browser_api",
-      });
-      return errAsync(error);
-    }
     return ResultAsync.fromPromise(
       this.observer.observe(handle, options),
       (error) =>
@@ -184,17 +176,6 @@ export class SafeFileSystemObserver {
   unobserve(
     handle: AppFileSystemDirectoryHandle,
   ): ResultAsync<void, ReturnType<typeof browserApiError>> {
-    if (!this.observer) {
-      const error = browserApiError(
-        "Observer not initialized",
-        "SafeFileSystemObserver.unobserve",
-      );
-      captureFrontendError(error, {
-        context: "FileSystemObserver unobserve called without initialization",
-        errorType: "browser_api",
-      });
-      return errAsync(error);
-    }
     return ResultAsync.fromPromise(this.observer.unobserve(handle), (error) =>
       frontendErrorFromUnknown(error, {
         expected: false,

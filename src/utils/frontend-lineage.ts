@@ -89,6 +89,17 @@ export function mapFrontendLineageEntities<
   );
 }
 
+export function requireFrontendLineageEntities<
+  TableName extends FrontendLineageTableName,
+  TEntity extends FrontendLineageRecord<TableName>,
+>(params: {
+  entities: TEntity[];
+  entityType: string;
+  source: string;
+}): FrontendLineageEntity<TableName, TEntity>[] {
+  return mapFrontendLineageEntities<TableName, TEntity>(params)._unsafeUnwrap();
+}
+
 export function requireFrontendLineageKey<
   TableName extends FrontendLineageTableName,
 >(params: {

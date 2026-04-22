@@ -53,7 +53,7 @@ import {
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
@@ -111,42 +111,42 @@ export function LocationsManagement({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "locations",
       LocationsQueryResult[number]
     >({
       entities: locationsQuery,
       entityType: "location",
       source: "LocationsManagement",
-    })._unsafeUnwrap();
+    });
   }, [locationsQuery]);
   const practitioners: PractitionerRow[] = useMemo(() => {
     if (!practitionersQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionersQueryResult[number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "LocationsManagement",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const baseSchedules: BaseScheduleRow[] = useMemo(() => {
     if (!baseSchedulesQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "baseSchedules",
       BaseSchedulesQueryResult[number]
     >({
       entities: baseSchedulesQuery,
       entityType: "base schedule",
       source: "LocationsManagement",
-    })._unsafeUnwrap();
+    });
   }, [baseSchedulesQuery]);
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);

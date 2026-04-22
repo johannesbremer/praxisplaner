@@ -35,12 +35,15 @@ describe("Frontend error handling", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.stubEnv("VITE_ENABLE_POSTHOG_IN_DEV", "true");
     mutableGlobalThis.posthog = {
       captureException: vi.fn(),
     };
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+
     if (originalFileSystemObserver) {
       mutableGlobalThis.FileSystemObserver = originalFileSystemObserver;
     } else {
@@ -96,27 +99,20 @@ describe("Frontend error handling", () => {
     );
   });
 
-  test("unsupported FileSystemObserver degrades to Err results instead of throwing", async () => {
+  test("unsupported FileSystemObserver returns an Err instead of building a half-initialized observer", () => {
     Reflect.deleteProperty(
       globalThis as Record<string, unknown>,
       "FileSystemObserver",
     );
     const onChange = vi.fn();
 
-    expect(() => {
-      new SafeFileSystemObserver(onChange);
-    }).not.toThrow();
-
-    const observer = new SafeFileSystemObserver(onChange);
-    const handle = {} as FileSystemDirectoryHandle;
-
-    const observeResult = await observer.observe(handle);
-    expect(observeResult.isErr()).toBe(true);
-    expect(observeResult._unsafeUnwrapErr()).toMatchObject({
+    const observerResult = SafeFileSystemObserver.create(onChange);
+    expect(observerResult.isErr()).toBe(true);
+    expect(observerResult._unsafeUnwrapErr()).toMatchObject({
       expected: true,
       kind: "browser_api",
-      message: "Observer not initialized",
-      source: "SafeFileSystemObserver.observe",
+      message: "FileSystemObserver is not supported in this environment",
+      source: "SafeFileSystemObserver.constructor",
     });
 
     expect(mutableGlobalThis.posthog?.captureException).not.toHaveBeenCalled();
@@ -149,7 +145,7 @@ describe("Frontend error handling", () => {
       }
     ).FileSystemObserver = MockFileSystemObserver;
 
-    const observer = new SafeFileSystemObserver(vi.fn());
+    const observer = SafeFileSystemObserver.create(vi.fn())._unsafeUnwrap();
     const handle = {} as FileSystemDirectoryHandle;
 
     const observeResult = await observer.observe(handle);

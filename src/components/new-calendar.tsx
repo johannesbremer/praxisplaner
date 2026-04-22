@@ -19,7 +19,7 @@ import type { Appointment, NewCalendarProps } from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
 import {
-  normalizePatientDateOfBirth,
+  parseOptionalPatientDateOfBirth,
   patientDocToInfo,
 } from "../utils/patient-info";
 import {
@@ -160,7 +160,7 @@ export function NewCalendar({
 
   const selectedPatientInfo: PatientInfo | undefined = (() => {
     if (selectedPatient?.type === "patient" && selectedPatientData) {
-      return patientDocToInfo(selectedPatientData);
+      return patientDocToInfo(selectedPatientData)._unsafeUnwrap();
     }
 
     if (selectedPatient?.type === "patient") {
@@ -178,9 +178,11 @@ export function NewCalendar({
         userId: selectedUserData._id,
       };
       if (bookingPersonalData) {
-        const dateOfBirth = normalizePatientDateOfBirth(
-          bookingPersonalData.dateOfBirth,
-        );
+        const dateOfBirth = parseOptionalPatientDateOfBirth({
+          dateOfBirth: bookingPersonalData.dateOfBirth,
+          patientLabel: `user:${selectedUserData._id}`,
+          source: "NewCalendar.selectedUserData",
+        })._unsafeUnwrap();
         Object.assign(info, {
           ...bookingPersonalData,
           ...(dateOfBirth !== undefined && { dateOfBirth }),

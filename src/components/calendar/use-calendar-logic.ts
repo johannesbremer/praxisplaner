@@ -367,16 +367,34 @@ export function useCalendarLogic({
   );
 
   const getAppointmentCreationEnd = useCallback(
-    (args: {
-      appointmentTypeId: Id<"appointmentTypes">;
-      start: string;
-    }): string => {
-      const durationMinutes =
-        appointmentTypeMap.get(args.appointmentTypeId)?.duration ??
-        SLOT_DURATION;
+    (args: { durationMinutes: number; start: string }): string => {
       return Temporal.ZonedDateTime.from(args.start)
-        .add({ minutes: durationMinutes })
+        .add({ minutes: args.durationMinutes })
         .toString();
+    },
+    [],
+  );
+
+  const getRequiredAppointmentTypeInfo = useCallback(
+    (appointmentTypeId: Id<"appointmentTypes">, source: string) => {
+      const appointmentTypeInfo = appointmentTypeMap.get(appointmentTypeId);
+      if (appointmentTypeInfo) {
+        return appointmentTypeInfo;
+      }
+
+      captureFrontendError(
+        invalidStateError(
+          `Terminart ${appointmentTypeId} konnte nicht in appointmentTypeMap aufgelöst werden.`,
+          source,
+        ),
+        {
+          appointmentTypeId,
+          context: "appointment_type_missing",
+          source,
+        },
+        `${source}:${appointmentTypeId}`,
+      );
+      return null;
     },
     [appointmentTypeMap],
   );
@@ -635,12 +653,15 @@ export function useCalendarLogic({
           const now = Date.now();
           const tempId = createOptimisticId<"appointments">();
 
-          const appointmentTypeInfo = appointmentTypeMap.get(
+          const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
             optimisticArgs.appointmentTypeId,
+            "useCalendarLogic.optimisticCreate",
           );
-          const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
+          if (!appointmentTypeInfo) {
+            return;
+          }
           const optimisticEnd = getAppointmentCreationEnd({
-            appointmentTypeId: optimisticArgs.appointmentTypeId,
+            durationMinutes: appointmentTypeInfo.duration,
             start: optimisticArgs.start,
           });
           const typedStart = parseZonedDateTime(
@@ -659,7 +680,7 @@ export function useCalendarLogic({
             _creationTime: now,
             _id: tempId,
             appointmentTypeId: optimisticArgs.appointmentTypeId,
-            appointmentTypeTitle,
+            appointmentTypeTitle: appointmentTypeInfo.name,
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -703,10 +724,10 @@ export function useCalendarLogic({
       )(args);
     },
     [
-      appointmentTypeMap,
       appointmentsQueryArgs,
       createAppointmentMutation,
       getAppointmentCreationEnd,
+      getRequiredAppointmentTypeInfo,
       parseZonedDateTime,
     ],
   );
@@ -992,10 +1013,15 @@ export function useCalendarLogic({
 
   const runCreateAppointment = useCallback(
     async (args: Parameters<typeof createAppointmentMutation>[0]) => {
-      const appointmentTypeInfo = appointmentTypeMap.get(
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
         args.appointmentTypeId,
+        "useCalendarLogic.runCreateAppointment",
       );
-      if (appointmentTypeInfo?.hasFollowUpPlan) {
+      if (!appointmentTypeInfo) {
+        toast.error("Die Terminart konnte nicht geladen werden.");
+        return;
+      }
+      if (appointmentTypeInfo.hasFollowUpPlan) {
         return await createAppointmentMutation(args);
       }
 
@@ -1007,7 +1033,7 @@ export function useCalendarLogic({
       let currentAppointmentId: Id<"appointments"> = createdId;
       const createArgs = { ...args, isSimulation: args.isSimulation ?? false };
       const createEnd = getAppointmentCreationEnd({
-        appointmentTypeId: createArgs.appointmentTypeId,
+        durationMinutes: appointmentTypeInfo.duration,
         start: createArgs.start,
       });
 
@@ -1059,13 +1085,13 @@ export function useCalendarLogic({
       return createdId;
     },
     [
-      appointmentTypeMap,
       createAppointmentMutation,
+      getAppointmentCreationEnd,
+      getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
-      getAppointmentCreationEnd,
     ],
   );
 
@@ -1234,8 +1260,15 @@ export function useCalendarLogic({
         title: deleted.title,
         ...(deleted.userId && { userId: deleted.userId }),
       };
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+        createArgs.appointmentTypeId,
+        "useCalendarLogic.runDeleteAppointment",
+      );
+      if (!appointmentTypeInfo) {
+        return;
+      }
       const createEnd = getAppointmentCreationEnd({
-        appointmentTypeId: createArgs.appointmentTypeId,
+        durationMinutes: appointmentTypeInfo.duration,
         start: createArgs.start,
       });
 
@@ -1283,11 +1316,12 @@ export function useCalendarLogic({
     },
     [
       deleteAppointmentMutation,
+      getAppointmentCreationEnd,
+      getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
       pushHistoryAction,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
-      getAppointmentCreationEnd,
     ],
   );
 
@@ -3476,209 +3510,207 @@ export function useCalendarLogic({
   };
 
   const createAppointmentInSlot = (column: string, slot: number) => {
-    // Get the appointment type ID to determine duration
-    const appointmentTypeId = simulatedContext
-      ? simulatedContext.appointmentTypeId
-      : selectedAppointmentTypeId;
+    if (simulatedContext) {
+      if (!simulatedContext.locationId) {
+        alert("Bitte wählen Sie zuerst einen Standort aus.");
+        return;
+      }
 
-    // Get duration from appointment type, fallback to 30 if not found
-    const appointmentTypeDuration = appointmentTypeId
-      ? (appointmentTypeMap.get(appointmentTypeId)?.duration ?? 30)
-      : 30;
+      if (!simulatedContext.appointmentTypeId) {
+        alert("Bitte wählen Sie zuerst einen Termintyp aus.");
+        return;
+      }
+
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+        simulatedContext.appointmentTypeId,
+        "useCalendarLogic.createAppointmentInSlot.simulation",
+      );
+      if (!appointmentTypeInfo) {
+        toast.error("Die Terminart konnte nicht geladen werden.");
+        return;
+      }
+
+      const maxAvailableDuration = getMaxAvailableDuration(column, slot);
+      if (
+        Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
+        SLOT_DURATION
+      ) {
+        return;
+      }
+
+      const practitioner = workingPractitioners.find((p) => p.id === column);
+      if (!practiceId) {
+        toast.error("Praxis nicht gefunden");
+        return;
+      }
+
+      if (!practitioner && column !== "ekg" && column !== "labor") {
+        toast.error("Ungültige Ressource");
+        return;
+      }
+
+      const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+      const hours = Math.floor(minutesFromStart / 60);
+      const minutes = minutesFromStart % 60;
+      const plainTime = new Temporal.PlainTime(hours, minutes);
+
+      const startZoned = selectedDate.toZonedDateTime({
+        plainTime,
+        timeZone: TIMEZONE,
+      });
+      const startISO = startZoned.toString();
+      const title = pendingAppointmentTitle || appointmentTypeInfo.name;
+
+      const hasTemporaryPatientDraft =
+        patient?.recordType === "temporary" &&
+        patient.convexPatientId === undefined &&
+        patient.name.trim().length > 0 &&
+        patient.phoneNumber.trim().length > 0;
+
+      if (
+        !patient?.convexPatientId &&
+        !patient?.userId &&
+        !hasTemporaryPatientDraft
+      ) {
+        toast.error(
+          "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
+        );
+        return;
+      }
+
+      void runCreateAppointment({
+        appointmentTypeId: simulatedContext.appointmentTypeId,
+        isNewPatient: simulatedContext.patient.isNew,
+        isSimulation: true,
+        locationId: simulatedContext.locationId,
+        ...(patient.dateOfBirth && {
+          patientDateOfBirth: patient.dateOfBirth,
+        }),
+        ...(patient.convexPatientId && {
+          patientId: patient.convexPatientId,
+        }),
+        ...(hasTemporaryPatientDraft && {
+          temporaryPatientName: patient.name.trim(),
+          temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
+        }),
+        ...(patient.userId && { userId: patient.userId }),
+        practiceId,
+        ...(practitioner && { practitionerId: practitioner.id }),
+        start: startISO,
+        title,
+      }).then((createdAppointmentId) => {
+        if (createdAppointmentId) {
+          onClearAppointmentTypeSelection?.();
+        }
+      });
+      return;
+    }
+
+    if (!selectedAppointmentTypeId) {
+      toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
+      return;
+    }
+
+    if (!selectedLocationId) {
+      toast.error("Bitte wählen Sie zuerst einen Standort aus.");
+      return;
+    }
+
+    const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+      selectedAppointmentTypeId,
+      "useCalendarLogic.createAppointmentInSlot.real",
+    );
+    if (!appointmentTypeInfo) {
+      toast.error("Die Terminart konnte nicht geladen werden.");
+      return;
+    }
 
     const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-    const duration = Math.min(appointmentTypeDuration, maxAvailableDuration);
+    if (
+      Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
+      SLOT_DURATION
+    ) {
+      return;
+    }
 
-    if (duration >= SLOT_DURATION) {
-      if (simulatedContext) {
-        if (!simulatedContext.locationId) {
-          alert("Bitte wählen Sie zuerst einen Standort aus.");
-          return;
-        }
+    const practitioner = workingPractitioners.find((p) => p.id === column);
+    if (!practiceId) {
+      toast.error("Praxis nicht gefunden");
+      return;
+    }
 
-        if (!simulatedContext.appointmentTypeId) {
-          alert("Bitte wählen Sie zuerst einen Termintyp aus.");
-          return;
-        }
+    if (!practitioner && column !== "ekg" && column !== "labor") {
+      toast.error("Ungültige Ressource");
+      return;
+    }
 
-        // Create simulation appointment
-        const practitioner = workingPractitioners.find((p) => p.id === column);
-        if (!practiceId) {
-          toast.error("Praxis nicht gefunden");
-          return;
-        }
+    const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
+    const hours = Math.floor(minutesFromStart / 60);
+    const minutes = minutesFromStart % 60;
+    const plainTime = new Temporal.PlainTime(hours, minutes);
 
-        // Handle special columns (non-practitioner resources)
-        if (!practitioner && column !== "ekg" && column !== "labor") {
-          toast.error("Ungültige Ressource");
-          return;
-        }
+    const startZoned = selectedDate.toZonedDateTime({
+      plainTime,
+      timeZone: TIMEZONE,
+    });
+    const startISO = startZoned.toString();
+    const title = pendingAppointmentTitle || appointmentTypeInfo.name;
 
-        // Calculate start and end times
-        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-        const hours = Math.floor(minutesFromStart / 60);
-        const minutes = minutesFromStart % 60;
-        const plainTime = new Temporal.PlainTime(hours, minutes);
+    const hasTemporaryPatientDraft =
+      patient?.recordType === "temporary" &&
+      patient.convexPatientId === undefined &&
+      patient.name.trim().length > 0 &&
+      patient.phoneNumber.trim().length > 0;
 
-        const startZoned = selectedDate.toZonedDateTime({
-          plainTime,
-          timeZone: TIMEZONE,
-        });
-        const startISO = startZoned.toString();
-
-        // Get appointment type name for fallback title
-        const appointmentTypeInfo = appointmentTypeMap.get(
-          simulatedContext.appointmentTypeId,
-        );
-        const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
-        // Use pending title from sidebar if available, otherwise fall back to appointment type name
-        const title = pendingAppointmentTitle || appointmentTypeTitle;
-
-        const hasTemporaryPatientDraft =
-          patient?.recordType === "temporary" &&
-          patient.convexPatientId === undefined &&
-          patient.name.trim().length > 0 &&
-          patient.phoneNumber.trim().length > 0;
-
-        if (
-          !patient?.convexPatientId &&
-          !patient?.userId &&
-          !hasTemporaryPatientDraft
-        ) {
-          toast.error(
-            "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
-          );
-          return;
-        }
-
-        void runCreateAppointment({
-          appointmentTypeId: simulatedContext.appointmentTypeId,
-          isNewPatient: simulatedContext.patient.isNew,
-          isSimulation: true,
-          locationId: simulatedContext.locationId,
-          ...(patient.dateOfBirth && {
-            patientDateOfBirth: patient.dateOfBirth,
-          }),
-          ...(patient.convexPatientId && {
-            patientId: patient.convexPatientId,
-          }),
-          ...(hasTemporaryPatientDraft && {
-            temporaryPatientName: patient.name.trim(),
-            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
-          }),
-          ...(patient.userId && { userId: patient.userId }),
-          practiceId,
-          ...(practitioner && { practitionerId: practitioner.id }),
-          start: startISO,
-          title,
-        }).then((createdAppointmentId) => {
-          if (createdAppointmentId) {
-            onClearAppointmentTypeSelection?.();
-          }
-        });
-      } else {
-        // Create real appointment - require appointment type to be selected
-        if (!selectedAppointmentTypeId) {
-          toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
-          return;
-        }
-
-        if (!selectedLocationId) {
-          toast.error("Bitte wählen Sie zuerst einen Standort aus.");
-          return;
-        }
-
-        const practitioner = workingPractitioners.find((p) => p.id === column);
-        if (!practiceId) {
-          toast.error("Praxis nicht gefunden");
-          return;
-        }
-
-        // Handle special columns (non-practitioner resources)
-        if (!practitioner && column !== "ekg" && column !== "labor") {
-          toast.error("Ungültige Ressource");
-          return;
-        }
-
-        // Calculate start and end times
-        const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-        const hours = Math.floor(minutesFromStart / 60);
-        const minutes = minutesFromStart % 60;
-        const plainTime = new Temporal.PlainTime(hours, minutes);
-
-        const startZoned = selectedDate.toZonedDateTime({
-          plainTime,
-          timeZone: TIMEZONE,
-        });
-        const startISO = startZoned.toString();
-
-        // Get appointment type name for fallback title
-        const appointmentTypeInfo = appointmentTypeMap.get(
-          selectedAppointmentTypeId,
-        );
-        const appointmentTypeTitle = appointmentTypeInfo?.name ?? "Termin";
-        // Use pending title from sidebar if available, otherwise fall back to appointment type name
-        const title = pendingAppointmentTitle || appointmentTypeTitle;
-
-        // Check if we have a patient - if not, ask for patient selection
-        const hasTemporaryPatientDraft =
-          patient?.recordType === "temporary" &&
-          patient.convexPatientId === undefined &&
-          patient.name.trim().length > 0 &&
-          patient.phoneNumber.trim().length > 0;
-
-        if (
-          !patient?.convexPatientId &&
-          !patient?.userId &&
-          !hasTemporaryPatientDraft
-        ) {
-          if (onPatientRequired) {
-            onPatientRequired({
-              appointmentTypeId: selectedAppointmentTypeId,
-              isSimulation: false,
-              locationId: selectedLocationId,
-              practiceId,
-              ...(practitioner && { practitionerId: practitioner.id }),
-              start: startISO,
-              title,
-            });
-            return;
-          } else {
-            // If no callback provided, show an error
-            toast.error(
-              "Bitte wählen Sie zuerst einen Patienten aus der rechten Seitenleiste aus.",
-            );
-            return;
-          }
-        }
-
-        void runCreateAppointment({
+    if (
+      !patient?.convexPatientId &&
+      !patient?.userId &&
+      !hasTemporaryPatientDraft
+    ) {
+      if (onPatientRequired) {
+        onPatientRequired({
           appointmentTypeId: selectedAppointmentTypeId,
-          isNewPatient: patient.isNewPatient ?? false,
           isSimulation: false,
           locationId: selectedLocationId,
-          ...(patient.dateOfBirth && {
-            patientDateOfBirth: patient.dateOfBirth,
-          }),
-          ...(patient.convexPatientId && {
-            patientId: patient.convexPatientId,
-          }),
-          ...(hasTemporaryPatientDraft && {
-            temporaryPatientName: patient.name.trim(),
-            temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
-          }),
-          ...(patient.userId && { userId: patient.userId }),
           practiceId,
           ...(practitioner && { practitionerId: practitioner.id }),
           start: startISO,
           title,
-        }).then((createdAppointmentId) => {
-          if (createdAppointmentId) {
-            onClearAppointmentTypeSelection?.();
-          }
         });
+        return;
       }
+
+      toast.error(
+        "Bitte wählen Sie zuerst einen Patienten aus der rechten Seitenleiste aus.",
+      );
+      return;
     }
+
+    void runCreateAppointment({
+      appointmentTypeId: selectedAppointmentTypeId,
+      isNewPatient: patient.isNewPatient ?? false,
+      isSimulation: false,
+      locationId: selectedLocationId,
+      ...(patient.dateOfBirth && {
+        patientDateOfBirth: patient.dateOfBirth,
+      }),
+      ...(patient.convexPatientId && {
+        patientId: patient.convexPatientId,
+      }),
+      ...(hasTemporaryPatientDraft && {
+        temporaryPatientName: patient.name.trim(),
+        temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
+      }),
+      ...(patient.userId && { userId: patient.userId }),
+      practiceId,
+      ...(practitioner && { practitionerId: practitioner.id }),
+      start: startISO,
+      title,
+    }).then((createdAppointmentId) => {
+      if (createdAppointmentId) {
+        onClearAppointmentTypeSelection?.();
+      }
+    });
   };
 
   const handleEditAppointment = (appointment: Appointment) => {

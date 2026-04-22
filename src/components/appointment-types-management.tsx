@@ -78,7 +78,7 @@ import {
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import {
   findFrontendEntityByEntityId,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
@@ -463,28 +463,28 @@ export function AppointmentTypesManagement({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "appointmentTypes",
       AppointmentTypeQueryResult[number]
     >({
       entities: appointmentTypesQuery,
       entityType: "appointment type",
       source: "AppointmentTypesManagement",
-    })._unsafeUnwrap();
+    });
   }, [appointmentTypesQuery]);
   const practitioners: Practitioner[] = useMemo(() => {
     if (!practitionersQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionerQueryResult[number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "AppointmentTypesManagement",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const formSchema = useMemo(
     () =>

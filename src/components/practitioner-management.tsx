@@ -43,7 +43,7 @@ import { useErrorTracking } from "../utils/error-tracking";
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
@@ -98,14 +98,14 @@ export default function PractitionerManagement({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionersResult[number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "PractitionerManagement",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {
@@ -383,14 +383,14 @@ function PractitionerDialog({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionersResult[number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "PractitionerDialog",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const practitionersRef = useRef(practitioners);
   useEffect(() => {

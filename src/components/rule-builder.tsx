@@ -30,7 +30,7 @@ import {
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
-import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
+import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import { RuleEditDialog } from "./rule-builder-editor";
 
 type AppointmentTypeQueryResult =
@@ -119,41 +119,42 @@ export function RuleBuilder({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "appointmentTypes",
       AppointmentTypeQueryResult[number]
     >({
       entities: appointmentTypesQuery,
       entityType: "appointment type",
       source: "RuleBuilder",
-    })._unsafeUnwrap();
+    });
   }, [appointmentTypesQuery]);
   const lineagePractitioners: RulePractitioner[] = useMemo(() => {
     if (!practitionersQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionerQueryResult[number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "RuleBuilder",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const lineageLocations: RuleLocation[] = useMemo(() => {
     if (!locationsQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<"locations", LocationQueryResult[number]>(
-      {
-        entities: locationsQuery,
-        entityType: "location",
-        source: "RuleBuilder",
-      },
-    )._unsafeUnwrap();
+    return requireFrontendLineageEntities<
+      "locations",
+      LocationQueryResult[number]
+    >({
+      entities: locationsQuery,
+      entityType: "location",
+      source: "RuleBuilder",
+    });
   }, [locationsQuery]);
   const appointmentTypesRef = useRef(lineageAppointmentTypes);
   const practitionersRef = useRef(lineagePractitioners);

@@ -63,7 +63,7 @@ import { captureErrorGlobal } from "../utils/error-tracking";
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 import {
   getPublicHolidayName,
@@ -266,25 +266,25 @@ export function VacationScheduler({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       PractitionerQueryResult[number]
     >({
       entities: practitioners,
       entityType: "practitioner",
       source: "VacationScheduler",
-    })._unsafeUnwrap();
+    });
   }, [practitioners]);
   const mappedMfas = useMemo<MfaRowEntity[]>(() => {
     if (!mfas) {
       return [];
     }
 
-    return mapFrontendLineageEntities<"mfas", MfaQueryResult[number]>({
+    return requireFrontendLineageEntities<"mfas", MfaQueryResult[number]>({
       entities: mfas,
       entityType: "mfa",
       source: "VacationScheduler",
-    })._unsafeUnwrap();
+    });
   }, [mfas]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);

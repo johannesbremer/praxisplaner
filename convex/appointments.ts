@@ -291,21 +291,6 @@ function requireEntityUsableForNewAppointment<
   return params.entity;
 }
 
-async function resolveAppointmentPatientDateOfBirth(
-  db: DatabaseReader,
-  args: {
-    fallbackDateOfBirth?: IsoDateString;
-    patientId?: Id<"patients">;
-  },
-): Promise<IsoDateString | undefined> {
-  if (args.patientId) {
-    const patient = await db.get("patients", args.patientId);
-    return asOptionalIsoDateString(patient?.dateOfBirth);
-  }
-
-  return args.fallbackDateOfBirth;
-}
-
 async function resolveAppointmentTypeIdForDisplayRuleSet(
   db: DatabaseReader,
   appointmentTypeLineageKey: Id<"appointmentTypes">,
@@ -337,6 +322,21 @@ async function resolvePractitionerIdForDisplayRuleSet(
     lineageKey: asPractitionerLineageKey(practitionerLineageKey),
     ruleSetId: targetRuleSetId,
   });
+}
+
+async function resolvePreferredAppointmentPatientDateOfBirth(
+  db: DatabaseReader,
+  args: {
+    patientId?: Id<"patients">;
+    provisionalDateOfBirth?: IsoDateString;
+  },
+): Promise<IsoDateString | undefined> {
+  if (args.patientId) {
+    const patient = await db.get("patients", args.patientId);
+    return asOptionalIsoDateString(patient?.dateOfBirth);
+  }
+
+  return args.provisionalDateOfBirth;
 }
 
 /**
@@ -1429,14 +1429,14 @@ async function updateAppointmentByMode(
     );
     const resolvedPatientId =
       filteredUpdateData.patientId ?? existingAppointment.patientId;
-    const fallbackDateOfBirth = asOptionalIsoDateString(
+    const provisionalDateOfBirth = asOptionalIsoDateString(
       seriesRecord.patientDateOfBirth,
     );
     const resolvedPatientDateOfBirth =
-      await resolveAppointmentPatientDateOfBirth(ctx.db, {
+      await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
         ...(filteredUpdateData.patientId === undefined &&
-          fallbackDateOfBirth !== undefined && {
-            fallbackDateOfBirth,
+          provisionalDateOfBirth !== undefined && {
+            provisionalDateOfBirth,
           }),
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
       });

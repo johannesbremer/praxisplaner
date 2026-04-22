@@ -8,7 +8,6 @@ import { mutation, query } from "./_generated/server";
 import {
   buildPatientSearchFirstName,
   buildPatientSearchLastName,
-  patientMatchesSearchTerm,
 } from "./patientSearch";
 import {
   ensurePracticeAccessForMutation,
@@ -378,40 +377,7 @@ export const searchPatients = query({
         .take(20),
     ]);
 
-    const indexedResults = mergePatientSearchResults(
-      firstNameResults,
-      lastNameResults,
-    );
-    if (indexedResults.length > 0) {
-      return indexedResults;
-    }
-
-    const patientsForFallback = await ctx.db
-      .query("patients")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const fallbackMatches = patientsForFallback.filter((patient) =>
-      patientMatchesSearchTerm(
-        {
-          firstName: patient.firstName,
-          lastName: patient.lastName,
-          name: patient.name,
-          patientId: patient.patientId,
-        },
-        searchTerm,
-      ),
-    );
-
-    return fallbackMatches
-      .toSorted((left, right) => {
-        if (left.lastModified === right.lastModified) {
-          return 0;
-        }
-
-        return left.lastModified < right.lastModified ? 1 : -1;
-      })
-      .slice(0, 20);
+    return mergePatientSearchResults(firstNameResults, lastNameResults);
   },
   returns: v.array(patientDocumentValidator),
 });

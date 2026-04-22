@@ -48,7 +48,7 @@ import {
 } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
-import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
+import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import {
   applyBatchCreateResultToRef,
   applyReplaceResultToRef,
@@ -126,42 +126,42 @@ export default function BaseScheduleManagement({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       (typeof api.entities.getPractitioners)["_returnType"][number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "BaseScheduleManagement",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const locations: LocationMatchEntity[] = React.useMemo(() => {
     if (!locationsQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "locations",
       (typeof api.entities.getLocations)["_returnType"][number]
     >({
       entities: locationsQuery,
       entityType: "location",
       source: "BaseScheduleManagement",
-    })._unsafeUnwrap();
+    });
   }, [locationsQuery]);
   const schedules: MaterializedSchedule[] = React.useMemo(() => {
     if (!schedulesQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "baseSchedules",
       (typeof api.entities.getBaseSchedules)["_returnType"][number]
     >({
       entities: schedulesQuery,
       entityType: "base schedule",
       source: "BaseScheduleManagement",
-    })._unsafeUnwrap();
+    });
   }, [schedulesQuery]);
 
   const createScheduleBatchMutation = useMutation(
@@ -634,42 +634,42 @@ function BaseScheduleDialog({
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "practitioners",
       (typeof api.entities.getPractitioners)["_returnType"][number]
     >({
       entities: practitionersQuery,
       entityType: "practitioner",
       source: "BaseScheduleDialog",
-    })._unsafeUnwrap();
+    });
   }, [practitionersQuery]);
   const locations: LocationMatchEntity[] = React.useMemo(() => {
     if (!locationsQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "locations",
       (typeof api.entities.getLocations)["_returnType"][number]
     >({
       entities: locationsQuery,
       entityType: "location",
       source: "BaseScheduleDialog",
-    })._unsafeUnwrap();
+    });
   }, [locationsQuery]);
   const schedules: MaterializedSchedule[] = React.useMemo(() => {
     if (!schedulesQuery) {
       return [];
     }
 
-    return mapFrontendLineageEntities<
+    return requireFrontendLineageEntities<
       "baseSchedules",
       (typeof api.entities.getBaseSchedules)["_returnType"][number]
     >({
       entities: schedulesQuery,
       entityType: "base schedule",
       source: "BaseScheduleDialog",
-    })._unsafeUnwrap();
+    });
   }, [schedulesQuery]);
   const practitionersRef = React.useRef(practitioners);
   React.useLayoutEffect(() => {
