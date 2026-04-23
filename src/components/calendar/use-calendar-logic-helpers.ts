@@ -291,10 +291,23 @@ export function hasBlockedSlotConflictInRecords(args: {
 export function mergeConflictRecordsById<T extends { _id: string }>(
   ...maps: readonly ReadonlyMap<string, T>[]
 ): T[] {
+  return mergeConflictRecordsByIdExcluding({ maps });
+}
+
+export function mergeConflictRecordsByIdExcluding<
+  T extends { _id: string },
+>(args: {
+  excludedIds?: ReadonlySet<string>;
+  maps: readonly ReadonlyMap<string, T>[];
+}): T[] {
   const merged = new Map<string, T>();
 
-  for (const map of maps) {
+  for (const map of args.maps) {
     for (const [id, record] of map) {
+      if (args.excludedIds?.has(id)) {
+        continue;
+      }
+
       merged.set(id, record);
     }
   }

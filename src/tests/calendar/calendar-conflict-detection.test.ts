@@ -5,6 +5,7 @@ import {
   hasAppointmentConflictInRecords,
   hasBlockedSlotConflictInRecords,
   mergeConflictRecordsById,
+  mergeConflictRecordsByIdExcluding,
 } from "../../components/calendar/use-calendar-logic-helpers";
 
 const toEpochMilliseconds = (iso: string) =>
@@ -93,6 +94,28 @@ describe("calendar conflict detection", () => {
 
     expect(merged).toHaveLength(1);
     expect(merged[0]?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
+  });
+
+  it("excludes locally deleted records while queries are still stale", () => {
+    const merged = mergeConflictRecordsByIdExcluding({
+      excludedIds: new Set(["blocked_slot_1"]),
+      maps: [
+        new Map([
+          [
+            "blocked_slot_1",
+            {
+              _id: toTableId<"blockedSlots">("blocked_slot_1"),
+              end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+              isSimulation: false,
+              locationId: toTableId<"locations">("location_1"),
+              start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+            },
+          ],
+        ]),
+      ],
+    });
+
+    expect(merged).toHaveLength(0);
   });
 
   it("ignores the appointment being replaced when checking appointment conflicts", () => {

@@ -50,7 +50,7 @@ import {
   handleEditBlockedSlot,
   hasAppointmentConflictInRecords,
   hasBlockedSlotConflictInRecords,
-  mergeConflictRecordsById,
+  mergeConflictRecordsByIdExcluding,
   parsePlainTimeResult,
   type SimulationConversionOptions,
   TIMEZONE,
@@ -150,24 +150,32 @@ export function useCalendarLogic({
   const appointmentHistoryDocMapRef = useRef(
     new Map<Id<"appointments">, AppointmentResult>(),
   );
+  const deletedAppointmentIdsRef = useRef(new Set<Id<"appointments">>());
   const blockedSlotHistoryDocMapRef = useRef(
     new Map<Id<"blockedSlots">, Doc<"blockedSlots">>(),
   );
+  const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
 
   useEffect(() => {
     for (const appointment of appointmentsData ?? []) {
+      deletedAppointmentIdsRef.current.delete(appointment._id);
       appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
     }
   }, [appointmentsData]);
 
   useEffect(() => {
     for (const blockedSlot of blockedSlotsData ?? []) {
+      deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
       blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
     }
   }, [blockedSlotsData]);
 
   const getAppointmentHistoryDoc = useCallback(
     (id: Id<"appointments">) => {
+      if (deletedAppointmentIdsRef.current.has(id)) {
+        return;
+      }
+
       return (
         appointmentDocMapRef.current.get(id) ??
         appointmentHistoryDocMapRef.current.get(id)
@@ -178,6 +186,10 @@ export function useCalendarLogic({
 
   const getBlockedSlotHistoryDoc = useCallback(
     (id: Id<"blockedSlots">) => {
+      if (deletedBlockedSlotIdsRef.current.has(id)) {
+        return;
+      }
+
       return (
         blockedSlotDocMapRef.current.get(id) ??
         blockedSlotHistoryDocMapRef.current.get(id)
@@ -188,23 +200,27 @@ export function useCalendarLogic({
 
   const rememberAppointmentHistoryDoc = useCallback(
     (appointment: AppointmentResult) => {
+      deletedAppointmentIdsRef.current.delete(appointment._id);
       appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
     },
     [],
   );
 
   const forgetAppointmentHistoryDoc = useCallback((id: Id<"appointments">) => {
+    deletedAppointmentIdsRef.current.add(id);
     appointmentHistoryDocMapRef.current.delete(id);
   }, []);
 
   const rememberBlockedSlotHistoryDoc = useCallback(
     (blockedSlot: Doc<"blockedSlots">) => {
+      deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
       blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
     },
     [],
   );
 
   const forgetBlockedSlotHistoryDoc = useCallback((id: Id<"blockedSlots">) => {
+    deletedBlockedSlotIdsRef.current.add(id);
     blockedSlotHistoryDocMapRef.current.delete(id);
   }, []);
 
@@ -328,10 +344,13 @@ export function useCalendarLogic({
     ) => {
       return hasAppointmentConflictInRecords(
         candidate,
-        mergeConflictRecordsById(
-          allPracticeAppointmentDocMapRef.current,
-          appointmentHistoryDocMapRef.current,
-        ),
+        mergeConflictRecordsByIdExcluding({
+          excludedIds: deletedAppointmentIdsRef.current,
+          maps: [
+            allPracticeAppointmentDocMapRef.current,
+            appointmentHistoryDocMapRef.current,
+          ],
+        }),
         excludeId,
         toEpochMilliseconds,
       );
@@ -351,14 +370,20 @@ export function useCalendarLogic({
       excludeId?: Id<"blockedSlots">,
     ) => {
       return hasBlockedSlotConflictInRecords({
-        appointments: mergeConflictRecordsById(
-          allPracticeAppointmentDocMapRef.current,
-          appointmentHistoryDocMapRef.current,
-        ),
-        blockedSlots: mergeConflictRecordsById(
-          allPracticeBlockedSlotDocMapRef.current,
-          blockedSlotHistoryDocMapRef.current,
-        ),
+        appointments: mergeConflictRecordsByIdExcluding({
+          excludedIds: deletedAppointmentIdsRef.current,
+          maps: [
+            allPracticeAppointmentDocMapRef.current,
+            appointmentHistoryDocMapRef.current,
+          ],
+        }),
+        blockedSlots: mergeConflictRecordsByIdExcluding({
+          excludedIds: deletedBlockedSlotIdsRef.current,
+          maps: [
+            allPracticeBlockedSlotDocMapRef.current,
+            blockedSlotHistoryDocMapRef.current,
+          ],
+        }),
         candidate,
         ...(excludeId === undefined ? {} : { excludeId }),
         toEpochMilliseconds,
