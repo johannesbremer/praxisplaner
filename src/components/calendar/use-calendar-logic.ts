@@ -928,8 +928,10 @@ export function useCalendarLogic({
         undo: async () => {
           try {
             await runDeleteAppointmentInternal({ id: currentAppointmentId });
+            forgetAppointmentHistoryDoc(currentAppointmentId);
             return { status: "applied" };
           } catch {
+            forgetAppointmentHistoryDoc(currentAppointmentId);
             return {
               message: "Der Termin wurde bereits entfernt.",
               status: "conflict",
@@ -943,6 +945,7 @@ export function useCalendarLogic({
     [
       canValidateAppointmentHistoryConflict,
       createAppointmentMutation,
+      forgetAppointmentHistoryDoc,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
@@ -1028,19 +1031,18 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Termin aktualisiert",
         redo: async () => {
+          if (!canValidateAppointmentHistoryConflict) {
+            return {
+              message:
+                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
+              status: "conflict",
+            };
+          }
           const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
                 "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-              status: "conflict",
-            };
-          }
-
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
               status: "conflict",
             };
           }
@@ -1065,19 +1067,18 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
+          if (!canValidateAppointmentHistoryConflict) {
+            return {
+              message:
+                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
+              status: "conflict",
+            };
+          }
           const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
                 "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-              status: "conflict",
-            };
-          }
-
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
               status: "conflict",
             };
           }
@@ -1165,8 +1166,10 @@ export function useCalendarLogic({
         redo: async () => {
           try {
             await runDeleteAppointmentInternal({ id: currentAppointmentId });
+            forgetAppointmentHistoryDoc(currentAppointmentId);
             return { status: "applied" };
           } catch {
+            forgetAppointmentHistoryDoc(currentAppointmentId);
             return { status: "applied" };
           }
         },
@@ -1277,8 +1280,10 @@ export function useCalendarLogic({
         undo: async () => {
           try {
             await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
             return { status: "applied" };
           } catch {
+            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
             return {
               message: "Die Sperrung wurde bereits entfernt.",
               status: "conflict",
@@ -1291,6 +1296,7 @@ export function useCalendarLogic({
     },
     [
       canValidateBlockedSlotHistoryConflict,
+      forgetBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
       runCreateBlockedSlotInternal,
@@ -1359,19 +1365,18 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Sperrung aktualisiert",
         redo: async () => {
+          if (!canValidateBlockedSlotHistoryConflict) {
+            return {
+              message:
+                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
+              status: "conflict",
+            };
+          }
           const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
                 "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-              status: "conflict",
-            };
-          }
-
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
               status: "conflict",
             };
           }
@@ -1396,19 +1401,18 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
+          if (!canValidateBlockedSlotHistoryConflict) {
+            return {
+              message:
+                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
+              status: "conflict",
+            };
+          }
           const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
                 "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-              status: "conflict",
-            };
-          }
-
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
               status: "conflict",
             };
           }
@@ -1478,8 +1482,10 @@ export function useCalendarLogic({
         redo: async () => {
           try {
             await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
             return { status: "applied" };
           } catch {
+            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
             return { status: "applied" };
           }
         },
