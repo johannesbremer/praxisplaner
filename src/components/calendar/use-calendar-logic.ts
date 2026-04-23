@@ -137,20 +137,23 @@ export function useCalendarLogic({
   });
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
 
-  const isNonRootSeriesAppointment = useCallback((appointmentId?: string) => {
-    if (!appointmentId) {
-      return false;
-    }
+  const isNonRootSeriesAppointment = useCallback(
+    (appointmentId?: string) => {
+      if (!appointmentId) {
+        return false;
+      }
 
-    const appointmentDoc = [...appointmentDocMapRef.current.values()].find(
-      (appointment) => appointment._id === appointmentId,
-    );
-    return (
-      appointmentDoc?.seriesId !== undefined &&
-      appointmentDoc.seriesStepIndex !== undefined &&
-      appointmentDoc.seriesStepIndex !== 0n
-    );
-  }, [appointmentDocMapRef]);
+      const appointmentDoc = [...appointmentDocMapRef.current.values()].find(
+        (appointment) => appointment._id === appointmentId,
+      );
+      return (
+        appointmentDoc?.seriesId !== undefined &&
+        appointmentDoc.seriesStepIndex !== undefined &&
+        appointmentDoc.seriesStepIndex !== 0n
+      );
+    },
+    [appointmentDocMapRef],
+  );
 
   const showNonRootSeriesEditToast = useCallback(() => {
     toast.info(
