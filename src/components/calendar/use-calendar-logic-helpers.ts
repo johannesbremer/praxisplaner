@@ -31,6 +31,11 @@ export interface DeletedPractitionerCalendarRange {
   startMinutes: number;
 }
 
+export interface SimulatedBlockedSlotConversionResult {
+  id: Id<"blockedSlots">;
+  startISO: string;
+}
+
 export interface SimulationConversionOptions {
   columnOverride?: string;
   durationMinutes?: number;

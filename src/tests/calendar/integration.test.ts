@@ -320,10 +320,13 @@ describe("calendar resize interactions", () => {
     });
   });
 
-  it("preserves the original blocked-slot start slot while converting a real slot to simulation for resize", async () => {
+  it("keeps blocked-slot resize active across conversion before the simulated row reaches query state", async () => {
     const runUpdateBlockedSlot = vi.fn(() => Promise.resolve());
     const convertRealBlockedSlotToSimulation = vi.fn(() =>
-      Promise.resolve(toTableId<"blockedSlots">("blocked_slot_sim")),
+      Promise.resolve({
+        id: toTableId<"blockedSlots">("blocked_slot_sim"),
+        startISO: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+      }),
     );
     const slotToTime = (slot: number) =>
       `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`;
@@ -394,6 +397,10 @@ describe("calendar resize interactions", () => {
       expect(convertRealBlockedSlotToSimulation).toHaveBeenCalledTimes(1);
     });
 
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
+    });
+
     blockedSlotDocMapRef.current = new Map([
       ["blocked_slot_1", originalBlockedSlot],
       [
@@ -434,8 +441,9 @@ describe("calendar resize interactions", () => {
       timeToSlot,
     });
 
+    expect(result.current.manualBlockedSlots[0]?.duration).toBe(45);
+
     act(() => {
-      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
       document.dispatchEvent(new MouseEvent("mouseup"));
     });
 

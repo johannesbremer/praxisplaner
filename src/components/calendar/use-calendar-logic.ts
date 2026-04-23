@@ -45,6 +45,7 @@ import {
   filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
   parsePlainTimeResult,
+  type SimulatedBlockedSlotConversionResult,
   type SimulationConversionOptions,
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
@@ -2674,7 +2675,7 @@ export function useCalendarLogic({
     async (
       blockedSlotId: string,
       options: BlockedSlotConversionOptions,
-    ): Promise<Id<"blockedSlots"> | null> => {
+    ): Promise<null | SimulatedBlockedSlotConversionResult> => {
       if (!simulatedContext) {
         return null;
       }
@@ -2697,7 +2698,10 @@ export function useCalendarLogic({
       }
 
       if (original.isSimulation) {
-        return original._id;
+        return {
+          id: original._id,
+          startISO: original.start,
+        };
       }
 
       const locationId = resultFromNullable(
@@ -2741,7 +2745,10 @@ export function useCalendarLogic({
             source: "convertRealBlockedSlotToSimulation.createBlockedSlot",
           }),
       ).match(
-        (newId) => newId,
+        (newId) => ({
+          id: newId,
+          startISO,
+        }),
         (error) => {
           captureFrontendError(error, {
             blockedSlotId,
