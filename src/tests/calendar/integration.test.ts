@@ -319,4 +319,133 @@ describe("calendar resize interactions", () => {
       id: "blocked_slot_1",
     });
   });
+
+  it("preserves the original blocked-slot start slot while converting a real slot to simulation for resize", async () => {
+    const runUpdateBlockedSlot = vi.fn(() => Promise.resolve());
+    const convertRealBlockedSlotToSimulation = vi.fn(() =>
+      Promise.resolve(toTableId<"blockedSlots">("blocked_slot_sim")),
+    );
+    const slotToTime = (slot: number) =>
+      `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`;
+    const timeToSlot = (time: string) => {
+      const [hours = "0", minutes = "0"] = time.split(":");
+      return (Number(hours) - 8) * 12 + Math.floor(Number(minutes) / 5);
+    };
+
+    const originalBlockedSlot = {
+      _id: toTableId<"blockedSlots">("blocked_slot_1"),
+      end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+      locationId: toTableId<"locations">("location_1"),
+      practitionerId: toTableId<"practitioners">("practitioner_1"),
+      start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+      title: "Blocked",
+    };
+    const blockedSlotDocMapRef = {
+      current: new Map<string, typeof originalBlockedSlot>([
+        ["blocked_slot_1", originalBlockedSlot],
+      ]),
+    };
+
+    const { rerender, result } = renderHook(
+      (props: Parameters<typeof useCalendarInteractions>[0]) =>
+        useCalendarInteractions(props),
+      {
+        initialProps: {
+          baseAppointments: [],
+          baseManualBlockedSlots: [
+            {
+              column: "practitioner_1",
+              duration: 30,
+              id: "blocked_slot_1",
+              isManual: true,
+              slot: 12,
+              startSlot: 12,
+              title: "Blocked",
+            },
+          ],
+          blockedSlotDocMapRef,
+          checkCollision: vi.fn().mockReturnValue(false),
+          convertRealAppointmentToSimulation: vi.fn(),
+          convertRealBlockedSlotToSimulation,
+          isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+          runUpdateAppointment: vi.fn(),
+          runUpdateBlockedSlot,
+          selectedDate: Temporal.PlainDate.from("2026-04-23"),
+          showNonRootSeriesEditToast: vi.fn(),
+          simulatedContext: {
+            locationId: toTableId<"locations">("location_1"),
+          },
+          slotToTime,
+          timeToSlot,
+        },
+      },
+    );
+
+    await act(async () => {
+      result.current.handleBlockedSlotResizeStart(
+        createResizeStartEvent(100),
+        "blocked_slot_1",
+        30,
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(convertRealBlockedSlotToSimulation).toHaveBeenCalledTimes(1);
+    });
+
+    blockedSlotDocMapRef.current = new Map([
+      ["blocked_slot_1", originalBlockedSlot],
+      [
+        "blocked_slot_sim",
+        {
+          ...originalBlockedSlot,
+          _id: toTableId<"blockedSlots">("blocked_slot_sim"),
+        },
+      ],
+    ]);
+
+    rerender({
+      baseAppointments: [],
+      baseManualBlockedSlots: [
+        {
+          column: "practitioner_1",
+          duration: 30,
+          id: "blocked_slot_sim",
+          isManual: true,
+          slot: 12,
+          startSlot: 12,
+          title: "Blocked",
+        },
+      ],
+      blockedSlotDocMapRef,
+      checkCollision: vi.fn().mockReturnValue(false),
+      convertRealAppointmentToSimulation: vi.fn(),
+      convertRealBlockedSlotToSimulation,
+      isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+      runUpdateAppointment: vi.fn(),
+      runUpdateBlockedSlot,
+      selectedDate: Temporal.PlainDate.from("2026-04-23"),
+      showNonRootSeriesEditToast: vi.fn(),
+      simulatedContext: {
+        locationId: toTableId<"locations">("location_1"),
+      },
+      slotToTime,
+      timeToSlot,
+    });
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+
+    await waitFor(() => {
+      expect(runUpdateBlockedSlot).toHaveBeenCalledTimes(1);
+    });
+    expect(runUpdateBlockedSlot).toHaveBeenCalledWith({
+      end: "2026-04-23T09:45:00+02:00[Europe/Berlin]",
+      id: "blocked_slot_sim",
+      isSimulation: true,
+    });
+  });
 });

@@ -193,6 +193,41 @@ export function useCalendarInteractions({
     showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
   }, [showNonRootSeriesEditToast]);
 
+  const resolveBlockedSlotStartSlot = useCallback(
+    (entityId: string, fallbackStartISO?: string): null | number => {
+      const blockedSlot = manualBlockedSlotsRef.current.find(
+        (slot) => slot.id === entityId,
+      );
+      if (blockedSlot?.startSlot !== undefined) {
+        return blockedSlot.startSlot;
+      }
+      if (blockedSlot?.slot !== undefined) {
+        return blockedSlot.slot;
+      }
+
+      const startISO =
+        blockedSlotDocMapRef.current.get(entityId)?.start ?? fallbackStartISO;
+      if (!startISO) {
+        return null;
+      }
+
+      try {
+        const startTime = Temporal.ZonedDateTime.from(startISO)
+          .toPlainTime()
+          .toString({ smallestUnit: "minute" });
+        return timeToSlotRef.current(startTime);
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context: "Failed to resolve blocked slot start slot",
+          entityId,
+          startISO,
+        });
+        return null;
+      }
+    },
+    [blockedSlotDocMapRef],
+  );
+
   const setResizeDraft = useCallback((draft: ActiveResizeDraft | null) => {
     activeResizeDraftRef.current = draft;
     setActiveResizeDraft(draft);
@@ -440,10 +475,18 @@ export function useCalendarInteractions({
       event.preventDefault();
       event.stopPropagation();
 
-      const startResizing = (entityId: string) => {
-        const blockedSlot = manualBlockedSlotsRef.current.find(
-          (slot) => slot.id === entityId,
+      const startResizing = (entityId: string, fallbackStartISO?: string) => {
+        const startSlot = resolveBlockedSlotStartSlot(
+          entityId,
+          fallbackStartISO,
         );
+        if (startSlot === null) {
+          toast.error(
+            "Startzeit des gesperrten Zeitraums konnte nicht ermittelt werden",
+          );
+          return;
+        }
+
         ensureResizeListeners();
         setResizeDraft({
           entityId,
@@ -451,7 +494,7 @@ export function useCalendarInteractions({
           originalDuration: currentDuration,
           previewDuration: currentDuration,
           startClientY: event.clientY,
-          startSlot: blockedSlot?.startSlot ?? 0,
+          startSlot,
         });
       };
 
@@ -482,7 +525,7 @@ export function useCalendarInteractions({
                 },
               );
             if (convertedId) {
-              startResizing(convertedId);
+              startResizing(convertedId, blockedSlotDoc.start);
             }
           } catch (error) {
             captureErrorGlobal(error, {
@@ -499,7 +542,12 @@ export function useCalendarInteractions({
 
       startResizing(blockedSlotId);
     },
-    [blockedSlotDocMapRef, ensureResizeListeners, setResizeDraft],
+    [
+      blockedSlotDocMapRef,
+      ensureResizeListeners,
+      resolveBlockedSlotStartSlot,
+      setResizeDraft,
+    ],
   );
 
   const appointments = useMemo(() => {
