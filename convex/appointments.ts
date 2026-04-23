@@ -430,9 +430,12 @@ function combineBlockedSlotsForSimulation(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
-function combineForSimulationScope(
-  appointments: AppointmentListItem[],
-): AppointmentListItem[] {
+function combineForSimulationScope<
+  T extends Pick<
+    AppointmentDoc,
+    "_id" | "isSimulation" | "replacesAppointmentId" | "start"
+  >,
+>(appointments: T[]): T[] {
   const simulationAppointments = appointments.filter(
     (appointment) => appointment.isSimulation === true,
   );
@@ -453,6 +456,16 @@ function combineForSimulationScope(
   return merged.toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
+function dedupeById<T extends { _id: string }>(records: T[]): T[] {
+  const dedupedRecords = new Map<string, T>();
+
+  for (const record of records) {
+    dedupedRecords.set(record._id, record);
+  }
+
+  return [...dedupedRecords.values()];
+}
+
 function filterAppointmentsForScope<T extends AppointmentDoc>(
   appointments: T[],
   args: {
@@ -464,6 +477,59 @@ function filterAppointmentsForScope<T extends AppointmentDoc>(
   return appointments.filter((appointment) =>
     isAppointmentVisibleInScope(appointment, args, scope),
   );
+}
+
+async function filterBlockedSlotsForCalendarDay(
+  blockedSlots: BlockedSlotDoc[],
+  args: { dayEnd: string; dayStart: string },
+  matchesLocation: (blockedSlot: BlockedSlotDoc) => Promise<boolean>,
+): Promise<BlockedSlotDoc[]> {
+  const blockedSlotsWithVisibility = await Promise.all(
+    blockedSlots.map(async (blockedSlot) =>
+      isCalendarDayRangeMatch(args, blockedSlot.start) &&
+      (await matchesLocation(blockedSlot))
+        ? blockedSlot
+        : null,
+    ),
+  );
+
+  return blockedSlotsWithVisibility.filter(
+    (blockedSlot): blockedSlot is BlockedSlotDoc => blockedSlot !== null,
+  );
+}
+
+function getBlockedSlotLocationMatcher(
+  ctx: QueryCtx,
+  selectedLocationLineageKey: Id<"locations"> | undefined,
+) {
+  const blockedLocationLineageCache = new Map<
+    Id<"locations">,
+    Id<"locations"> | undefined
+  >();
+
+  return async (blockedSlot: BlockedSlotDoc) => {
+    if (selectedLocationLineageKey === undefined) {
+      return true;
+    }
+
+    if (blockedLocationLineageCache.has(blockedSlot.locationId)) {
+      return (
+        blockedLocationLineageCache.get(blockedSlot.locationId) ===
+        selectedLocationLineageKey
+      );
+    }
+
+    try {
+      const lineageKey = await getOptionalLocationLineageKey(
+        ctx.db,
+        blockedSlot.locationId,
+      );
+      blockedLocationLineageCache.set(blockedSlot.locationId, lineageKey);
+      return lineageKey === selectedLocationLineageKey;
+    } catch {
+      return false;
+    }
+  };
 }
 
 function getDisplayRuleSetId(args: {
@@ -484,11 +550,77 @@ async function getOptionalLocationLineageKey(
   return await resolveLocationLineageKey(db, asLocationId(locationId));
 }
 
+async function getSimulationAppointmentReplacements(
+  ctx: QueryCtx,
+  replacedAppointmentIds: Id<"appointments">[],
+): Promise<AppointmentDoc[]> {
+  if (replacedAppointmentIds.length === 0) {
+    return [];
+  }
+
+  const replacementGroups = await Promise.all(
+    replacedAppointmentIds.map((replacedAppointmentId) =>
+      ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", replacedAppointmentId),
+        )
+        .collect(),
+    ),
+  );
+
+  return dedupeById(
+    replacementGroups
+      .flat()
+      .filter(
+        (appointment) =>
+          appointment.isSimulation === true &&
+          isVisibleAppointment(appointment),
+      ),
+  );
+}
+
+async function getSimulationBlockedSlotReplacements(
+  ctx: QueryCtx,
+  replacedBlockedSlotIds: Id<"blockedSlots">[],
+): Promise<BlockedSlotDoc[]> {
+  if (replacedBlockedSlotIds.length === 0) {
+    return [];
+  }
+
+  const replacementGroups = await Promise.all(
+    replacedBlockedSlotIds.map((replacedBlockedSlotId) =>
+      ctx.db
+        .query("blockedSlots")
+        .withIndex("by_replacesBlockedSlotId", (q) =>
+          q.eq("replacesBlockedSlotId", replacedBlockedSlotId),
+        )
+        .collect(),
+    ),
+  );
+
+  return dedupeById(
+    replacementGroups.flat().filter((blockedSlot) => blockedSlot.isSimulation),
+  );
+}
+
 function getSimulationScopeRuleSetId(args: {
   activeRuleSetId?: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
 }) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
+function isAppointmentInCalendarDayQuery(
+  appointment: AppointmentDoc,
+  args: { dayEnd: string; dayStart: string },
+  selectedLocationLineageKey: Id<"locations"> | undefined,
+): boolean {
+  return (
+    isCalendarDayRangeMatch(args, appointment.start) &&
+    (selectedLocationLineageKey === undefined ||
+      appointment.locationLineageKey === selectedLocationLineageKey)
+  );
 }
 
 function isAppointmentVisibleInScope(
@@ -704,26 +836,48 @@ export const getCalendarDayAppointments = query({
     const visibleAppointments = appointmentDocs.filter(
       (appointment) =>
         isVisibleAppointment(appointment) &&
-        isCalendarDayRangeMatch(args, appointment.start) &&
-        (selectedLocationLineageKey === undefined ||
-          appointment.locationLineageKey === selectedLocationLineageKey),
+        isAppointmentInCalendarDayQuery(
+          appointment,
+          args,
+          selectedLocationLineageKey,
+        ),
     );
+    const simulationReplacementAppointments =
+      scope === "simulation"
+        ? await getSimulationAppointmentReplacements(
+            ctx,
+            visibleAppointments
+              .filter((appointment) => appointment.isSimulation !== true)
+              .map((appointment) => appointment._id),
+          )
+        : [];
+    const candidateAppointments = dedupeById([
+      ...visibleAppointments,
+      ...simulationReplacementAppointments,
+    ]);
     const scopedAppointments = filterAppointmentsForScope(
-      visibleAppointments,
+      candidateAppointments,
       args,
       scope,
     );
+    const resolvedAppointments =
+      scope === "simulation"
+        ? combineForSimulationScope(scopedAppointments).filter((appointment) =>
+            isAppointmentInCalendarDayQuery(
+              appointment,
+              args,
+              selectedLocationLineageKey,
+            ),
+          )
+        : scopedAppointments.toSorted((left, right) =>
+            left.start.localeCompare(right.start),
+          );
     const displayRuleSetId = getDisplayRuleSetId(args);
-    const appointments = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
-          toAppointmentListItem(appointment),
-        );
 
-    return scope === "simulation"
-      ? combineForSimulationScope(appointments)
-      : appointments.toSorted((left, right) =>
-          left.start.localeCompare(right.start),
+    return displayRuleSetId
+      ? await remapAppointmentIds(ctx, resolvedAppointments, displayRuleSetId)
+      : resolvedAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
         );
   },
   returns: v.array(appointmentResultValidator),
@@ -2065,50 +2219,34 @@ export const getCalendarDayBlockedSlots = query({
         q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
       )
       .collect();
-
-    const blockedLocationLineageCache = new Map<
-      Id<"locations">,
-      Id<"locations"> | undefined
-    >();
-    const matchesLocation = async (blockedSlot: BlockedSlotDoc) => {
-      if (selectedLocationLineageKey === undefined) {
-        return true;
-      }
-
-      if (blockedLocationLineageCache.has(blockedSlot.locationId)) {
-        const cachedLineageKey = blockedLocationLineageCache.get(
-          blockedSlot.locationId,
-        );
-        return cachedLineageKey === selectedLocationLineageKey;
-      }
-
-      try {
-        const lineageKey = await getOptionalLocationLineageKey(
-          ctx.db,
-          blockedSlot.locationId,
-        );
-        blockedLocationLineageCache.set(blockedSlot.locationId, lineageKey);
-        return lineageKey === selectedLocationLineageKey;
-      } catch {
-        return false;
-      }
-    };
-
-    const blockedSlotsWithVisibility = await Promise.all(
-      blockedSlots.map(async (blockedSlot) =>
-        isCalendarDayRangeMatch(args, blockedSlot.start) &&
-        (await matchesLocation(blockedSlot))
-          ? blockedSlot
-          : null,
-      ),
+    const matchesLocation = getBlockedSlotLocationMatcher(
+      ctx,
+      selectedLocationLineageKey,
     );
-    const visibleBlockedSlots = blockedSlotsWithVisibility.filter(
-      (blockedSlot): blockedSlot is BlockedSlotDoc => blockedSlot !== null,
+    const visibleBlockedSlots = await filterBlockedSlotsForCalendarDay(
+      blockedSlots,
+      args,
+      matchesLocation,
     );
 
     let resultSlots: BlockedSlotDoc[];
     if (scope === "simulation") {
-      resultSlots = combineBlockedSlotsForSimulation(visibleBlockedSlots);
+      const replacementBlockedSlots =
+        await getSimulationBlockedSlotReplacements(
+          ctx,
+          visibleBlockedSlots
+            .filter((blockedSlot) => blockedSlot.isSimulation !== true)
+            .map((blockedSlot) => blockedSlot._id),
+        );
+      const candidateBlockedSlots = dedupeById([
+        ...visibleBlockedSlots,
+        ...replacementBlockedSlots,
+      ]);
+      resultSlots = await filterBlockedSlotsForCalendarDay(
+        combineBlockedSlotsForSimulation(candidateBlockedSlots),
+        args,
+        matchesLocation,
+      );
     } else if (scope === "real") {
       resultSlots = visibleBlockedSlots.filter(
         (blockedSlot) => blockedSlot.isSimulation !== true,

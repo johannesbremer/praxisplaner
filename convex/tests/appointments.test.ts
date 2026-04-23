@@ -156,6 +156,7 @@ async function insertAppointmentRecord(
     locationId: Id<"locations">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
+    replacesAppointmentId?: Id<"appointments">;
     simulationRuleSetId?: Id<"ruleSets">;
     userId: Id<"users">;
     window: SlotWindow;
@@ -206,12 +207,48 @@ async function insertAppointmentRecord(
         lineageKey: practitioner.lineageKey,
         ruleSetId: practitioner.ruleSetId,
       }),
+      ...(args.replacesAppointmentId === undefined
+        ? {}
+        : { replacesAppointmentId: args.replacesAppointmentId }),
       ...(args.simulationRuleSetId === undefined
         ? {}
         : { simulationRuleSetId: args.simulationRuleSetId }),
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
+    });
+  });
+}
+
+async function insertBlockedSlotRecord(
+  t: TestContext,
+  args: {
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    replacesBlockedSlotId?: Id<"blockedSlots">;
+    title: string;
+    window: SlotWindow;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    return await ctx.db.insert("blockedSlots", {
+      createdAt: now,
+      end: args.window.end,
+      ...(args.isSimulation === true ? { isSimulation: true } : {}),
+      lastModified: now,
+      locationId: args.locationId,
+      practiceId: args.practiceId,
+      ...(args.practitionerId === undefined
+        ? {}
+        : { practitionerId: args.practitionerId }),
+      ...(args.replacesBlockedSlotId === undefined
+        ? {}
+        : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
+      start: args.window.start,
+      title: args.title,
     });
   });
 }
@@ -2022,13 +2059,110 @@ describe("calendar day appointment queries", () => {
 
     await expect(
       authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
         dayEnd: targetRange.dayEnd,
         dayStart: targetRange.dayStart,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
         scope: "simulation",
       }),
+    ).resolves.toMatchObject([
+      {
+        _id: expectedRealAppointmentId,
+        locationId: baseData.locationId,
+      },
+      {
+        isSimulation: true,
+        locationId: baseData.locationId,
+      },
+    ]);
+  });
+
+  test("getCalendarDayAppointments hides an in-range real appointment when its simulation replacement moved to another day", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_simulation_replacement",
+      "day-query-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-simulation-replacement@example.com",
+      subject: "workos_day_query_simulation_replacement",
+    });
+    const targetRange = makeDayRange(6);
+    const movedRange = makeDayRange(7);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 15, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 15, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
     ).resolves.toHaveLength(1);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toHaveLength(0);
   });
 
   test("getCalendarDayBlockedSlots filters by location lineage and remaps ids after filtering", async () => {
@@ -2159,5 +2293,94 @@ describe("calendar day appointment queries", () => {
         title: "Main location block",
       },
     ]);
+  });
+
+  test("getCalendarDayBlockedSlots hides an in-range real block when its simulation replacement moved to another day", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slot_simulation_replacement",
+      "day-blocked-slot-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slot-simulation-replacement@example.com",
+      subject: "workos_day_blocked_slot_simulation_replacement",
+    });
+    const targetRange = makeDayRange(8);
+    const movedRange = makeDayRange(9);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realBlockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Real blocked slot",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertBlockedSlotRecord(t, {
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      replacesBlockedSlotId: realBlockedSlotId,
+      title: "Moved blocked slot",
+      window: {
+        end: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 16, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 16, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).resolves.toHaveLength(1);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toHaveLength(0);
   });
 });
