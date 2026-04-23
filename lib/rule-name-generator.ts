@@ -32,7 +32,21 @@ type ConditionType =
 
 interface Entity {
   _id: string;
+  lineageKey?: string;
   name: string;
+}
+
+function createEntityNameResolver(entities: Entity[]) {
+  const nameByReference = new Map<string, string>();
+
+  for (const entity of entities) {
+    nameByReference.set(entity._id, entity.name);
+    if (entity.lineageKey) {
+      nameByReference.set(entity.lineageKey, entity.name);
+    }
+  }
+
+  return (reference: string) => nameByReference.get(reference);
 }
 
 function isDefined<T>(value: T | undefined): value is T {
@@ -143,6 +157,9 @@ export function generateRuleName(
     return "Keine Bedingungen";
   }
 
+  const resolveAppointmentTypeName = createEntityNameResolver(appointmentTypes);
+  const resolvePractitionerName = createEntityNameResolver(practitioners);
+  const resolveLocationName = createEntityNameResolver(locations);
   const parts: string[] = ["Wenn"];
 
   for (const [index, condition] of conditions.entries()) {
@@ -154,7 +171,7 @@ export function generateRuleName(
       case "APPOINTMENT_TYPE": {
         const names =
           condition.valueIds
-            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            ?.map((id) => resolveAppointmentTypeName(id))
             .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
@@ -168,7 +185,7 @@ export function generateRuleName(
         const count = condition.count ?? 0;
         const atNames =
           condition.appointmentTypes
-            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            ?.map((id) => resolveAppointmentTypeName(id))
             .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
@@ -185,7 +202,7 @@ export function generateRuleName(
         const count = condition.count ?? 0;
         const atNames =
           condition.appointmentTypes
-            ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
+            ?.map((id) => resolveAppointmentTypeName(id))
             .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
@@ -238,7 +255,7 @@ export function generateRuleName(
       case "LOCATION": {
         const names =
           condition.valueIds
-            ?.map((id) => locations.find((l) => l._id === id)?.name)
+            ?.map((id) => resolveLocationName(id))
             .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
@@ -260,7 +277,7 @@ export function generateRuleName(
       case "PRACTITIONER": {
         const names =
           condition.valueIds
-            ?.map((id) => practitioners.find((p) => p._id === id)?.name)
+            ?.map((id) => resolvePractitionerName(id))
             .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =

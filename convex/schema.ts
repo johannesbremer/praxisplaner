@@ -1060,7 +1060,7 @@ export default defineSchema({
     ),
 
     // Polymorphic value storage - only populate what's needed
-    valueIds: v.optional(v.array(v.string())), // For ID arrays (stored as strings)
+    valueIds: v.optional(v.array(v.string())), // For lineage-key or string arrays (stored as strings)
     valueNumber: v.optional(v.number()), // For single numeric values
 
     // Metadata

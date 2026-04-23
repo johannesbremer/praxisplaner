@@ -37,9 +37,9 @@ import {
   bumpDraftRevision,
   type EntityType,
   resolveDraftForWrite,
-  validateAppointmentTypeIdsInRuleSet,
-  validateLocationIdsInRuleSet,
-  validatePractitionerIdsInRuleSet,
+  validateAppointmentTypeLineageKeysInRuleSet,
+  validateLocationLineageKeysInRuleSet,
+  validatePractitionerLineageKeysInRuleSet,
   verifyEntityInUnsavedRuleSet,
 } from "./copyOnWrite";
 import {
@@ -68,7 +68,6 @@ import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerId,
-  toTableId,
 } from "./identity";
 import { insertSelfLineageEntity } from "./lineage";
 import {
@@ -715,59 +714,6 @@ async function resolvePractitionerIds(
   return resolved;
 }
 
-const APPOINTMENT_TYPE_RULE_CONDITION_TYPES = new Set([
-  "APPOINTMENT_TYPE",
-  "CONCURRENT_COUNT",
-  "DAILY_CAPACITY",
-]);
-
-async function remapConditionValueIdsInRuleSet(params: {
-  db: DatabaseWriter;
-  fromId: string;
-  ruleSetId: Id<"ruleSets">;
-  toId: string;
-}): Promise<void> {
-  const { db, fromId, ruleSetId, toId } = params;
-  if (fromId === toId) {
-    return;
-  }
-
-  const conditions = await db
-    .query("ruleConditions")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .collect();
-
-  for (const condition of conditions) {
-    if (
-      !condition.conditionType ||
-      !condition.valueIds ||
-      !APPOINTMENT_TYPE_RULE_CONDITION_TYPES.has(condition.conditionType)
-    ) {
-      continue;
-    }
-
-    if (!condition.valueIds.includes(fromId)) {
-      continue;
-    }
-
-    const remappedValueIds: string[] = [];
-    const seen = new Set<string>();
-    for (const valueId of condition.valueIds) {
-      const nextValueId = valueId === fromId ? toId : valueId;
-      if (seen.has(nextValueId)) {
-        continue;
-      }
-      seen.add(nextValueId);
-      remappedValueIds.push(nextValueId);
-    }
-
-    await db.patch("ruleConditions", condition._id, {
-      lastModified: BigInt(Date.now()),
-      valueIds: remappedValueIds,
-    });
-  }
-}
-
 // ================================
 // APPOINTMENT TYPES
 // ================================
@@ -880,15 +826,6 @@ export const createAppointmentType = mutation({
       practiceId: args.practiceId,
       ruleSetId,
     });
-
-    if (args.lineageKey) {
-      await remapConditionValueIdsInRuleSet({
-        db: ctx.db,
-        fromId: args.lineageKey,
-        ruleSetId,
-        toId: entityId,
-      });
-    }
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
@@ -1401,7 +1338,8 @@ export const deletePractitionerWithDependencies = mutation({
       );
     }
 
-    const practitionerIdAsString: string = practitioner._id;
+    const practitionerLineageKeyAsString: string =
+      requirePractitionerLineageKey(practitioner);
     const now = BigInt(Date.now());
 
     const baseSchedules = await ctx.db
@@ -1505,12 +1443,12 @@ export const deletePractitionerWithDependencies = mutation({
       }
 
       const beforeValueIds = condition.valueIds ?? [];
-      if (!beforeValueIds.includes(practitionerIdAsString)) {
+      if (!beforeValueIds.includes(practitionerLineageKeyAsString)) {
         return [];
       }
 
       const afterValueIds = beforeValueIds.filter(
-        (valueId) => valueId !== practitionerIdAsString,
+        (valueId) => valueId !== practitionerLineageKeyAsString,
       );
 
       return [
@@ -1594,7 +1532,6 @@ export const restorePractitionerWithDependencies = mutation({
     );
     const now = BigInt(Date.now());
     const previousPractitionerId = args.snapshot.practitioner.id;
-    const previousPractitionerIdAsString: string = previousPractitionerId;
 
     const existingByLineage = await ctx.db
       .query("practitioners")
@@ -1789,15 +1726,9 @@ export const restorePractitionerWithDependencies = mutation({
         );
       }
 
-      const restoredValueIds = patch.beforeValueIds.map((valueId) =>
-        valueId === previousPractitionerIdAsString
-          ? restoredPractitionerId
-          : valueId,
-      );
-
       await ctx.db.patch("ruleConditions", condition._id, {
         lastModified: now,
-        valueIds: restoredValueIds,
+        valueIds: patch.beforeValueIds,
       });
     }
 
@@ -3015,129 +2946,6 @@ export const getBaseSchedulesByPractitioner = query({
 // to avoid duplication and ensure consistency
 
 /**
- * Recursively remap entity IDs in a condition tree from source rule set to target rule set.
- * This is needed when the UI passes entity IDs from a different rule set than the target.
- */
-async function remapConditionTreeEntityIds(
-  db: DatabaseReader,
-  node: ConditionTreeNode,
-  targetRuleSetId: Id<"ruleSets">,
-): Promise<ConditionTreeNode> {
-  if (node.nodeType === "CONDITION") {
-    if (!node.valueIds || node.valueIds.length === 0) {
-      return node;
-    }
-
-    const remappedIds: string[] = [];
-    for (const rawId of node.valueIds) {
-      if (
-        node.conditionType === "APPOINTMENT_TYPE" ||
-        node.conditionType === "CONCURRENT_COUNT" ||
-        node.conditionType === "DAILY_CAPACITY"
-      ) {
-        const sourceEntity = await db.get(
-          "appointmentTypes",
-          toTableId<"appointmentTypes">(rawId),
-        );
-        if (!sourceEntity) {
-          throw new Error(
-            `[LINEAGE:APPOINTMENT_TYPE_SOURCE_NOT_FOUND] Terminart ${rawId} konnte nicht geladen werden.`,
-          );
-        }
-        const lineageKey = requireAppointmentTypeLineageKey(sourceEntity);
-        const targetEntity = await db
-          .query("appointmentTypes")
-          .withIndex("by_ruleSetId_lineageKey", (q) =>
-            q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
-          )
-          .first();
-        if (!targetEntity) {
-          throw new Error(
-            `[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND] Terminart mit lineageKey ${lineageKey} wurde im Ziel-Regelset ${targetRuleSetId} nicht gefunden.`,
-          );
-        }
-        remappedIds.push(targetEntity._id);
-        continue;
-      }
-
-      if (node.conditionType === "PRACTITIONER") {
-        const sourceEntity = await db.get(
-          "practitioners",
-          toTableId<"practitioners">(rawId),
-        );
-        if (!sourceEntity) {
-          throw new Error(
-            `[LINEAGE:PRACTITIONER_SOURCE_NOT_FOUND] Behandler ${rawId} konnte nicht geladen werden.`,
-          );
-        }
-        const lineageKey = requirePractitionerLineageKey(sourceEntity);
-        const targetEntity = await db
-          .query("practitioners")
-          .withIndex("by_ruleSetId_lineageKey", (q) =>
-            q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
-          )
-          .first();
-        if (!targetEntity) {
-          throw new Error(
-            `[LINEAGE:PRACTITIONER_NOT_FOUND] Behandler mit lineageKey ${lineageKey} wurde im Ziel-Regelset ${targetRuleSetId} nicht gefunden.`,
-          );
-        }
-        remappedIds.push(targetEntity._id);
-        continue;
-      }
-
-      if (node.conditionType === "LOCATION") {
-        const sourceEntity = await db.get(
-          "locations",
-          toTableId<"locations">(rawId),
-        );
-        if (!sourceEntity) {
-          throw new Error(
-            `[LINEAGE:LOCATION_SOURCE_NOT_FOUND] Standort ${rawId} konnte nicht geladen werden.`,
-          );
-        }
-        const lineageKey = requireLocationLineageKey(sourceEntity);
-        const targetEntity = await db
-          .query("locations")
-          .withIndex("by_ruleSetId_lineageKey", (q) =>
-            q.eq("ruleSetId", targetRuleSetId).eq("lineageKey", lineageKey),
-          )
-          .first();
-        if (!targetEntity) {
-          throw new Error(
-            `[LINEAGE:LOCATION_NOT_FOUND] Standort mit lineageKey ${lineageKey} wurde im Ziel-Regelset ${targetRuleSetId} nicht gefunden.`,
-          );
-        }
-        remappedIds.push(targetEntity._id);
-        continue;
-      }
-
-      remappedIds.push(rawId);
-    }
-
-    return {
-      ...node,
-      valueIds: remappedIds,
-    };
-  }
-
-  const remappedChildren: ConditionTreeNode[] = [];
-  for (const child of node.children) {
-    const remappedChild = await remapConditionTreeEntityIds(
-      db,
-      child,
-      targetRuleSetId,
-    );
-    remappedChildren.push(remappedChild);
-  }
-
-  return {
-    ...node,
-    children: remappedChildren,
-  };
-}
-
-/**
  * Recursively insert a condition tree node and its children.
  * Returns the ID of the created node.
  */
@@ -3152,11 +2960,11 @@ async function insertConditionTreeNode(
   const now = BigInt(Date.now());
 
   if (node.nodeType === "CONDITION") {
-    // Validate that any referenced entity IDs belong to the correct rule set
+    // Validate that lineage-based references resolve inside the target rule set.
     if (node.valueIds && node.valueIds.length > 0) {
       switch (node.conditionType) {
         case "APPOINTMENT_TYPE": {
-          await validateAppointmentTypeIdsInRuleSet(
+          await validateAppointmentTypeLineageKeysInRuleSet(
             db,
             node.valueIds,
             ruleSetId,
@@ -3166,10 +2974,10 @@ async function insertConditionTreeNode(
         }
         case "CONCURRENT_COUNT":
         case "DAILY_CAPACITY": {
-          // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds contains appointment type IDs
-          // (scope is now a separate field)
+          // For CONCURRENT_COUNT and DAILY_CAPACITY, valueIds contains
+          // appointment type lineage keys.
           if (node.valueIds.length > 0) {
-            await validateAppointmentTypeIdsInRuleSet(
+            await validateAppointmentTypeLineageKeysInRuleSet(
               db,
               node.valueIds,
               ruleSetId,
@@ -3179,12 +2987,20 @@ async function insertConditionTreeNode(
           break;
         }
         case "LOCATION": {
-          await validateLocationIdsInRuleSet(db, node.valueIds, ruleSetId);
+          await validateLocationLineageKeysInRuleSet(
+            db,
+            node.valueIds,
+            ruleSetId,
+          );
 
           break;
         }
         case "PRACTITIONER": {
-          await validatePractitionerIdsInRuleSet(db, node.valueIds, ruleSetId);
+          await validatePractitionerLineageKeysInRuleSet(
+            db,
+            node.valueIds,
+            ruleSetId,
+          );
 
           break;
         }
@@ -3286,16 +3102,8 @@ export const createRule = mutation({
       args.selectedRuleSetId,
     );
 
-    // Remap entity IDs in the condition tree if the source and target rule sets differ
-    // This handles the case where the UI passes entity IDs from the source rule set
-    // but we need to use entity IDs from the target (unsaved) rule set
     const parsedConditionTree = parseConditionTreeTransport(args.conditionTree);
-    const remappedConditionTree = await remapConditionTreeEntityIds(
-      ctx.db,
-      parsedConditionTree,
-      ruleSetId,
-    );
-    const validationErrors = validateConditionTree(remappedConditionTree);
+    const validationErrors = validateConditionTree(parsedConditionTree);
     if (validationErrors.length > 0) {
       throw new Error(`Ungueltiger Regelbaum: ${validationErrors.join("; ")}`);
     }
@@ -3324,7 +3132,7 @@ export const createRule = mutation({
     // Insert the condition tree as the first (and only) child of the root
     await insertConditionTreeNode(
       ctx.db,
-      remappedConditionTree,
+      parsedConditionTree,
       rootId,
       0,
       ruleSetId,

@@ -57,8 +57,8 @@ import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator"
 export interface ParsedAppointment {
   /** Original appointment document */
   appointment: Doc<"appointments">;
-  /** Appointment type id resolved into the evaluated rule set when possible */
-  appointmentTypeId?: Id<"appointmentTypes">;
+  /** Stable appointment type lineage key for condition matching */
+  appointmentTypeLineageKey: Id<"appointmentTypes">;
   /** Start time as epoch milliseconds (for fast comparison) */
   startEpochMs: number;
   /** End time as epoch milliseconds (for fast comparison) */
@@ -111,6 +111,18 @@ export interface PreloadedDayData {
    * Reuses practitioners already loaded by the caller.
    */
   practitioners: Map<Id<"practitioners">, Doc<"practitioners">>;
+
+  /**
+   * Stable lineage lookup for the evaluated rule set's entities.
+   * Rule conditions store lineage keys, while appointment contexts carry current
+   * rule-set entity IDs selected in the UI.
+   */
+  appointmentTypeLineageById: Map<
+    Id<"appointmentTypes">,
+    Id<"appointmentTypes">
+  >;
+  locationLineageById: Map<Id<"locations">, Id<"locations">>;
+  practitionerLineageById: Map<Id<"practitioners">, Id<"practitioners">>;
 }
 
 /**
@@ -183,6 +195,19 @@ export async function buildPreloadedDayData(
         appointmentType._id,
       ]),
   );
+  const appointmentTypeLineageById = new Map(
+    ruleSetAppointmentTypes
+      .filter((appointmentType) => appointmentType.practiceId === practiceId)
+      .map((appointmentType) => [
+        appointmentType._id,
+        requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
+      ]),
+  );
   const locationIdByLineage = new Map(
     ruleSetLocations
       .filter((location) => location.practiceId === practiceId)
@@ -194,6 +219,19 @@ export async function buildPreloadedDayData(
           ruleSetId: location.ruleSetId,
         }),
         location._id,
+      ]),
+  );
+  const locationLineageById = new Map(
+    ruleSetLocations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [
+        location._id,
+        requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
       ]),
   );
   const practitionerIdByLineage = new Map(
@@ -213,6 +251,23 @@ export async function buildPreloadedDayData(
         practitioner._id,
       ]),
   );
+  const practitionerLineageById = new Map(
+    practitioners
+      .filter(
+        (practitioner) =>
+          practitioner.practiceId === practiceId &&
+          practitioner.ruleSetId === ruleSetId,
+      )
+      .map((practitioner) => [
+        practitioner._id,
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ]),
+  );
 
   // Build parsed appointments with pre-computed epoch times for fast overlap detection
   // Group by scope for efficient CONCURRENT_COUNT filtering
@@ -224,9 +279,6 @@ export async function buildPreloadedDayData(
   parsedAppointmentsByScope.set(practiceKey, practiceAppointments);
 
   for (const apt of appointments) {
-    const appointmentTypeId = appointmentTypeIdByLineage.get(
-      apt.appointmentTypeLineageKey,
-    );
     const locationIdForRuleSet = locationIdByLineage.get(
       apt.locationLineageKey,
     );
@@ -239,7 +291,7 @@ export async function buildPreloadedDayData(
     const endZdt = Temporal.ZonedDateTime.from(apt.end);
     const parsed: ParsedAppointment = {
       appointment: apt,
-      ...(appointmentTypeId ? { appointmentTypeId } : {}),
+      appointmentTypeLineageKey: apt.appointmentTypeLineageKey,
       endEpochMs: endZdt.epochMilliseconds,
       ...(locationIdForRuleSet ? { locationId: locationIdForRuleSet } : {}),
       ...(practitionerIdForRuleSet
@@ -282,9 +334,11 @@ export async function buildPreloadedDayData(
   // Multiple keys per appointment: practice, location, and practitioner scope
   const dailyCapacityCounts = new Map<string, number>();
   for (const apt of appointments) {
-    const typeId = appointmentTypeIdByLineage.get(
+    const appointmentTypeLineageKey = appointmentTypeIdByLineage.has(
       apt.appointmentTypeLineageKey,
-    );
+    )
+      ? apt.appointmentTypeLineageKey
+      : undefined;
 
     dailyCapacityCounts.set(
       "practice:__all__",
@@ -313,18 +367,18 @@ export async function buildPreloadedDayData(
       );
     }
 
-    if (!typeId) {
+    if (!appointmentTypeLineageKey) {
       continue;
     }
 
-    const practiceTypeKey = `practice:${typeId}`;
+    const practiceTypeKey = `practice:${appointmentTypeLineageKey}`;
     dailyCapacityCounts.set(
       practiceTypeKey,
       (dailyCapacityCounts.get(practiceTypeKey) ?? 0) + 1,
     );
 
     if (locationIdForRuleSet) {
-      const locationTypeKey = `location:${locationIdForRuleSet}:${typeId}`;
+      const locationTypeKey = `location:${locationIdForRuleSet}:${appointmentTypeLineageKey}`;
       dailyCapacityCounts.set(
         locationTypeKey,
         (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
@@ -332,7 +386,7 @@ export async function buildPreloadedDayData(
     }
 
     if (practitionerIdForRuleSet) {
-      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${typeId}`;
+      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${appointmentTypeLineageKey}`;
       dailyCapacityCounts.set(
         practitionerTypeKey,
         (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
@@ -359,8 +413,11 @@ export async function buildPreloadedDayData(
   return {
     appointments,
     appointmentsByStartTime,
+    appointmentTypeLineageById,
     dailyCapacityCounts,
+    locationLineageById,
     parsedAppointmentsByScope,
+    practitionerLineageById,
     practitioners: practitionersMap,
   };
 }
@@ -534,6 +591,15 @@ function evaluateCondition(
   }
 
   const { conditionType, operator, valueIds, valueNumber } = condition;
+  const appointmentTypeLineageKey = context.appointmentTypeId
+    ? preloadedData.appointmentTypeLineageById.get(context.appointmentTypeId)
+    : undefined;
+  const locationLineageKey = context.locationId
+    ? preloadedData.locationLineageById.get(context.locationId)
+    : undefined;
+  const practitionerLineageKey = preloadedData.practitionerLineageById.get(
+    context.practitionerId,
+  );
 
   // Helper for comparing values
   const compareValue = (actual: number, expected: number): boolean => {
@@ -570,8 +636,7 @@ function evaluateCondition(
 
   switch (conditionType) {
     case "APPOINTMENT_TYPE": {
-      // Compare appointment type IDs
-      return checkIdMembership(context.appointmentTypeId, valueIds);
+      return checkIdMembership(appointmentTypeLineageKey, valueIds);
     }
 
     case "CLIENT_TYPE": {
@@ -625,11 +690,11 @@ function evaluateCondition(
           slotEpochMs < parsed.endEpochMs
         ) {
           // Check appointment type filter if specified
-          if (appointmentTypeIds.length > 0) {
-            const aptTypeId = parsed.appointmentTypeId;
-            if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
-              continue;
-            }
+          if (
+            appointmentTypeIds.length > 0 &&
+            !appointmentTypeIds.includes(parsed.appointmentTypeLineageKey)
+          ) {
+            continue;
           }
           overlappingCount++;
         }
@@ -769,8 +834,7 @@ function evaluateCondition(
     }
 
     case "LOCATION": {
-      // Compare location ID
-      return checkIdMembership(context.locationId, valueIds);
+      return checkIdMembership(locationLineageKey, valueIds);
     }
 
     case "PATIENT_AGE": {
@@ -787,8 +851,7 @@ function evaluateCondition(
     }
 
     case "PRACTITIONER": {
-      // Compare practitioner ID
-      return checkIdMembership(context.practitionerId, valueIds);
+      return checkIdMembership(practitionerLineageKey, valueIds);
     }
 
     case "PRACTITIONER_TAG": {
@@ -1643,22 +1706,12 @@ export function preEvaluateDayInvariantRulesHelper(
     dayInvariantCount: number;
     rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
   },
-  practitioners: Map<Id<"practitioners">, Doc<"practitioners">>,
+  preloadedData: PreloadedDayData,
 ): {
   blockedByRuleIds: Id<"ruleConditions">[];
   evaluatedCount: number;
 } {
   const blockedRuleIds: Id<"ruleConditions">[] = [];
-
-  // Day-invariant rules don't use DAILY_CAPACITY, CONCURRENT_COUNT, or PRACTITIONER_TAG,
-  // so we create an empty preloaded data object (practitioners passed for completeness)
-  const emptyPreloadedData: PreloadedDayData = {
-    appointments: [],
-    appointmentsByStartTime: new Map(),
-    dailyCapacityCounts: new Map(),
-    parsedAppointmentsByScope: new Map(),
-    practitioners,
-  };
 
   // Helper to get condition from the pre-loaded map
   const getCondition = (
@@ -1686,7 +1739,7 @@ export function preEvaluateDayInvariantRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, context, emptyPreloadedData);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children

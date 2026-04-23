@@ -599,51 +599,7 @@ async function copyConditionNode(
   targetRuleSetId: Id<"ruleSets">,
   targetParentId: Id<"ruleConditions"> | null,
   practiceId: Id<"practices">,
-  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  locationIdMap: Map<Id<"locations">, Id<"locations">>,
-  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<Id<"ruleConditions">> {
-  // Remap any practitioner/location/appointmentType IDs in the condition values
-  let remappedValueIds = sourceNode.valueIds;
-  if (sourceNode.valueIds && sourceNode.conditionType) {
-    switch (sourceNode.conditionType) {
-      case "APPOINTMENT_TYPE": {
-        remappedValueIds = remapRuleConditionValueIds({
-          entityIds: sourceNode.valueIds,
-          entityLabel: "Appointment Type",
-          idMap: appointmentTypeIdMap,
-        });
-        break;
-      }
-      case "CONCURRENT_COUNT":
-      case "DAILY_CAPACITY": {
-        remappedValueIds = remapRuleConditionValueIds({
-          entityIds: sourceNode.valueIds,
-          entityLabel: "Appointment Type",
-          idMap: appointmentTypeIdMap,
-        });
-        break;
-      }
-      case "LOCATION": {
-        remappedValueIds = remapRuleConditionValueIds({
-          entityIds: sourceNode.valueIds,
-          entityLabel: "Location",
-          idMap: locationIdMap,
-        });
-        break;
-      }
-      case "PRACTITIONER": {
-        remappedValueIds = remapRuleConditionValueIds({
-          entityIds: sourceNode.valueIds,
-          entityLabel: "Practitioner",
-          idMap: practitionerIdMap,
-        });
-        break;
-      }
-      // No default
-    }
-  }
-
   // Build the insert object with explicit isRoot field
   const insertData: {
     childOrder: number;
@@ -712,8 +668,8 @@ async function copyConditionNode(
     if (sourceNode.scope) {
       insertData.scope = sourceNode.scope;
     }
-    if (remappedValueIds) {
-      insertData.valueIds = remappedValueIds;
+    if (sourceNode.valueIds) {
+      insertData.valueIds = sourceNode.valueIds;
     }
     if (sourceNode.valueNumber !== undefined) {
       insertData.valueNumber = sourceNode.valueNumber;
@@ -731,58 +687,21 @@ async function copyConditionNode(
     .collect();
 
   for (const child of children) {
-    await copyConditionNode(
-      db,
-      child,
-      targetRuleSetId,
-      newNodeId,
-      practiceId,
-      practitionerIdMap,
-      locationIdMap,
-      appointmentTypeIdMap,
-    );
+    await copyConditionNode(db, child, targetRuleSetId, newNodeId, practiceId);
   }
 
   return newNodeId;
 }
-
-function remapRuleConditionValueIds<
-  TableName extends RuleConditionReferenceTable,
->(params: {
-  entityIds: readonly string[];
-  entityLabel: string;
-  idMap: ReadonlyMap<Id<TableName>, Id<TableName>>;
-}): string[] {
-  const remappedIds: string[] = [];
-
-  for (const rawId of params.entityIds) {
-    const sourceId = toTableId<TableName>(rawId);
-    const targetId = params.idMap.get(sourceId);
-    if (!targetId) {
-      throw new Error(
-        `Failed to copy rule condition: ` +
-          `${params.entityLabel} ID ${sourceId} not found in mapping. ` +
-          `This indicates data corruption - all ${params.entityLabel.toLowerCase()}s should have been copied.`,
-      );
-    }
-    remappedIds.push(targetId);
-  }
-
-  return remappedIds;
-}
-
 /**
  * Copy all rule conditions (rules and their condition trees) from source rule set to target rule set.
- * This recursively copies entire condition trees while remapping practitioner/location/appointmentType IDs.
+ * Rule conditions store stable lineage keys for versioned entity references, so
+ * copying the tree is a structural clone with no rule-set-specific ID remapping.
  */
 export async function copyRuleConditions(
   db: DatabaseWriter,
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  locationIdMap: Map<Id<"locations">, Id<"locations">>,
-  appointmentTypeIdMap: Map<Id<"appointmentTypes">, Id<"appointmentTypes">>,
 ): Promise<void> {
   // Find all root conditions (rules) in the source rule set
   const rootConditions = await db
@@ -800,9 +719,6 @@ export async function copyRuleConditions(
       targetRuleSetId,
       null, // Root nodes have no parent
       practiceId,
-      practitionerIdMap,
-      locationIdMap,
-      appointmentTypeIdMap,
     );
   }
 }
@@ -824,7 +740,7 @@ export async function copyAllEntities(
     targetRuleSetId,
     practiceId,
   );
-  const appointmentTypeIdMap = await copyAppointmentTypes(
+  await copyAppointmentTypes(
     db,
     sourceRuleSetId,
     targetRuleSetId,
@@ -863,15 +779,7 @@ export async function copyAllEntities(
   );
 
   // Copy rule conditions with mapped IDs
-  await copyRuleConditions(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-    practitionerIdMap,
-    locationIdMap,
-    appointmentTypeIdMap,
-  );
+  await copyRuleConditions(db, sourceRuleSetId, targetRuleSetId, practiceId);
 }
 
 // ================================
@@ -1035,9 +943,132 @@ async function validateEntityIdsInRuleSet(params: {
   }
 }
 
+/**
+ * Validates that appointment type lineage keys exist in the specified rule set.
+ */
+export async function validateAppointmentTypeLineageKeysInRuleSet(
+  db: DatabaseReader,
+  lineageKeys: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+): Promise<void> {
+  await validateEntityLineageKeysInRuleSet({
+    db,
+    expectedRuleSetId,
+    lineageKeys,
+    tableName: "appointmentTypes",
+  });
+}
+
+/**
+ * Validates that location lineage keys exist in the specified rule set.
+ */
+export async function validateLocationLineageKeysInRuleSet(
+  db: DatabaseReader,
+  lineageKeys: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+): Promise<void> {
+  await validateEntityLineageKeysInRuleSet({
+    db,
+    expectedRuleSetId,
+    lineageKeys,
+    tableName: "locations",
+  });
+}
+
+/**
+ * Validates that practitioner lineage keys exist in the specified rule set.
+ */
+export async function validatePractitionerLineageKeysInRuleSet(
+  db: DatabaseReader,
+  lineageKeys: string[],
+  expectedRuleSetId: Id<"ruleSets">,
+): Promise<void> {
+  await validateEntityLineageKeysInRuleSet({
+    db,
+    expectedRuleSetId,
+    lineageKeys,
+    tableName: "practitioners",
+  });
+}
+
 // ================================
 // ENTITY ID MAPPING HELPERS
 // ================================
+
+async function validateEntityLineageKeysInRuleSet(params: {
+  db: DatabaseReader;
+  expectedRuleSetId: Id<"ruleSets">;
+  lineageKeys: readonly string[];
+  tableName: RuleConditionReferenceTable;
+}): Promise<void> {
+  for (const rawLineageKey of params.lineageKeys) {
+    switch (params.tableName) {
+      case "appointmentTypes": {
+        const entity = await params.db
+          .query("appointmentTypes")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q
+              .eq("ruleSetId", params.expectedRuleSetId)
+              .eq("lineageKey", toTableId<"appointmentTypes">(rawLineageKey)),
+          )
+          .first();
+        if (!entity) {
+          throw new Error(
+            `appointmentTypes with lineageKey ${rawLineageKey} not found in rule set ${params.expectedRuleSetId}.`,
+          );
+        }
+        if (isRuleSetEntityDeleted(entity)) {
+          throw new Error(
+            `appointmentTypes with lineageKey ${rawLineageKey} was soft-deleted and can no longer be referenced for writes.`,
+          );
+        }
+        break;
+      }
+      case "locations": {
+        const entity = await params.db
+          .query("locations")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q
+              .eq("ruleSetId", params.expectedRuleSetId)
+              .eq("lineageKey", toTableId<"locations">(rawLineageKey)),
+          )
+          .first();
+        if (!entity) {
+          throw new Error(
+            `locations with lineageKey ${rawLineageKey} not found in rule set ${params.expectedRuleSetId}.`,
+          );
+        }
+        if (isRuleSetEntityDeleted(entity)) {
+          throw new Error(
+            `locations with lineageKey ${rawLineageKey} was soft-deleted and can no longer be referenced for writes.`,
+          );
+        }
+        break;
+      }
+      case "practitioners": {
+        const entity = await params.db
+          .query("practitioners")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q
+              .eq("ruleSetId", params.expectedRuleSetId)
+              .eq("lineageKey", toTableId<"practitioners">(rawLineageKey)),
+          )
+          .first();
+        if (!entity) {
+          throw new Error(
+            `practitioners with lineageKey ${rawLineageKey} not found in rule set ${params.expectedRuleSetId}.`,
+          );
+        }
+        if (isRuleSetEntityDeleted(entity)) {
+          throw new Error(
+            `practitioners with lineageKey ${rawLineageKey} was soft-deleted and can no longer be referenced for writes.`,
+          );
+        }
+        break;
+      }
+    }
+  }
+}
 
 /**
  * Maps entity IDs from a source rule set to a target rule set by following parent/child relationships.

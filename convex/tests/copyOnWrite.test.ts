@@ -479,7 +479,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       throw new Error("Unsaved rule set not found after second change");
     }
 
-    // Verify the rule was copied and appointment type IDs were remapped
+    // Verify the rule was copied and appointment type lineage keys were preserved
     const copiedRules = await t.run(async (ctx) => {
       return await ctx.db
         .query("ruleConditions")
@@ -504,23 +504,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     expect(conditionNodes.length).toBeGreaterThan(0);
 
-    // Verify that the appointment type IDs in the rule now point to
-    // appointment types in the NEW rule set, not the old one
+    // Verify that copied rules still reference the stable appointment type
+    // lineage key instead of draft-specific entity IDs.
     for (const node of conditionNodes) {
-      // Filter already ensures valueIds exists, but assert for type safety
       assertDefined(node.valueIds, "valueIds should be defined by filter");
-      for (const id of node.valueIds) {
-        const appointmentType = await t.run(async (ctx) => {
-          return await ctx.db.get(
-            "appointmentTypes",
-            id as Id<"appointmentTypes">,
-          );
-        });
-
-        assertDefined(appointmentType, `Appointment type ${id} should exist`);
-        // This is the key assertion - the referenced entity belongs to the same rule set
-        expect(appointmentType.ruleSetId).toEqual(unsavedRuleSet._id);
-      }
+      expect(node.valueIds).toEqual([appointmentType1.entityId]);
     }
   });
 
@@ -574,6 +562,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     if (!sourceAppointmentType) {
       throw new Error("Source appointment type not found");
     }
+    assertDefined(
+      sourceAppointmentType.lineageKey,
+      "Source appointment type lineage key should exist",
+    );
 
     // Create a CONCURRENT_COUNT rule
     // scope is now a separate field, valueIds contains only appointment type IDs
@@ -585,7 +577,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
             scope: "practice",
-            valueIds: [sourceAppointmentTypeId as string],
+            valueIds: [sourceAppointmentType.lineageKey],
             valueNumber: 2,
           },
         ],
@@ -640,7 +632,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
     // scope is now a separate field
     expect(concurrentCondition.scope).toEqual("practice");
-    expect(concurrentCondition.valueIds).toEqual([remappedAppointmentType._id]);
+    expect(concurrentCondition.valueIds).toEqual([
+      sourceAppointmentType.lineageKey,
+    ]);
 
     const rules = await t.query(api.entities.getRules, {
       ruleSetId: result.ruleSetId,
@@ -671,7 +665,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     expect(concurrentTreeNode.scope).toEqual("practice");
-    expect(concurrentTreeNode.valueIds).toEqual([remappedAppointmentType._id]);
+    expect(concurrentTreeNode.valueIds).toEqual([
+      sourceAppointmentType.lineageKey,
+    ]);
     expect(concurrentTreeNode.valueNumber).toEqual(2);
   });
 
@@ -810,6 +806,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       sourceAppointmentType,
       "Expected source appointment type for copied count rule test",
     );
+    assertDefined(
+      sourceAppointmentType.lineageKey,
+      "Expected source appointment type lineage key for copied count rule test",
+    );
 
     const cases = [
       {
@@ -833,7 +833,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
               nodeType: "CONDITION",
               operator: "GREATER_THAN_OR_EQUAL",
               scope: testCase.scope,
-              valueIds: [sourceAppointmentTypeId as string],
+              valueIds: [sourceAppointmentType.lineageKey],
               valueNumber: testCase.valueNumber,
             },
           ],
@@ -922,7 +922,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         `Expected copied condition for ${testCase.conditionType}`,
       );
       expect(copiedCondition.scope).toEqual(testCase.scope);
-      expect(copiedCondition.valueIds).toEqual([copiedAppointmentType._id]);
+      expect(copiedCondition.valueIds).toEqual([
+        sourceAppointmentType.lineageKey,
+      ]);
       expect(copiedCondition.valueNumber).toEqual(testCase.valueNumber);
 
       const copiedRules: RuleFromDB[] = await t.query(api.entities.getRules, {
@@ -955,7 +957,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         );
       }
       expect(copiedTreeNode.scope).toEqual(testCase.scope);
-      expect(copiedTreeNode.valueIds).toEqual([copiedAppointmentType._id]);
+      expect(copiedTreeNode.valueIds).toEqual([
+        sourceAppointmentType.lineageKey,
+      ]);
       expect(copiedTreeNode.valueNumber).toEqual(testCase.valueNumber);
 
       await t.mutation(api.ruleSets.deleteUnsavedRuleSet, {

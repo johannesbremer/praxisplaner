@@ -557,9 +557,6 @@ async function getSlotsForDayImpl(
       practitioners,
     );
 
-    // Build practitioners Map for rule evaluation
-    const practitionersMap = new Map(practitioners.map((p) => [p._id, p]));
-
     log.push(
       `Pre-loaded ${preloadedData.appointments.length} appointments for rule evaluation`,
     );
@@ -633,7 +630,7 @@ async function getSlotsForDayImpl(
         preEvaluatedDayRules = preEvaluateDayInvariantRulesHelper(
           dayContext,
           rulesData,
-          practitionersMap,
+          preloadedData,
         );
 
         log.push(

@@ -316,7 +316,7 @@ function ConcurrentCountCondition({
   const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
     (appointmentType) => ({
       label: appointmentType.name,
-      value: appointmentType._id,
+      value: appointmentType.lineageKey ?? appointmentType._id,
     }),
   );
 
@@ -856,7 +856,7 @@ function SameDayCountCondition({
   const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
     (appointmentType) => ({
       label: appointmentType.name,
-      value: appointmentType._id,
+      value: appointmentType.lineageKey ?? appointmentType._id,
     }),
   );
 
@@ -926,19 +926,19 @@ function SimpleValueCondition({
       case "APPOINTMENT_TYPE": {
         return appointmentTypes.map((at) => ({
           label: at.name,
-          value: at._id,
+          value: at.lineageKey ?? at._id,
         }));
       }
       case "LOCATION": {
         return locations.map((location) => ({
           label: location.name,
-          value: location._id,
+          value: location.lineageKey ?? location._id,
         }));
       }
       case "PRACTITIONER": {
         return practitioners.map((practitioner) => ({
           label: practitioner.name,
-          value: practitioner._id,
+          value: practitioner.lineageKey ?? practitioner._id,
         }));
       }
       default: {

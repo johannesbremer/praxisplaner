@@ -751,19 +751,22 @@ export function RuleBuilder({
   );
 }
 
-function createEntityIdResolver(
+function createKnownLineageKeyResolver(
   entities: { _id: string; lineageKey: string }[],
   missingLabel: string,
   missingGroups: Set<string>,
-): (lineageKey: string) => null | string {
-  const entityIdByLineageKey = new Map<string, string>(
-    entities.map((entry) => [entry.lineageKey, entry._id] as const),
+): (reference: string) => null | string {
+  const lineageKeyByReference = new Map<string, string>(
+    entities.flatMap((entry) => [
+      [entry._id, entry.lineageKey] as const,
+      [entry.lineageKey, entry.lineageKey] as const,
+    ]),
   );
 
-  return (lineageKey) => {
-    const entityId = entityIdByLineageKey.get(lineageKey);
-    if (entityId) {
-      return entityId;
+  return (reference) => {
+    const lineageKey = lineageKeyByReference.get(reference);
+    if (lineageKey) {
+      return lineageKey;
     }
 
     missingGroups.add(missingLabel);
@@ -843,17 +846,17 @@ function prepareRuleConditionTreeForReplay(
   locations: RuleLocation[],
 ): RuleConditionTreePreparation {
   const missingGroups = new Set<string>();
-  const remapAppointmentTypeId = createEntityIdResolver(
+  const remapAppointmentTypeId = createKnownLineageKeyResolver(
     appointmentTypes,
     "Termintypen",
     missingGroups,
   );
-  const remapPractitionerId = createEntityIdResolver(
+  const remapPractitionerId = createKnownLineageKeyResolver(
     practitioners,
     "Behandler",
     missingGroups,
   );
-  const remapLocationId = createEntityIdResolver(
+  const remapLocationId = createKnownLineageKeyResolver(
     locations,
     "Standorte",
     missingGroups,
