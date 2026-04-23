@@ -1,12 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { regex } from "@/lib/arkregex";
+
 import type { Appointment } from "../../../src/components/calendar/types";
 
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
 import { assertElement } from "../test-utils";
 
 describe("CalendarGrid", () => {
+  const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
+
   const mockAppointments: Appointment[] = [
     {
       color: "bg-blue-500",
@@ -521,7 +525,7 @@ describe("CalendarGrid", () => {
     test("column headers have proper structure", () => {
       render(<CalendarGrid {...defaultProps} />);
 
-      const headers = screen.getAllByText(/Dr\./);
+      const headers = screen.getAllByText(doctorHeaderRegex);
       for (const header of headers) {
         expect(header).toBeInTheDocument();
       }

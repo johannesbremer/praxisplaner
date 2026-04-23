@@ -3,140 +3,41 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import {
+  beihilfeStatusValidator,
+  dataSharingPersonValidator,
+  emergencyContactValidator,
+  hzvStatusValidator,
+  insuranceTypeValidator,
+  medicalHistoryValidator,
+  personalDataValidator,
+  pkvInsuranceTypeValidator,
+  pkvTariffValidator,
+  selectedSlotValidator,
+} from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
+
+export {
+  beihilfeStatusValidator,
+  dataSharingContactInputValidator,
+  dataSharingPersonValidator,
+  emergencyContactValidator,
+  genderValidator,
+  gkvDetailsValidator,
+  hzvStatusValidator,
+  insuranceDetailsValidator,
+  insuranceTypeValidator,
+  medicalHistoryValidator,
+  personalDataValidator,
+  pkvDetailsValidator,
+  pkvInsuranceTypeValidator,
+  pkvTariffValidator,
+  selectedSlotValidator,
+} from "./bookingValidators";
 
 // ================================
 // BOOKING SESSION VALIDATORS
 // ================================
-
-/**
- * Shared validators for booking session data.
- * Each step's data is uploaded atomically when the form is validated with zod.
- * All fields are required (non-optional) - upload complete data per step.
- * Exported so they can be used in convex functions for argument validation.
- */
-
-export const insuranceTypeValidator = v.union(
-  v.literal("gkv"),
-  v.literal("pkv"),
-);
-
-export const hzvStatusValidator = v.union(
-  v.literal("has-contract"),
-  v.literal("interested"),
-  v.literal("no-interest"),
-);
-
-export const beihilfeStatusValidator = v.union(
-  v.literal("yes"),
-  v.literal("no"),
-);
-
-export const pkvTariffValidator = v.union(
-  v.literal("basis"),
-  v.literal("standard"),
-  v.literal("premium"),
-);
-
-export const pkvInsuranceTypeValidator = v.union(
-  v.literal("postb"),
-  v.literal("kvb"),
-  v.literal("other"),
-);
-
-export const genderValidator = v.union(
-  v.literal("male"),
-  v.literal("female"),
-  v.literal("diverse"),
-);
-
-export const personalDataValidator = v.object({
-  city: v.optional(v.string()),
-  dateOfBirth: v.string(),
-  email: v.optional(v.string()),
-  firstName: v.string(),
-  gender: v.optional(genderValidator),
-  lastName: v.string(),
-  phoneNumber: v.string(),
-  postalCode: v.optional(v.string()),
-  street: v.optional(v.string()),
-  title: v.optional(v.string()),
-});
-
-export const dataSharingContactInputValidator = v.object({
-  city: v.string(),
-  dateOfBirth: v.string(),
-  firstName: v.string(),
-  gender: genderValidator,
-  lastName: v.string(),
-  phoneNumber: v.string(),
-  postalCode: v.string(),
-  street: v.string(),
-  title: v.optional(v.string()),
-});
-
-export const dataSharingPersonValidator = v.object({
-  city: v.string(),
-  dateOfBirth: v.string(),
-  firstName: v.string(),
-  gender: genderValidator,
-  lastName: v.string(),
-  phoneNumber: v.string(),
-  postalCode: v.string(),
-  street: v.string(),
-  title: v.optional(v.string()),
-  userId: v.id("users"),
-});
-
-export const medicalHistoryValidator = v.object({
-  allergiesDescription: v.optional(v.string()),
-  currentMedications: v.optional(v.string()),
-  hasAllergies: v.boolean(),
-  hasDiabetes: v.boolean(),
-  hasHeartCondition: v.boolean(),
-  hasLungCondition: v.boolean(),
-  otherConditions: v.optional(v.string()),
-});
-
-export const emergencyContactValidator = v.object({
-  name: v.string(),
-  phoneNumber: v.string(),
-  relationship: v.string(),
-});
-
-export const selectedSlotValidator = v.object({
-  practitionerId: v.id("practitioners"),
-  practitionerName: v.string(),
-  startTime: v.string(),
-});
-
-/**
- * GKV (Gesetzliche Krankenversicherung) details - all required
- */
-export const gkvDetailsValidator = v.object({
-  hzvStatus: hzvStatusValidator,
-  insuranceType: v.literal("gkv"),
-});
-
-/**
- * PKV (Private Krankenversicherung) details - all required
- * beihilfeStatus, pkvTariff, pkvInsuranceType are optional info but pvsConsent is required
- */
-export const pkvDetailsValidator = v.object({
-  beihilfeStatus: v.optional(beihilfeStatusValidator),
-  insuranceType: v.literal("pkv"),
-  pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-  pkvTariff: v.optional(pkvTariffValidator),
-  pvsConsent: v.literal(true), // Required: must consent to private billing
-});
-
-/**
- * Combined insurance details - discriminated by insuranceType
- */
-export const insuranceDetailsValidator = v.union(
-  gkvDetailsValidator,
-  pkvDetailsValidator,
-);
 
 /**
  * Discriminated union for booking session steps.
@@ -922,7 +823,7 @@ export default defineSchema({
   patients: defineTable({
     // Patient identification fields (from GDT file)
     city: v.optional(v.string()), // FK 3106 - City
-    dateOfBirth: v.optional(v.string()), // FK 3103, format TTMMJJJJ
+    dateOfBirth: v.optional(v.string()), // FK 3103, must already be YYYY-MM-DD
     firstName: v.optional(v.string()), // FK 3102
     lastName: v.optional(v.string()), // FK 3101
     name: v.optional(v.string()), // Temporary patients use a single display name
@@ -1159,7 +1060,7 @@ export default defineSchema({
     ),
 
     // Polymorphic value storage - only populate what's needed
-    valueIds: v.optional(v.array(v.string())), // For ID arrays (stored as strings)
+    valueIds: v.optional(v.array(v.string())), // For lineage-key or string arrays (stored as strings)
     valueNumber: v.optional(v.number()), // For single numeric values
 
     // Metadata

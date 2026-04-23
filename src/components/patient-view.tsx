@@ -32,6 +32,7 @@ import {
   isPublicHolidaySync,
 } from "../utils/public-holidays";
 import {
+  dateToInstantStringResult,
   dateToTemporal,
   formatDateISO,
   formatDateLong,
@@ -89,23 +90,41 @@ export function PatientView({
       return {
         ...simulatedContext,
         locationId: selectedLocationId,
-      } as SchedulingSimulatedContext;
+      };
     }
 
     const contextWithoutLocation = { ...simulatedContext };
     delete contextWithoutLocation.locationId;
-    return contextWithoutLocation as SchedulingSimulatedContext;
+    return contextWithoutLocation;
   })();
 
-  const calendarDateRange = {
-    end: calendarEndDate.toISOString(),
-    start: calendarStartDate.toISOString(),
-  } satisfies SchedulingDateRange;
+  const calendarDateRange = useMemo(() => {
+    return dateToInstantStringResult(
+      calendarStartDate,
+      "PatientView.calendarStartDate",
+    ).match(
+      (start) =>
+        dateToInstantStringResult(
+          calendarEndDate,
+          "PatientView.calendarEndDate",
+        ).match(
+          (end) =>
+            ({
+              end,
+              start,
+            }) satisfies SchedulingDateRange,
+          () => null,
+        ),
+      () => null,
+    );
+  }, [calendarEndDate, calendarStartDate]);
 
   // Get available dates for the calendar (lightweight query, no rule evaluation)
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
-    selectedLocationId && effectiveSimulatedContext.appointmentTypeId
+    selectedLocationId &&
+      effectiveSimulatedContext.appointmentTypeId &&
+      calendarDateRange
       ? {
           dateRange: calendarDateRange,
           practiceId,

@@ -1,3 +1,4 @@
+import type { IsoDateString } from "../../lib/typed-regex";
 import type { Doc } from "../_generated/dataModel";
 
 // Error handling types
@@ -41,7 +42,7 @@ export type DateValidationResult = DateValidationError | DateValidationSuccess;
 
 export interface DateValidationSuccess {
   isValid: true;
-  value: string;
+  value: IsoDateString;
 }
 
 // Database mutation result type

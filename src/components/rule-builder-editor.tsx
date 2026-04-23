@@ -1,8 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { Plus, X } from "lucide-react";
 
-import type { ConditionTreeNode } from "@/convex/ruleEngine";
-
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -29,6 +27,7 @@ import {
 } from "@/components/ui/select";
 
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { ConditionTreeNode } from "../../lib/condition-tree";
 import type {
   Condition,
   ConditionType,
@@ -84,7 +83,7 @@ interface RuleEditDialogProps {
   isOpen: boolean;
   locations: Doc<"locations">[];
   onClose: () => void;
-  onCreate: (conditionTree: unknown) => Promise<void>;
+  onCreate: (conditionTree: ConditionTreeNode) => Promise<void>;
   practitioners: Doc<"practitioners">[];
 }
 
@@ -114,7 +113,7 @@ export function RuleEditDialog({
   practitioners,
 }: RuleEditDialogProps) {
   const initialConditions: Condition[] = existingRule
-    ? conditionTreeToConditions(existingRule.conditionTree as ConditionTreeNode)
+    ? conditionTreeToConditions(existingRule.conditionTree)
     : [
         {
           id: "1",
@@ -317,7 +316,7 @@ function ConcurrentCountCondition({
   const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
     (appointmentType) => ({
       label: appointmentType.name,
-      value: appointmentType._id,
+      value: appointmentType.lineageKey ?? appointmentType._id,
     }),
   );
 
@@ -341,9 +340,7 @@ function ConcurrentCountCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({
-            appointmentTypes: Array.isArray(value) ? value : [value],
-          });
+          onUpdate({ appointmentTypes: value });
         }}
         options={appointmentTypeOptions}
         placeholder="Wählen..."
@@ -404,18 +401,22 @@ function ConditionEditor({
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <Select
             onValueChange={(value) => {
+              const nextType = parseConditionType(value);
+              if (!nextType) {
+                return;
+              }
               const nextOperator: Condition["operator"] =
-                value === "HOURS_AHEAD"
+                nextType === "HOURS_AHEAD"
                   ? "LESS_THAN"
-                  : value === "DAYS_AHEAD" ||
-                      value === "PATIENT_AGE" ||
-                      value === "CONCURRENT_COUNT" ||
-                      value === "DAILY_CAPACITY"
+                  : nextType === "DAYS_AHEAD" ||
+                      nextType === "PATIENT_AGE" ||
+                      nextType === "CONCURRENT_COUNT" ||
+                      nextType === "DAILY_CAPACITY"
                     ? "GREATER_THAN_OR_EQUAL"
                     : "IS";
               onUpdate({
                 operator: nextOperator,
-                type: value as ConditionType,
+                type: nextType,
                 valueIds: [],
                 valueNumber: null,
               });
@@ -508,8 +509,8 @@ function ConditionEditor({
   );
 }
 
-function conditionsToConditionTree(conditions: Condition[]): unknown {
-  const nodes: unknown[] = [];
+function conditionsToConditionTree(conditions: Condition[]): ConditionTreeNode {
+  const nodes: ConditionTreeNode[] = [];
 
   for (const condition of conditions) {
     switch (condition.type) {
@@ -603,11 +604,17 @@ function conditionsToConditionTree(conditions: Condition[]): unknown {
   }
 
   if (nodes.length === 0) {
-    return null;
+    return {
+      children: [],
+      nodeType: "AND",
+    };
   }
 
   if (nodes.length === 1) {
-    return nodes[0];
+    const firstNode = nodes[0];
+    if (firstNode) {
+      return firstNode;
+    }
   }
 
   return {
@@ -656,7 +663,7 @@ function DayOfWeekCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+          onUpdate({ valueIds: value });
         }}
         options={dayOptions}
         placeholder="Wählen..."
@@ -768,6 +775,25 @@ function HoursAheadCondition({
   );
 }
 
+function parseConditionType(value: string): ConditionType | undefined {
+  switch (value) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY":
+    case "DAY_OF_WEEK":
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD":
+    case "LOCATION":
+    case "PATIENT_AGE":
+    case "PRACTITIONER": {
+      return value;
+    }
+    default: {
+      return undefined;
+    }
+  }
+}
+
 function PatientAgeCondition({
   condition,
   invalidFields,
@@ -830,7 +856,7 @@ function SameDayCountCondition({
   const appointmentTypeOptions: ComboboxOption[] = appointmentTypes.map(
     (appointmentType) => ({
       label: appointmentType.name,
-      value: appointmentType._id,
+      value: appointmentType.lineageKey ?? appointmentType._id,
     }),
   );
 
@@ -854,9 +880,7 @@ function SameDayCountCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({
-            appointmentTypes: Array.isArray(value) ? value : [value],
-          });
+          onUpdate({ appointmentTypes: value });
         }}
         options={appointmentTypeOptions}
         placeholder="Wählen..."
@@ -902,19 +926,19 @@ function SimpleValueCondition({
       case "APPOINTMENT_TYPE": {
         return appointmentTypes.map((at) => ({
           label: at.name,
-          value: at._id,
+          value: at.lineageKey ?? at._id,
         }));
       }
       case "LOCATION": {
         return locations.map((location) => ({
           label: location.name,
-          value: location._id,
+          value: location.lineageKey ?? location._id,
         }));
       }
       case "PRACTITIONER": {
         return practitioners.map((practitioner) => ({
           label: practitioner.name,
-          value: practitioner._id,
+          value: practitioner.lineageKey ?? practitioner._id,
         }));
       }
       default: {
@@ -948,7 +972,7 @@ function SimpleValueCondition({
         className="w-auto min-w-[200px]"
         multiple
         onValueChange={(value) => {
-          onUpdate({ valueIds: Array.isArray(value) ? value : [value] });
+          onUpdate({ valueIds: value });
         }}
         options={getOptions()}
         placeholder="Wählen..."

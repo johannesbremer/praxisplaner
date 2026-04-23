@@ -136,7 +136,7 @@ describe("ruleEngine preloaded day data", () => {
     expect(result.firstAppointmentId).toBe(fixture.activeAppointmentId);
   });
 
-  test("buildPreloadedDayData keys counts by the evaluated rule set ids", async () => {
+  test("buildPreloadedDayData keys counts by stable appointment type lineage", async () => {
     const t = createTestContext();
 
     const fixture = await t.run(async (ctx) => {
@@ -246,6 +246,7 @@ describe("ruleEngine preloaded day data", () => {
       });
 
       return {
+        baseAppointmentTypeId,
         copiedAppointmentTypeId,
         copiedPractitionerId,
         copiedRuleSetId,
@@ -274,7 +275,7 @@ describe("ruleEngine preloaded day data", () => {
       return {
         copiedPracticeTypeCount:
           preloaded.dailyCapacityCounts.get(
-            `practice:${fixture.copiedAppointmentTypeId}`,
+            `practice:${fixture.baseAppointmentTypeId}`,
           ) ?? 0,
         copiedPractitionerScopeCount:
           preloaded.parsedAppointmentsByScope.get(

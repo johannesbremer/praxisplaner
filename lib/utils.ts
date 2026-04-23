@@ -3,6 +3,7 @@ import { twMerge } from "tailwind-merge";
 
 import type { Id } from "../convex/_generated/dataModel";
 import type { SchedulingSimulatedContext } from "../src/types";
+import type { IsoDateString } from "./typed-regex";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -15,14 +16,14 @@ export function cn(...inputs: ClassValue[]) {
  * @param options.appointmentTypeId The default appointment type to set
  * @param options.locationId The default location to set
  * @param options.isNewPatient Whether the patient is new (defaults to true)
- * @param options.patientDateOfBirth The patient's date of birth (YYYY-MM-DD or TTMMJJJJ)
+ * @param options.patientDateOfBirth The patient's date of birth (YYYY-MM-DD)
  * @returns A properly typed SchedulingSimulatedContext
  */
 export function createSimulatedContext(options?: {
   appointmentTypeId?: Id<"appointmentTypes">;
   isNewPatient?: boolean;
   locationId?: Id<"locations">;
-  patientDateOfBirth?: string;
+  patientDateOfBirth?: IsoDateString;
 }): SchedulingSimulatedContext {
   const context: SchedulingSimulatedContext = {
     patient: {

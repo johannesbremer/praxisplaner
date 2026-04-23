@@ -1,4 +1,18 @@
+import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
+
+import { raiseError } from "@/lib/raise-error";
+import {
+  type InstantString,
+  isInstantString,
+  isZonedDateTimeString,
+  TIME_OF_DAY_REGEX,
+  type TimeString,
+} from "@/lib/typed-regex";
+
+import type { ZonedDateTimeString } from "../../convex/typedDtos";
+
+import { invalidStateError } from "./frontend-errors";
 
 /**
  * Duration of each time slot in minutes
@@ -15,6 +29,96 @@ const TIMEZONE = "Europe/Berlin";
  * Noon is chosen because it's far from DST transitions which typically occur at 2-3 AM.
  */
 const SAFE_TIME_OF_DAY = "12:00:00";
+
+export function dateToInstantStringResult(
+  date: Date,
+  source: string,
+): Result<InstantString, ReturnType<typeof invalidStateError>> {
+  const instant = date.toISOString();
+  if (!isInstantString(instant)) {
+    return err(
+      invalidStateError(
+        `Expected Date to serialize to ISO instant, got "${instant}".`,
+        source,
+      ),
+    );
+  }
+
+  return ok(instant);
+}
+
+export function isTimeString(value: unknown): value is TimeString {
+  return typeof value === "string" && TIME_OF_DAY_REGEX.test(value);
+}
+
+export function requireTimeString(value: string, source: string): TimeString {
+  return parseTimeStringResult(value, source).match(
+    (timeString) => timeString,
+    raiseError,
+  );
+}
+
+function buildTimeString(hours: number, minutes: number): TimeString {
+  return requireTimeString(
+    `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`,
+    "buildTimeString",
+  );
+}
+
+function parseTimeParts(
+  value: string,
+): null | { hours: number; minutes: number } {
+  const match = TIME_OF_DAY_REGEX.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const [, hours, minutes] = match;
+  return {
+    hours: Number(hours),
+    minutes: Number(minutes),
+  };
+}
+
+/**
+ * Converts a JS Date to Temporal.PlainDate.
+ * Uses the Europe/Berlin timezone.
+ */
+export function dateToTemporal(date: Date): Temporal.PlainDate {
+  const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
+  return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
+}
+
+export function parseTimeStringResult(
+  value: string,
+  source: string,
+): Result<TimeString, ReturnType<typeof invalidStateError>> {
+  if (!isTimeString(value)) {
+    return err(
+      invalidStateError(`Expected HH:mm time string, got "${value}".`, source),
+    );
+  }
+
+  return ok(value);
+}
+
+/**
+ * Safely parses a ZonedDateTime ISO string to a Temporal.PlainDate.
+ * Expects format: `2024-01-15T10:30:00+01:00[Europe/Berlin]`.
+ * @param isoString The ZonedDateTime ISO 8601 string to parse.
+ * @returns The parsed Temporal.PlainDate, or null if parsing fails.
+ * @example
+ * ```ts
+ * safeParseISOToPlainDate("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.PlainDate
+ * safeParseISOToPlainDate("invalid") // null
+ * ```
+ */
+export function safeParseISOToPlainDate(
+  isoString: string,
+): null | Temporal.PlainDate {
+  const zoned = safeParseISOToZoned(isoString);
+  return zoned ? zoned.toPlainDate() : null;
+}
 
 /**
  * Safely parses a ZonedDateTime ISO string to a Temporal.ZonedDateTime.
@@ -41,31 +145,31 @@ export function safeParseISOToZoned(
   }
 }
 
-/**
- * Safely parses a ZonedDateTime ISO string to a Temporal.PlainDate.
- * Expects format: `2024-01-15T10:30:00+01:00[Europe/Berlin]`.
- * @param isoString The ZonedDateTime ISO 8601 string to parse.
- * @returns The parsed Temporal.PlainDate, or null if parsing fails.
- * @example
- * ```ts
- * safeParseISOToPlainDate("2024-01-15T10:30:00+01:00[Europe/Berlin]") // Temporal.PlainDate
- * safeParseISOToPlainDate("invalid") // null
- * ```
- */
-export function safeParseISOToPlainDate(
-  isoString: string,
-): null | Temporal.PlainDate {
-  const zoned = safeParseISOToZoned(isoString);
-  return zoned ? zoned.toPlainDate() : null;
-}
+export function zonedDateTimeStringResult(
+  value: string,
+  source: string,
+): Result<ZonedDateTimeString, ReturnType<typeof invalidStateError>> {
+  try {
+    const normalized = Temporal.ZonedDateTime.from(value).toString();
+    if (!isZonedDateTimeString(normalized)) {
+      return err(
+        invalidStateError(
+          `Expected ISO zoned datetime string, got "${value}".`,
+          source,
+        ),
+      );
+    }
 
-/**
- * Converts a JS Date to Temporal.PlainDate.
- * Uses the Europe/Berlin timezone.
- */
-export function dateToTemporal(date: Date): Temporal.PlainDate {
-  const instant = Temporal.Instant.fromEpochMilliseconds(date.getTime());
-  return instant.toZonedDateTimeISO(TIMEZONE).toPlainDate();
+    return ok(normalized);
+  } catch (error) {
+    return err(
+      invalidStateError(
+        `Expected ISO zoned datetime string, got "${value}".`,
+        source,
+        error,
+      ),
+    );
+  }
 }
 
 /**
@@ -240,12 +344,17 @@ export function formatDateFull(date: Temporal.PlainDate): string {
  * ```
  */
 export function timeToMinutes(timeStr: string): number {
-  try {
-    const time = Temporal.PlainTime.from(timeStr);
-    return time.hour * 60 + time.minute;
-  } catch {
-    return 0;
+  const parts = parseTimeParts(requireTimeString(timeStr, "timeToMinutes"));
+  if (!parts) {
+    return raiseError(
+      invalidStateError(
+        `Expected HH:mm time string in timeToMinutes, got "${timeStr}".`,
+        "timeToMinutes",
+      ),
+    );
   }
+
+  return parts.hours * 60 + parts.minutes;
 }
 
 /**
@@ -277,12 +386,11 @@ export function timeToSlot(time: string, businessStartHour: number): number {
  * slotToTime(12, 8)    // '09:00' (start at 8AM, 12 slots * 5 min = 60 min after 8AM)
  * ```
  */
-export function slotToTime(slot: number, businessStartHour = 0): string {
+export function slotToTime(slot: number, businessStartHour = 0): TimeString {
   const minutesFromMidnight = businessStartHour * 60 + slot * SLOT_DURATION;
   const hours = Math.floor(minutesFromMidnight / 60);
   const minutes = minutesFromMidnight % 60;
-  const time = Temporal.PlainTime.from({ hour: hours, minute: minutes });
-  return time.toString().slice(0, 5); // "HH:mm"
+  return buildTimeString(hours, minutes);
 }
 
 /**
@@ -423,6 +531,6 @@ export function calculateBusinessHours(
  * formatTime(Temporal.PlainTime.from({ hour: 14, minute: 30 })) // "14:30"
  * ```
  */
-export function formatTime(time: Temporal.PlainTime): string {
-  return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
+export function formatTime(time: Temporal.PlainTime): TimeString {
+  return buildTimeString(time.hour, time.minute);
 }

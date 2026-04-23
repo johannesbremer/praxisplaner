@@ -2,6 +2,8 @@ import type { RefObject } from "react";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { regex } from "@/lib/arkregex";
+
 export interface LocalHistoryAction {
   clearHistoryBefore?: boolean;
   label: string;
@@ -54,6 +56,9 @@ const EMPTY_OPTIONS: UseLocalHistoryOptions = {};
 const DEFAULT_ERROR_MESSAGE = "Aktion konnte nicht ausgeführt werden.";
 const DEFAULT_MAX_DEPTH = 100;
 const clearQueueResult = () => null;
+const HISTORY_CONFLICT_CODE_REGEX = regex.as<string, { captures: [string] }>(
+  String.raw`\[([A-Z0-9:_-]+)\]`,
+);
 
 export function useLocalHistory(options?: UseLocalHistoryOptions) {
   const resolvedOptions = options ?? EMPTY_OPTIONS;
@@ -189,8 +194,7 @@ export function useLocalHistory(options?: UseLocalHistoryOptions) {
 }
 
 function extractConflictCode(message: string): string | undefined {
-  const match = /\[([A-Z0-9:_-]+)\]/.exec(message);
-  return match?.[1];
+  return HISTORY_CONFLICT_CODE_REGEX.exec(message)?.[1];
 }
 
 function toResult(result: LocalHistoryResult): LocalHistoryResult {

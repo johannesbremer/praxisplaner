@@ -166,7 +166,7 @@ export function PatientSelectionPanel({
     setIsOpen(false);
     onPatientSelected({
       id: option.id,
-      info: patientDocToInfo(option.patient),
+      info: patientDocToInfo(option.patient)._unsafeUnwrap(),
     });
   };
 

@@ -1,3 +1,7 @@
+import { regex } from "../lib/arkregex.js";
+
+const SEARCH_WHITESPACE_REGEX = regex.as(String.raw`\s+`, "gu");
+
 interface PatientSearchableFields extends PatientSearchNameFields {
   patientId?: number | undefined;
 }
@@ -31,7 +35,10 @@ export function buildPatientSearchLastName(
 }
 
 export function normalizePatientSearchText(value: string): string {
-  return value.trim().replaceAll(/\s+/gu, " ").toLocaleLowerCase();
+  return value
+    .trim()
+    .replaceAll(SEARCH_WHITESPACE_REGEX, " ")
+    .toLocaleLowerCase();
 }
 
 export function patientMatchesSearchTerm(
@@ -64,7 +71,7 @@ function compactSearchParts(parts: (string | undefined)[]): string[] {
   const compacted: string[] = [];
 
   for (const part of parts) {
-    const compactPart = part?.trim().replaceAll(/\s+/gu, " ");
+    const compactPart = part?.trim().replaceAll(SEARCH_WHITESPACE_REGEX, " ");
     if (!compactPart) {
       continue;
     }

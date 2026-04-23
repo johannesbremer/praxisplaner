@@ -19,6 +19,3 @@ export function ProDisplayXDRDevice({
     </div>
   );
 }
-
-// Legacy export for backward compatibility
-export const XDRDevice = ProDisplayXDRDevice;

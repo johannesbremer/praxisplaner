@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
 import { asMfaId, asMfaLineageKey } from "@/convex/identity";
+import { GDT_DATE_REGEX } from "@/lib/typed-regex";
 import { cn } from "@/lib/utils";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -58,16 +59,20 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
+import { captureErrorGlobal } from "../utils/error-tracking";
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
-import { formatDateFull } from "../utils/time-calculations";
+import {
+  formatDateFull,
+  zonedDateTimeStringResult,
+} from "../utils/time-calculations";
 
 type AppointmentConflict = Pick<
   AppointmentResult,
@@ -256,24 +261,31 @@ export function VacationScheduler({
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
-  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(
-    () =>
-      mapFrontendLineageEntities({
-        entities: practitioners ?? [],
-        entityType: "practitioner",
-        source: "VacationScheduler",
-      }),
-    [practitioners],
-  );
-  const mappedMfas = useMemo<MfaRowEntity[]>(
-    () =>
-      mapFrontendLineageEntities({
-        entities: mfas ?? [],
-        entityType: "mfa",
-        source: "VacationScheduler",
-      }),
-    [mfas],
-  );
+  const mappedPractitioners = useMemo<PractitionerRowEntity[]>(() => {
+    if (!practitioners) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "practitioners",
+      PractitionerQueryResult[number]
+    >({
+      entities: practitioners,
+      entityType: "practitioner",
+      source: "VacationScheduler",
+    });
+  }, [practitioners]);
+  const mappedMfas = useMemo<MfaRowEntity[]>(() => {
+    if (!mfas) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<"mfas", MfaQueryResult[number]>({
+      entities: mfas,
+      entityType: "mfa",
+      source: "VacationScheduler",
+    });
+  }, [mfas]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mappedMfas);
@@ -709,10 +721,20 @@ export function VacationScheduler({
             if (isAlreadyExistingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht erneut erstellt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA erstellt",
+              context: "vacation_scheduler_history_redo_create_mfa",
+              lineageKey,
+              operation: "redo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht erneut erstellt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -729,10 +751,20 @@ export function VacationScheduler({
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht entfernt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA erstellt",
+              context: "vacation_scheduler_history_undo_create_mfa",
+              lineageKey,
+              operation: "undo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht entfernt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -779,10 +811,20 @@ export function VacationScheduler({
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
             }
-            return toLocalHistoryConflictResult(
-              error,
-              "MFA konnte nicht erneut entfernt werden.",
-            );
+            captureErrorGlobal(error, {
+              actionLabel: "MFA entfernt",
+              context: "vacation_scheduler_history_redo_remove_mfa",
+              lineageKey,
+              operation: "redo",
+              practiceId,
+            });
+            return {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "MFA konnte nicht erneut entfernt werden.",
+              status: "conflict" as const,
+            };
           }
           return { status: "applied" as const };
         },
@@ -946,20 +988,37 @@ export function VacationScheduler({
     editable && conflictDialog?.staff.kind === "practitioner";
   const coveragePreviewEntries = useMemo<ConflictEntry[]>(
     () =>
-      (coveragePreview?.suggestions ?? []).map((suggestion) => ({
-        conflict: {
-          end: suggestion.end,
-          id: suggestion.appointmentId,
-          locationId: suggestion.locationId,
-          ...(suggestion.patientId === undefined
-            ? {}
-            : { patientId: suggestion.patientId }),
-          start: suggestion.start,
-          title: suggestion.title,
-          ...(suggestion.userId ? { userId: suggestion.userId } : {}),
-        },
-        coverageSuggestion: suggestion,
-      })),
+      (coveragePreview?.suggestions ?? []).flatMap((suggestion) => {
+        return zonedDateTimeStringResult(
+          suggestion.start,
+          "VacationScheduler.coverageSuggestion.start",
+        ).match(
+          (start) =>
+            zonedDateTimeStringResult(
+              suggestion.end,
+              "VacationScheduler.coverageSuggestion.end",
+            ).match(
+              (end) => [
+                {
+                  conflict: {
+                    end,
+                    id: suggestion.appointmentId,
+                    locationId: suggestion.locationId,
+                    ...(suggestion.patientId === undefined
+                      ? {}
+                      : { patientId: suggestion.patientId }),
+                    start,
+                    title: suggestion.title,
+                    ...(suggestion.userId ? { userId: suggestion.userId } : {}),
+                  },
+                  coverageSuggestion: suggestion,
+                },
+              ],
+              () => [],
+            ),
+          () => [],
+        );
+      }),
     [coveragePreview],
   );
   const coverageDialogEntries = useMemo(
@@ -1773,10 +1832,9 @@ function formatGermanDate(dateString: string) {
     const date = Temporal.PlainDate.from(dateString);
     return `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`;
   } catch {
-    if (/^\d{8}$/.test(dateString)) {
-      const day = dateString.slice(0, 2);
-      const month = dateString.slice(2, 4);
-      const year = dateString.slice(4, 8);
+    const gdtDateMatch = GDT_DATE_REGEX.exec(dateString);
+    if (gdtDateMatch) {
+      const [, day, month, year] = gdtDateMatch;
       return `${day}.${month}.${year}`;
     }
 
@@ -1803,13 +1861,6 @@ function isWeekend(date: Temporal.PlainDate) {
 
 function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return date.with({ day: 1 });
-}
-
-function toLocalHistoryConflictResult(error: unknown, fallbackMessage: string) {
-  return {
-    message: error instanceof Error ? error.message : fallbackMessage,
-    status: "conflict" as const,
-  };
 }
 
 function vacationStaffLineageMutationArgs(staff: StaffRow) {

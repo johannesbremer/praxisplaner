@@ -3,7 +3,7 @@
  * Used by both the UI (rule-builder.tsx) and tests (ruleEngine.test.ts).
  */
 
-import type { ConditionTreeNode } from "../convex/ruleEngine";
+import type { ConditionTreeNode } from "./condition-tree";
 
 // Condition types matching the UI
 interface Condition {
@@ -32,7 +32,44 @@ type ConditionType =
 
 interface Entity {
   _id: string;
+  lineageKey?: string;
   name: string;
+}
+
+function createEntityNameResolver(entities: Entity[]) {
+  const nameByReference = new Map<string, string>();
+
+  for (const entity of entities) {
+    nameByReference.set(entity._id, entity.name);
+    if (entity.lineageKey) {
+      nameByReference.set(entity.lineageKey, entity.name);
+    }
+  }
+
+  return (reference: string) => nameByReference.get(reference);
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function isSupportedConditionType(value: string): value is ConditionType {
+  switch (value) {
+    case "APPOINTMENT_TYPE":
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY":
+    case "DAY_OF_WEEK":
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD":
+    case "LOCATION":
+    case "PATIENT_AGE":
+    case "PRACTITIONER": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
 }
 
 /**
@@ -120,6 +157,9 @@ export function generateRuleName(
     return "Keine Bedingungen";
   }
 
+  const resolveAppointmentTypeName = createEntityNameResolver(appointmentTypes);
+  const resolvePractitionerName = createEntityNameResolver(practitioners);
+  const resolveLocationName = createEntityNameResolver(locations);
   const parts: string[] = ["Wenn"];
 
   for (const [index, condition] of conditions.entries()) {
@@ -129,9 +169,10 @@ export function generateRuleName(
 
     switch (condition.type) {
       case "APPOINTMENT_TYPE": {
-        const names = (condition.valueIds
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => resolveAppointmentTypeName(id))
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Termintyp]";
@@ -142,9 +183,10 @@ export function generateRuleName(
       }
       case "CONCURRENT_COUNT": {
         const count = condition.count ?? 0;
-        const atNames = (condition.appointmentTypes
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const atNames =
+          condition.appointmentTypes
+            ?.map((id) => resolveAppointmentTypeName(id))
+            .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
             ? "in der gesamten Praxis"
@@ -158,9 +200,10 @@ export function generateRuleName(
       }
       case "DAILY_CAPACITY": {
         const count = condition.count ?? 0;
-        const atNames = (condition.appointmentTypes
-          ?.map((id) => appointmentTypes.find((at) => at._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const atNames =
+          condition.appointmentTypes
+            ?.map((id) => resolveAppointmentTypeName(id))
+            .filter(isDefined) ?? [];
         const scopeLabel =
           condition.scope === "practice"
             ? "in der gesamten Praxis"
@@ -184,9 +227,9 @@ export function generateRuleName(
           TUESDAY: "Dienstag",
           WEDNESDAY: "Mittwoch",
         };
-        const names = (condition.valueIds
-          ?.map((day) => dayLabels[day])
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds?.map((day) => dayLabels[day]).filter(isDefined) ??
+          [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Wochentag]";
@@ -210,9 +253,10 @@ export function generateRuleName(
         break;
       }
       case "LOCATION": {
-        const names = (condition.valueIds
-          ?.map((id) => locations.find((l) => l._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => resolveLocationName(id))
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Standort]";
@@ -231,9 +275,10 @@ export function generateRuleName(
         break;
       }
       case "PRACTITIONER": {
-        const names = (condition.valueIds
-          ?.map((id) => practitioners.find((p) => p._id === id)?.name)
-          .filter(Boolean) ?? []) as string[];
+        const names =
+          condition.valueIds
+            ?.map((id) => resolvePractitionerName(id))
+            .filter(isDefined) ?? [];
         const isExclude = condition.operator === "IS_NOT";
         const formattedValue =
           names.length > 0 ? formatNames(names) : "[Behandler]";
@@ -301,19 +346,7 @@ function parseConditionNode(
   const { conditionType, operator, scope, valueIds, valueNumber } = node;
 
   // Filter out condition types not supported by the UI
-  const supportedTypes: ConditionType[] = [
-    "APPOINTMENT_TYPE",
-    "CONCURRENT_COUNT",
-    "DAILY_CAPACITY",
-    "DAY_OF_WEEK",
-    "DAYS_AHEAD",
-    "HOURS_AHEAD",
-    "LOCATION",
-    "PATIENT_AGE",
-    "PRACTITIONER",
-  ];
-
-  if (!supportedTypes.includes(conditionType as ConditionType)) {
+  if (!isSupportedConditionType(conditionType)) {
     // Skip unsupported condition types
     return null;
   }
@@ -326,7 +359,7 @@ function parseConditionNode(
       return {
         id,
         operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
-        type: conditionType as ConditionType,
+        type: conditionType,
         valueIds: valueIds ?? [],
       };
     }

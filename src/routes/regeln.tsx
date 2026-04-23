@@ -49,6 +49,7 @@ import { VacationScheduler } from "../components/vacation-scheduler";
 import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../hooks/use-local-history";
+import { findIdInList } from "../utils/convex-ids";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -59,11 +60,11 @@ import {
   EXISTING_PATIENT_SEGMENT,
   NEW_PATIENT_SEGMENT,
   type RegelnSearchParams,
-  type RegelnTabParam,
+  type RegelnTab,
   useRegelnUrl,
 } from "../utils/regeln-url";
+import { dateToInstantStringResult } from "../utils/time-calculations";
 import {
-  type RuleSetDiff,
   RuleSetDiffChangeCount,
   RuleSetDiffView,
   SaveDialogForm,
@@ -73,6 +74,14 @@ import { SimulationControls } from "./regeln/-simulation-controls";
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+function isRegelnTab(value: string): value is RegelnTab {
+  return (
+    value === "rule-management" ||
+    value === "staff-view" ||
+    value === "vacation-scheduler"
+  );
+}
+
 export const Route = createFileRoute("/regeln")({
   component: LogicView,
   validateSearch: (search): RegelnSearchParams => {
@@ -80,12 +89,9 @@ export const Route = createFileRoute("/regeln")({
 
     const result: RegelnSearchParams = {};
 
-    if (
-      params["tab"] === "mitarbeiter" ||
-      params["tab"] === "debug" ||
-      params["tab"] === "urlaub"
-    ) {
-      result.tab = params["tab"] as RegelnTabParam;
+    const tab = params["tab"];
+    if (tab === "mitarbeiter" || tab === "debug" || tab === "urlaub") {
+      result.tab = tab;
     }
 
     if (
@@ -163,7 +169,15 @@ function LogicView() {
     redo: redoRegelnHistoryAction,
     redoDepth: redoRegelnHistoryDepth,
     undo: undoRegelnHistoryAction,
-  } = useLocalHistory();
+  } = useLocalHistory({
+    onError: (action, operation, error) => {
+      captureError(error, {
+        actionLabel: action.label,
+        context: "regeln_history_operation",
+        operation,
+      });
+    },
+  });
 
   const registerRegelnHistoryAction = useCallback(
     (action: LocalHistoryAction) => {
@@ -563,6 +577,8 @@ function LogicView() {
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
+  const selectedVersionId =
+    resolvedRuleSetIdFromUrl ?? unsavedRuleSet?._id ?? undefined;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
     currentPractice && unsavedRuleSet && !isDraftEquivalentToParent
@@ -571,7 +587,7 @@ function LogicView() {
           ruleSetId: unsavedRuleSet._id,
         }
       : "skip",
-  ) as RuleSetDiff | undefined;
+  );
   React.useEffect(() => {
     if (
       !raw.ruleSet ||
@@ -818,7 +834,7 @@ function LogicView() {
       return;
     }
 
-    pushUrl({ ruleSetId: unsavedRuleSet._id as Id<"ruleSets"> });
+    pushUrl({ ruleSetId: unsavedRuleSet._id });
   }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
 
   React.useEffect(() => {
@@ -881,17 +897,22 @@ function LogicView() {
 
   // Create date range representing a full calendar day without timezone issues (after selectedDate is known)
   // This is still used by PatientBookingFlow which hasn't been converted to Temporal yet
-  const year = selectedDate.getFullYear();
-  const month = selectedDate.getMonth();
-  const date = selectedDate.getDate();
+  const dateRange = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    const date = selectedDate.getDate();
+    const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
 
-  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
-  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999));
-
-  const dateRange = {
-    end: endOfDay.toISOString(),
-    start: startOfDay.toISOString(),
-  };
+    return dateToInstantStringResult(startOfDay, "Regeln.startOfDay").match(
+      (start) =>
+        dateToInstantStringResult(endOfDay, "Regeln.endOfDay").match(
+          (end) => ({ end, start }),
+          () => null,
+        ),
+      () => null,
+    );
+  }, [selectedDate]);
 
   // With CoW, we don't need to explicitly create copies
   // The backend will handle draft creation automatically when mutations are made
@@ -902,7 +923,14 @@ function LogicView() {
         return;
       }
 
-      const versionId = version.hash as Id<"ruleSets">;
+      const versionId = findIdInList(
+        (ruleSetsQuery ?? []).map((ruleSet) => ruleSet._id),
+        version.hash,
+      );
+      if (!versionId) {
+        toast.error("Regelset-Version konnte nicht aufgelöst werden");
+        return;
+      }
 
       // If we have unsaved changes and the target is not the unsaved draft, show save dialog
       if (hasBlockingUnsavedChanges && versionId !== unsavedRuleSet?._id) {
@@ -916,7 +944,13 @@ function LogicView() {
       setUnsavedRuleSetId(null);
       pushUrl({ ruleSetId: versionId });
     },
-    [currentPractice, hasBlockingUnsavedChanges, pushUrl, unsavedRuleSet],
+    [
+      currentPractice,
+      hasBlockingUnsavedChanges,
+      pushUrl,
+      ruleSetsQuery,
+      unsavedRuleSet,
+    ],
   );
 
   // Show loading state if practice is being initialized
@@ -1014,9 +1048,8 @@ function LogicView() {
   };
 
   // Save dialog handlers
-  // Note: name parameter is required by the interface but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleSaveOnly = (_name: string) => {
+  const handleSaveOnly = (name: string) => {
+    void name;
     if (!currentWorkingRuleSet) {
       return;
     }
@@ -1064,9 +1097,8 @@ function LogicView() {
     })();
   };
 
-  // Note: name parameter is required by the interface but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleSaveAndActivate = (_name: string) => {
+  const handleSaveAndActivate = (name: string) => {
+    void name;
     if (currentWorkingRuleSet) {
       void handleActivateRuleSet(currentWorkingRuleSet._id);
     }
@@ -1178,7 +1210,9 @@ function LogicView() {
         <Tabs
           className="space-y-6"
           onValueChange={(val) => {
-            navigateTab(val as typeof activeTab);
+            if (isRegelnTab(val)) {
+              navigateTab(val);
+            }
           }}
           value={activeTab}
         >
@@ -1215,9 +1249,8 @@ function LogicView() {
                           <div className="border rounded-lg p-4">
                             <VersionGraph
                               onVersionClick={handleVersionClick}
-                              {...((ruleSetIdFromUrl || unsavedRuleSetId) && {
-                                selectedVersionId: (ruleSetIdFromUrl ||
-                                  unsavedRuleSetId) as string,
+                              {...(selectedVersionId && {
+                                selectedVersionId,
                               })}
                               versions={versionsQuery}
                             />
@@ -1310,7 +1343,7 @@ function LogicView() {
 
               {/* Right Panel - Patient View + Simulation Controls */}
               <div className="space-y-6">
-                {resolvedCurrentWorkingRuleSet ? (
+                {resolvedCurrentWorkingRuleSet && dateRange ? (
                   <div className="flex justify-center">
                     <PatientBookingFlow
                       dateRange={dateRange}

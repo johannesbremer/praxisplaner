@@ -1,4 +1,5 @@
 import type { Id } from "../../convex/_generated/dataModel";
+import type { ConditionTreeNode } from "../../lib/condition-tree";
 
 export interface Condition {
   appointmentTypes?: null | string[];
@@ -24,7 +25,7 @@ export type ConditionType =
 
 export interface RuleFromDB {
   _id: Id<"ruleConditions">;
-  conditionTree: unknown;
+  conditionTree: ConditionTreeNode;
   copyFromId: Id<"ruleConditions"> | undefined;
   createdAt: bigint;
   enabled: boolean;

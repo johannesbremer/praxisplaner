@@ -29,14 +29,25 @@ interface ComboboxProps {
   className?: string;
   emptyMessage?: string;
   inverted?: boolean;
-  multiple?: boolean;
   onSearchValueChange?: ((value: string) => void) | undefined;
-  onValueChange: (value: string | string[]) => void;
   options: ComboboxOption[];
   placeholder?: string;
   searchPlaceholder?: string;
   searchValue?: string | undefined;
-  value: string | string[];
+}
+
+interface MultiComboboxProps extends ComboboxProps {
+  multiple: true;
+  onValueChange: (value: string[]) => void;
+  value: string[];
+}
+
+type Props = MultiComboboxProps | SingleComboboxProps;
+
+interface SingleComboboxProps extends ComboboxProps {
+  multiple?: false | undefined;
+  onValueChange: (value: string) => void;
+  value: string;
 }
 
 export function Combobox({
@@ -44,29 +55,31 @@ export function Combobox({
   className,
   emptyMessage = "Keine Optionen gefunden.",
   inverted = false,
-  multiple = false,
   onSearchValueChange,
-  onValueChange,
   options,
   placeholder = "Auswählen...",
   searchPlaceholder = placeholder,
   searchValue: controlledSearchValue,
-  value,
-}: ComboboxProps) {
+  ...props
+}: Props) {
   const [internalSearchValue, setInternalSearchValue] = useState("");
   const [open, setOpen] = useState(false);
   const searchValue = controlledSearchValue ?? internalSearchValue;
-
-  const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
+  const multiple = props.multiple === true;
+  const selectedValues = multiple
+    ? props.value
+    : props.value
+      ? [props.value]
+      : [];
 
   const handleSelect = (currentValue: string) => {
     if (multiple) {
       const newValues = selectedValues.includes(currentValue)
         ? selectedValues.filter((v) => v !== currentValue)
         : [...selectedValues, currentValue];
-      onValueChange(newValues);
+      props.onValueChange(newValues);
     } else {
-      onValueChange(currentValue === value ? "" : currentValue);
+      props.onValueChange(currentValue === props.value ? "" : currentValue);
       setOpen(false);
     }
 
@@ -87,7 +100,7 @@ export function Combobox({
     e.stopPropagation();
     if (multiple) {
       const newValues = selectedValues.filter((v) => v !== valueToRemove);
-      onValueChange(newValues);
+      props.onValueChange(newValues);
     }
   };
 

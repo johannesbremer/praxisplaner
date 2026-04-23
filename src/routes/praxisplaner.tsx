@@ -28,9 +28,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import type { IsoDateString } from "../../lib/typed-regex";
 import type { PatientInfo } from "../types";
 import type {
   BrowserPermissionState,
+  FileSystemChangeRecord,
   FileSystemDirectoryHandle,
   FileSystemFileHandle,
   PermissionStatus,
@@ -38,10 +40,12 @@ import type {
 
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
+import { isValidDate } from "../../convex/gdt/validation";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
   isDOMException,
+  isFileSystemAccessSupported,
   isFileSystemObserverSupported,
   SafeFileSystemObserver,
 } from "../utils/browser-api";
@@ -70,6 +74,28 @@ const tabFromSearch = (tab: PraxisplanerSearchParams["tab"]): string =>
     : tab === VACATION_TAB_SEARCH_VALUE
       ? VACATION_TAB
       : CALENDAR_TAB;
+
+function getObservedFileName(record: {
+  relativePathComponents: string[];
+}): string | undefined {
+  return record.relativePathComponents[
+    record.relativePathComponents.length - 1
+  ];
+}
+
+function isObservedGdtFileRecord(
+  record: FileSystemChangeRecord,
+): record is FileSystemChangeRecord & {
+  changedHandle: FileSystemFileHandle;
+  type: "appeared";
+} {
+  const fileName = getObservedFileName(record);
+  return (
+    record.type === "appeared" &&
+    record.changedHandle.kind === "file" &&
+    fileName?.toLowerCase().endsWith(".gdt") === true
+  );
+}
 
 const buildSearchFromState = (
   date: Temporal.PlainDate,
@@ -157,7 +183,7 @@ function PraxisPlanerComponent() {
   }, [standortParam, locationsData]);
 
   const isHydrated = useHydrated();
-  const isFsaSupported = isHydrated && "showDirectoryPicker" in globalThis;
+  const isFsaSupported = isHydrated && isFileSystemAccessSupported();
   const isSecureContext = isHydrated && globalThis.isSecureContext;
   let environmentGdtError: null | string = null;
   if (isFsaSupported) {
@@ -486,11 +512,9 @@ function PraxisPlanerComponent() {
       // Set flag to prevent race condition with loadPersistedHandle
       isUserSelectingRef.current = true;
 
-      // Experimental browser API - type assertion needed
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-      const handle = (await (globalThis as any).showDirectoryPicker({
+      const handle = await globalThis.showDirectoryPicker({
         mode: "readwrite",
-      })) as FileSystemDirectoryHandle;
+      });
       await idbSet(IDB_GDT_HANDLE_KEY, handle);
       // GDT preferences now stored in IndexDB instead of Convex
       addGdtLog(`Saved handle for "${handle.name}" to IndexedDB.`);
@@ -577,6 +601,15 @@ function PraxisPlanerComponent() {
           const patientId = patientIdField
             ? Number.parseInt(patientIdField.content, 10)
             : 0;
+          let normalizedBirthDate: IsoDateString | undefined;
+          if (birthDateField?.content === undefined) {
+            normalizedBirthDate = undefined;
+          } else {
+            const validation = isValidDate(birthDateField.content);
+            normalizedBirthDate = validation.isValid
+              ? validation.value
+              : undefined;
+          }
 
           if (patientId > 0) {
             // Build patient data with only defined optional fields
@@ -601,8 +634,8 @@ function PraxisPlanerComponent() {
             if (lastNameField?.content) {
               patientData.lastName = lastNameField.content;
             }
-            if (birthDateField?.content) {
-              patientData.dateOfBirth = birthDateField.content;
+            if (normalizedBirthDate) {
+              patientData.dateOfBirth = normalizedBirthDate;
             }
             if (streetField?.content) {
               patientData.street = streetField.content;
@@ -631,8 +664,8 @@ function PraxisPlanerComponent() {
             if (patientData.city) {
               patientInfo.city = patientData.city;
             }
-            if (patientData.dateOfBirth) {
-              patientInfo.dateOfBirth = patientData.dateOfBirth;
+            if (normalizedBirthDate) {
+              patientInfo.dateOfBirth = normalizedBirthDate;
             }
             if (patientData.firstName) {
               patientInfo.firstName = patientData.firstName;
@@ -746,167 +779,167 @@ function PraxisPlanerComponent() {
   useEffect(() => {
     if (gdtDirectoryHandle && gdtDirPermission === "granted") {
       let isObserverActive = true;
+      const disconnectObservedDirectory = () => {
+        gdtFileObserverRef.current?.disconnect();
+        gdtFileObserverRef.current = null;
+      };
 
       const setupObserver = async () => {
         addGdtLog(
           `🚀 Starting FileSystemObserver monitoring in "${gdtDirectoryHandle.name}".`,
         );
 
-        if (!isFileSystemObserverSupported()) {
-          addGdtLog(
-            "❌ FileSystemObserver API not supported. Falling back to error state.",
-          );
-          setGdtDirPermission("error");
-          return;
-        }
-
         try {
-          // Create FileSystemObserver with callback using typed wrapper
-          const observer = new SafeFileSystemObserver(async (records) => {
-            if (!isObserverActive) {
-              return;
-            }
+          const observerCreationSucceeded = SafeFileSystemObserver.create(
+            async (records) => {
+              if (!isObserverActive) {
+                return;
+              }
 
-            // First verify we still have permission
-            let currentPermission: BrowserPermissionState;
-            try {
-              currentPermission = await gdtDirectoryHandle.queryPermission({
-                mode: "readwrite",
-              });
+              // First verify we still have permission
+              let currentPermission: BrowserPermissionState;
+              try {
+                currentPermission = await gdtDirectoryHandle.queryPermission({
+                  mode: "readwrite",
+                });
 
-              // Log permission changes
+                // Log permission changes
 
-              if (currentPermission !== gdtDirPermission) {
+                if (currentPermission !== gdtDirPermission) {
+                  addGdtLog(
+                    `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission}' -> '${currentPermission}'.`,
+                  );
+                  setGdtDirPermission(currentPermission);
+
+                  // Store updated permission in IndexedDB
+                  try {
+                    await idbSet(IDB_GDT_PERMISSION_KEY, {
+                      context: "FileSystemObserver permission check",
+                      handleName: gdtDirectoryHandle.name,
+                      permission: currentPermission,
+                      timestamp: Date.now(),
+                    });
+                  } catch (idbError) {
+                    captureError(idbError, {
+                      context: "Failed to store permission change in IndexedDB",
+                      errorType: "indexeddb_storage",
+                      handleName: gdtDirectoryHandle.name,
+                      operationContext: "FileSystemObserver permission check",
+                      permission: currentPermission,
+                      previousPermission: gdtDirPermission,
+                      storageKey: IDB_GDT_PERMISSION_KEY,
+                    });
+                    console.warn(
+                      "Failed to store permission change in IndexedDB:",
+                      idbError,
+                    );
+                  }
+
+                  // Permission logging now handled via IndexDB instead of Convex
+                }
+
+                if (currentPermission !== "granted") {
+                  addGdtLog(
+                    `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
+                  );
+                  disconnectObservedDirectory();
+                  return;
+                }
+              } catch (error) {
+                const errorMsg =
+                  error instanceof Error ? error.message : String(error);
                 addGdtLog(
-                  `ℹ️ Perm for "${gdtDirectoryHandle.name}" changed during observation: '${gdtDirPermission}' -> '${currentPermission}'.`,
+                  `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
                 );
-                setGdtDirPermission(currentPermission);
+                // Error logging now handled via IndexDB instead of Convex
+                setGdtDirPermission("error");
 
-                // Store updated permission in IndexedDB
+                // Store error state in IndexedDB
                 try {
                   await idbSet(IDB_GDT_PERMISSION_KEY, {
-                    context: "FileSystemObserver permission check",
+                    context: "FileSystemObserver permission query error",
+                    errorMsg,
                     handleName: gdtDirectoryHandle.name,
-                    permission: currentPermission,
+                    permission: "error",
                     timestamp: Date.now(),
                   });
                 } catch (idbError) {
                   captureError(idbError, {
-                    context: "Failed to store permission change in IndexedDB",
+                    context: "Failed to store error state in IndexedDB",
                     errorType: "indexeddb_storage",
                     handleName: gdtDirectoryHandle.name,
-                    operationContext: "FileSystemObserver permission check",
-                    permission: currentPermission,
-                    previousPermission: gdtDirPermission,
+                    operationContext:
+                      "FileSystemObserver permission query error",
+                    originalError: errorMsg,
                     storageKey: IDB_GDT_PERMISSION_KEY,
                   });
                   console.warn(
-                    "Failed to store permission change in IndexedDB:",
+                    "Failed to store error state in IndexedDB:",
                     idbError,
                   );
                 }
 
-                // Permission logging now handled via IndexDB instead of Convex
-              }
-
-              if (currentPermission !== "granted") {
-                addGdtLog(
-                  `🛑 Stopping FileSystemObserver: permission no longer 'granted' (now '${currentPermission}').`,
-                );
-                observer.disconnect();
-                gdtFileObserverRef.current = null;
+                disconnectObservedDirectory();
                 return;
               }
-            } catch (error) {
-              const errorMsg =
-                error instanceof Error ? error.message : String(error);
-              addGdtLog(
-                `❌ Error querying permission in FileSystemObserver for "${gdtDirectoryHandle.name}": ${errorMsg}`,
-              );
-              // Error logging now handled via IndexDB instead of Convex
-              setGdtDirPermission("error");
 
-              // Store error state in IndexedDB
-              try {
-                await idbSet(IDB_GDT_PERMISSION_KEY, {
-                  context: "FileSystemObserver permission query error",
-                  errorMsg,
-                  handleName: gdtDirectoryHandle.name,
-                  permission: "error",
-                  timestamp: Date.now(),
-                });
-              } catch (idbError) {
-                captureError(idbError, {
-                  context: "Failed to store error state in IndexedDB",
-                  errorType: "indexeddb_storage",
-                  handleName: gdtDirectoryHandle.name,
-                  operationContext: "FileSystemObserver permission query error",
-                  originalError: errorMsg,
-                  storageKey: IDB_GDT_PERMISSION_KEY,
-                });
-                console.warn(
-                  "Failed to store error state in IndexedDB:",
-                  idbError,
+              // Process file change records
+              const gdtFiles = records.filter(isObservedGdtFileRecord);
+
+              if (gdtFiles.length > 0) {
+                addGdtLog(
+                  `📁 Detected ${gdtFiles.length} new GDT file(s) in "${gdtDirectoryHandle.name}".`,
                 );
-              }
 
-              observer.disconnect();
-              gdtFileObserverRef.current = null;
-              return;
-            }
+                for (const record of gdtFiles) {
+                  try {
+                    await parseAndProcessGdtFile(
+                      gdtDirectoryHandle,
+                      record.changedHandle,
+                    );
+                  } catch (error) {
+                    const errorMsg =
+                      error instanceof Error ? error.message : String(error);
+                    addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
 
-            // Process file change records
-            const gdtFiles = records.filter((record) => {
-              const fileName =
-                record.relativePathComponents[
-                  record.relativePathComponents.length - 1
-                ];
-              return (
-                record.type === "appeared" &&
-                record.changedHandle.kind === "file" &&
-                fileName?.toLowerCase().endsWith(".gdt")
-              );
-            });
-
-            if (gdtFiles.length > 0) {
-              addGdtLog(
-                `📁 Detected ${gdtFiles.length} new GDT file(s) in "${gdtDirectoryHandle.name}".`,
-              );
-
-              for (const record of gdtFiles) {
-                try {
-                  await parseAndProcessGdtFile(
-                    gdtDirectoryHandle,
-                    record.changedHandle as FileSystemFileHandle,
-                  );
-                } catch (error) {
-                  const errorMsg =
-                    error instanceof Error ? error.message : String(error);
-                  addGdtLog(`❌ Error processing detected file: ${errorMsg}`);
-
-                  // Capture error for file processing failure
-                  captureError(error, {
-                    changeType: record.type,
-                    context:
-                      "Error processing detected file in FileSystemObserver",
-                    currentPermission: gdtDirPermission,
-                    directoryName: gdtDirectoryHandle.name,
-                    domExceptionName: isDOMException(error)
-                      ? error.name
-                      : undefined,
-                    errorType: "file_system_observer",
-                    fileName:
-                      record.relativePathComponents[
-                        record.relativePathComponents.length - 1
-                      ],
-                    handleKind: record.changedHandle.kind,
-                    isDOMException: isDOMException(error),
-                    relativePathComponents: record.relativePathComponents,
-                  });
+                    // Capture error for file processing failure
+                    captureError(error, {
+                      changeType: record.type,
+                      context:
+                        "Error processing detected file in FileSystemObserver",
+                      currentPermission: gdtDirPermission,
+                      directoryName: gdtDirectoryHandle.name,
+                      domExceptionName: isDOMException(error)
+                        ? error.name
+                        : undefined,
+                      errorType: "file_system_observer",
+                      fileName: getObservedFileName(record),
+                      handleKind: record.changedHandle.kind,
+                      isDOMException: isDOMException(error),
+                      relativePathComponents: record.relativePathComponents,
+                    });
+                  }
                 }
               }
-            }
-          });
+            },
+          ).match(
+            (observer) => {
+              gdtFileObserverRef.current = observer;
+              return true;
+            },
+            () => {
+              addGdtLog("❌ FileSystemObserver API not supported.");
+              setGdtDirPermission("error");
+              return false;
+            },
+          );
+          if (!observerCreationSucceeded) {
+            return;
+          }
+          const observer = gdtFileObserverRef.current;
+          if (observer === null) {
+            return;
+          }
 
           // Start observing the directory
           const observeResult = await observer.observe(gdtDirectoryHandle, {
@@ -928,9 +961,9 @@ function PraxisPlanerComponent() {
             },
           );
           if (!observeSucceeded) {
+            disconnectObservedDirectory();
             return;
           }
-          gdtFileObserverRef.current = observer;
           addGdtLog(
             `👁️ FileSystemObserver active for "${gdtDirectoryHandle.name}".`,
           );

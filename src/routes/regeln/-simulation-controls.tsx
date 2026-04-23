@@ -18,6 +18,7 @@ import type { SchedulingSimulatedContext } from "../../types";
 
 import { AppointmentTypeSelector } from "../../components/appointment-type-selector";
 import { LocationSelector } from "../../components/location-selector";
+import { findIdInList } from "../../utils/convex-ids";
 
 type SimulatedContext = SchedulingSimulatedContext;
 
@@ -79,9 +80,18 @@ function SimulationControls({
           <Label htmlFor="rule-set">Regelset</Label>
           <Select
             onValueChange={(value) => {
-              onSimulationRuleSetChange(
-                value === "active" ? undefined : (value as Id<"ruleSets">),
+              if (value === "active") {
+                onSimulationRuleSetChange(void 0);
+                return;
+              }
+
+              const ruleSetId = findIdInList(
+                (ruleSetsQuery ?? []).map((ruleSet) => ruleSet._id),
+                value,
               );
+              if (ruleSetId !== undefined) {
+                onSimulationRuleSetChange(ruleSetId);
+              }
             }}
             value={simulationRuleSetId || "active"}
           >

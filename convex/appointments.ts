@@ -1,12 +1,14 @@
 import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
   DatabaseReader,
   MutationCtx,
   QueryCtx,
 } from "./_generated/server";
+import type { TypedDateTimeRange, ZonedDateTimeString } from "./typedDtos";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -51,6 +53,11 @@ import {
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
 import {
+  asOptionalIsoDateString,
+  asTypedDateTimeRange,
+  asZonedDateTimeString,
+} from "./typedDtos";
+import {
   ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQuery,
@@ -71,6 +78,26 @@ type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
+
+interface TrustedAppointmentInput {
+  appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient?: boolean;
+  isSimulation?: boolean;
+  locationId: Id<"locations">;
+  patientDateOfBirth?: IsoDateString;
+  patientId?: Id<"patients">;
+  practiceId: Id<"practices">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  simulationKind?: AppointmentSimulationKind;
+  simulationRuleSetId?: Id<"ruleSets">;
+  start: ZonedDateTimeString;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  title: string;
+  userId?: Id<"users">;
+}
+
 const appointmentResultValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("appointments"),
@@ -97,13 +124,47 @@ const appointmentResultValidator = v.object({
   userId: v.optional(v.id("users")),
 });
 
-export type AppointmentResult = Infer<typeof appointmentResultValidator>;
+export type AppointmentResult = Omit<
+  Infer<typeof appointmentResultValidator>,
+  "end" | "start"
+> &
+  TypedDateTimeRange;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
 }
 
-function calculateDurationMinutes(end: string, start: string): number {
+function asTrustedAppointmentInput(args: {
+  appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient?: boolean;
+  isSimulation?: boolean;
+  locationId: Id<"locations">;
+  patientDateOfBirth?: string;
+  patientId?: Id<"patients">;
+  practiceId: Id<"practices">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  simulationKind?: AppointmentSimulationKind;
+  simulationRuleSetId?: Id<"ruleSets">;
+  start: string;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  title: string;
+  userId?: Id<"users">;
+}): TrustedAppointmentInput {
+  const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
+  const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
+  return {
+    ...rest,
+    ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+    start: asZonedDateTimeString(start),
+  };
+}
+
+function calculateDurationMinutes(
+  end: ZonedDateTimeString,
+  start: ZonedDateTimeString,
+): number {
   const minutes =
     (Temporal.ZonedDateTime.from(end).epochMilliseconds -
       Temporal.ZonedDateTime.from(start).epochMilliseconds) /
@@ -119,17 +180,28 @@ function calculateDurationMinutes(end: string, start: string): number {
   return minutes;
 }
 
-function calculateEndFromDuration(start: string, durationMinutes: number) {
-  return Temporal.ZonedDateTime.from(start)
-    .add({ minutes: durationMinutes })
-    .toString();
+function calculateEndFromDuration(
+  start: ZonedDateTimeString,
+  durationMinutes: number,
+): ZonedDateTimeString {
+  return asZonedDateTimeString(
+    Temporal.ZonedDateTime.from(start)
+      .add({ minutes: durationMinutes })
+      .toString(),
+  );
 }
 
-function calculateShiftedEnd(end: string, start: string, nextStart: string) {
+function calculateShiftedEnd(
+  end: ZonedDateTimeString,
+  start: ZonedDateTimeString,
+  nextStart: ZonedDateTimeString,
+): ZonedDateTimeString {
   const durationMinutes = calculateDurationMinutes(end, start);
-  return Temporal.ZonedDateTime.from(nextStart)
-    .add({ minutes: durationMinutes })
-    .toString();
+  return asZonedDateTimeString(
+    Temporal.ZonedDateTime.from(nextStart)
+      .add({ minutes: durationMinutes })
+      .toString(),
+  );
 }
 
 async function getAppointmentSeriesRecord(
@@ -219,21 +291,6 @@ function requireEntityUsableForNewAppointment<
   return params.entity;
 }
 
-async function resolveAppointmentPatientDateOfBirth(
-  db: DatabaseReader,
-  args: {
-    fallbackDateOfBirth?: string;
-    patientId?: Id<"patients">;
-  },
-): Promise<string | undefined> {
-  if (args.patientId) {
-    const patient = await db.get("patients", args.patientId);
-    return patient?.dateOfBirth;
-  }
-
-  return args.fallbackDateOfBirth;
-}
-
 async function resolveAppointmentTypeIdForDisplayRuleSet(
   db: DatabaseReader,
   appointmentTypeLineageKey: Id<"appointmentTypes">,
@@ -265,6 +322,21 @@ async function resolvePractitionerIdForDisplayRuleSet(
     lineageKey: asPractitionerLineageKey(practitionerLineageKey),
     ruleSetId: targetRuleSetId,
   });
+}
+
+async function resolvePreferredAppointmentPatientDateOfBirth(
+  db: DatabaseReader,
+  args: {
+    patientId?: Id<"patients">;
+    provisionalDateOfBirth?: IsoDateString;
+  },
+): Promise<IsoDateString | undefined> {
+  if (args.patientId) {
+    const patient = await db.get("patients", args.patientId);
+    return asOptionalIsoDateString(patient?.dateOfBirth);
+  }
+
+  return args.provisionalDateOfBirth;
 }
 
 /**
@@ -453,13 +525,14 @@ async function remapAppointmentIds(
 function toAppointmentListItem(
   appointment: AppointmentDoc,
 ): AppointmentListItem {
+  const timeRange = asTypedDateTimeRange(appointment);
   return {
     _creationTime: appointment._creationTime,
     _id: appointment._id,
     appointmentTypeId: appointment.appointmentTypeLineageKey,
     appointmentTypeTitle: appointment.appointmentTypeTitle,
     createdAt: appointment.createdAt,
-    end: appointment.end,
+    ...timeRange,
     lastModified: appointment.lastModified,
     locationId: appointment.locationLineageKey,
     practiceId: appointment.practiceId,
@@ -502,7 +575,6 @@ function toAppointmentListItem(
     ...(appointment.simulationValidatedAt === undefined
       ? {}
       : { simulationValidatedAt: appointment.simulationValidatedAt }),
-    start: appointment.start,
     title: appointment.title,
     ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
   };
@@ -625,7 +697,13 @@ export const previewAppointmentSeries = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return await previewAppointmentSeriesHelper(ctx, args);
+    const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
+    const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
+    return await previewAppointmentSeriesHelper(ctx, {
+      ...rest,
+      ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+      start: asZonedDateTimeString(start),
+    });
   },
   returns: appointmentSeriesPreviewResultValidator,
 });
@@ -658,9 +736,13 @@ export const createAppointmentSeries = mutation({
       }
     }
 
+    const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
+    const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
     return await createAppointmentSeriesHelper(ctx, {
-      ...args,
+      ...rest,
+      ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
       rootTitle: args.rootTitle.trim(),
+      start: asZonedDateTimeString(start),
     });
   },
   returns: appointmentSeriesCreateResultValidator,
@@ -668,7 +750,7 @@ export const createAppointmentSeries = mutation({
 
 export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
-  args: {
+  rawArgs: {
     appointmentTypeId: Id<"appointmentTypes">;
     isNewPatient?: boolean;
     isSimulation?: boolean;
@@ -687,6 +769,7 @@ export async function createAppointmentFromTrustedSource(
     userId?: Id<"users">;
   },
 ) {
+  const args = asTrustedAppointmentInput(rawArgs);
   const now = BigInt(Date.now());
   const {
     appointmentTypeId,
@@ -1346,24 +1429,32 @@ async function updateAppointmentByMode(
     );
     const resolvedPatientId =
       filteredUpdateData.patientId ?? existingAppointment.patientId;
+    const provisionalDateOfBirth = asOptionalIsoDateString(
+      seriesRecord.patientDateOfBirth,
+    );
     const resolvedPatientDateOfBirth =
-      await resolveAppointmentPatientDateOfBirth(ctx.db, {
+      await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
         ...(filteredUpdateData.patientId === undefined &&
-          seriesRecord.patientDateOfBirth && {
-            fallbackDateOfBirth: seriesRecord.patientDateOfBirth,
+          provisionalDateOfBirth !== undefined && {
+            provisionalDateOfBirth,
           }),
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
       });
-    const updatedStart = filteredUpdateData.start ?? existingAppointment.start;
-    const updatedEnd =
-      filteredUpdateData.end ??
-      (filteredUpdateData.start === undefined
-        ? existingAppointment.end
-        : calculateShiftedEnd(
-            existingAppointment.end,
-            existingAppointment.start,
-            filteredUpdateData.start,
-          ));
+    const updatedStart = asZonedDateTimeString(
+      filteredUpdateData.start ?? existingAppointment.start,
+    );
+    let updatedEnd: ZonedDateTimeString;
+    if (filteredUpdateData.end !== undefined) {
+      updatedEnd = asZonedDateTimeString(filteredUpdateData.end);
+    } else if (filteredUpdateData.start === undefined) {
+      updatedEnd = asZonedDateTimeString(existingAppointment.end);
+    } else {
+      updatedEnd = calculateShiftedEnd(
+        asZonedDateTimeString(existingAppointment.end),
+        asZonedDateTimeString(existingAppointment.start),
+        asZonedDateTimeString(filteredUpdateData.start),
+      );
+    }
     const practitionerId =
       filteredUpdateData.practitionerId ??
       (existingAppointment.practitionerLineageKey

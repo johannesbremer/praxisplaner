@@ -11,6 +11,14 @@ type InsertValue<TableName extends SelfLineageTableName> = Omit<
   lineageKey?: Id<TableName>;
 };
 
+type SelfLineageInsertParams =
+  | ["appointmentTypes", InsertValue<"appointmentTypes">]
+  | ["baseSchedules", InsertValue<"baseSchedules">]
+  | ["locations", InsertValue<"locations">]
+  | ["mfas", InsertValue<"mfas">]
+  | ["practitioners", InsertValue<"practitioners">]
+  | ["vacations", InsertValue<"vacations">];
+
 type SelfLineageTableName =
   | "appointmentTypes"
   | "baseSchedules"
@@ -51,18 +59,70 @@ export async function insertSelfLineageEntity(
 ): Promise<Id<"vacations">>;
 export async function insertSelfLineageEntity(
   db: DatabaseWriter,
-  table: SelfLineageTableName,
-  value: InsertValue<SelfLineageTableName>,
+  ...params: SelfLineageInsertParams
 ) {
-  const entityId = await db.insert(table, value as never);
-
-  if (!value.lineageKey) {
-    await db.patch(table, entityId, {
-      lineageKey: entityId,
-    } as never);
+  switch (params[0]) {
+    case "appointmentTypes": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
+    case "baseSchedules": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
+    case "locations": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
+    case "mfas": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
+    case "practitioners": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
+    case "vacations": {
+      const [tableName, tableValue] = params;
+      const entityId = await db.insert(tableName, tableValue);
+      if (!tableValue.lineageKey) {
+        await db.patch(tableName, entityId, {
+          lineageKey: entityId,
+        });
+      }
+      return entityId;
+    }
   }
-
-  return entityId;
 }
 export function requireLineageKey<T extends string>(params: {
   entityId: string;

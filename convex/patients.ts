@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 
+import { isIsoDateString } from "../lib/typed-regex.js";
 import { mutation, query } from "./_generated/server";
 import {
   buildPatientSearchFirstName,
   buildPatientSearchLastName,
-  patientMatchesSearchTerm,
 } from "./patientSearch";
 import {
   ensurePracticeAccessForMutation,
@@ -60,6 +61,22 @@ const patientSidebarDetailsValidator = v.object({
   street: v.optional(v.string()),
 });
 
+function normalizePatientDateOfBirth(
+  value?: string,
+): IsoDateString | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (isIsoDateString(value)) {
+    return value;
+  }
+
+  throw new Error(
+    `Patient dateOfBirth must be a valid YYYY-MM-DD string, got "${value}".`,
+  );
+}
+
 /** Create or update a patient from GDT data */
 export const createOrUpdatePatient = mutation({
   args: {
@@ -75,7 +92,9 @@ export const createOrUpdatePatient = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const { dateOfBirth: rawDateOfBirth, ...restArgs } = args;
     const now = BigInt(Date.now());
+    const dateOfBirth = normalizePatientDateOfBirth(rawDateOfBirth);
 
     // Check if patient exists
     const existingPatient = await ctx.db
@@ -88,7 +107,8 @@ export const createOrUpdatePatient = mutation({
     if (!existingPatient) {
       // Create new patient using spread operator with schema types
       const newPatientId = await ctx.db.insert("patients", {
-        ...args,
+        ...restArgs,
+        ...(dateOfBirth !== undefined && { dateOfBirth }),
         createdAt: now,
         lastModified: now,
         recordType: "pvs",
@@ -126,7 +146,7 @@ export const createOrUpdatePatient = mutation({
       }),
       ...(args.firstName && { firstName: args.firstName }),
       ...(args.lastName && { lastName: args.lastName }),
-      ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
+      ...(dateOfBirth && { dateOfBirth }),
       ...(args.street && { street: args.street }),
       ...(args.city && { city: args.city }),
       ...(args.sourceGdtFileName && {
@@ -357,40 +377,7 @@ export const searchPatients = query({
         .take(20),
     ]);
 
-    const indexedResults = mergePatientSearchResults(
-      firstNameResults,
-      lastNameResults,
-    );
-    if (indexedResults.length > 0) {
-      return indexedResults;
-    }
-
-    const patientsForFallback = await ctx.db
-      .query("patients")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-
-    const fallbackMatches = patientsForFallback.filter((patient) =>
-      patientMatchesSearchTerm(
-        {
-          firstName: patient.firstName,
-          lastName: patient.lastName,
-          name: patient.name,
-          patientId: patient.patientId,
-        },
-        searchTerm,
-      ),
-    );
-
-    return fallbackMatches
-      .toSorted((left, right) => {
-        if (left.lastModified === right.lastModified) {
-          return 0;
-        }
-
-        return left.lastModified < right.lastModified ? 1 : -1;
-      })
-      .slice(0, 20);
+    return mergePatientSearchResults(firstNameResults, lastNameResults);
   },
   returns: v.array(patientDocumentValidator),
 });

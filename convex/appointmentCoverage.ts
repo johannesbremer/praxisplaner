@@ -1,6 +1,7 @@
 import { type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
   DatabaseReader,
@@ -33,6 +34,7 @@ import {
 import { requireLineageKey } from "./lineage";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const vacationPortionValidator = v.union(
@@ -185,13 +187,13 @@ async function getLatestSeenPractitionerDates(
 async function getPatientDateOfBirth(
   db: DatabaseReader,
   appointment: Doc<"appointments">,
-): Promise<string | undefined> {
+): Promise<IsoDateString | undefined> {
   if (!appointment.patientId) {
     return undefined;
   }
 
   const patient = await db.get("patients", appointment.patientId);
-  return patient?.dateOfBirth;
+  return asOptionalIsoDateString(patient?.dateOfBirth);
 }
 
 async function previewPractitionerCoverageForAppointment(

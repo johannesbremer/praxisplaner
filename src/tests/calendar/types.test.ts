@@ -1,10 +1,14 @@
 import { describe, expect, test } from "vitest";
 
+import { regex } from "@/lib/arkregex";
+
 import {
   type Appointment,
   APPOINTMENT_COLORS,
   SLOT_DURATION,
 } from "../../../src/components/calendar/types";
+
+const TAILWIND_BG_COLOR_REGEX = regex.as(String.raw`^bg-\w+-\d{3}$`);
 
 describe("Calendar Types and Constants", () => {
   describe("SLOT_DURATION", () => {
@@ -28,7 +32,7 @@ describe("Calendar Types and Constants", () => {
 
     test("should contain valid Tailwind classes", () => {
       for (const color of APPOINTMENT_COLORS) {
-        expect(color).toMatch(/^bg-\w+-\d{3}$/);
+        expect(color).toMatch(TAILWIND_BG_COLOR_REGEX);
       }
     });
 

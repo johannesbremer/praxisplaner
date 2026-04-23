@@ -2,10 +2,9 @@ import { useMutation, useQuery } from "convex/react";
 import { Edit, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ConditionTreeNode } from "@/convex/ruleEngine";
-
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
+import { RULE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { Id } from "../../convex/_generated/dataModel";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -18,6 +17,10 @@ import type { RuleFromDB } from "./rule-builder-types";
 
 import { api } from "../../convex/_generated/api";
 import {
+  type ConditionTreeNode,
+  serializeConditionTreeTransport,
+} from "../../lib/condition-tree";
+import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../../lib/rule-name-generator";
@@ -26,7 +29,8 @@ import {
   toCowMutationArgs,
   updateRuleSetReplayTarget,
 } from "../utils/cow-history";
-import { mapFrontendLineageEntities } from "../utils/frontend-lineage";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
+import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import { RuleEditDialog } from "./rule-builder-editor";
 
 type AppointmentTypeQueryResult =
@@ -57,7 +61,7 @@ interface RuleConditionTreePreparationConflict {
   status: "conflict";
 }
 interface RuleConditionTreePreparationSuccess {
-  conditionTree: unknown;
+  conditionTree: ConditionTreeNode;
   status: "ok";
 }
 type RuleLocation = FrontendLineageEntity<
@@ -70,11 +74,13 @@ type RulePractitioner = FrontendLineageEntity<
 >;
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|rule not found|regel.*nicht gefunden/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, RULE_MISSING_ENTITY_REGEX);
+
+function isSerializableRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 const getReplayCopySource = (
   rule: Pick<RuleFromDB, "_id" | "copyFromId">,
@@ -100,53 +106,60 @@ export function RuleBuilder({
     ruleSetId,
   });
   const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
-  const existingRules = useQuery(api.entities.getRules, { ruleSetId });
+  const existingRulesQuery = useQuery(api.entities.getRules, { ruleSetId });
   const appointmentTypes = appointmentTypesQuery ?? [];
   const practitioners = practitionersQuery ?? [];
   const locations = locationsQuery ?? [];
-  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(
-    () =>
-      appointmentTypesQuery
-        ? mapFrontendLineageEntities<
-            "appointmentTypes",
-            AppointmentTypeQueryResult[number]
-          >({
-            entities: appointmentTypesQuery,
-            entityType: "appointment type",
-            source: "RuleBuilder",
-          })
-        : [],
-    [appointmentTypesQuery],
+  const existingRules: RuleFromDB[] = useMemo(
+    () => existingRulesQuery ?? [],
+    [existingRulesQuery],
   );
-  const lineagePractitioners: RulePractitioner[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionerQueryResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "RuleBuilder",
-          })
-        : [],
-    [practitionersQuery],
-  );
-  const lineageLocations: RuleLocation[] = useMemo(
-    () =>
-      locationsQuery
-        ? mapFrontendLineageEntities<"locations", LocationQueryResult[number]>({
-            entities: locationsQuery,
-            entityType: "location",
-            source: "RuleBuilder",
-          })
-        : [],
-    [locationsQuery],
-  );
+  const lineageAppointmentTypes: RuleAppointmentType[] = useMemo(() => {
+    if (!appointmentTypesQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "appointmentTypes",
+      AppointmentTypeQueryResult[number]
+    >({
+      entities: appointmentTypesQuery,
+      entityType: "appointment type",
+      source: "RuleBuilder",
+    });
+  }, [appointmentTypesQuery]);
+  const lineagePractitioners: RulePractitioner[] = useMemo(() => {
+    if (!practitionersQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "practitioners",
+      PractitionerQueryResult[number]
+    >({
+      entities: practitionersQuery,
+      entityType: "practitioner",
+      source: "RuleBuilder",
+    });
+  }, [practitionersQuery]);
+  const lineageLocations: RuleLocation[] = useMemo(() => {
+    if (!locationsQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "locations",
+      LocationQueryResult[number]
+    >({
+      entities: locationsQuery,
+      entityType: "location",
+      source: "RuleBuilder",
+    });
+  }, [locationsQuery]);
   const appointmentTypesRef = useRef(lineageAppointmentTypes);
   const practitionersRef = useRef(lineagePractitioners);
   const locationsRef = useRef(lineageLocations);
-  const rulesRef = useRef(existingRules ?? []);
+  const rulesRef = useRef(existingRules);
   useEffect(() => {
     appointmentTypesRef.current = lineageAppointmentTypes;
   }, [lineageAppointmentTypes]);
@@ -157,7 +170,7 @@ export function RuleBuilder({
     locationsRef.current = lineageLocations;
   }, [lineageLocations]);
   useEffect(() => {
-    rulesRef.current = existingRules ?? [];
+    rulesRef.current = existingRules;
   }, [existingRules]);
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
   useEffect(() => {
@@ -175,6 +188,22 @@ export function RuleBuilder({
       onRuleCreated(result.ruleSetId);
     }
   };
+  const runCreateRule = async (params: {
+    conditionTree: ConditionTreeNode;
+    copyFromId?: Id<"ruleConditions">;
+    enabled: boolean;
+    name: string;
+  }) =>
+    await createRuleMutation({
+      conditionTree: serializeConditionTreeTransport(params.conditionTree),
+      enabled: params.enabled,
+      name: params.name,
+      ...(params.copyFromId === undefined
+        ? {}
+        : { copyFromId: params.copyFromId }),
+      practiceId,
+      ...getCowMutationArgs(),
+    });
 
   // Check if all data is loaded
   const dataReady =
@@ -310,15 +339,11 @@ export function RuleBuilder({
                 status: "conflict" as const,
               };
             }
-            const recreateResult = await createRuleMutation({
-              conditionTree: preparedRule.conditionTree as Parameters<
-                typeof createRuleMutation
-              >[0]["conditionTree"],
+            const recreateResult = await runCreateRule({
+              conditionTree: preparedRule.conditionTree,
               ...getReplayCopySource(deletedRule),
               enabled: deletedRule.enabled,
               name: deletedRuleName,
-              practiceId,
-              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
             currentRuleId = recreateResult.entityId;
@@ -332,7 +357,10 @@ export function RuleBuilder({
   };
 
   // Get existing rule for editing
-  const editingRule = existingRules?.find((r) => r._id === editingRuleId);
+  const editingRule =
+    editingRuleId === "new"
+      ? undefined
+      : existingRules.find((rule) => rule._id === editingRuleId);
 
   // Early return for loading state
   if (!dataReady) {
@@ -347,7 +375,7 @@ export function RuleBuilder({
   return (
     <div className="space-y-4">
       {/* Render all existing rules as cards */}
-      {existingRules?.map((rule) => {
+      {existingRules.map((rule) => {
         const ruleName = generateRuleName(
           conditionTreeToConditions(rule.conditionTree),
           appointmentTypes,
@@ -414,9 +442,7 @@ export function RuleBuilder({
               handleDraftMutationResult(deleteResult);
             }
 
-            const conditions = conditionTreeToConditions(
-              conditionTree as ConditionTreeNode,
-            );
+            const conditions = conditionTreeToConditions(conditionTree);
             const ruleName = generateRuleName(
               conditions,
               appointmentTypes,
@@ -424,15 +450,11 @@ export function RuleBuilder({
               locations,
             );
 
-            const createResult = await createRuleMutation({
-              conditionTree: conditionTree as Parameters<
-                typeof createRuleMutation
-              >[0]["conditionTree"],
+            const createResult = await runCreateRule({
+              conditionTree,
               ...(previousRule ? getReplayCopySource(previousRule) : {}),
               enabled: true,
               name: ruleName,
-              practiceId,
-              ...getCowMutationArgs(),
             });
             handleDraftMutationResult(createResult);
 
@@ -594,15 +616,11 @@ export function RuleBuilder({
                   });
                   handleDraftMutationResult(redoDeleteResult);
 
-                  const recreateResult = await createRuleMutation({
-                    conditionTree: preparedRule.conditionTree as Parameters<
-                      typeof createRuleMutation
-                    >[0]["conditionTree"],
+                  const recreateResult = await runCreateRule({
+                    conditionTree: preparedRule.conditionTree,
                     ...getReplayCopySource(previousRule),
                     enabled: true,
                     name: ruleName,
-                    practiceId,
-                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -657,15 +675,11 @@ export function RuleBuilder({
                   });
                   handleDraftMutationResult(undoDeleteResult);
 
-                  const recreatePrevious = await createRuleMutation({
-                    conditionTree: preparedRule.conditionTree as Parameters<
-                      typeof createRuleMutation
-                    >[0]["conditionTree"],
+                  const recreatePrevious = await runCreateRule({
+                    conditionTree: preparedRule.conditionTree,
                     ...getReplayCopySource(previousRule),
                     enabled: previousRule.enabled,
                     name: previousRuleName,
-                    practiceId,
-                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreatePrevious);
                   currentRuleId = recreatePrevious.entityId;
@@ -694,14 +708,10 @@ export function RuleBuilder({
                       status: "conflict" as const,
                     };
                   }
-                  const recreateResult = await createRuleMutation({
-                    conditionTree: preparedRule.conditionTree as Parameters<
-                      typeof createRuleMutation
-                    >[0]["conditionTree"],
+                  const recreateResult = await runCreateRule({
+                    conditionTree: preparedRule.conditionTree,
                     enabled: true,
                     name: ruleName,
-                    practiceId,
-                    ...getCowMutationArgs(),
                   });
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
@@ -741,19 +751,22 @@ export function RuleBuilder({
   );
 }
 
-function createEntityIdResolver(
+function createKnownLineageKeyResolver(
   entities: { _id: string; lineageKey: string }[],
   missingLabel: string,
   missingGroups: Set<string>,
-): (lineageKey: string) => null | string {
-  const entityIdByLineageKey = new Map<string, string>(
-    entities.map((entry) => [entry.lineageKey, entry._id] as const),
+): (reference: string) => null | string {
+  const lineageKeyByReference = new Map<string, string>(
+    entities.flatMap((entry) => [
+      [entry._id, entry.lineageKey] as const,
+      [entry.lineageKey, entry.lineageKey] as const,
+    ]),
   );
 
-  return (lineageKey) => {
-    const entityId = entityIdByLineageKey.get(lineageKey);
-    if (entityId) {
-      return entityId;
+  return (reference) => {
+    const lineageKey = lineageKeyByReference.get(reference);
+    if (lineageKey) {
+      return lineageKey;
     }
 
     missingGroups.add(missingLabel);
@@ -772,83 +785,52 @@ function createLineageKeyResolver(
 }
 
 function normalizeConditionTreeForComparison(
-  conditionTree: unknown,
+  conditionTree: ConditionTreeNode,
   normalizeAppointmentTypeId: (id: string) => string,
   normalizePractitionerId: (id: string) => string,
   normalizeLocationId: (id: string) => string,
-): unknown {
-  if (!conditionTree || typeof conditionTree !== "object") {
-    return conditionTree;
+): ConditionTreeNode {
+  if (conditionTree.nodeType === "CONDITION") {
+    const normalizeId =
+      conditionTree.conditionType === "APPOINTMENT_TYPE" ||
+      conditionTree.conditionType === "CONCURRENT_COUNT" ||
+      conditionTree.conditionType === "DAILY_CAPACITY"
+        ? normalizeAppointmentTypeId
+        : conditionTree.conditionType === "PRACTITIONER"
+          ? normalizePractitionerId
+          : conditionTree.conditionType === "LOCATION"
+            ? normalizeLocationId
+            : null;
+
+    if (!normalizeId || !conditionTree.valueIds) {
+      return conditionTree;
+    }
+
+    return {
+      ...conditionTree,
+      valueIds: conditionTree.valueIds.map((valueId) => normalizeId(valueId)),
+    };
   }
 
-  if (Array.isArray(conditionTree)) {
-    return conditionTree.map((node) =>
+  return {
+    ...conditionTree,
+    children: conditionTree.children.map((child) =>
       normalizeConditionTreeForComparison(
-        node,
+        child,
         normalizeAppointmentTypeId,
         normalizePractitionerId,
         normalizeLocationId,
       ),
-    );
-  }
-
-  const node = conditionTree as Record<string, unknown>;
-  const nodeType = node["nodeType"];
-  const valueIds = node["valueIds"];
-  const conditionType = node["conditionType"];
-  const children = node["children"];
-
-  if (
-    nodeType === "CONDITION" &&
-    Array.isArray(valueIds) &&
-    typeof conditionType === "string"
-  ) {
-    const normalizeId =
-      conditionType === "APPOINTMENT_TYPE" ||
-      conditionType === "CONCURRENT_COUNT" ||
-      conditionType === "DAILY_CAPACITY"
-        ? normalizeAppointmentTypeId
-        : conditionType === "PRACTITIONER"
-          ? normalizePractitionerId
-          : conditionType === "LOCATION"
-            ? normalizeLocationId
-            : null;
-
-    if (!normalizeId) {
-      return node;
-    }
-
-    return {
-      ...node,
-      valueIds: valueIds
-        .filter((valueId): valueId is string => typeof valueId === "string")
-        .map((valueId) => normalizeId(valueId)),
-    };
-  }
-
-  if ((nodeType === "AND" || nodeType === "NOT") && Array.isArray(children)) {
-    return {
-      ...node,
-      children: children.map((child) =>
-        normalizeConditionTreeForComparison(
-          child,
-          normalizeAppointmentTypeId,
-          normalizePractitionerId,
-          normalizeLocationId,
-        ),
-      ),
-    };
-  }
-
-  return node;
+    ),
+  };
 }
 
 function normalizeConditionTreeToLineage(
-  conditionTree: unknown,
+  conditionTree: ConditionTreeNode,
   appointmentTypes: RuleAppointmentType[],
   practitioners: RulePractitioner[],
   locations: RuleLocation[],
-) {
+): ConditionTreeNode {
   return normalizeConditionTreeForComparison(
     conditionTree,
     createLineageKeyResolver(appointmentTypes),
@@ -858,23 +840,23 @@ function normalizeConditionTreeToLineage(
 }
 
 function prepareRuleConditionTreeForReplay(
-  conditionTree: unknown,
+  conditionTree: ConditionTreeNode,
   appointmentTypes: RuleAppointmentType[],
   practitioners: RulePractitioner[],
   locations: RuleLocation[],
 ): RuleConditionTreePreparation {
   const missingGroups = new Set<string>();
-  const remapAppointmentTypeId = createEntityIdResolver(
+  const remapAppointmentTypeId = createKnownLineageKeyResolver(
     appointmentTypes,
     "Termintypen",
     missingGroups,
   );
-  const remapPractitionerId = createEntityIdResolver(
+  const remapPractitionerId = createKnownLineageKeyResolver(
     practitioners,
     "Behandler",
     missingGroups,
   );
-  const remapLocationId = createEntityIdResolver(
+  const remapLocationId = createKnownLineageKeyResolver(
     locations,
     "Standorte",
     missingGroups,
@@ -901,57 +883,29 @@ function prepareRuleConditionTreeForReplay(
 }
 
 function remapConditionTreeReferences(
-  conditionTree: unknown,
+  conditionTree: ConditionTreeNode,
   remapAppointmentTypeId: (id: string) => null | string,
   remapPractitionerId: (id: string) => null | string,
   remapLocationId: (id: string) => null | string,
-): unknown {
-  if (!conditionTree || typeof conditionTree !== "object") {
-    return conditionTree;
-  }
-
-  if (Array.isArray(conditionTree)) {
-    return conditionTree.map((node) =>
-      remapConditionTreeReferences(
-        node,
-        remapAppointmentTypeId,
-        remapPractitionerId,
-        remapLocationId,
-      ),
-    );
-  }
-
-  const node = conditionTree as Record<string, unknown>;
-  const nodeType = node["nodeType"];
-  const valueIds = node["valueIds"];
-  const conditionType = node["conditionType"];
-  const children = node["children"];
-
-  if (
-    nodeType === "CONDITION" &&
-    Array.isArray(valueIds) &&
-    typeof conditionType === "string"
-  ) {
+): ConditionTreeNode {
+  if (conditionTree.nodeType === "CONDITION") {
     const remapId =
-      conditionType === "APPOINTMENT_TYPE" ||
-      conditionType === "CONCURRENT_COUNT" ||
-      conditionType === "DAILY_CAPACITY"
+      conditionTree.conditionType === "APPOINTMENT_TYPE" ||
+      conditionTree.conditionType === "CONCURRENT_COUNT" ||
+      conditionTree.conditionType === "DAILY_CAPACITY"
         ? remapAppointmentTypeId
-        : conditionType === "PRACTITIONER"
+        : conditionTree.conditionType === "PRACTITIONER"
           ? remapPractitionerId
-          : conditionType === "LOCATION"
+          : conditionTree.conditionType === "LOCATION"
             ? remapLocationId
             : null;
 
-    if (!remapId) {
-      return node;
+    if (!remapId || !conditionTree.valueIds) {
+      return conditionTree;
     }
 
     const remappedValueIds: string[] = [];
-    for (const valueId of valueIds) {
-      if (typeof valueId !== "string") {
-        continue;
-      }
+    for (const valueId of conditionTree.valueIds) {
       const remappedId = remapId(valueId);
       if (remappedId) {
         remappedValueIds.push(remappedId);
@@ -959,41 +913,39 @@ function remapConditionTreeReferences(
     }
 
     return {
-      ...node,
+      ...conditionTree,
       valueIds: remappedValueIds,
     };
   }
 
-  if ((nodeType === "AND" || nodeType === "NOT") && Array.isArray(children)) {
-    return {
-      ...node,
-      children: children.map((child) =>
-        remapConditionTreeReferences(
-          child,
-          remapAppointmentTypeId,
-          remapPractitionerId,
-          remapLocationId,
-        ),
+  return {
+    ...conditionTree,
+    children: conditionTree.children.map((child) =>
+      remapConditionTreeReferences(
+        child,
+        remapAppointmentTypeId,
+        remapPractitionerId,
+        remapLocationId,
       ),
-    };
-  }
-
-  return node;
+    ),
+  };
 }
 
-function serializeRuleState(conditionTree: unknown, enabled: boolean): string {
+function serializeRuleState(
+  conditionTree: ConditionTreeNode,
+  enabled: boolean,
+): string {
   return JSON.stringify(
     {
       conditionTree,
       enabled,
     },
     (_, value: unknown) => {
-      if (!value || Array.isArray(value) || typeof value !== "object") {
+      if (!isSerializableRecord(value)) {
         return value;
       }
 
-      const objectValue = value as Record<string, unknown>;
-      const sortedEntries = Object.entries(objectValue).toSorted(([a], [b]) =>
+      const sortedEntries = Object.entries(value).toSorted(([a], [b]) =>
         a.localeCompare(b),
       );
       return Object.fromEntries(sortedEntries);
@@ -1002,7 +954,7 @@ function serializeRuleState(conditionTree: unknown, enabled: boolean): string {
 }
 
 function serializeRuleStateForComparison(params: {
-  conditionTree: unknown;
+  conditionTree: ConditionTreeNode;
   enabled: boolean;
 }): string {
   return serializeRuleState(params.conditionTree, params.enabled);

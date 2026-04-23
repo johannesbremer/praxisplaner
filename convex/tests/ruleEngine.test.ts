@@ -1133,7 +1133,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
           appointmentTypeId: checkupTypeId,
           dateTime: "2026-12-31T11:00:00+01:00[Europe/Berlin]",
           locationId,
-          patientDateOfBirth: "01012010",
+          patientDateOfBirth: "2010-01-01",
           practiceId,
           practitionerId,
           requestedAt: "2026-12-20T11:00:00+01:00[Europe/Berlin]",
@@ -1149,7 +1149,7 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
         appointmentTypeId: checkupTypeId,
         dateTime: "2028-01-02T11:00:00+01:00[Europe/Berlin]",
         locationId,
-        patientDateOfBirth: "01012010",
+        patientDateOfBirth: "2010-01-01",
         practiceId,
         practitionerId,
         requestedAt: "2027-12-20T11:00:00+01:00[Europe/Berlin]",
@@ -1201,16 +1201,6 @@ describe("Rule Engine: Numeric Comparison Conditions", () => {
         context: {
           ...baseContext,
           patientDateOfBirth: "2025-13-01", // malformed ISO date
-        },
-        ruleSetId,
-      }),
-    ).rejects.toThrow();
-
-    await expect(
-      t.query(internal.ruleEngine.checkRulesForAppointment, {
-        context: {
-          ...baseContext,
-          patientDateOfBirth: "01132025", // malformed GDT date
         },
         ruleSetId,
       }),

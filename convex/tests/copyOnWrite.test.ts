@@ -6,9 +6,13 @@ import { convexTest } from "convex-test";
 import { expect } from "vitest";
 import { describe, test } from "vitest";
 
+import type { ConditionTreeNode } from "../../lib/condition-tree";
+import type { RuleFromDB } from "../../src/components/rule-builder-types";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
+import { regex } from "../../lib/arkregex";
+import { serializeConditionTreeTransport } from "../../lib/condition-tree";
 import { api } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
@@ -20,10 +24,41 @@ type LineageTable = Extract<
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
 
+const BASE_SCHEDULE_BATCH_EMPTY_REGEX = regex.as(
+  String.raw`\[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY\]`,
+);
+const BASE_SCHEDULE_DUPLICATE_IN_BATCH_REGEX = regex.as(
+  String.raw`\[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH\]`,
+);
+const BASE_SCHEDULE_DUPLICATE_REGEX = regex.as(
+  String.raw`\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]`,
+);
+const APPOINTMENT_TYPE_DELETED_REGEX = regex.as(
+  String.raw`gelöscht|deleted|APPOINTMENT_TYPE`,
+);
+
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "copyonwrite@example.com",
     subject: "workos_copyonwrite",
+  });
+}
+
+async function createRule(
+  t: ReturnType<typeof createAuthedTestContext>,
+  args: {
+    conditionTree: ConditionTreeNode;
+    copyFromId?: Id<"ruleConditions">;
+    enabled?: boolean;
+    expectedDraftRevision: null | number;
+    name: string;
+    practiceId: Id<"practices">;
+    selectedRuleSetId: Id<"ruleSets">;
+  },
+) {
+  return await t.mutation(api.entities.createRule, {
+    ...args,
+    conditionTree: serializeConditionTreeTransport(args.conditionTree),
   });
 }
 
@@ -203,7 +238,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       throw new Error("Unsaved rule set not found");
     }
 
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -288,7 +323,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a rule referencing the appointment type from the SAME rule set
     // This should SUCCEED
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -370,7 +405,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     // Create a rule that uses this appointment type
-    await t.mutation(api.entities.createRule, {
+    await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -444,7 +479,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       throw new Error("Unsaved rule set not found after second change");
     }
 
-    // Verify the rule was copied and appointment type IDs were remapped
+    // Verify the rule was copied and appointment type lineage keys were preserved
     const copiedRules = await t.run(async (ctx) => {
       return await ctx.db
         .query("ruleConditions")
@@ -469,23 +504,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     expect(conditionNodes.length).toBeGreaterThan(0);
 
-    // Verify that the appointment type IDs in the rule now point to
-    // appointment types in the NEW rule set, not the old one
+    // Verify that copied rules still reference the stable appointment type
+    // lineage key instead of draft-specific entity IDs.
     for (const node of conditionNodes) {
-      // Filter already ensures valueIds exists, but assert for type safety
       assertDefined(node.valueIds, "valueIds should be defined by filter");
-      for (const id of node.valueIds) {
-        const appointmentType = await t.run(async (ctx) => {
-          return await ctx.db.get(
-            "appointmentTypes",
-            id as Id<"appointmentTypes">,
-          );
-        });
-
-        assertDefined(appointmentType, `Appointment type ${id} should exist`);
-        // This is the key assertion - the referenced entity belongs to the same rule set
-        expect(appointmentType.ruleSetId).toEqual(unsavedRuleSet._id);
-      }
+      expect(node.valueIds).toEqual([appointmentType1.entityId]);
     }
   });
 
@@ -520,36 +543,33 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       });
     });
 
-    // Create appointment type
-    const appointmentType = await t.mutation(
-      api.entities.createAppointmentType,
-      {
+    const sourceAppointmentTypeId = await t.run(async (ctx) => {
+      return await insertWithLineage(ctx, "appointmentTypes", {
+        allowedPractitionerIds: [practitioner],
+        createdAt: BigInt(Date.now()),
         duration: 30,
-        expectedDraftRevision: null,
+        lastModified: BigInt(Date.now()),
         name: "Surgery",
         practiceId,
-        practitionerIds: [practitioner],
-        selectedRuleSetId: initialRuleSetId,
-      },
-    );
-
-    // Get the unsaved rule set
-    const unsavedRuleSet = await t.run(async (ctx) => {
-      return await ctx.db
-        .query("ruleSets")
-        .withIndex("by_practiceId_saved", (q) =>
-          q.eq("practiceId", practiceId).eq("saved", false),
-        )
-        .first();
+        ruleSetId: initialRuleSetId,
+      });
     });
 
-    if (!unsavedRuleSet) {
-      throw new Error("Unsaved rule set not found");
+    const sourceAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", sourceAppointmentTypeId);
+    });
+
+    if (!sourceAppointmentType) {
+      throw new Error("Source appointment type not found");
     }
+    assertDefined(
+      sourceAppointmentType.lineageKey,
+      "Source appointment type lineage key should exist",
+    );
 
     // Create a CONCURRENT_COUNT rule
     // scope is now a separate field, valueIds contains only appointment type IDs
-    const result = await t.mutation(api.entities.createRule, {
+    const result = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -557,20 +577,43 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
             scope: "practice",
-            valueIds: [appointmentType.entityId as string],
+            valueIds: [sourceAppointmentType.lineageKey],
             valueNumber: 2,
           },
         ],
         nodeType: "AND",
       },
-      expectedDraftRevision: unsavedRuleSet.draftRevision,
+      expectedDraftRevision: null,
       name: "Concurrent Test Rule",
       practiceId,
       selectedRuleSetId: initialRuleSetId,
     });
 
     expect(result.entityId).toBeDefined();
-    expect(result.ruleSetId).toEqual(unsavedRuleSet._id);
+    expect(result.ruleSetId).not.toEqual(initialRuleSetId);
+
+    const unsavedRuleSet = await t.run(async (ctx) => {
+      return await ctx.db.get("ruleSets", result.ruleSetId);
+    });
+
+    if (!unsavedRuleSet) {
+      throw new Error("Unsaved rule set not found");
+    }
+
+    const remappedAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q
+            .eq("ruleSetId", result.ruleSetId)
+            .eq("lineageKey", sourceAppointmentType.lineageKey),
+        )
+        .first();
+    });
+
+    if (!remappedAppointmentType) {
+      throw new Error("Remapped appointment type not found");
+    }
 
     // Verify the rule was created with the correct structure
     const ruleConditions = await t.run(async (ctx) => {
@@ -589,8 +632,341 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
     // scope is now a separate field
     expect(concurrentCondition.scope).toEqual("practice");
-    // valueIds only contains appointment type IDs
-    expect(concurrentCondition.valueIds).toEqual([appointmentType.entityId]);
+    expect(concurrentCondition.valueIds).toEqual([
+      sourceAppointmentType.lineageKey,
+    ]);
+
+    const rules = await t.query(api.entities.getRules, {
+      ruleSetId: result.ruleSetId,
+    });
+
+    expect(rules).toHaveLength(1);
+    const [rule] = rules;
+    expect(rule).toBeDefined();
+    if (!rule) {
+      throw new Error("Rule not found");
+    }
+    expect(rule.conditionTree.nodeType).toEqual("AND");
+    if (rule.conditionTree.nodeType !== "AND") {
+      throw new Error("Expected AND condition tree");
+    }
+
+    const concurrentTreeNode = rule.conditionTree.children.find(
+      (node) =>
+        node.nodeType === "CONDITION" &&
+        node.conditionType === "CONCURRENT_COUNT",
+    );
+    expect(concurrentTreeNode).toBeDefined();
+    if (
+      concurrentTreeNode?.nodeType !== "CONDITION" ||
+      concurrentTreeNode.conditionType !== "CONCURRENT_COUNT"
+    ) {
+      throw new Error("Concurrent tree node not found");
+    }
+
+    expect(concurrentTreeNode.scope).toEqual("practice");
+    expect(concurrentTreeNode.valueIds).toEqual([
+      sourceAppointmentType.lineageKey,
+    ]);
+    expect(concurrentTreeNode.valueNumber).toEqual(2);
+  });
+
+  test("should preserve DAILY_CAPACITY scope when reading rules after saving a draft", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Daily Capacity Scope Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const practitionerId = await t.run(async (ctx) => {
+      return await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Capacity",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const appointmentType = await t.mutation(
+      api.entities.createAppointmentType,
+      {
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Capacity Check",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: initialRuleSetId,
+      },
+    );
+
+    const draftRuleSet = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("ruleSets")
+        .withIndex("by_practiceId_saved", (q) =>
+          q.eq("practiceId", practiceId).eq("saved", false),
+        )
+        .first();
+    });
+
+    if (!draftRuleSet) {
+      throw new Error("Draft rule set not found");
+    }
+
+    await createRule(t, {
+      conditionTree: {
+        children: [
+          {
+            conditionType: "DAILY_CAPACITY",
+            nodeType: "CONDITION",
+            operator: "GREATER_THAN_OR_EQUAL",
+            scope: "location",
+            valueIds: [appointmentType.entityId as string],
+            valueNumber: 4,
+          },
+        ],
+        nodeType: "AND",
+      },
+      expectedDraftRevision: draftRuleSet.draftRevision,
+      name: "Daily Capacity Rule",
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Saved Daily Capacity Scope",
+      practiceId,
+      setAsActive: true,
+    });
+
+    const rules = await t.query(api.entities.getRules, {
+      ruleSetId: savedRuleSetId,
+    });
+
+    expect(rules).toHaveLength(1);
+    const [rule] = rules;
+    expect(rule).toBeDefined();
+    if (!rule) {
+      throw new Error("Rule not found");
+    }
+    expect(rule.conditionTree.nodeType).toEqual("AND");
+    if (rule.conditionTree.nodeType !== "AND") {
+      throw new Error("Expected AND condition tree");
+    }
+
+    const dailyCapacityNode = rule.conditionTree.children.find(
+      (node) =>
+        node.nodeType === "CONDITION" &&
+        node.conditionType === "DAILY_CAPACITY",
+    );
+    expect(dailyCapacityNode).toBeDefined();
+    if (
+      dailyCapacityNode?.nodeType !== "CONDITION" ||
+      dailyCapacityNode.conditionType !== "DAILY_CAPACITY"
+    ) {
+      throw new Error("Daily capacity tree node not found");
+    }
+
+    expect(dailyCapacityNode.scope).toEqual("location");
+    expect(dailyCapacityNode.valueIds).toEqual([appointmentType.entityId]);
+    expect(dailyCapacityNode.valueNumber).toEqual(4);
+  });
+
+  test("should preserve scope and remap appointment type IDs for copied count-based rules", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Copied Count Rule Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const practitionerId = await t.run(async (ctx) => {
+      return await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Count Copy",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const sourceAppointmentTypeId = await t.run(async (ctx) => {
+      return await insertWithLineage(ctx, "appointmentTypes", {
+        allowedPractitionerIds: [practitionerId],
+        createdAt: BigInt(Date.now()),
+        duration: 25,
+        lastModified: BigInt(Date.now()),
+        name: "Count Copy Type",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+    });
+
+    const sourceAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", sourceAppointmentTypeId);
+    });
+    assertDefined(
+      sourceAppointmentType,
+      "Expected source appointment type for copied count rule test",
+    );
+    assertDefined(
+      sourceAppointmentType.lineageKey,
+      "Expected source appointment type lineage key for copied count rule test",
+    );
+
+    const cases = [
+      {
+        conditionType: "CONCURRENT_COUNT" as const,
+        scope: "practice" as const,
+        valueNumber: 2,
+      },
+      {
+        conditionType: "DAILY_CAPACITY" as const,
+        scope: "practitioner" as const,
+        valueNumber: 5,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const createdRule = await createRule(t, {
+        conditionTree: {
+          children: [
+            {
+              conditionType: testCase.conditionType,
+              nodeType: "CONDITION",
+              operator: "GREATER_THAN_OR_EQUAL",
+              scope: testCase.scope,
+              valueIds: [sourceAppointmentType.lineageKey],
+              valueNumber: testCase.valueNumber,
+            },
+          ],
+          nodeType: "AND",
+        },
+        expectedDraftRevision: null,
+        name: `${testCase.conditionType} source rule`,
+        practiceId,
+        selectedRuleSetId: initialRuleSetId,
+      });
+
+      const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+        description: `Saved ${testCase.conditionType}`,
+        practiceId,
+        setAsActive: true,
+      });
+
+      const savedPractitioner = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("practitioners")
+          .withIndex("by_ruleSetId_lineageKey", (q) =>
+            q.eq("ruleSetId", savedRuleSetId).eq("lineageKey", practitionerId),
+          )
+          .first();
+      });
+      assertDefined(
+        savedPractitioner,
+        `Expected saved practitioner for ${testCase.conditionType}`,
+      );
+
+      await t.mutation(api.entities.createAppointmentType, {
+        duration: 40,
+        expectedDraftRevision: null,
+        name: `${testCase.conditionType} trigger`,
+        practiceId,
+        practitionerIds: [savedPractitioner._id],
+        selectedRuleSetId: savedRuleSetId,
+      });
+
+      const copiedDraftRuleSet = await t.run(
+        async (ctx): Promise<Doc<"ruleSets"> | null> => {
+          return await ctx.db
+            .query("ruleSets")
+            .withIndex("by_practiceId_saved", (q) =>
+              q.eq("practiceId", practiceId).eq("saved", false),
+            )
+            .first();
+        },
+      );
+      assertDefined(
+        copiedDraftRuleSet,
+        `Expected copied draft rule set for ${testCase.conditionType}`,
+      );
+
+      const copiedAppointmentType = await t.run(
+        async (ctx): Promise<Doc<"appointmentTypes"> | null> => {
+          return await ctx.db
+            .query("appointmentTypes")
+            .withIndex("by_ruleSetId_lineageKey", (q) =>
+              q
+                .eq("ruleSetId", copiedDraftRuleSet._id)
+                .eq("lineageKey", sourceAppointmentType.lineageKey),
+            )
+            .first();
+        },
+      );
+      assertDefined(
+        copiedAppointmentType,
+        `Expected copied appointment type for ${testCase.conditionType}`,
+      );
+
+      const copiedCondition = await t.run(
+        async (ctx): Promise<Doc<"ruleConditions"> | null> => {
+          return await ctx.db
+            .query("ruleConditions")
+            .withIndex("by_ruleSetId_conditionType", (q) =>
+              q
+                .eq("ruleSetId", copiedDraftRuleSet._id)
+                .eq("conditionType", testCase.conditionType),
+            )
+            .first();
+        },
+      );
+      assertDefined(
+        copiedCondition,
+        `Expected copied condition for ${testCase.conditionType}`,
+      );
+      expect(copiedCondition.scope).toEqual(testCase.scope);
+      expect(copiedCondition.valueIds).toEqual([
+        sourceAppointmentType.lineageKey,
+      ]);
+      expect(copiedCondition.valueNumber).toEqual(testCase.valueNumber);
+
+      const copiedRules: RuleFromDB[] = await t.query(api.entities.getRules, {
+        ruleSetId: copiedDraftRuleSet._id,
+      });
+      expect(copiedRules).toHaveLength(1);
+      const [copiedRule] = copiedRules;
+      assertDefined(
+        copiedRule,
+        `Expected copied rule for ${testCase.conditionType}`,
+      );
+      expect(copiedRule._id).not.toEqual(createdRule.entityId);
+      expect(copiedRule.conditionTree.nodeType).toEqual("AND");
+      if (copiedRule.conditionTree.nodeType !== "AND") {
+        throw new Error("Expected copied rule tree to be an AND node");
+      }
+
+      const copiedTreeNode = copiedRule.conditionTree.children.find(
+        (node) =>
+          node.nodeType === "CONDITION" &&
+          node.conditionType === testCase.conditionType,
+      );
+      expect(copiedTreeNode).toBeDefined();
+      if (
+        copiedTreeNode?.nodeType !== "CONDITION" ||
+        copiedTreeNode.conditionType !== testCase.conditionType
+      ) {
+        throw new Error(
+          `Expected copied ${testCase.conditionType} condition tree node`,
+        );
+      }
+      expect(copiedTreeNode.scope).toEqual(testCase.scope);
+      expect(copiedTreeNode.valueIds).toEqual([
+        sourceAppointmentType.lineageKey,
+      ]);
+      expect(copiedTreeNode.valueNumber).toEqual(testCase.valueNumber);
+
+      await t.mutation(api.ruleSets.deleteUnsavedRuleSet, {
+        practiceId,
+        ruleSetId: copiedDraftRuleSet._id,
+      });
+    }
   });
 
   test("should reject legacy rule payloads that rely on implicit scope or DAY_OF_WEEK valueIds", async () => {
@@ -613,7 +989,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     }
 
     await expect(
-      t.mutation(api.entities.createRule, {
+      createRule(t, {
         conditionTree: {
           children: [
             {
@@ -756,7 +1132,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         schedules: [],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[VALIDATION:BASE_SCHEDULE_BATCH_EMPTY\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_BATCH_EMPTY_REGEX);
 
     const unsavedRuleSet = await t.run(async (ctx) => {
       return await ctx.db
@@ -884,7 +1260,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE_IN_BATCH\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_DUPLICATE_IN_BATCH_REGEX);
   });
 
   test("should reject base schedule batch lineage keys that already exist in the draft", async () => {
@@ -928,7 +1304,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         ],
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]/);
+    ).rejects.toThrow(BASE_SCHEDULE_DUPLICATE_REGEX);
   });
 
   test("should reject stale appointment type lineage keys and only delete current lineage", async () => {
@@ -994,7 +1370,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         practiceId,
         selectedRuleSetId: initialRuleSetId,
       }),
-    ).rejects.toThrow(/gelöscht|deleted|APPOINTMENT_TYPE/);
+    ).rejects.toThrow(APPOINTMENT_TYPE_DELETED_REGEX);
 
     const remainingAfterFailedDelete = await t.run(async (ctx) => {
       const matches = await ctx.db
@@ -1071,7 +1447,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       selectedRuleSetId: initialRuleSetId,
     });
 
-    const createdRule = await t.mutation(api.entities.createRule, {
+    const createdRule = await createRule(t, {
       conditionTree: {
         children: [
           {
@@ -1151,7 +1527,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       selectedRuleSetId: initialRuleSetId,
     });
 
-    const createdRule = await t.mutation(api.entities.createRule, {
+    const createdRule = await createRule(t, {
       conditionTree: {
         children: [
           {

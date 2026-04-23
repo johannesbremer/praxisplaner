@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import type { MfaId } from "./identity";
@@ -33,6 +34,7 @@ import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const vacationPortionValidator = v.union(
@@ -143,13 +145,13 @@ async function deleteCoverageSimulationAppointmentsForVacation(
 async function getPatientDateOfBirthForAppointment(
   ctx: MutationCtx,
   appointment: Doc<"appointments">,
-) {
+): Promise<IsoDateString | undefined> {
   if (!appointment.patientId) {
     return;
   }
 
   const patient = await ctx.db.get("patients", appointment.patientId);
-  return patient?.dateOfBirth;
+  return asOptionalIsoDateString(patient?.dateOfBirth);
 }
 
 function getVacationStaffId(vacation: Doc<"vacations">) {

@@ -699,12 +699,12 @@ function AuthenticatedBookingFlow() {
       });
     };
 
-    const practitionerNamesById = Object.fromEntries(
+    const practitionerNamesById = new Map<Id<"practitioners">, string>(
       (practitioners ?? []).flatMap((practitioner) => [
-        [practitioner._id, practitioner.name],
-        [practitioner.lineageKey, practitioner.name],
+        [practitioner._id, practitioner.name] as const,
+        [practitioner.lineageKey, practitioner.name] as const,
       ]),
-    ) as Partial<Record<Id<"practitioners">, string>>;
+    );
 
     currentGroup = "confirmation";
     showBackButton = false;

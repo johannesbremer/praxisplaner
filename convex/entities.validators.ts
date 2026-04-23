@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 
+import {
+  CONDITION_OPERATORS,
+  CONDITION_TYPES,
+  LOGICAL_NODE_TYPES,
+  SCOPES,
+} from "../lib/condition-tree.js";
 import { followUpStepValidator } from "./followUpPlans";
-import { conditionTreeNodeValidator } from "./ruleEngine";
 
 export const appointmentTypeResultValidator = v.object({
   draftRevision: v.number(),
@@ -164,6 +169,48 @@ export const restorePractitionerWithDependenciesResultValidator = v.object({
 
 export const expectedDraftRevisionValidator = v.union(v.number(), v.null());
 
+function literalUnionValidator(values: readonly [string, string, ...string[]]) {
+  const [first, second, ...rest] = values;
+  return v.union(
+    v.literal(first),
+    v.literal(second),
+    ...rest.map((value) => v.literal(value)),
+  );
+}
+
+const scopeTransportValidator = literalUnionValidator(SCOPES);
+const conditionTypeTransportValidator = literalUnionValidator(CONDITION_TYPES);
+const conditionOperatorTransportValidator =
+  literalUnionValidator(CONDITION_OPERATORS);
+const logicalNodeTypeTransportValidator =
+  literalUnionValidator(LOGICAL_NODE_TYPES);
+
+const conditionLeafTransportNodeValidator = v.object({
+  conditionType: conditionTypeTransportValidator,
+  nodeId: v.string(),
+  nodeType: v.literal("CONDITION"),
+  operator: conditionOperatorTransportValidator,
+  scope: v.optional(scopeTransportValidator),
+  valueIds: v.optional(v.array(v.string())),
+  valueNumber: v.optional(v.number()),
+});
+
+const logicalTransportNodeValidator = v.object({
+  childNodeIds: v.array(v.string()),
+  nodeId: v.string(),
+  nodeType: logicalNodeTypeTransportValidator,
+});
+
+const conditionTreeTransportNodeValidator = v.union(
+  conditionLeafTransportNodeValidator,
+  logicalTransportNodeValidator,
+);
+
+export const conditionTreeTransportValidator = v.object({
+  nodes: v.array(conditionTreeTransportNodeValidator),
+  rootNodeId: v.string(),
+});
+
 export const appointmentTypeArgsValidator = v.object({
   allowedPractitionerIds: v.optional(v.array(v.id("practitioners"))),
   duration: v.number(),
@@ -174,7 +221,7 @@ export const appointmentTypeArgsValidator = v.object({
 });
 
 export const ruleCreateArgsValidator = v.object({
-  conditionTree: conditionTreeNodeValidator,
+  conditionTree: conditionTreeTransportValidator,
   copyFromId: v.optional(v.id("ruleConditions")),
   enabled: v.optional(v.boolean()),
   expectedDraftRevision: expectedDraftRevisionValidator,

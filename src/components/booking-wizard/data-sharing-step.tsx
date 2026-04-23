@@ -2,9 +2,6 @@ import { useMutation } from "convex/react";
 import { Plus, Trash2 } from "lucide-react";
 import { type SyntheticEvent, useState } from "react";
 import { toast } from "sonner";
-import { z } from "zod";
-
-import type { Doc } from "@/convex/_generated/dataModel";
 
 import { PhoneInput } from "@/components/phone-input";
 import { Button } from "@/components/ui/button";
@@ -24,51 +21,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import {
+  type DataSharingContactFormValue,
+  dataSharingContactsFormSchema,
+} from "@/lib/booking-schemas";
 
 import type { StepComponentProps } from "./types";
 
 type ContactField = keyof ContactFormValue;
-type ContactFormValue = Omit<DataSharingContact, "gender" | "userId"> & {
-  gender: "" | DataSharingContact["gender"];
-};
-type DataSharingContact =
-  Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
-type DataSharingContactInput = Omit<DataSharingContact, "userId">;
-
-function createEmptyContact(): ContactFormValue {
-  return {
-    city: "",
-    dateOfBirth: "",
-    firstName: "",
-    gender: "",
-    lastName: "",
-    phoneNumber: "",
-    postalCode: "",
-    street: "",
-    title: "",
-  };
-}
-
-const dataSharingPersonSchema = z.object({
-  city: z.string().trim().min(1, "Ort ist erforderlich"),
-  dateOfBirth: z
-    .string()
-    .regex(
-      /^\d{4}-\d{2}-\d{2}$/,
-      "Geburtsdatum muss im Format YYYY-MM-DD sein",
-    ),
-  firstName: z.string().trim().min(1, "Vorname ist erforderlich"),
-  gender: z.enum(["male", "female", "diverse"], {
-    error: "Geschlecht ist erforderlich",
-  }),
-  lastName: z.string().trim().min(1, "Nachname ist erforderlich"),
-  phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
-  postalCode: z.string().trim().min(1, "PLZ ist erforderlich"),
-  street: z.string().trim().min(1, "Straße ist erforderlich"),
-  title: z.string().trim(),
-});
-
-const dataSharingContactsSchema = z.array(dataSharingPersonSchema);
+type ContactFormValue = DataSharingContactFormValue;
 
 export function DataSharingStep({ sessionId, state }: StepComponentProps) {
   const isNewDataSharing = state.step === "new-data-sharing";
@@ -148,7 +109,7 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
   const handleSubmit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const parsed = dataSharingContactsSchema.safeParse(contacts);
+    const parsed = dataSharingContactsFormSchema.safeParse(contacts);
     if (!parsed.success) {
       const nextErrors: Record<
         number,
@@ -159,9 +120,12 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
       for (const issue of parsed.error.issues) {
         const [index, field] = issue.path;
         if (typeof index === "number" && typeof field === "string") {
-          const typedField = field as ContactField;
+          if (!isContactField(field)) {
+            nextFormError ||= issue.message;
+            continue;
+          }
           const existing = nextErrors[index] ?? {};
-          nextErrors[index] = { ...existing, [typedField]: issue.message };
+          nextErrors[index] = { ...existing, [field]: issue.message };
         } else {
           nextFormError ||= issue.message;
         }
@@ -177,9 +141,8 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
     setErrors({});
 
     try {
-      const dataSharingContacts: DataSharingContactInput[] = parsed.data;
       await submitNewDataSharing({
-        dataSharingContacts,
+        dataSharingContacts: parsed.data,
         sessionId,
       });
     } catch (error) {
@@ -473,5 +436,33 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+function createEmptyContact(): ContactFormValue {
+  return {
+    city: "",
+    dateOfBirth: "",
+    firstName: "",
+    gender: "",
+    lastName: "",
+    phoneNumber: "",
+    postalCode: "",
+    street: "",
+    title: "",
+  };
+}
+
+function isContactField(value: string): value is ContactField {
+  return (
+    value === "city" ||
+    value === "dateOfBirth" ||
+    value === "firstName" ||
+    value === "gender" ||
+    value === "lastName" ||
+    value === "phoneNumber" ||
+    value === "postalCode" ||
+    value === "street" ||
+    value === "title"
   );
 }

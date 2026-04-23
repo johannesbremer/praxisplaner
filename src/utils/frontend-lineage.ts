@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "neverthrow";
+import { err, ok, Result } from "neverthrow";
 
 import type { Id, TableNames } from "@/convex/_generated/dataModel";
 import type { EntityId, LineageKey } from "@/convex/identity";
@@ -74,34 +74,30 @@ export function mapFrontendLineageEntities<
   entities: TEntity[];
   entityType: string;
   source: string;
+}): Result<
+  FrontendLineageEntity<TableName, TEntity>[],
+  ReturnType<typeof invalidStateError>
+> {
+  return Result.combine(
+    params.entities.map((entity) =>
+      toFrontendLineageEntity<TableName, TEntity>({
+        entity,
+        entityType: params.entityType,
+        source: params.source,
+      }),
+    ),
+  );
+}
+
+export function requireFrontendLineageEntities<
+  TableName extends FrontendLineageTableName,
+  TEntity extends FrontendLineageRecord<TableName>,
+>(params: {
+  entities: TEntity[];
+  entityType: string;
+  source: string;
 }): FrontendLineageEntity<TableName, TEntity>[] {
-  const mappedEntities: FrontendLineageEntity<TableName, TEntity>[] = [];
-
-  for (const entity of params.entities) {
-    toFrontendLineageEntity<TableName, TEntity>({
-      entity,
-      entityType: params.entityType,
-      source: params.source,
-    }).match(
-      (frontendEntity) => {
-        mappedEntities.push(frontendEntity);
-      },
-      (error) => {
-        captureFrontendError(
-          error,
-          {
-            context: "map_frontend_lineage_entities",
-            entityId: entity._id,
-            entityType: params.entityType,
-            source: params.source,
-          },
-          `${params.source}:${params.entityType}:${entity._id}:lineage`,
-        );
-      },
-    );
-  }
-
-  return mappedEntities;
+  return mapFrontendLineageEntities<TableName, TEntity>(params)._unsafeUnwrap();
 }
 
 export function requireFrontendLineageKey<
@@ -112,12 +108,21 @@ export function requireFrontendLineageKey<
   source: string;
 }): Result<LineageKey<TableName>, ReturnType<typeof invalidStateError>> {
   if (!params.entity.lineageKey) {
-    return err(
-      invalidStateError(
-        `[FRONTEND:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entity._id} hat keinen lineageKey.`,
-        params.source,
-      ),
+    const error = invalidStateError(
+      `[FRONTEND:LINEAGE_KEY_MISSING] ${params.entityType} ${params.entity._id} hat keinen lineageKey.`,
+      params.source,
     );
+    captureFrontendError(
+      error,
+      {
+        context: "map_frontend_lineage_entities",
+        entityId: params.entity._id,
+        entityType: params.entityType,
+        source: params.source,
+      },
+      `${params.source}:${params.entityType}:${params.entity._id}:lineage`,
+    );
+    return err(error);
   }
 
   return ok(asLineageKey(params.entity.lineageKey));

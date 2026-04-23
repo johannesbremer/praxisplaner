@@ -4,14 +4,22 @@ import type {
   GdtValidationResult,
 } from "./types";
 
+import { regex } from "../../lib/arkregex.js";
+import {
+  GDT_DATE_REGEX,
+  GDT_LINE_REGEX,
+  isIsoDateString,
+} from "../../lib/typed-regex.js";
 import { GDT_ERROR_TYPES, GDT_FIELD_IDS } from "./types";
+
+const GDT_LINE_SPLIT_REGEX = regex.as(String.raw`\r?\n`);
 
 /**
  * Validates and converts a date from DDMMYYYY to YYYY-MM-DD format.
  * Returns a DateValidationResult with either a converted date string or an error.
  */
 export function isValidDate(date: string): DateValidationResult {
-  if (!/^\d{8}$/.test(date)) {
+  if (!GDT_DATE_REGEX.test(date)) {
     return {
       error: {
         message: "Date must be exactly 8 digits",
@@ -74,9 +82,20 @@ export function isValidDate(date: string): DateValidationResult {
   }
 
   // Convert to YYYY-MM-DD format
+  const normalizedDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (!isIsoDateString(normalizedDate)) {
+    return {
+      error: {
+        message: "Failed to normalize date to YYYY-MM-DD",
+        type: GDT_ERROR_TYPES.INVALID_FORMAT,
+      },
+      isValid: false,
+    };
+  }
+
   return {
     isValid: true,
-    value: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    value: normalizedDate,
   };
 }
 
@@ -86,23 +105,25 @@ export function parseGdtLine(line: string): GdtField | null {
     return null;
   }
 
-  const lengthStr = line.slice(0, 3);
-  const fieldId = line.slice(3, 7);
-  const content = line.slice(7).trim();
+  const match = GDT_LINE_REGEX.exec(line);
+  if (!match) {
+    return null;
+  }
 
+  const [, lengthStr, fieldId, rawContent] = match;
   const length = Number.parseInt(lengthStr, 10);
   if (Number.isNaN(length)) {
     return null;
   }
 
-  return { content, fieldId, length };
+  return { content: rawContent.trim(), fieldId, length };
 }
 
 /** Validates GDT content according to specification. */
 export function validateGdtContent(gdtContent: string): GdtValidationResult {
   const lines = gdtContent
     .trim()
-    .split(/\r?\n/)
+    .split(GDT_LINE_SPLIT_REGEX)
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0);
 

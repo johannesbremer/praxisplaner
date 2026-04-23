@@ -18,7 +18,10 @@ import { api } from "@/convex/_generated/api";
 import type { Appointment, NewCalendarProps } from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
-import { patientDocToInfo } from "../utils/patient-info";
+import {
+  parseOptionalPatientDateOfBirth,
+  patientDocToInfo,
+} from "../utils/patient-info";
 import {
   getPublicHolidayName,
   getPublicHolidaysData,
@@ -157,7 +160,7 @@ export function NewCalendar({
 
   const selectedPatientInfo: PatientInfo | undefined = (() => {
     if (selectedPatient?.type === "patient" && selectedPatientData) {
-      return patientDocToInfo(selectedPatientData);
+      return patientDocToInfo(selectedPatientData)._unsafeUnwrap();
     }
 
     if (selectedPatient?.type === "patient") {
@@ -175,7 +178,15 @@ export function NewCalendar({
         userId: selectedUserData._id,
       };
       if (bookingPersonalData) {
-        Object.assign(info, bookingPersonalData);
+        const dateOfBirth = parseOptionalPatientDateOfBirth({
+          dateOfBirth: bookingPersonalData.dateOfBirth,
+          patientLabel: `user:${selectedUserData._id}`,
+          source: "NewCalendar.selectedUserData",
+        })._unsafeUnwrap();
+        Object.assign(info, {
+          ...bookingPersonalData,
+          ...(dateOfBirth !== undefined && { dateOfBirth }),
+        });
       }
 
       if (
@@ -448,9 +459,10 @@ export function NewCalendar({
         return;
       }
 
-      // Find the practitioner for this column
-      const practitionerId = columns.find((col) => col.id === column)?.id;
-      if (!practitionerId) {
+      const practitionerId = workingPractitioners.find(
+        (practitioner) => practitioner.id === column,
+      )?.id;
+      if (practitionerId === undefined) {
         return;
       }
 
@@ -464,13 +476,13 @@ export function NewCalendar({
       });
 
       setBlockedSlotModalData({
-        practitionerId: practitionerId as Id<"practitioners">,
+        practitionerId,
         slotStart: slotStartZoned.toString(),
       });
       setBlockedSlotModalOpen(true);
       setIsBlockingModeActive(false); // Deactivate blocking mode after click
     },
-    [isBlockingModeActive, columns, slotToTime, selectedDate],
+    [isBlockingModeActive, selectedDate, slotToTime, workingPractitioners],
   );
 
   return (

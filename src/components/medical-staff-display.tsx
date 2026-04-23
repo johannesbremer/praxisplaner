@@ -10,7 +10,7 @@ import type {
 import type { PatientInfo } from "../types";
 
 import { MedicalStaffView } from "./medical-staff-view";
-import { XDRDevice } from "./xdr-device";
+import { ProDisplayXDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
   onSlotClick?: (slot: SchedulingSlot) => void;
@@ -33,7 +33,7 @@ export function MedicalStaffDisplay({
 }: MedicalStaffDisplayProps) {
   return (
     <div className="w-full px-6">
-      <XDRDevice>
+      <ProDisplayXDRDevice>
         <MedicalStaffView
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
@@ -43,7 +43,7 @@ export function MedicalStaffDisplay({
           simulatedContext={simulatedContext}
           simulationDate={simulationDate}
         />
-      </XDRDevice>
+      </ProDisplayXDRDevice>
     </div>
   );
 }

@@ -154,6 +154,24 @@ export default defineConfig(
           ],
         },
       ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          message:
+            "Use arkregex via `regex(...)` or shared typed regex exports instead of regex literals.",
+          selector: "Literal[regex]",
+        },
+        {
+          message:
+            "Use arkregex via `regex(...)` instead of constructing `RegExp` directly.",
+          selector: "CallExpression[callee.name='RegExp']",
+        },
+        {
+          message:
+            "Use arkregex via `regex(...)` instead of constructing `RegExp` directly.",
+          selector: "NewExpression[callee.name='RegExp']",
+        },
+      ],
       "no-useless-rename": "error",
       "object-shorthand": "error",
       "operator-assignment": "error",
@@ -212,6 +230,12 @@ export default defineConfig(
     files: ["convex/**/*.{js,ts}"],
     rules: {
       "unicorn/filename-case": "off",
+    },
+  },
+  {
+    files: ["lib/arkregex.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
   {

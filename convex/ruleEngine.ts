@@ -11,20 +11,40 @@
  * - buildPreloadedDayData: Pre-load all data needed for condition evaluation (called once per query)
  */
 
-import type { Infer } from "convex/values";
+import type { Infer, Validator } from "convex/values";
 
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type {
+  ConditionNode,
+  ConditionTreeNode,
+  LogicalNode,
+} from "../lib/condition-tree.js";
+import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 import {
+  CONDITION_OPERATORS,
+  CONDITION_TYPES,
+  isConditionNode,
+  isLogicalNode,
+  LOGICAL_NODE_TYPES,
+  SCOPES,
+} from "../lib/condition-tree.js";
+import {
   conditionTreeToConditions,
   generateRuleName,
 } from "../lib/rule-name-generator.js";
+import {
+  isIsoDateString,
+  ISO_DATE_REGEX,
+  isZonedDateTimeString,
+} from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
 import { requireLineageKey } from "./lineage";
+import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -37,8 +57,8 @@ import { requireLineageKey } from "./lineage";
 export interface ParsedAppointment {
   /** Original appointment document */
   appointment: Doc<"appointments">;
-  /** Appointment type id resolved into the evaluated rule set when possible */
-  appointmentTypeId?: Id<"appointmentTypes">;
+  /** Stable appointment type lineage key for condition matching */
+  appointmentTypeLineageKey: Id<"appointmentTypes">;
   /** Start time as epoch milliseconds (for fast comparison) */
   startEpochMs: number;
   /** End time as epoch milliseconds (for fast comparison) */
@@ -91,6 +111,18 @@ export interface PreloadedDayData {
    * Reuses practitioners already loaded by the caller.
    */
   practitioners: Map<Id<"practitioners">, Doc<"practitioners">>;
+
+  /**
+   * Stable lineage lookup for the evaluated rule set's entities.
+   * Rule conditions store lineage keys, while appointment contexts carry current
+   * rule-set entity IDs selected in the UI.
+   */
+  appointmentTypeLineageById: Map<
+    Id<"appointmentTypes">,
+    Id<"appointmentTypes">
+  >;
+  locationLineageById: Map<Id<"locations">, Id<"locations">>;
+  practitionerLineageById: Map<Id<"practitioners">, Id<"practitioners">>;
 }
 
 /**
@@ -163,6 +195,19 @@ export async function buildPreloadedDayData(
         appointmentType._id,
       ]),
   );
+  const appointmentTypeLineageById = new Map(
+    ruleSetAppointmentTypes
+      .filter((appointmentType) => appointmentType.practiceId === practiceId)
+      .map((appointmentType) => [
+        appointmentType._id,
+        requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
+      ]),
+  );
   const locationIdByLineage = new Map(
     ruleSetLocations
       .filter((location) => location.practiceId === practiceId)
@@ -174,6 +219,19 @@ export async function buildPreloadedDayData(
           ruleSetId: location.ruleSetId,
         }),
         location._id,
+      ]),
+  );
+  const locationLineageById = new Map(
+    ruleSetLocations
+      .filter((location) => location.practiceId === practiceId)
+      .map((location) => [
+        location._id,
+        requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
       ]),
   );
   const practitionerIdByLineage = new Map(
@@ -193,6 +251,23 @@ export async function buildPreloadedDayData(
         practitioner._id,
       ]),
   );
+  const practitionerLineageById = new Map(
+    practitioners
+      .filter(
+        (practitioner) =>
+          practitioner.practiceId === practiceId &&
+          practitioner.ruleSetId === ruleSetId,
+      )
+      .map((practitioner) => [
+        practitioner._id,
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ]),
+  );
 
   // Build parsed appointments with pre-computed epoch times for fast overlap detection
   // Group by scope for efficient CONCURRENT_COUNT filtering
@@ -204,9 +279,6 @@ export async function buildPreloadedDayData(
   parsedAppointmentsByScope.set(practiceKey, practiceAppointments);
 
   for (const apt of appointments) {
-    const appointmentTypeId = appointmentTypeIdByLineage.get(
-      apt.appointmentTypeLineageKey,
-    );
     const locationIdForRuleSet = locationIdByLineage.get(
       apt.locationLineageKey,
     );
@@ -219,7 +291,7 @@ export async function buildPreloadedDayData(
     const endZdt = Temporal.ZonedDateTime.from(apt.end);
     const parsed: ParsedAppointment = {
       appointment: apt,
-      ...(appointmentTypeId ? { appointmentTypeId } : {}),
+      appointmentTypeLineageKey: apt.appointmentTypeLineageKey,
       endEpochMs: endZdt.epochMilliseconds,
       ...(locationIdForRuleSet ? { locationId: locationIdForRuleSet } : {}),
       ...(practitionerIdForRuleSet
@@ -262,9 +334,11 @@ export async function buildPreloadedDayData(
   // Multiple keys per appointment: practice, location, and practitioner scope
   const dailyCapacityCounts = new Map<string, number>();
   for (const apt of appointments) {
-    const typeId = appointmentTypeIdByLineage.get(
+    const appointmentTypeLineageKey = appointmentTypeIdByLineage.has(
       apt.appointmentTypeLineageKey,
-    );
+    )
+      ? apt.appointmentTypeLineageKey
+      : undefined;
 
     dailyCapacityCounts.set(
       "practice:__all__",
@@ -293,18 +367,18 @@ export async function buildPreloadedDayData(
       );
     }
 
-    if (!typeId) {
+    if (!appointmentTypeLineageKey) {
       continue;
     }
 
-    const practiceTypeKey = `practice:${typeId}`;
+    const practiceTypeKey = `practice:${appointmentTypeLineageKey}`;
     dailyCapacityCounts.set(
       practiceTypeKey,
       (dailyCapacityCounts.get(practiceTypeKey) ?? 0) + 1,
     );
 
     if (locationIdForRuleSet) {
-      const locationTypeKey = `location:${locationIdForRuleSet}:${typeId}`;
+      const locationTypeKey = `location:${locationIdForRuleSet}:${appointmentTypeLineageKey}`;
       dailyCapacityCounts.set(
         locationTypeKey,
         (dailyCapacityCounts.get(locationTypeKey) ?? 0) + 1,
@@ -312,7 +386,7 @@ export async function buildPreloadedDayData(
     }
 
     if (practitionerIdForRuleSet) {
-      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${typeId}`;
+      const practitionerTypeKey = `practitioner:${practitionerIdForRuleSet}:${appointmentTypeLineageKey}`;
       dailyCapacityCounts.set(
         practitionerTypeKey,
         (dailyCapacityCounts.get(practitionerTypeKey) ?? 0) + 1,
@@ -339,8 +413,11 @@ export async function buildPreloadedDayData(
   return {
     appointments,
     appointmentsByStartTime,
+    appointmentTypeLineageById,
     dailyCapacityCounts,
+    locationLineageById,
     parsedAppointmentsByScope,
+    practitionerLineageById,
     practitioners: practitionersMap,
   };
 }
@@ -350,24 +427,81 @@ export async function buildPreloadedDayData(
  * This is the data available when evaluating whether a rule should block an appointment.
  */
 export const appointmentContextValidator = v.object({
-  appointmentTypeId: v.id("appointmentTypes"),
+  appointmentTypeId: v.optional(v.id("appointmentTypes")),
   // Client type (e.g., "Online", "MFA", "Phone-AI")
   clientType: v.optional(v.string()),
   // ISO datetime string
   dateTime: v.string(),
   locationId: v.optional(v.id("locations")),
-  // Patient birth date as YYYY-MM-DD (booking flow) or TTMMJJJJ (GDT)
+  // Patient birth date as YYYY-MM-DD
   patientDateOfBirth: v.optional(v.string()),
   practiceId: v.id("practices"),
   practitionerId: v.id("practitioners"),
-  // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested?
-  requestedAt: v.optional(v.string()), // ISO datetime string
+  // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested
+  // in the scheduling timezone?
+  requestedAt: v.optional(v.string()), // ISO zoned datetime string
 });
+
+type RuleEngineZonedDateTimeString = `${IsoDateString}T${string}`;
 
 /**
  * Type-safe appointment context derived from validator.
  */
-export type AppointmentContext = Infer<typeof appointmentContextValidator>;
+export type AppointmentContext = Omit<
+  Infer<typeof appointmentContextValidator>,
+  "dateTime" | "patientDateOfBirth" | "requestedAt"
+> & {
+  dateTime: RuleEngineZonedDateTimeString;
+  patientDateOfBirth?: IsoDateString;
+  requestedAt?: RuleEngineZonedDateTimeString;
+};
+
+export function asAppointmentContextInput(
+  value: Infer<typeof appointmentContextValidator>,
+): AppointmentContext {
+  const {
+    dateTime,
+    patientDateOfBirth: rawPatientDateOfBirth,
+    requestedAt: rawRequestedAt,
+    ...rest
+  } = value;
+  if (
+    rawPatientDateOfBirth !== undefined &&
+    !isIsoDateString(rawPatientDateOfBirth)
+  ) {
+    throw new Error(
+      `Expected YYYY-MM-DD date string, got "${rawPatientDateOfBirth}".`,
+    );
+  }
+  const requestedAt =
+    rawRequestedAt === undefined
+      ? undefined
+      : asRuleEngineZonedDateTimeString(rawRequestedAt);
+
+  return {
+    ...rest,
+    dateTime: asRuleEngineZonedDateTimeString(dateTime),
+    ...(rawPatientDateOfBirth !== undefined && {
+      patientDateOfBirth: rawPatientDateOfBirth,
+    }),
+    ...(requestedAt !== undefined && { requestedAt }),
+  };
+}
+
+function asRuleEngineZonedDateTimeString(
+  value: string,
+): RuleEngineZonedDateTimeString {
+  try {
+    const normalized = Temporal.ZonedDateTime.from(value).toString();
+    if (!isZonedDateTimeString(normalized)) {
+      throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
+    }
+
+    return normalized;
+  } catch {
+    throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
+  }
+}
 
 /**
  * Day-invariant condition types - these only depend on the date and fixed query context,
@@ -401,23 +535,15 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
  * Parses a patient birth date.
  */
 function parsePatientBirthDate(dateString: string): Temporal.PlainDate {
-  // Supported format: YYYY-MM-DD (booking flow)
-  const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (isoPattern.test(dateString)) {
-    return Temporal.PlainDate.from(dateString);
-  }
-
-  // Supported format: TTMMJJJJ (legacy GDT)
-  const gdtPattern = /^\d{8}$/;
-  if (gdtPattern.test(dateString)) {
-    const day = dateString.slice(0, 2);
-    const month = dateString.slice(2, 4);
-    const year = dateString.slice(4, 8);
+  // Supported format: YYYY-MM-DD
+  const isoMatch = ISO_DATE_REGEX.exec(dateString);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
     return Temporal.PlainDate.from(`${year}-${month}-${day}`);
   }
 
   throw new Error(
-    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD" or "TTMMJJJJ".`,
+    `Invalid patientDateOfBirth format: "${dateString}". Expected "YYYY-MM-DD".`,
   );
 }
 
@@ -465,6 +591,15 @@ function evaluateCondition(
   }
 
   const { conditionType, operator, valueIds, valueNumber } = condition;
+  const appointmentTypeLineageKey = context.appointmentTypeId
+    ? preloadedData.appointmentTypeLineageById.get(context.appointmentTypeId)
+    : undefined;
+  const locationLineageKey = context.locationId
+    ? preloadedData.locationLineageById.get(context.locationId)
+    : undefined;
+  const practitionerLineageKey = preloadedData.practitionerLineageById.get(
+    context.practitionerId,
+  );
 
   // Helper for comparing values
   const compareValue = (actual: number, expected: number): boolean => {
@@ -501,12 +636,7 @@ function evaluateCondition(
 
   switch (conditionType) {
     case "APPOINTMENT_TYPE": {
-      // Compare appointment type IDs
-      const isMatch =
-        valueIds && valueIds.length > 0
-          ? valueIds.includes(context.appointmentTypeId)
-          : false;
-      return operator === "IS" ? isMatch : !isMatch;
+      return checkIdMembership(appointmentTypeLineageKey, valueIds);
     }
 
     case "CLIENT_TYPE": {
@@ -560,11 +690,11 @@ function evaluateCondition(
           slotEpochMs < parsed.endEpochMs
         ) {
           // Check appointment type filter if specified
-          if (appointmentTypeIds.length > 0) {
-            const aptTypeId = parsed.appointmentTypeId;
-            if (!aptTypeId || !appointmentTypeIds.includes(aptTypeId)) {
-              continue;
-            }
+          if (
+            appointmentTypeIds.length > 0 &&
+            !appointmentTypeIds.includes(parsed.appointmentTypeLineageKey)
+          ) {
+            continue;
           }
           overlappingCount++;
         }
@@ -704,8 +834,7 @@ function evaluateCondition(
     }
 
     case "LOCATION": {
-      // Compare location ID
-      return checkIdMembership(context.locationId, valueIds);
+      return checkIdMembership(locationLineageKey, valueIds);
     }
 
     case "PATIENT_AGE": {
@@ -722,8 +851,7 @@ function evaluateCondition(
     }
 
     case "PRACTITIONER": {
-      // Compare practitioner ID
-      return checkIdMembership(context.practitionerId, valueIds);
+      return checkIdMembership(practitionerLineageKey, valueIds);
     }
 
     case "PRACTITIONER_TAG": {
@@ -758,7 +886,7 @@ function evaluateCondition(
     default: {
       // Unknown condition type - this indicates data corruption
       throw new Error(
-        `Unknown condition type: ${conditionType as string | undefined}. ` +
+        `Unknown condition type: ${String(conditionType)}. ` +
           `This indicates data corruption in rule conditions.`,
       );
     }
@@ -870,6 +998,8 @@ export const checkRulesForAppointment = internalQuery({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    const context = asAppointmentContextInput(args.context);
+
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -899,18 +1029,16 @@ export const checkRulesForAppointment = internalQuery({
     // Build preloaded data for condition evaluation
     const practitioners = await ctx.db
       .query("practitioners")
-      .withIndex("by_practiceId", (q) =>
-        q.eq("practiceId", args.context.practiceId),
-      )
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", context.practiceId))
       .collect();
 
     // Extract date from ISO ZonedDateTime string
-    const dateStr = Temporal.ZonedDateTime.from(args.context.dateTime)
+    const dateStr = Temporal.ZonedDateTime.from(context.dateTime)
       .toPlainDate()
       .toString();
     const preloadedData = await buildPreloadedDayData(
       ctx.db,
-      args.context.practiceId,
+      context.practiceId,
       dateStr,
       args.ruleSetId,
       practitioners,
@@ -949,7 +1077,7 @@ export const checkRulesForAppointment = internalQuery({
       // Evaluate the condition tree (synchronously with pre-loaded data)
       const isBlocked = evaluateConditionTree(
         rootChild._id,
-        args.context,
+        context,
         preloadedData,
         conditionsMap,
         allConditions,
@@ -1093,172 +1221,129 @@ export const getRuleDescription = internalQuery({
   }),
 });
 
-/**
- * Scope validator for conditions that operate at different levels.
- */
+export type {
+  ConditionNode,
+  ConditionOperator,
+  ConditionTreeNode,
+  ConditionType,
+  LogicalNode,
+  Scope,
+} from "../lib/condition-tree.js";
+
+const [SCOPE_LOCATION, SCOPE_PRACTICE, SCOPE_PRACTITIONER] = SCOPES;
+const [
+  CONDITION_OPERATOR_EQUALS,
+  CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL,
+  CONDITION_OPERATOR_IS,
+  CONDITION_OPERATOR_IS_NOT,
+  CONDITION_OPERATOR_LESS_THAN,
+  CONDITION_OPERATOR_LESS_THAN_OR_EQUAL,
+] = CONDITION_OPERATORS;
+const [
+  CONDITION_TYPE_APPOINTMENT_TYPE,
+  CONDITION_TYPE_CLIENT_TYPE,
+  CONDITION_TYPE_CONCURRENT_COUNT,
+  CONDITION_TYPE_DAILY_CAPACITY,
+  CONDITION_TYPE_DATE_RANGE,
+  CONDITION_TYPE_DAY_OF_WEEK,
+  CONDITION_TYPE_DAYS_AHEAD,
+  CONDITION_TYPE_HOURS_AHEAD,
+  CONDITION_TYPE_LOCATION,
+  CONDITION_TYPE_PATIENT_AGE,
+  CONDITION_TYPE_PRACTITIONER,
+  CONDITION_TYPE_PRACTITIONER_TAG,
+  CONDITION_TYPE_TIME_RANGE,
+] = CONDITION_TYPES;
+const [LOGICAL_NODE_AND, LOGICAL_NODE_NOT] = LOGICAL_NODE_TYPES;
+
 export const scopeValidator = v.union(
-  v.literal("practice"),
-  v.literal("location"),
-  v.literal("practitioner"),
+  v.literal(SCOPE_LOCATION),
+  v.literal(SCOPE_PRACTICE),
+  v.literal(SCOPE_PRACTITIONER),
 );
 
-/**
- * Type for scope (practice, location, or practitioner level).
- */
-export type Scope = "location" | "practice" | "practitioner";
+const CONDITION_TREE_MAX_DEPTH = 20;
+const conditionTypeValidator = v.union(
+  v.literal(CONDITION_TYPE_APPOINTMENT_TYPE),
+  v.literal(CONDITION_TYPE_CLIENT_TYPE),
+  v.literal(CONDITION_TYPE_CONCURRENT_COUNT),
+  v.literal(CONDITION_TYPE_DAILY_CAPACITY),
+  v.literal(CONDITION_TYPE_DATE_RANGE),
+  v.literal(CONDITION_TYPE_DAY_OF_WEEK),
+  v.literal(CONDITION_TYPE_DAYS_AHEAD),
+  v.literal(CONDITION_TYPE_HOURS_AHEAD),
+  v.literal(CONDITION_TYPE_LOCATION),
+  v.literal(CONDITION_TYPE_PATIENT_AGE),
+  v.literal(CONDITION_TYPE_PRACTITIONER),
+  v.literal(CONDITION_TYPE_PRACTITIONER_TAG),
+  v.literal(CONDITION_TYPE_TIME_RANGE),
+);
+const conditionOperatorValidator = v.union(
+  v.literal(CONDITION_OPERATOR_EQUALS),
+  v.literal(CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL),
+  v.literal(CONDITION_OPERATOR_IS),
+  v.literal(CONDITION_OPERATOR_IS_NOT),
+  v.literal(CONDITION_OPERATOR_LESS_THAN),
+  v.literal(CONDITION_OPERATOR_LESS_THAN_OR_EQUAL),
+);
+const logicalNodeTypeValidator = v.union(
+  v.literal(LOGICAL_NODE_AND),
+  v.literal(LOGICAL_NODE_NOT),
+);
+const conditionLeafValidator: Validator<ConditionNode, "required", string> =
+  v.object({
+    conditionType: conditionTypeValidator,
+    nodeType: v.literal("CONDITION"),
+    operator: conditionOperatorValidator,
+    scope: v.optional(scopeValidator),
+    valueIds: v.optional(v.array(v.string())),
+    valueNumber: v.optional(v.number()),
+  });
 
-/**
- * Condition types supported by the rule engine.
- */
-export type ConditionType =
-  | "APPOINTMENT_TYPE"
-  | "CLIENT_TYPE"
-  | "CONCURRENT_COUNT"
-  | "DAILY_CAPACITY"
-  | "DATE_RANGE"
-  | "DAY_OF_WEEK"
-  | "DAYS_AHEAD"
-  | "HOURS_AHEAD"
-  | "LOCATION"
-  | "PATIENT_AGE"
-  | "PRACTITIONER"
-  | "PRACTITIONER_TAG"
-  | "TIME_RANGE";
-
-/**
- * Operators supported by conditions.
- */
-export type ConditionOperator =
-  | "EQUALS"
-  | "GREATER_THAN_OR_EQUAL"
-  | "IS"
-  | "IS_NOT"
-  | "LESS_THAN"
-  | "LESS_THAN_OR_EQUAL";
-
-/**
- * A logical node (AND/NOT) that contains child nodes.
- */
-export interface LogicalNode {
-  children: ConditionTreeNode[];
-  nodeType: "AND" | "NOT";
+function createLogicalNodeValidator(
+  childValidator: Validator<ConditionTreeNode, "required", string>,
+): Validator<LogicalNode, "required", string> {
+  return v.object({
+    children: v.array(childValidator),
+    nodeType: logicalNodeTypeValidator,
+  });
 }
 
-/**
- * A leaf condition node with actual condition data.
- */
-export interface ConditionNode {
-  conditionType: ConditionType;
-  nodeType: "CONDITION";
-  operator: ConditionOperator;
-  scope?: Scope;
-  valueIds?: string[];
-  valueNumber?: number;
-}
-
-/**
- * A node in the condition tree - either a logical operator or a leaf condition.
- * This is a properly typed recursive type (not using Infer to avoid `any` in children).
- */
-export type ConditionTreeNode = ConditionNode | LogicalNode;
+const ruleConditionDocumentValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("ruleConditions"),
+  childOrder: v.number(),
+  conditionType: v.optional(conditionTypeValidator),
+  copyFromId: v.optional(v.id("ruleConditions")),
+  createdAt: v.int64(),
+  enabled: v.optional(v.boolean()),
+  isRoot: v.boolean(),
+  lastModified: v.int64(),
+  nodeType: v.optional(
+    v.union(logicalNodeTypeValidator, v.literal("CONDITION")),
+  ),
+  operator: v.optional(conditionOperatorValidator),
+  parentConditionId: v.optional(v.id("ruleConditions")),
+  practiceId: v.id("practices"),
+  ruleSetId: v.id("ruleSets"),
+  scope: v.optional(scopeValidator),
+  valueIds: v.optional(v.array(v.string())),
+  valueNumber: v.optional(v.number()),
+});
 
 /**
  * Validator for condition tree nodes used in rule creation/updates.
  *
- * Note: Convex validators don't support recursive types, so we use v.any() for children.
- * The actual type safety comes from the ConditionTreeNode type above, which is properly
- * recursive. Runtime validation is done via validateConditionTree().
+ * Convex validators serialize to a finite JSON tree and don't support lazy
+ * references, so recursion must stay depth-bounded at the validator layer.
+ * The recursive boundary is isolated in `createDepthBoundedRecursiveUnionValidator`.
  */
-export const conditionTreeNodeValidator = v.union(
-  v.object({
-    children: v.array(v.any()),
-    nodeType: v.union(v.literal("AND"), v.literal("NOT")),
-  }),
-  v.object({
-    conditionType: v.union(
-      v.literal("APPOINTMENT_TYPE"),
-      v.literal("DAY_OF_WEEK"),
-      v.literal("LOCATION"),
-      v.literal("PRACTITIONER"),
-      v.literal("PRACTITIONER_TAG"),
-      v.literal("DATE_RANGE"),
-      v.literal("TIME_RANGE"),
-      v.literal("DAYS_AHEAD"),
-      v.literal("HOURS_AHEAD"),
-      v.literal("DAILY_CAPACITY"),
-      v.literal("CONCURRENT_COUNT"),
-      v.literal("CLIENT_TYPE"),
-      v.literal("PATIENT_AGE"),
-    ),
-    nodeType: v.literal("CONDITION"),
-    operator: v.union(
-      v.literal("IS"),
-      v.literal("IS_NOT"),
-      v.literal("GREATER_THAN_OR_EQUAL"),
-      v.literal("LESS_THAN"),
-      v.literal("LESS_THAN_OR_EQUAL"),
-      v.literal("EQUALS"),
-    ),
-    scope: v.optional(scopeValidator),
-    valueIds: v.optional(v.array(v.string())),
-    valueNumber: v.optional(v.number()),
-  }),
-);
-
-/**
- * Type guard to check if a node is a logical operator node (AND/NOT).
- */
-export function isLogicalNode(node: ConditionTreeNode): node is LogicalNode {
-  return node.nodeType === "AND" || node.nodeType === "NOT";
-}
-
-/**
- * Type guard to check if a node is a condition leaf node.
- */
-export function isConditionNode(
-  node: ConditionTreeNode,
-): node is ConditionNode {
-  return node.nodeType === "CONDITION";
-}
-
-/**
- * Type guard to check if unknown value is a valid condition tree node.
- * Use this to safely cast children from the validator's `any[]` to ConditionTreeNode.
- */
-export function isValidNode(value: unknown): value is ConditionTreeNode {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  if (!("nodeType" in value)) {
-    return false;
-  }
-  const nodeType = (value as { nodeType: unknown }).nodeType;
-  // Check for logical nodes
-  if (nodeType === "AND" || nodeType === "NOT") {
-    return (
-      "children" in value &&
-      Array.isArray((value as { children: unknown }).children)
-    );
-  }
-  // Check for condition nodes
-  if (nodeType === "CONDITION") {
-    return "conditionType" in value && "operator" in value;
-  }
-  return false;
-}
-
-/**
- * Safely get typed children from a logical node.
- * Validates each child and throws if any are invalid.
- */
-export function getTypedChildren(node: LogicalNode): ConditionTreeNode[] {
-  return node.children.map((child: unknown, index: number) => {
-    if (!isValidNode(child)) {
-      throw new Error(`Invalid child at index ${index}`);
-    }
-    return child;
+export const conditionTreeNodeValidator =
+  createDepthBoundedRecursiveUnionValidator<ConditionNode, LogicalNode>({
+    branch: createLogicalNodeValidator,
+    depth: CONDITION_TREE_MAX_DEPTH,
+    leaf: conditionLeafValidator,
   });
-}
 
 /**
  * Validate condition tree structure.
@@ -1317,18 +1402,15 @@ export function validateConditionTree(
     }
     // Recursively validate children
     for (let i = 0; i < node.children.length; i++) {
-      const child: unknown = node.children[i];
-      if (isValidNode(child)) {
-        const childErrors = validateConditionTree(child, depth + 1);
-        errors.push(...childErrors.map((err) => `Child ${i}: ${err}`));
-      } else {
-        errors.push(`Child ${i} is not a valid condition node`);
+      const child = node.children[i];
+      if (!child) {
+        errors.push(`Child ${i} is missing`);
+        continue;
       }
+
+      const childErrors = validateConditionTree(child, depth + 1);
+      errors.push(...childErrors.map((err) => `Child ${i}: ${err}`));
     }
-  } else {
-    errors.push(
-      `Unknown node type: ${String((node as { nodeType?: unknown }).nodeType)}`,
-    );
   }
 
   return errors;
@@ -1420,11 +1502,19 @@ function isRuleTreeAppointmentTypeIndependent(
  *
  * Returns a structured object containing all rules and all their conditions pre-loaded.
  */
+interface LoadedRulesForRuleSetResult {
+  conditions: Doc<"ruleConditions">[];
+  dayInvariantCount: number;
+  rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+  timeVariantCount: number;
+  totalConditions: number;
+}
+
 export const loadRulesForRuleSet = internalQuery({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<LoadedRulesForRuleSetResult> => {
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -1471,7 +1561,6 @@ export const loadRulesForRuleSet = internalQuery({
 
     return {
       conditions: allConditions,
-      conditionsMap: Object.fromEntries(conditionsMap),
       dayInvariantCount: classifiedRules.filter((r) => r.isDayInvariant).length,
       rules: classifiedRules,
       timeVariantCount: classifiedRules.filter((r) => !r.isDayInvariant).length,
@@ -1479,8 +1568,7 @@ export const loadRulesForRuleSet = internalQuery({
     };
   },
   returns: v.object({
-    conditions: v.array(v.any()),
-    conditionsMap: v.any(),
+    conditions: v.array(ruleConditionDocumentValidator),
     dayInvariantCount: v.number(),
     rules: v.array(
       v.object({
@@ -1501,7 +1589,10 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<AppointmentTypeIndependentRulesResult> => {
     // Get all enabled root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
@@ -1576,7 +1667,6 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
 
     return {
       conditions: relevantConditions,
-      conditionsMap: Object.fromEntries(filteredConditionsMap),
       rules: appointmentTypeIndependentRules.map((r) => ({
         _id: r._id,
         isDayInvariant: false, // Not used in this context
@@ -1584,8 +1674,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
     };
   },
   returns: v.object({
-    conditions: v.array(v.any()),
-    conditionsMap: v.any(),
+    conditions: v.array(ruleConditionDocumentValidator),
     rules: v.array(
       v.object({
         _id: v.id("ruleConditions"),
@@ -1594,6 +1683,11 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
     ),
   }),
 });
+
+interface AppointmentTypeIndependentRulesResult {
+  conditions: Doc<"ruleConditions">[];
+  rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+}
 
 /**
  * PERFORMANCE OPTIMIZATION: Pre-evaluate day-invariant rules once per query execution.
@@ -1612,22 +1706,12 @@ export function preEvaluateDayInvariantRulesHelper(
     dayInvariantCount: number;
     rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
   },
-  practitioners: Map<Id<"practitioners">, Doc<"practitioners">>,
+  preloadedData: PreloadedDayData,
 ): {
   blockedByRuleIds: Id<"ruleConditions">[];
   evaluatedCount: number;
 } {
   const blockedRuleIds: Id<"ruleConditions">[] = [];
-
-  // Day-invariant rules don't use DAILY_CAPACITY, CONCURRENT_COUNT, or PRACTITIONER_TAG,
-  // so we create an empty preloaded data object (practitioners passed for completeness)
-  const emptyPreloadedData: PreloadedDayData = {
-    appointments: [],
-    appointmentsByStartTime: new Map(),
-    dailyCapacityCounts: new Map(),
-    parsedAppointmentsByScope: new Map(),
-    practitioners,
-  };
 
   // Helper to get condition from the pre-loaded map
   const getCondition = (
@@ -1655,7 +1739,7 @@ export function preEvaluateDayInvariantRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, context, emptyPreloadedData);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children

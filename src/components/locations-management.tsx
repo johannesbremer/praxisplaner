@@ -26,6 +26,7 @@ import {
   asLocationLineageKey,
   asPractitionerId,
 } from "@/convex/identity";
+import { LOCATION_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
@@ -43,6 +44,7 @@ import {
   registerLineageCreateHistoryAction,
   registerLineageUpdateHistoryAction,
 } from "../utils/cow-history-actions";
+import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
   captureFrontendError,
@@ -51,15 +53,11 @@ import {
 import {
   findFrontendEntityByEntityId,
   findFrontendEntityByLineageKey,
-  mapFrontendLineageEntities,
+  requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 
 const isMissingEntityError = (error: unknown) =>
-  error instanceof Error &&
-  !/source rule set not found/i.test(error.message) &&
-  /already deleted|bereits gelöscht|location not found|standort.*nicht gefunden/i.test(
-    error.message,
-  );
+  isMissingRuleSetEntityError(error, LOCATION_MISSING_ENTITY_REGEX);
 
 type BaseScheduleRow = FrontendLineageEntity<
   "baseSchedules",
@@ -108,47 +106,48 @@ export function LocationsManagement({
   const baseSchedulesQuery = useQuery(api.entities.getBaseSchedules, {
     ruleSetId,
   });
-  const locations: LocationRow[] = useMemo(
-    () =>
-      locationsQuery
-        ? mapFrontendLineageEntities<"locations", LocationsQueryResult[number]>(
-            {
-              entities: locationsQuery,
-              entityType: "location",
-              source: "LocationsManagement",
-            },
-          )
-        : [],
-    [locationsQuery],
-  );
-  const practitioners: PractitionerRow[] = useMemo(
-    () =>
-      practitionersQuery
-        ? mapFrontendLineageEntities<
-            "practitioners",
-            PractitionersQueryResult[number]
-          >({
-            entities: practitionersQuery,
-            entityType: "practitioner",
-            source: "LocationsManagement",
-          })
-        : [],
-    [practitionersQuery],
-  );
-  const baseSchedules: BaseScheduleRow[] = useMemo(
-    () =>
-      baseSchedulesQuery
-        ? mapFrontendLineageEntities<
-            "baseSchedules",
-            BaseSchedulesQueryResult[number]
-          >({
-            entities: baseSchedulesQuery,
-            entityType: "base schedule",
-            source: "LocationsManagement",
-          })
-        : [],
-    [baseSchedulesQuery],
-  );
+  const locations: LocationRow[] = useMemo(() => {
+    if (!locationsQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "locations",
+      LocationsQueryResult[number]
+    >({
+      entities: locationsQuery,
+      entityType: "location",
+      source: "LocationsManagement",
+    });
+  }, [locationsQuery]);
+  const practitioners: PractitionerRow[] = useMemo(() => {
+    if (!practitionersQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "practitioners",
+      PractitionersQueryResult[number]
+    >({
+      entities: practitionersQuery,
+      entityType: "practitioner",
+      source: "LocationsManagement",
+    });
+  }, [practitionersQuery]);
+  const baseSchedules: BaseScheduleRow[] = useMemo(() => {
+    if (!baseSchedulesQuery) {
+      return [];
+    }
+
+    return requireFrontendLineageEntities<
+      "baseSchedules",
+      BaseSchedulesQueryResult[number]
+    >({
+      entities: baseSchedulesQuery,
+      entityType: "base schedule",
+      source: "LocationsManagement",
+    });
+  }, [baseSchedulesQuery]);
   const createLocationMutation = useMutation(api.entities.createLocation);
   const updateLocationMutation = useMutation(api.entities.updateLocation);
   const deleteLocationMutation = useMutation(api.entities.deleteLocation);
