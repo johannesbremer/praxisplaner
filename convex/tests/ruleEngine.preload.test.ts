@@ -2,8 +2,6 @@ import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
-import type { Id } from "../_generated/dataModel";
-
 import { insertSelfLineageEntity } from "../lineage";
 import { buildPreloadedDayData } from "../ruleEngine";
 import schema from "../schema";
@@ -115,9 +113,9 @@ describe("ruleEngine preloaded day data", () => {
 
       const preloaded = await buildPreloadedDayData(
         ctx.db,
-        fixture.practiceId as Id<"practices">,
+        fixture.practiceId,
         fixture.day,
-        fixture.ruleSetId as Id<"ruleSets">,
+        fixture.ruleSetId,
         [practitioner],
       );
 
@@ -266,9 +264,9 @@ describe("ruleEngine preloaded day data", () => {
 
       const preloaded = await buildPreloadedDayData(
         ctx.db,
-        fixture.practiceId as Id<"practices">,
+        fixture.practiceId,
         fixture.day,
-        fixture.copiedRuleSetId as Id<"ruleSets">,
+        fixture.copiedRuleSetId,
         [copiedPractitioner],
       );
 

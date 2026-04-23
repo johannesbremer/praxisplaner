@@ -47,16 +47,13 @@ describe("Frontend error handling", () => {
     if (originalFileSystemObserver) {
       mutableGlobalThis.FileSystemObserver = originalFileSystemObserver;
     } else {
-      Reflect.deleteProperty(
-        globalThis as Record<string, unknown>,
-        "FileSystemObserver",
-      );
+      Reflect.deleteProperty(globalThis, "FileSystemObserver");
     }
 
     if (originalPosthog) {
       mutableGlobalThis.posthog = originalPosthog;
     } else {
-      Reflect.deleteProperty(globalThis as Record<string, unknown>, "posthog");
+      Reflect.deleteProperty(globalThis, "posthog");
     }
   });
 
@@ -100,10 +97,7 @@ describe("Frontend error handling", () => {
   });
 
   test("unsupported FileSystemObserver returns an Err instead of building a half-initialized observer", () => {
-    Reflect.deleteProperty(
-      globalThis as Record<string, unknown>,
-      "FileSystemObserver",
-    );
+    Reflect.deleteProperty(globalThis, "FileSystemObserver");
     const onChange = vi.fn();
 
     const observerResult = SafeFileSystemObserver.create(onChange);

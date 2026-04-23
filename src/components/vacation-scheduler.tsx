@@ -94,10 +94,6 @@ interface ConflictEntry {
   coverageSuggestion: CoverageSuggestion | undefined;
 }
 
-interface CreateMfaResult extends DraftMutationResult {
-  entityId: Id<"mfas">;
-}
-
 type MfaQueryResult = (typeof api.mfas.list)["_returnType"];
 type MfaRowEntity = FrontendLineageEntity<"mfas", MfaQueryResult[number]>;
 type PractitionerQueryResult =
@@ -120,10 +116,6 @@ type StaffRow =
       lineageKey: PractitionerLineageKey;
       name: string;
     };
-
-interface VacationMutationResult extends DraftMutationResult {
-  entityId: Id<"vacations">;
-}
 
 type VacationPortion = "afternoon" | "full" | "morning";
 
@@ -629,7 +621,7 @@ export function VacationScheduler({
       const existingSnapshot = options?.createSnapshots?.find(
         (snapshot) => snapshot.portion === portion,
       );
-      const result = (await createVacation({
+      const result = await createVacation({
         date: date.toString(),
         ...(existingSnapshot
           ? { lineageKey: existingSnapshot.lineageKey }
@@ -639,7 +631,7 @@ export function VacationScheduler({
         practiceId,
         staffType: staff.kind,
         ...getCowMutationArgs(),
-      })) as VacationMutationResult;
+      });
       handleDraftMutationResult(result);
       createdSnapshots.push({
         lineageKey: result.entityId,
@@ -696,11 +688,11 @@ export function VacationScheduler({
     }
 
     try {
-      const result = (await createMfa({
+      const result = await createMfa({
         name: trimmed,
         practiceId,
         ...getCowMutationArgs(),
-      })) as CreateMfaResult;
+      });
       handleDraftMutationResult(result);
       setNewMfaName("");
       const lineageKey = asMfaLineageKey(result.entityId);
@@ -709,12 +701,12 @@ export function VacationScheduler({
         label: "MFA erstellt",
         redo: async () => {
           try {
-            const redoResult = (await createMfa({
+            const redoResult = await createMfa({
               lineageKey,
               name: trimmed,
               practiceId,
               ...getCowMutationArgs(),
-            })) as CreateMfaResult;
+            });
             currentMfaId = redoResult.entityId;
             handleDraftMutationResult(redoResult);
           } catch (error) {
@@ -741,11 +733,11 @@ export function VacationScheduler({
         undo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
-            const undoResult = (await removeMfa({
+            const undoResult = await removeMfa({
               mfaId: existing?._id ?? currentMfaId,
               practiceId,
               ...getCowMutationArgs(),
-            })) as DraftMutationResult;
+            });
             handleDraftMutationResult(undoResult);
           } catch (error) {
             if (isMissingMfaError(error)) {
@@ -788,11 +780,11 @@ export function VacationScheduler({
         toast.error("MFA konnte nicht gefunden werden");
         return;
       }
-      const result = (await removeMfa({
+      const result = await removeMfa({
         mfaId,
         practiceId,
         ...getCowMutationArgs(),
-      })) as DraftMutationResult;
+      });
       handleDraftMutationResult(result);
       let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
@@ -801,11 +793,11 @@ export function VacationScheduler({
         redo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
-            const redoResult = (await removeMfa({
+            const redoResult = await removeMfa({
               mfaId: existing?._id ?? currentMfaId,
               practiceId,
               ...getCowMutationArgs(),
-            })) as DraftMutationResult;
+            });
             handleDraftMutationResult(redoResult);
           } catch (error) {
             if (isMissingMfaError(error)) {
@@ -834,12 +826,12 @@ export function VacationScheduler({
             currentMfaId = existing._id;
             return { status: "applied" as const };
           }
-          const undoResult = (await createMfa({
+          const undoResult = await createMfa({
             lineageKey,
             name: currentMfa.name,
             practiceId,
             ...getCowMutationArgs(),
-          })) as CreateMfaResult;
+          });
           currentMfaId = asMfaId(undoResult.entityId);
           handleDraftMutationResult(undoResult);
           return { status: "applied" as const };

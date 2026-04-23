@@ -159,7 +159,7 @@ export function useCalendarLogic({
       scope: "all" | "real" | "simulation";
       selectedRuleSetId?: Id<"ruleSets">;
     } = {
-      scope: appointmentScope as "all" | "real" | "simulation",
+      scope: appointmentScope,
     };
     if (activeRuleSetId) {
       args.activeRuleSetId = activeRuleSetId;

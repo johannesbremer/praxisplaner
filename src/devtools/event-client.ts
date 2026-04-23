@@ -69,7 +69,7 @@ export const CalendarDevtoolsEventClient = {
       return () => 0;
     }
 
-    return client.on(fullType, listener as never);
+    return client.on(fullType, listener);
   },
 };
 
