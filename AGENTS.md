@@ -1,19 +1,35 @@
+# AGENTS.md
+
 This is a `TanStack Start` + `Convex` project.
 
-## Before You Start
+## Core Rules
 
-- Understand that this project is not yet deployed to production and we are free to make breaking changes in favour of simplicity and correctness and don't need to worry about any kind of data migration.
+- This project is not in production yet. Breaking changes are encouraged.
+- Do not add compatibility layers, migration helpers, fallback paths, or legacy-preserving abstractions.
+- Design changes as if working from a blank slate.
 
-## Before You Get Back To ME
+## Before Implementing
 
-- Run the `Verify CI checks don't fail.` tool and fix all issues that come up. It may take a little while, because eslint is slow on our large codebase.
+- If requirements are ambiguous, stop and ask a focused question rather than guessing.
+- If multiple valid approaches exist, name the tradeoffs briefly and choose the simplest correct one.
+- Push back on unnecessary complexity.
 
-## Repository Structure
+## Implementation Standards
 
-- `components/ui`: Shadcn UI components
-- `convex`: Convex schema and functions
-- `src`: Main application code (`components/`,`routes/`, `tests/`, `types/`, etc)
+- Preserve end-to-end type safety across Convex, server code, and UI.
+- Use TypeScript narrowing, inference, and precise types aggressively.
+- Do not use `eslint-disable`.
+- Do not use `any`, unsafe casts, or non-null assertions.
+- Do not paper over issues with minimal local fixes when a broader systemic fix is more correct.
+- Broad refactors are allowed when they materially improve correctness, simplicity, or type safety.
 
-## Notes
+## Tests and Validation
 
-- Please don't take shortcuts like `eslint-disable`. We have chosen this structure to enable e2e type safety from the DB (Convex) to the UI (TanStack Form). Fully leverage this by using modern TypeScript features and type narrowing etc like a TypeScript Wizard would.
+Before getting back to me after making changes, run:
+
+```sh
+pnpm gen && pnpm lint && pnpm tsc && pnpm format && pnpm test && pnpm build
+```
+
+Heads up: this will take at least 45s because `eslint` is slow on this large codebase.
+Do not claim completion until all commands pass.
