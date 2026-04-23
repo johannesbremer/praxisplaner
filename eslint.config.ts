@@ -8,6 +8,7 @@ import type { Linter } from "eslint";
 import convexPlugin from "@convex-dev/eslint-plugin";
 import comments from "@eslint-community/eslint-plugin-eslint-comments/configs";
 import eslint from "@eslint/js";
+import markdown from "@eslint/markdown";
 import pluginRouter from "@tanstack/eslint-plugin-router";
 import tsParser from "@typescript-eslint/parser";
 import vitest from "@vitest/eslint-plugin";
@@ -55,7 +56,6 @@ export default defineConfig(
       "skills-lock.json",
       "convex/_generated/",
       "src/routeTree.gen.ts",
-      "eslint.config.ts",
       ".output",
       ".nitro",
       ".tanstack",
@@ -70,23 +70,21 @@ export default defineConfig(
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
-  eslint.configs.recommended,
-  comments.recommended,
-  convexPlugin.configs.recommended as FlatConfigEntry,
-  jsdoc.configs["flat/contents-typescript-error"] as FlatConfigEntry,
-  jsdoc.configs["flat/logical-typescript-error"] as FlatConfigEntry,
-  jsdoc.configs["flat/stylistic-typescript-error"] as FlatConfigEntry,
-  jsonc.configs["flat/recommended-with-json"] as FlatConfigEntry,
-  n.configs["flat/recommended"] as FlatConfigEntry,
-  packageJson.configs.recommended as FlatConfigEntry,
-  perfectionist.configs["recommended-natural"] as FlatConfigEntry,
-  pluginRouter.configs["flat/recommended"] as FlatConfigEntry,
-  regexp.configs["flat/recommended"] as FlatConfigEntry,
-  eslintPluginUnicorn.configs.recommended as FlatConfigEntry,
   {
     extends: [
+      comments.recommended,
+      eslint.configs.recommended,
+      convexPlugin.configs.recommended as FlatConfigEntry,
+      jsdoc.configs["flat/contents-typescript-error"],
+      jsdoc.configs["flat/logical-typescript-error"],
+      jsdoc.configs["flat/stylistic-typescript-error"],
+      n.configs["flat/recommended"],
+      perfectionist.configs["recommended-natural"],
+      pluginRouter.configs["flat/recommended"],
+      regexp.configs["flat/recommended"],
       tseslint.configs.strictTypeChecked,
       tseslint.configs.stylisticTypeChecked,
+      eslintPluginUnicorn.configs.recommended,
     ],
     files: ["**/*.{js,ts,jsx,tsx}"],
     languageOptions: {
@@ -97,12 +95,12 @@ export default defineConfig(
         ecmaFeatures: {
           jsx: true,
         },
-        project: true,
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
     plugins: {
-      react: reactPlugin as unknown as FlatConfigPlugin,
+      react: reactPlugin,
       "react-hooks": reactHooksPlugin as unknown as FlatConfigPlugin,
     },
     rules: {
@@ -198,6 +196,31 @@ export default defineConfig(
       },
       vitest: { typecheck: true },
     },
+  },
+  {
+    extends: [jsonc.configs["flat/recommended-with-json"]],
+    files: ["**/*.json"],
+  },
+  {
+    extends: [markdown.configs.recommended],
+    files: ["**/*.md"],
+    rules: {
+      // https://github.com/eslint/markdown/issues/294
+      "markdown/no-missing-label-refs": "off",
+      // ESLint core crashes on raw Markdown ASTs without this override.
+      "no-irregular-whitespace": "off",
+    },
+  },
+  {
+    extends: [tseslint.configs.disableTypeChecked],
+    files: ["**/*.md/*.ts"],
+    rules: {
+      "n/no-missing-import": "off",
+    },
+  },
+  {
+    extends: [packageJson.configs.recommended],
+    files: ["package.json"],
   },
   {
     extends: [vitest.configs.recommended],

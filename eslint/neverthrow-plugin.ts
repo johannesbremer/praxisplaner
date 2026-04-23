@@ -38,7 +38,6 @@ type FlatConfigPlugin = NonNullable<
 type MustUseResultMessageIds = "mustUseResult";
 interface NeverthrowConfigOptions {
   parser: unknown;
-  project?: string;
   tsconfigRootDir: string;
 }
 type NeverthrowImportMessageIds = "noNeverthrowOutsideFrontend";
@@ -61,7 +60,7 @@ export function createNeverthrowConfigs(options: NeverthrowConfigOptions) {
           ecmaFeatures: {
             jsx: true,
           },
-          project: options.project ?? "./tsconfig.json",
+          projectService: true,
           tsconfigRootDir: options.tsconfigRootDir,
         },
       },
