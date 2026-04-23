@@ -1,0 +1,522 @@
+import type { RefObject } from "react";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Temporal } from "temporal-polyfill";
+
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { Appointment } from "./types";
+
+import { captureErrorGlobal } from "../../utils/error-tracking";
+import { SLOT_DURATION } from "./types";
+import { TIMEZONE } from "./use-calendar-logic-helpers";
+
+export type ActiveResizeDraft =
+  | {
+      entityId: string;
+      kind: "appointment";
+      originalDuration: number;
+      previewDuration: number;
+      startClientY: number;
+      startSlot: number;
+    }
+  | {
+      entityId: string;
+      kind: "blockedSlot";
+      originalDuration: number;
+      previewDuration: number;
+      startClientY: number;
+      startSlot: number;
+    };
+
+export interface CalendarManualBlockedSlot {
+  column: string;
+  duration?: number;
+  id?: string;
+  isManual?: boolean;
+  reason?: string;
+  slot: number;
+  startSlot?: number;
+  title?: string;
+}
+
+export interface ResizeStartEvent {
+  clientY: number;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+
+interface BlockedSlotRecord {
+  _id: Id<"blockedSlots">;
+  end: string;
+  isSimulation?: boolean;
+  locationId: Id<"locations">;
+  practitionerId?: Id<"practitioners">;
+  start: string;
+  title: string;
+}
+
+export function useCalendarInteractions({
+  baseAppointments,
+  baseManualBlockedSlots,
+  blockedSlotDocMapRef,
+  checkCollision,
+  convertRealAppointmentToSimulation,
+  convertRealBlockedSlotToSimulation,
+  isNonRootSeriesAppointment,
+  runUpdateAppointment,
+  runUpdateBlockedSlot,
+  selectedDate,
+  showNonRootSeriesEditToast,
+  simulatedContext,
+  slotToTime,
+  timeToSlot,
+}: {
+  baseAppointments: Appointment[];
+  baseManualBlockedSlots: CalendarManualBlockedSlot[];
+  blockedSlotDocMapRef: RefObject<Map<string, BlockedSlotRecord>>;
+  checkCollision: (
+    column: string,
+    slot: number,
+    duration: number,
+    excludeId?: string,
+  ) => boolean;
+  convertRealAppointmentToSimulation: (
+    appointment: Appointment,
+    options: {
+      durationMinutes?: number;
+      endISO?: string;
+      startISO?: string;
+    },
+  ) => Promise<Appointment | null>;
+  convertRealBlockedSlotToSimulation: (
+    blockedSlotId: string,
+    options: {
+      endISO?: string;
+      locationId?: Id<"locations">;
+      practitionerId?: Id<"practitioners">;
+      startISO?: string;
+      title?: string;
+    },
+  ) => Promise<Id<"blockedSlots"> | null>;
+  isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
+  runUpdateAppointment: (args: {
+    end?: string;
+    id: Id<"appointments">;
+  }) => Promise<void>;
+  runUpdateBlockedSlot: (args: {
+    end?: string;
+    id: Id<"blockedSlots">;
+    isSimulation?: boolean;
+  }) => Promise<unknown>;
+  selectedDate: Temporal.PlainDate;
+  showNonRootSeriesEditToast: () => void;
+  simulatedContext: undefined | { locationId?: Id<"locations"> };
+  slotToTime: (slot: number) => string;
+  timeToSlot: (time: string) => number;
+}) {
+  const [activeResizeDraft, setActiveResizeDraft] =
+    useState<ActiveResizeDraft | null>(null);
+  const justFinishedResizingRef = useRef<null | string>(null);
+
+  const appointmentsRef = useRef(baseAppointments);
+  const manualBlockedSlotsRef = useRef(baseManualBlockedSlots);
+  const checkCollisionRef = useRef(checkCollision);
+  const runUpdateAppointmentRef = useRef(runUpdateAppointment);
+  const runUpdateBlockedSlotRef = useRef(runUpdateBlockedSlot);
+  const selectedDateRef = useRef(selectedDate);
+  const simulatedContextRef = useRef(simulatedContext);
+  const slotToTimeRef = useRef(slotToTime);
+  const timeToSlotRef = useRef(timeToSlot);
+  const convertRealAppointmentToSimulationRef = useRef(
+    convertRealAppointmentToSimulation,
+  );
+  const convertRealBlockedSlotToSimulationRef = useRef(
+    convertRealBlockedSlotToSimulation,
+  );
+  const isNonRootSeriesAppointmentRef = useRef(isNonRootSeriesAppointment);
+  const showNonRootSeriesEditToastRef = useRef(showNonRootSeriesEditToast);
+
+  useEffect(() => {
+    appointmentsRef.current = baseAppointments;
+  }, [baseAppointments]);
+
+  useEffect(() => {
+    manualBlockedSlotsRef.current = baseManualBlockedSlots;
+  }, [baseManualBlockedSlots]);
+
+  useEffect(() => {
+    checkCollisionRef.current = checkCollision;
+  }, [checkCollision]);
+
+  useEffect(() => {
+    runUpdateAppointmentRef.current = runUpdateAppointment;
+  }, [runUpdateAppointment]);
+
+  useEffect(() => {
+    runUpdateBlockedSlotRef.current = runUpdateBlockedSlot;
+  }, [runUpdateBlockedSlot]);
+
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
+
+  useEffect(() => {
+    simulatedContextRef.current = simulatedContext;
+  }, [simulatedContext]);
+
+  useEffect(() => {
+    slotToTimeRef.current = slotToTime;
+  }, [slotToTime]);
+
+  useEffect(() => {
+    timeToSlotRef.current = timeToSlot;
+  }, [timeToSlot]);
+
+  useEffect(() => {
+    convertRealAppointmentToSimulationRef.current =
+      convertRealAppointmentToSimulation;
+  }, [convertRealAppointmentToSimulation]);
+
+  useEffect(() => {
+    convertRealBlockedSlotToSimulationRef.current =
+      convertRealBlockedSlotToSimulation;
+  }, [convertRealBlockedSlotToSimulation]);
+
+  useEffect(() => {
+    isNonRootSeriesAppointmentRef.current = isNonRootSeriesAppointment;
+  }, [isNonRootSeriesAppointment]);
+
+  useEffect(() => {
+    showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
+  }, [showNonRootSeriesEditToast]);
+
+  const handleResizeStart = useCallback(
+    (
+      event: ResizeStartEvent,
+      appointmentId: string,
+      currentDuration: number,
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (isNonRootSeriesAppointmentRef.current(appointmentId)) {
+        showNonRootSeriesEditToastRef.current();
+        return;
+      }
+
+      const targetAppointment = appointmentsRef.current.find(
+        (appointment) => appointment.id === appointmentId,
+      );
+      if (!targetAppointment) {
+        return;
+      }
+
+      const startResizing = (entityId: string) => {
+        setActiveResizeDraft({
+          entityId,
+          kind: "appointment",
+          originalDuration: currentDuration,
+          previewDuration: currentDuration,
+          startClientY: event.clientY,
+          startSlot: timeToSlotRef.current(targetAppointment.startTime),
+        });
+      };
+
+      if (
+        simulatedContextRef.current &&
+        !targetAppointment.isSimulation &&
+        targetAppointment.convexId
+      ) {
+        void (async () => {
+          try {
+            const plainTime = Temporal.PlainTime.from(
+              targetAppointment.startTime,
+            );
+            const startZoned = selectedDateRef.current.toZonedDateTime({
+              plainTime,
+              timeZone: TIMEZONE,
+            });
+            const endZoned = startZoned.add({
+              minutes: targetAppointment.duration,
+            });
+            const converted =
+              await convertRealAppointmentToSimulationRef.current(
+                targetAppointment,
+                {
+                  durationMinutes: targetAppointment.duration,
+                  endISO: endZoned.toString(),
+                  startISO: startZoned.toString(),
+                },
+              );
+            if (converted) {
+              startResizing(converted.id);
+            }
+          } catch (error) {
+            captureErrorGlobal(error, {
+              context: "Failed to parse time in resize start",
+              startTime: targetAppointment.startTime,
+            });
+            toast.error("Startzeit konnte nicht ermittelt werden");
+          }
+        })();
+        return;
+      }
+
+      startResizing(appointmentId);
+    },
+    [],
+  );
+
+  const handleBlockedSlotResizeStart = useCallback(
+    (
+      event: ResizeStartEvent,
+      blockedSlotId: string,
+      currentDuration: number,
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startResizing = (entityId: string) => {
+        const blockedSlot = manualBlockedSlotsRef.current.find(
+          (slot) => slot.id === entityId,
+        );
+        setActiveResizeDraft({
+          entityId,
+          kind: "blockedSlot",
+          originalDuration: currentDuration,
+          previewDuration: currentDuration,
+          startClientY: event.clientY,
+          startSlot: blockedSlot?.startSlot ?? 0,
+        });
+      };
+
+      const blockedSlotDoc = blockedSlotDocMapRef.current.get(blockedSlotId);
+      if (
+        simulatedContextRef.current &&
+        blockedSlotDoc &&
+        !blockedSlotDoc.isSimulation
+      ) {
+        void (async () => {
+          try {
+            const convertedId =
+              await convertRealBlockedSlotToSimulationRef.current(
+                blockedSlotId,
+                {
+                  endISO: blockedSlotDoc.end,
+                  locationId: blockedSlotDoc.locationId,
+                  ...(blockedSlotDoc.practitionerId
+                    ? { practitionerId: blockedSlotDoc.practitionerId }
+                    : {}),
+                  startISO: blockedSlotDoc.start,
+                  title:
+                    blockedSlotDoc.title ||
+                    manualBlockedSlotsRef.current.find(
+                      (slot) => slot.id === blockedSlotId,
+                    )?.title ||
+                    "Gesperrter Zeitraum",
+                },
+              );
+            if (convertedId) {
+              startResizing(convertedId);
+            }
+          } catch (error) {
+            captureErrorGlobal(error, {
+              blockedSlotId,
+              context: "Failed to convert blocked slot for resize",
+            });
+            toast.error(
+              "Gesperrter Zeitraum konnte für die Simulation nicht kopiert werden",
+            );
+          }
+        })();
+        return;
+      }
+
+      startResizing(blockedSlotId);
+    },
+    [blockedSlotDocMapRef],
+  );
+
+  useEffect(() => {
+    if (!activeResizeDraft) {
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      setActiveResizeDraft((currentDraft) => {
+        if (!currentDraft) {
+          return null;
+        }
+
+        const deltaY = event.clientY - currentDraft.startClientY;
+        const deltaSlots = Math.round(deltaY / 16);
+
+        return {
+          ...currentDraft,
+          previewDuration: Math.max(
+            SLOT_DURATION,
+            currentDraft.originalDuration + deltaSlots * SLOT_DURATION,
+          ),
+        };
+      });
+    };
+
+    const clearJustResized = () => {
+      globalThis.setTimeout(() => {
+        justFinishedResizingRef.current = null;
+      }, 100);
+    };
+
+    const handleMouseUp = () => {
+      const resizeDraft = activeResizeDraft;
+      justFinishedResizingRef.current = resizeDraft.entityId;
+      clearJustResized();
+      setActiveResizeDraft(null);
+
+      if (resizeDraft.previewDuration === resizeDraft.originalDuration) {
+        return;
+      }
+
+      if (resizeDraft.kind === "appointment") {
+        const appointment = appointmentsRef.current.find(
+          (entry) => entry.id === resizeDraft.entityId,
+        );
+        if (
+          !appointment ||
+          checkCollisionRef.current(
+            appointment.column,
+            resizeDraft.startSlot,
+            resizeDraft.previewDuration,
+            resizeDraft.entityId,
+          ) ||
+          !appointment.convexId
+        ) {
+          return;
+        }
+        const appointmentId = appointment.convexId;
+
+        void (async () => {
+          try {
+            const startTime = slotToTimeRef.current(resizeDraft.startSlot);
+            const plainTime = Temporal.PlainTime.from(startTime);
+            const startZoned = selectedDateRef.current.toZonedDateTime({
+              plainTime,
+              timeZone: TIMEZONE,
+            });
+            const endZoned = startZoned.add({
+              minutes: resizeDraft.previewDuration,
+            });
+            await runUpdateAppointmentRef.current({
+              end: endZoned.toString(),
+              id: appointmentId,
+            });
+          } catch (error) {
+            captureErrorGlobal(error, {
+              appointmentId,
+              context: "NewCalendar - Failed to update appointment duration",
+            });
+            toast.error("Termin-Dauer konnte nicht aktualisiert werden");
+          }
+        })();
+        return;
+      }
+
+      const blockedSlot = manualBlockedSlotsRef.current.find(
+        (entry) => entry.id === resizeDraft.entityId,
+      );
+      if (
+        !blockedSlot ||
+        checkCollisionRef.current(
+          blockedSlot.column,
+          resizeDraft.startSlot,
+          resizeDraft.previewDuration,
+          resizeDraft.entityId,
+        )
+      ) {
+        return;
+      }
+
+      const blockedSlotDoc =
+        blockedSlot.id === undefined
+          ? undefined
+          : blockedSlotDocMapRef.current.get(blockedSlot.id);
+      if (!blockedSlotDoc) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const startTime = slotToTimeRef.current(resizeDraft.startSlot);
+          const plainTime = Temporal.PlainTime.from(startTime);
+          const startZoned = selectedDateRef.current.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
+          });
+          const endZoned = startZoned.add({
+            minutes: resizeDraft.previewDuration,
+          });
+          await runUpdateBlockedSlotRef.current({
+            end: endZoned.toString(),
+            id: blockedSlotDoc._id,
+            ...(simulatedContextRef.current ? { isSimulation: true } : {}),
+          });
+        } catch (error) {
+          captureErrorGlobal(error, {
+            blockedSlotId: resizeDraft.entityId,
+            context: "Failed to update blocked slot duration",
+          });
+          toast.error(
+            "Dauer des gesperrten Zeitraums konnte nicht aktualisiert werden",
+          );
+        }
+      })();
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [activeResizeDraft, blockedSlotDocMapRef]);
+
+  const appointments = useMemo(() => {
+    if (activeResizeDraft?.kind !== "appointment") {
+      return baseAppointments;
+    }
+
+    return baseAppointments.map((appointment) =>
+      appointment.id === activeResizeDraft.entityId
+        ? {
+            ...appointment,
+            duration: activeResizeDraft.previewDuration,
+          }
+        : appointment,
+    );
+  }, [activeResizeDraft, baseAppointments]);
+
+  const manualBlockedSlots = useMemo(() => {
+    if (activeResizeDraft?.kind !== "blockedSlot") {
+      return baseManualBlockedSlots;
+    }
+
+    return baseManualBlockedSlots.map((blockedSlot) =>
+      blockedSlot.id === activeResizeDraft.entityId
+        ? {
+            ...blockedSlot,
+            duration: activeResizeDraft.previewDuration,
+          }
+        : blockedSlot,
+    );
+  }, [activeResizeDraft, baseManualBlockedSlots]);
+
+  return {
+    appointments,
+    handleBlockedSlotResizeStart,
+    handleResizeStart,
+    justFinishedResizingRef,
+    manualBlockedSlots,
+  };
+}

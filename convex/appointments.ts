@@ -21,6 +21,7 @@ import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
+  resolveLocationLineageKey,
   resolvePractitionerIdForRuleSetByLineage,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
@@ -123,6 +124,33 @@ const appointmentResultValidator = v.object({
   title: v.string(),
   userId: v.optional(v.id("users")),
 });
+
+const blockedSlotListItemValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("blockedSlots"),
+  createdAt: v.int64(),
+  end: v.string(),
+  isSimulation: v.optional(v.boolean()),
+  lastModified: v.int64(),
+  locationId: v.id("locations"),
+  practiceId: v.id("practices"),
+  practitionerId: v.optional(v.id("practitioners")),
+  replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
+  start: v.string(),
+  title: v.string(),
+});
+
+const calendarDayQueryArgsValidator = {
+  activeRuleSetId: v.optional(v.id("ruleSets")),
+  dayEnd: v.string(),
+  dayStart: v.string(),
+  locationId: v.optional(v.id("locations")),
+  practiceId: v.id("practices"),
+  scope: v.optional(
+    v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+  ),
+  selectedRuleSetId: v.optional(v.id("ruleSets")),
+};
 
 export type AppointmentResult = Omit<
   Infer<typeof appointmentResultValidator>,
@@ -445,6 +473,17 @@ function getDisplayRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
+async function getOptionalLocationLineageKey(
+  db: DatabaseReader,
+  locationId: Id<"locations"> | undefined,
+): Promise<Id<"locations"> | undefined> {
+  if (!locationId) {
+    return;
+  }
+
+  return await resolveLocationLineageKey(db, asLocationId(locationId));
+}
+
 function getSimulationScopeRuleSetId(args: {
   activeRuleSetId?: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
@@ -468,6 +507,13 @@ function isAppointmentVisibleInScope(
     appointment.isSimulation !== true ||
     appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
   );
+}
+
+function isCalendarDayRangeMatch(
+  args: { dayEnd: string; dayStart: string },
+  value: string,
+): boolean {
+  return value >= args.dayStart && value < args.dayEnd;
 }
 
 function isMissingDisplayLineageMappingError(error: unknown): boolean {
@@ -632,6 +678,53 @@ export const getAppointments = query({
     }
 
     return resultAppointments;
+  },
+  returns: v.array(appointmentResultValidator),
+});
+
+export const getCalendarDayAppointments = query({
+  args: calendarDayQueryArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const scope: AppointmentScope = args.scope ?? "real";
+    const selectedLocationLineageKey = await getOptionalLocationLineageKey(
+      ctx.db,
+      args.locationId,
+    );
+
+    const appointmentDocs = await ctx.db
+      .query("appointments")
+      .withIndex("by_practiceId_start", (q) =>
+        q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
+      )
+      .collect();
+
+    const visibleAppointments = appointmentDocs.filter(
+      (appointment) =>
+        isVisibleAppointment(appointment) &&
+        isCalendarDayRangeMatch(args, appointment.start) &&
+        (selectedLocationLineageKey === undefined ||
+          appointment.locationLineageKey === selectedLocationLineageKey),
+    );
+    const scopedAppointments = filterAppointmentsForScope(
+      visibleAppointments,
+      args,
+      scope,
+    );
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    const appointments = displayRuleSetId
+      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
+      : scopedAppointments.map((appointment) =>
+          toAppointmentListItem(appointment),
+        );
+
+    return scope === "simulation"
+      ? combineForSimulationScope(appointments)
+      : appointments.toSorted((left, right) =>
+          left.start.localeCompare(right.start),
+        );
   },
   returns: v.array(appointmentResultValidator),
 });
@@ -1952,22 +2045,92 @@ export const getBlockedSlots = query({
 
     return resultSlots;
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("blockedSlots"),
-      createdAt: v.int64(),
-      end: v.string(),
-      isSimulation: v.optional(v.boolean()),
-      lastModified: v.int64(),
-      locationId: v.id("locations"),
-      practiceId: v.id("practices"),
-      practitionerId: v.optional(v.id("practitioners")),
-      replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
-      start: v.string(),
-      title: v.string(),
-    }),
-  ),
+  returns: v.array(blockedSlotListItemValidator),
+});
+
+export const getCalendarDayBlockedSlots = query({
+  args: calendarDayQueryArgsValidator,
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const scope: AppointmentScope = args.scope ?? "real";
+    const selectedLocationLineageKey = await getOptionalLocationLineageKey(
+      ctx.db,
+      args.locationId,
+    );
+    const blockedSlots = await ctx.db
+      .query("blockedSlots")
+      .withIndex("by_practiceId_start", (q) =>
+        q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
+      )
+      .collect();
+
+    const blockedLocationLineageCache = new Map<
+      Id<"locations">,
+      Id<"locations"> | undefined
+    >();
+    const matchesLocation = async (blockedSlot: BlockedSlotDoc) => {
+      if (selectedLocationLineageKey === undefined) {
+        return true;
+      }
+
+      if (blockedLocationLineageCache.has(blockedSlot.locationId)) {
+        const cachedLineageKey = blockedLocationLineageCache.get(
+          blockedSlot.locationId,
+        );
+        return cachedLineageKey === selectedLocationLineageKey;
+      }
+
+      try {
+        const lineageKey = await getOptionalLocationLineageKey(
+          ctx.db,
+          blockedSlot.locationId,
+        );
+        blockedLocationLineageCache.set(blockedSlot.locationId, lineageKey);
+        return lineageKey === selectedLocationLineageKey;
+      } catch {
+        return false;
+      }
+    };
+
+    const blockedSlotsWithVisibility = await Promise.all(
+      blockedSlots.map(async (blockedSlot) =>
+        isCalendarDayRangeMatch(args, blockedSlot.start) &&
+        (await matchesLocation(blockedSlot))
+          ? blockedSlot
+          : null,
+      ),
+    );
+    const visibleBlockedSlots = blockedSlotsWithVisibility.filter(
+      (blockedSlot): blockedSlot is BlockedSlotDoc => blockedSlot !== null,
+    );
+
+    let resultSlots: BlockedSlotDoc[];
+    if (scope === "simulation") {
+      resultSlots = combineBlockedSlotsForSimulation(visibleBlockedSlots);
+    } else if (scope === "real") {
+      resultSlots = visibleBlockedSlots.filter(
+        (blockedSlot) => blockedSlot.isSimulation !== true,
+      );
+    } else {
+      resultSlots = visibleBlockedSlots;
+    }
+
+    const displayRuleSetId = getDisplayRuleSetId(args);
+    if (displayRuleSetId) {
+      resultSlots = await remapBlockedSlotIds(
+        ctx,
+        resultSlots,
+        displayRuleSetId,
+      );
+    }
+
+    return resultSlots.toSorted((left, right) =>
+      left.start.localeCompare(right.start),
+    );
+  },
+  returns: v.array(blockedSlotListItemValidator),
 });
 
 // Mutation to create a blocked slot

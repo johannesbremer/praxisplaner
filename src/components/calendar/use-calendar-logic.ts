@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { ResultAsync } from "neverthrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -15,7 +15,6 @@ import {
   getPractitionerAvailabilityRangesForDate,
   getPractitionerVacationRangesForDate,
 } from "../../../lib/vacation-utils";
-import { emitCalendarEvent } from "../../devtools/event-client";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
 import { createOptimisticId } from "../../utils/convex-ids";
@@ -28,12 +27,18 @@ import {
 } from "../../utils/frontend-errors";
 import {
   formatTime,
-  safeParseISOToPlainDate,
   safeParseISOToZoned,
   temporalDayToLegacy,
   zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
-import { APPOINTMENT_COLORS, SLOT_DURATION } from "./types";
+import { SLOT_DURATION } from "./types";
+import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
+import { useCalendarData } from "./use-calendar-data";
+import { useCalendarDevtools } from "./use-calendar-devtools";
+import {
+  type CalendarManualBlockedSlot,
+  useCalendarInteractions,
+} from "./use-calendar-interactions";
 import {
   type BlockedSlotConversionOptions,
   collectDeletedPractitionerCalendarRanges,
@@ -86,19 +91,8 @@ export function useCalendarLogic({
     slot: 0,
     visible: false,
   });
-  const [resizing, setResizing] = useState<null | {
-    appointmentId: string;
-    originalDuration: number;
-    startY: number;
-  }>(null);
-  const [resizingBlockedSlot, setResizingBlockedSlot] = useState<null | {
-    blockedSlotId: string;
-    originalDuration: number;
-    startY: number;
-  }>(null);
   const autoScrollAnimationRef = useRef<null | number>(null);
   const hasResolvedLocationRef = useRef(false);
-  const justFinishedResizingRef = useRef<null | string>(null);
 
   // Warning dialog state for blocked slots
   const [blockedSlotWarning, setBlockedSlotWarning] = useState<null | {
@@ -111,118 +105,37 @@ export function useCalendarLogic({
     slotTime: string;
   }>(null);
 
-  // Devtools instrumentation
-  const [mountTime] = useState(() => Date.now());
-  const mountTimeRef = useRef(mountTime);
-  const lastRenderRef = useRef(mountTime);
-  const renderCountRef = useRef(0);
-  const effectCountersRef = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    renderCountRef.current += 1;
-  });
-
-  useEffect(() => {
-    if (!__ENABLE_DEVTOOLS__) {
-      return;
-    }
-    const now = Date.now();
-    emitCalendarEvent("custom-devtools:calendar-render", {
-      lastRenderAt: now,
-      renders: renderCountRef.current,
-    });
-    emitCalendarEvent("custom-devtools:calendar-performance", {
-      lastCommitAt: now,
-      renderDeltaMs: now - lastRenderRef.current,
-      sinceMountMs: now - mountTimeRef.current,
-    });
-    lastRenderRef.current = now;
-  });
-
   const [internalSelectedLocationId, setInternalSelectedLocationId] = useState(
     externalSelectedLocationId,
   );
   const selectedLocationId =
     externalSelectedLocationId ?? internalSelectedLocationId;
 
-  // Get active rule set for entity ID remapping
-  const activeRuleSetData = useQuery(
-    api.ruleSets.getActiveRuleSet,
-    practiceId ? { practiceId } : "skip",
-  );
-
-  const appointmentScope = simulatedContext ? "simulation" : "real";
-  const activeRuleSetId = activeRuleSetData?._id;
-  const appointmentsQueryArgs = useMemo(() => {
-    const args: {
-      activeRuleSetId?: Id<"ruleSets">;
-      scope: "all" | "real" | "simulation";
-      selectedRuleSetId?: Id<"ruleSets">;
-    } = {
-      scope: appointmentScope,
-    };
-    if (activeRuleSetId) {
-      args.activeRuleSetId = activeRuleSetId;
-    }
-    if (ruleSetId) {
-      args.selectedRuleSetId = ruleSetId;
-    }
-    return args;
-  }, [activeRuleSetId, appointmentScope, ruleSetId]);
-
-  // Query data
-  const appointmentsData = useQuery(
-    api.appointments.getAppointments,
-    appointmentsQueryArgs,
-  );
-
-  // Query blocked slots directly with rule set IDs for entity remapping
-  const blockedSlotsQueryArgs = appointmentsQueryArgs;
-
-  const blockedSlotsData = useQuery(
-    api.appointments.getBlockedSlots,
-    blockedSlotsQueryArgs,
-  );
-  const vacationsData = useQuery(
-    api.vacations.getVacationsInRange,
-    practiceId && ruleSetId
-      ? {
-          endDateExclusive: selectedDate.add({ days: 1 }).toString(),
-          ruleSetId,
-          startDate: selectedDate.toString(),
-        }
-      : "skip",
-  );
-
-  const appointmentDocMap = useMemo(() => {
-    const map = new Map<Id<"appointments">, AppointmentResult>();
-    if (!appointmentsData) {
-      return map;
-    }
-    for (const appointment of appointmentsData) {
-      map.set(appointment._id, appointment);
-    }
-    return map;
-  }, [appointmentsData]);
-  const appointmentDocMapRef = useRef(appointmentDocMap);
-  useEffect(() => {
-    appointmentDocMapRef.current = appointmentDocMap;
-  }, [appointmentDocMap]);
-
-  const blockedSlotDocMap = useMemo(() => {
-    const map = new Map<string, Doc<"blockedSlots">>();
-    if (!blockedSlotsData) {
-      return map;
-    }
-    for (const slot of blockedSlotsData) {
-      map.set(slot._id, slot);
-    }
-    return map;
-  }, [blockedSlotsData]);
-  const blockedSlotDocMapRef = useRef(blockedSlotDocMap);
-  useEffect(() => {
-    blockedSlotDocMapRef.current = blockedSlotDocMap;
-  }, [blockedSlotDocMap]);
+  const {
+    appointmentDocMapRef,
+    appointments: baseAppointments,
+    appointmentsData,
+    appointmentTypeMap,
+    baseSchedulesData,
+    blockedSlotDocMapRef,
+    blockedSlotsData,
+    blockedSlotsWithoutAppointmentTypeResult,
+    calendarDayQueryArgs,
+    getRequiredAppointmentTypeInfo,
+    locationsData,
+    practitionersData,
+    slotsResult,
+    vacationsData,
+  } = useCalendarData({
+    patient,
+    practiceId,
+    ruleSetId,
+    selectedAppointmentTypeId,
+    selectedDate,
+    selectedLocationId,
+    simulatedContext,
+  });
+  const blockedSlotsQueryArgs = calendarDayQueryArgs;
 
   const isNonRootSeriesAppointment = useCallback((appointmentId?: string) => {
     if (!appointmentId) {
@@ -237,7 +150,7 @@ export function useCalendarLogic({
       appointmentDoc.seriesStepIndex !== undefined &&
       appointmentDoc.seriesStepIndex !== 0n
     );
-  }, []);
+  }, [appointmentDocMapRef]);
 
   const showNonRootSeriesEditToast = useCallback(() => {
     toast.info(
@@ -256,68 +169,6 @@ export function useCalendarLogic({
       ),
     [],
   );
-
-  // Use ruleSetId if provided (simulation mode), otherwise get from active
-  const practitionersData = useQuery(
-    ruleSetId
-      ? api.entities.getPractitioners
-      : api.entities.getPractitionersFromActive,
-    ruleSetId
-      ? { includeDeleted: true, ruleSetId }
-      : practiceId
-        ? { practiceId }
-        : "skip",
-  );
-  const baseSchedulesData = useQuery(
-    ruleSetId
-      ? api.entities.getBaseSchedules
-      : api.entities.getBaseSchedulesFromActive,
-    ruleSetId ? { ruleSetId } : practiceId ? { practiceId } : "skip",
-  );
-  const locationsData = useQuery(
-    ruleSetId ? api.entities.getLocations : api.entities.getLocationsFromActive,
-    ruleSetId
-      ? { includeDeleted: true, ruleSetId }
-      : practiceId
-        ? { practiceId }
-        : "skip",
-  );
-
-  // Query appointment types for duration and title lookup
-  const appointmentTypesData = useQuery(
-    ruleSetId
-      ? api.entities.getAppointmentTypes
-      : api.entities.getAppointmentTypesFromActive,
-    ruleSetId
-      ? { includeDeleted: true, ruleSetId }
-      : practiceId
-        ? { practiceId }
-        : "skip",
-  );
-
-  // Create a map for quick appointment type lookup
-  const appointmentTypeMap = useMemo(() => {
-    const map = new Map<
-      Id<"appointmentTypes">,
-      {
-        allowedPractitionerIds: Id<"practitioners">[];
-        duration: number;
-        hasFollowUpPlan: boolean;
-        name: string;
-      }
-    >();
-    if (appointmentTypesData) {
-      for (const at of appointmentTypesData) {
-        map.set(at._id, {
-          allowedPractitionerIds: at.allowedPractitionerIds,
-          duration: at.duration,
-          hasFollowUpPlan: (at.followUpPlan?.length ?? 0) > 0,
-          name: at.name,
-        });
-      }
-    }
-    return map;
-  }, [appointmentTypesData]);
 
   const placementAppointmentTypeId =
     simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
@@ -375,87 +226,6 @@ export function useCalendarLogic({
     [],
   );
 
-  const getRequiredAppointmentTypeInfo = useCallback(
-    (appointmentTypeId: Id<"appointmentTypes">, source: string) => {
-      const appointmentTypeInfo = appointmentTypeMap.get(appointmentTypeId);
-      if (appointmentTypeInfo) {
-        return appointmentTypeInfo;
-      }
-
-      captureFrontendError(
-        invalidStateError(
-          `Terminart ${appointmentTypeId} konnte nicht in appointmentTypeMap aufgelöst werden.`,
-          source,
-        ),
-        {
-          appointmentTypeId,
-          context: "appointment_type_missing",
-          source,
-        },
-        `${source}:${appointmentTypeId}`,
-      );
-      return null;
-    },
-    [appointmentTypeMap],
-  );
-
-  // Query for available/blocked slots when:
-  // 1. In simulation mode with appointment type selected, OR
-  // 2. In real mode with appointment type selected via calendar sidebar
-  const slotsResult = useQuery(
-    api.scheduling.getSlotsForDay,
-    // Simulation mode: check simulatedContext
-    simulatedContext?.appointmentTypeId &&
-      simulatedContext.locationId &&
-      practiceId &&
-      ruleSetId
-      ? {
-          date: selectedDate.toString(),
-          practiceId,
-          ruleSetId,
-          scope: "simulation",
-          simulatedContext,
-        }
-      : // Real mode: check selectedAppointmentTypeId
-        selectedAppointmentTypeId &&
-          selectedLocationId &&
-          practiceId &&
-          ruleSetId
-        ? (() => {
-            const patientDateOfBirth = patient?.dateOfBirth;
-            return {
-              date: selectedDate.toString(),
-              practiceId,
-              ruleSetId,
-              scope: "real" as const,
-              simulatedContext: createSimulatedContext({
-                appointmentTypeId: selectedAppointmentTypeId,
-                isNewPatient: patient?.isNewPatient ?? false,
-                locationId: selectedLocationId,
-                ...(patientDateOfBirth !== undefined && {
-                  patientDateOfBirth,
-                }),
-              }),
-            };
-          })()
-        : "skip",
-  );
-
-  // Query for appointment-type-independent blocked slots
-  // This runs always (even without appointment type selected) to show
-  // rules that don't depend on appointment type (e.g., DATE_RANGE, DAY_OF_WEEK)
-  const blockedSlotsWithoutAppointmentTypeResult = useQuery(
-    api.scheduling.getBlockedSlotsWithoutAppointmentType,
-    practiceId && ruleSetId
-      ? {
-          date: selectedDate.toString(),
-          practiceId,
-          ruleSetId,
-          ...(selectedLocationId && { locationId: selectedLocationId }),
-        }
-      : "skip",
-  );
-
   const {
     canRedo: canRedoHistoryAction,
     canUndo: canUndoHistoryAction,
@@ -463,6 +233,8 @@ export function useCalendarLogic({
     redo: redoHistoryAction,
     undo: undoHistoryAction,
   } = useLocalHistory();
+  const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
+  const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
   const toEpochMilliseconds = useCallback((iso: string) => {
     return Temporal.ZonedDateTime.from(iso).epochMilliseconds;
@@ -520,7 +292,7 @@ export function useCalendarLogic({
 
       return false;
     },
-    [toEpochMilliseconds],
+    [appointmentDocMapRef, toEpochMilliseconds],
   );
 
   const hasBlockedSlotConflict = useCallback(
@@ -575,7 +347,7 @@ export function useCalendarLogic({
 
       return false;
     },
-    [hasAppointmentConflict, toEpochMilliseconds],
+    [blockedSlotDocMapRef, hasAppointmentConflict, toEpochMilliseconds],
   );
 
   const runUndo = useCallback(async () => {
@@ -641,9 +413,12 @@ export function useCalendarLogic({
     async (args: Parameters<typeof createAppointmentMutation>[0]) => {
       return await createAppointmentMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
+          if (!calendarDayQueryArgs) {
+            return;
+          }
           const existingAppointments = localStore.getQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
+            appointmentQueryRef,
+            calendarDayQueryArgs,
           );
 
           if (!existingAppointments) {
@@ -715,16 +490,16 @@ export function useCalendarLogic({
                   (apt) => apt._id !== optimisticArgs.replacesAppointmentId,
                 );
 
-          localStore.setQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
-            [...baseList, newAppointment],
-          );
+          localStore.setQuery(appointmentQueryRef, calendarDayQueryArgs, [
+            ...baseList,
+            newAppointment,
+          ]);
         },
       )(args);
     },
     [
-      appointmentsQueryArgs,
+      appointmentQueryRef,
+      calendarDayQueryArgs,
       createAppointmentMutation,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
@@ -739,9 +514,12 @@ export function useCalendarLogic({
       >[0],
       optimisticArgs: Parameters<typeof updateAppointmentMutation>[0],
     ) => {
+      if (!calendarDayQueryArgs) {
+        return;
+      }
       const existingAppointments = localStore.getQuery(
-        api.appointments.getAppointments,
-        appointmentsQueryArgs,
+        appointmentQueryRef,
+        calendarDayQueryArgs,
       );
       if (!existingAppointments) {
         return;
@@ -800,12 +578,17 @@ export function useCalendarLogic({
       });
 
       localStore.setQuery(
-        api.appointments.getAppointments,
-        appointmentsQueryArgs,
+        appointmentQueryRef,
+        calendarDayQueryArgs,
         updatedAppointments,
       );
     },
-    [appointmentsQueryArgs, parseZonedDateTime, updateAppointmentMutation],
+    [
+      appointmentQueryRef,
+      calendarDayQueryArgs,
+      parseZonedDateTime,
+      updateAppointmentMutation,
+    ],
   );
 
   const getAppointmentUpdateMutation = useCallback(
@@ -841,16 +624,23 @@ export function useCalendarLogic({
         applyOptimisticAppointmentUpdate,
       )(args);
     },
-    [applyOptimisticAppointmentUpdate, getAppointmentUpdateMutation],
+    [
+      appointmentDocMapRef,
+      applyOptimisticAppointmentUpdate,
+      getAppointmentUpdateMutation,
+    ],
   );
 
   const runDeleteAppointmentInternal = useCallback(
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
       return await deleteAppointmentMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
+          if (!calendarDayQueryArgs) {
+            return;
+          }
           const existingAppointments = localStore.getQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
+            appointmentQueryRef,
+            calendarDayQueryArgs,
           );
           if (!existingAppointments) {
             return;
@@ -861,22 +651,25 @@ export function useCalendarLogic({
           );
 
           localStore.setQuery(
-            api.appointments.getAppointments,
-            appointmentsQueryArgs,
+            appointmentQueryRef,
+            calendarDayQueryArgs,
             updatedAppointments,
           );
         },
       )(args);
     },
-    [appointmentsQueryArgs, deleteAppointmentMutation],
+    [appointmentQueryRef, calendarDayQueryArgs, deleteAppointmentMutation],
   );
 
   const runCreateBlockedSlotInternal = useCallback(
     async (args: Parameters<typeof createBlockedSlotMutation>[0]) => {
       return await createBlockedSlotMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
+          if (!blockedSlotsQueryArgs) {
+            return;
+          }
           const existingBlockedSlots = localStore.getQuery(
-            api.appointments.getBlockedSlots,
+            blockedSlotQueryRef,
             blockedSlotsQueryArgs,
           );
 
@@ -916,23 +709,25 @@ export function useCalendarLogic({
                   (slot) => slot._id !== optimisticArgs.replacesBlockedSlotId,
                 );
 
-          localStore.setQuery(
-            api.appointments.getBlockedSlots,
-            blockedSlotsQueryArgs,
-            [...baseList, newBlockedSlot],
-          );
+          localStore.setQuery(blockedSlotQueryRef, blockedSlotsQueryArgs, [
+            ...baseList,
+            newBlockedSlot,
+          ]);
         },
       )(args);
     },
-    [createBlockedSlotMutation, blockedSlotsQueryArgs],
+    [blockedSlotQueryRef, createBlockedSlotMutation, blockedSlotsQueryArgs],
   );
 
   const runUpdateBlockedSlotInternal = useCallback(
     async (args: Parameters<typeof updateBlockedSlotMutation>[0]) => {
       return await updateBlockedSlotMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
+          if (!blockedSlotsQueryArgs) {
+            return;
+          }
           const existingBlockedSlots = localStore.getQuery(
-            api.appointments.getBlockedSlots,
+            blockedSlotQueryRef,
             blockedSlotsQueryArgs,
           );
 
@@ -975,22 +770,25 @@ export function useCalendarLogic({
           });
 
           localStore.setQuery(
-            api.appointments.getBlockedSlots,
+            blockedSlotQueryRef,
             blockedSlotsQueryArgs,
             updatedBlockedSlots,
           );
         },
       )(args);
     },
-    [updateBlockedSlotMutation, blockedSlotsQueryArgs],
+    [blockedSlotQueryRef, updateBlockedSlotMutation, blockedSlotsQueryArgs],
   );
 
   const runDeleteBlockedSlotInternal = useCallback(
     async (args: Parameters<typeof deleteBlockedSlotMutation>[0]) => {
       return await deleteBlockedSlotMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
+          if (!blockedSlotsQueryArgs) {
+            return;
+          }
           const existingBlockedSlots = localStore.getQuery(
-            api.appointments.getBlockedSlots,
+            blockedSlotQueryRef,
             blockedSlotsQueryArgs,
           );
 
@@ -999,7 +797,7 @@ export function useCalendarLogic({
           }
 
           localStore.setQuery(
-            api.appointments.getBlockedSlots,
+            blockedSlotQueryRef,
             blockedSlotsQueryArgs,
             existingBlockedSlots.filter(
               (slot) => slot._id !== optimisticArgs.id,
@@ -1008,7 +806,7 @@ export function useCalendarLogic({
         },
       )(args);
     },
-    [deleteBlockedSlotMutation, blockedSlotsQueryArgs],
+    [blockedSlotQueryRef, blockedSlotsQueryArgs, deleteBlockedSlotMutation],
   );
 
   const runCreateAppointment = useCallback(
@@ -1220,6 +1018,7 @@ export function useCalendarLogic({
       });
     },
     [
+      appointmentDocMapRef,
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
       parseZonedDateTime,
@@ -1315,6 +1114,7 @@ export function useCalendarLogic({
       });
     },
     [
+      appointmentDocMapRef,
       deleteAppointmentMutation,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
@@ -1498,7 +1298,12 @@ export function useCalendarLogic({
 
       return mutationResult;
     },
-    [hasBlockedSlotConflict, pushHistoryAction, runUpdateBlockedSlotInternal],
+    [
+      blockedSlotDocMapRef,
+      hasBlockedSlotConflict,
+      pushHistoryAction,
+      runUpdateBlockedSlotInternal,
+    ],
   );
 
   const runDeleteBlockedSlot = useCallback(
@@ -1568,6 +1373,7 @@ export function useCalendarLogic({
       return mutationResult;
     },
     [
+      blockedSlotDocMapRef,
       hasBlockedSlotConflict,
       pushHistoryAction,
       runCreateBlockedSlotInternal,
@@ -1981,224 +1787,7 @@ export function useCalendarLogic({
     [workingPractitioners],
   );
 
-  // Filter appointments by date
-  const dateFilteredAppointments = useMemo(() => {
-    if (!appointmentsData) {
-      return [];
-    }
-    return appointmentsData.filter((appointment: AppointmentResult) => {
-      const appointmentDate = safeParseISOToPlainDate(appointment.start);
-      if (!appointmentDate) {
-        console.warn(`Invalid appointment start date: ${appointment.start}`);
-        return false;
-      }
-
-      return Temporal.PlainDate.compare(appointmentDate, selectedDate) === 0;
-    });
-  }, [appointmentsData, selectedDate]);
-
-  // Filter by location
-  const locationFilteredAppointments = useMemo(() => {
-    const locationId = simulatedContext?.locationId ?? selectedLocationId;
-    if (!locationId) {
-      return dateFilteredAppointments;
-    }
-
-    return dateFilteredAppointments.filter(
-      (appointment) => appointment.locationId === locationId,
-    );
-  }, [
-    dateFilteredAppointments,
-    simulatedContext?.locationId,
-    selectedLocationId,
-  ]);
-
-  // Collect patient IDs from appointments for batch query
-  const appointmentPatientIds = useMemo(() => {
-    const ids = new Set<Id<"patients">>();
-    for (const appointment of locationFilteredAppointments) {
-      if (appointment.patientId) {
-        ids.add(appointment.patientId);
-      }
-    }
-    return [...ids];
-  }, [locationFilteredAppointments]);
-
-  // Collect user IDs from appointments (for bookings coming from /buchung)
-  const appointmentUserIds = useMemo(() => {
-    const ids = new Set<Id<"users">>();
-    for (const appointment of locationFilteredAppointments) {
-      if (appointment.userId) {
-        ids.add(appointment.userId);
-      }
-    }
-    return [...ids];
-  }, [locationFilteredAppointments]);
-
-  // Query patient data for appointments
-  const patientData = useQuery(
-    api.patients.getPatientsByIds,
-    appointmentPatientIds.length > 0
-      ? { patientIds: appointmentPatientIds }
-      : "skip",
-  );
-
-  const userData = useQuery(
-    api.users.getUsersByIds,
-    appointmentUserIds.length > 0 ? { userIds: appointmentUserIds } : "skip",
-  );
-
-  // Map to Appointment type
-  const combinedDerivedAppointments = useMemo(() => {
-    return locationFilteredAppointments
-      .map((appointment: AppointmentResult, index): Appointment | null => {
-        const startZoned = safeParseISOToZoned(appointment.start);
-        const endZoned = safeParseISOToZoned(appointment.end);
-
-        if (!startZoned || !endZoned) {
-          console.warn(
-            `Invalid appointment dates: start=${appointment.start}, end=${appointment.end}`,
-          );
-          return null;
-        }
-
-        const duration = Math.round(
-          startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
-        );
-
-        // Title is stored directly on the appointment (snapshot at booking time)
-        const title = appointment.title;
-
-        // Get patient name if available (patient record or user record)
-        let patientName: string | undefined;
-        if (appointment.patientId && patientData) {
-          const patientInfo = patientData[appointment.patientId];
-          if (patientInfo) {
-            patientName =
-              patientInfo.name ??
-              [patientInfo.lastName, patientInfo.firstName]
-                .filter(Boolean)
-                .join(", ");
-          }
-        }
-
-        if (!patientName && appointment.userId && userData) {
-          const userInfo = userData[appointment.userId];
-          if (userInfo) {
-            const parts = [userInfo.lastName, userInfo.firstName].filter(
-              Boolean,
-            );
-            patientName = parts.length > 0 ? parts.join(", ") : userInfo.email;
-          }
-        }
-
-        return {
-          appointmentTypeTitle: appointment.appointmentTypeTitle,
-          color:
-            APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
-            "bg-gray-500",
-          column: appointment.practitionerId || "ekg",
-          convexId: appointment._id,
-          duration,
-          id: appointment._id,
-          isSimulation: appointment.isSimulation === true,
-          ...(patientName && { patientName }),
-          replacesAppointmentId: appointment.replacesAppointmentId ?? null,
-          resource: {
-            appointmentTypeId: appointment.appointmentTypeId,
-            isSimulation: appointment.isSimulation === true,
-            locationId: appointment.locationId,
-            patientId: appointment.patientId,
-            practitionerId: appointment.practitionerId,
-            seriesId: appointment.seriesId,
-            userId: appointment.userId,
-          },
-          startTime: formatTime(startZoned.toPlainTime()),
-          title,
-        };
-      })
-      .filter((apt): apt is Appointment => apt !== null);
-  }, [locationFilteredAppointments, patientData, userData]);
-
-  // Derive appointments directly from combinedDerivedAppointments
-  // Convex handles optimistic updates, so we don't need manual state management
-  const appointments = useMemo(() => {
-    return combinedDerivedAppointments;
-  }, [combinedDerivedAppointments]);
-
-  // Track appointments in devtools
-  useEffect(() => {
-    if (!__ENABLE_DEVTOOLS__) {
-      return;
-    }
-    const map = effectCountersRef.current;
-    const name = "appointmentsSync";
-    map[name] = (map[name] ?? 0) + 1;
-    emitCalendarEvent("custom-devtools:calendar-effect", {
-      count: map[name],
-      name,
-    });
-  }, [combinedDerivedAppointments]);
-
-  // Track appointment changes for devtools
-  useEffect(() => {
-    if (!__ENABLE_DEVTOOLS__) {
-      return;
-    }
-
-    const prevIds = new Set(appointments.map((a) => a.id));
-    const nextIds = new Set(combinedDerivedAppointments.map((a) => a.id));
-    const added: string[] = [];
-    const removed: string[] = [];
-
-    for (const id of prevIds) {
-      if (!nextIds.has(id)) {
-        removed.push(id);
-      }
-    }
-    for (const id of nextIds) {
-      if (!prevIds.has(id)) {
-        added.push(id);
-      }
-    }
-
-    const updated: string[] = [];
-    for (const next of combinedDerivedAppointments) {
-      const prevMatch = appointments.find((p) => p.id === next.id);
-      if (
-        prevMatch &&
-        (prevMatch.startTime !== next.startTime ||
-          prevMatch.duration !== next.duration ||
-          prevMatch.column !== next.column)
-      ) {
-        updated.push(next.id);
-      }
-    }
-
-    if (added.length > 0 || removed.length > 0 || updated.length > 0) {
-      emitCalendarEvent("custom-devtools:calendar-appointments", {
-        count: combinedDerivedAppointments.length,
-        diff: { added, removed, updated },
-        lastChangeAt: Date.now(),
-      });
-    }
-  }, [appointments, combinedDerivedAppointments]);
-
-  // Emit drag events
-  useEffect(() => {
-    if (!__ENABLE_DEVTOOLS__) {
-      return;
-    }
-    if (draggedAppointment) {
-      emitCalendarEvent("custom-devtools:calendar-drag", {
-        column: dragPreview.column,
-        dragging: true,
-        slotIndex: dragPreview.slot,
-      });
-    } else {
-      emitCalendarEvent("custom-devtools:calendar-drag", { dragging: false });
-    }
-  }, [draggedAppointment, dragPreview.column, dragPreview.slot]);
+  const baseRenderedAppointments = baseAppointments;
 
   // Helper functions
   const timeToSlot = useCallback(
@@ -2226,7 +1815,7 @@ export function useCalendarLogic({
   );
 
   // Map blocked slots from query to calendar grid positions
-  const blockedSlots = useMemo(() => {
+  const baseBlockedSlots = useMemo(() => {
     if (workingPractitioners.length === 0) {
       return [];
     }
@@ -2327,7 +1916,7 @@ export function useCalendarLogic({
   ]);
 
   // Map break times from base schedules and merge them into blocked slots
-  const breakSlots = useMemo(() => {
+  const baseBreakSlots = useMemo(() => {
     if (!baseSchedulesData || workingPractitioners.length === 0) {
       return [];
     }
@@ -2371,7 +1960,7 @@ export function useCalendarLogic({
   }, [baseSchedulesData, workingPractitioners, timeToSlot]);
 
   // Map manually created blocked slots from database
-  const manualBlockedSlots = useMemo(() => {
+  const baseManualBlockedSlots = useMemo<CalendarManualBlockedSlot[]>(() => {
     if (!blockedSlotsData || workingPractitioners.length === 0) {
       return [];
     }
@@ -2459,7 +2048,7 @@ export function useCalendarLogic({
     simulatedContext?.locationId,
   ]);
 
-  const vacationBlockedSlots = useMemo(() => {
+  const baseVacationBlockedSlots = useMemo(() => {
     if (
       !baseSchedulesData ||
       !vacationsData ||
@@ -2539,7 +2128,7 @@ export function useCalendarLogic({
     workingPractitioners,
   ]);
 
-  const unavailablePractitionerBlockedSlots = useMemo(() => {
+  const baseUnavailablePractitionerBlockedSlots = useMemo(() => {
     return createBlockedSlotsForColumns(
       columns,
       "Behandler gelöscht",
@@ -2548,7 +2137,7 @@ export function useCalendarLogic({
     );
   }, [columns, createBlockedSlotsForColumns, totalSlots]);
 
-  const appointmentTypeUnavailableBlockedSlots = useMemo(() => {
+  const baseAppointmentTypeUnavailableBlockedSlots = useMemo(() => {
     return createBlockedSlotsForColumns(
       columns,
       "Behandler nicht für Terminart freigegeben",
@@ -2557,7 +2146,7 @@ export function useCalendarLogic({
     );
   }, [columns, createBlockedSlotsForColumns, totalSlots]);
 
-  const dragDisabledPractitionerBlockedSlots = useMemo(() => {
+  const baseDragDisabledPractitionerBlockedSlots = useMemo(() => {
     return createBlockedSlotsForColumns(
       columns,
       "Behandler nicht für Terminart freigegeben",
@@ -2565,45 +2154,6 @@ export function useCalendarLogic({
       totalSlots,
     );
   }, [columns, createBlockedSlotsForColumns, totalSlots]);
-
-  // Merge blocked slots, break slots, and manually created blocked slots, then deduplicate
-  const allBlockedSlots = useMemo(() => {
-    const combined = [
-      ...blockedSlots,
-      ...breakSlots,
-      ...appointmentTypeUnavailableBlockedSlots,
-      ...dragDisabledPractitionerBlockedSlots,
-      ...manualBlockedSlots,
-      ...unavailablePractitionerBlockedSlots,
-      ...vacationBlockedSlots,
-    ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
-
-    // Deduplicate by column and slot, prioritizing manual blocked slots
-    const uniqueSlots = new Map<string, (typeof combined)[0]>();
-    for (const slot of combined) {
-      const key = `${slot.column}-${slot.slot}`;
-      const existing = uniqueSlots.get(key);
-
-      const existingIsManual =
-        existing && "isManual" in existing ? existing.isManual === true : false;
-      const slotIsManual = "isManual" in slot ? slot.isManual === true : false;
-
-      if (!existing || (!existingIsManual && slotIsManual)) {
-        uniqueSlots.set(key, slot);
-      }
-    }
-
-    return [...uniqueSlots.values()];
-  }, [
-    blockedSlots,
-    appointmentTypeUnavailableBlockedSlots,
-    breakSlots,
-    dragDisabledPractitionerBlockedSlots,
-    manualBlockedSlots,
-    totalSlots,
-    unavailablePractitionerBlockedSlots,
-    vacationBlockedSlots,
-  ]);
 
   const getCurrentTimeSlot = useCallback(() => {
     if (totalSlots === 0) {
@@ -2646,7 +2196,7 @@ export function useCalendarLogic({
     ) => {
       const endSlot = startSlot + Math.ceil(duration / SLOT_DURATION);
 
-      return appointments.some((apt) => {
+      return baseRenderedAppointments.some((apt) => {
         if (apt.id === excludeId || apt.column !== column) {
           return false;
         }
@@ -2658,7 +2208,7 @@ export function useCalendarLogic({
         return !(endSlot <= aptStartSlot || startSlot >= aptEndSlot);
       });
     },
-    [appointments, timeToSlot],
+    [baseRenderedAppointments, timeToSlot],
   );
 
   const findNearestAvailableSlot = useCallback(
@@ -2714,7 +2264,7 @@ export function useCalendarLogic({
 
   const getMaxAvailableDuration = useCallback(
     (column: string, startSlot: number) => {
-      const occupiedSlots = appointments
+      const occupiedSlots = baseRenderedAppointments
         .filter((apt) => apt.column === column)
         .map((apt) => ({
           end:
@@ -2733,7 +2283,7 @@ export function useCalendarLogic({
 
       return Math.max(SLOT_DURATION, maxSlots * SLOT_DURATION);
     },
-    [appointments, timeToSlot, totalSlots],
+    [baseRenderedAppointments, timeToSlot, totalSlots],
   );
 
   /**
@@ -3100,8 +2650,73 @@ export function useCalendarLogic({
         },
       );
     },
-    [runCreateBlockedSlot, simulatedContext],
+    [blockedSlotDocMapRef, runCreateBlockedSlot, simulatedContext],
   );
+
+  const {
+    appointments,
+    handleBlockedSlotResizeStart,
+    handleResizeStart,
+    justFinishedResizingRef,
+    manualBlockedSlots,
+  } = useCalendarInteractions({
+    baseAppointments: baseRenderedAppointments,
+    baseManualBlockedSlots,
+    blockedSlotDocMapRef,
+    checkCollision,
+    convertRealAppointmentToSimulation,
+    convertRealBlockedSlotToSimulation,
+    isNonRootSeriesAppointment,
+    runUpdateAppointment,
+    runUpdateBlockedSlot,
+    selectedDate,
+    showNonRootSeriesEditToast,
+    simulatedContext,
+    slotToTime,
+    timeToSlot,
+  });
+
+  const allBlockedSlots = useMemo(() => {
+    const combined = [
+      ...baseBlockedSlots,
+      ...baseBreakSlots,
+      ...baseAppointmentTypeUnavailableBlockedSlots,
+      ...baseDragDisabledPractitionerBlockedSlots,
+      ...manualBlockedSlots,
+      ...baseUnavailablePractitionerBlockedSlots,
+      ...baseVacationBlockedSlots,
+    ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
+
+    const uniqueSlots = new Map<string, (typeof combined)[0]>();
+    for (const slot of combined) {
+      const key = `${slot.column}-${slot.slot}`;
+      const existing = uniqueSlots.get(key);
+      const existingIsManual =
+        existing && "isManual" in existing ? existing.isManual === true : false;
+      const slotIsManual = "isManual" in slot ? slot.isManual === true : false;
+
+      if (!existing || (!existingIsManual && slotIsManual)) {
+        uniqueSlots.set(key, slot);
+      }
+    }
+
+    return [...uniqueSlots.values()];
+  }, [
+    baseAppointmentTypeUnavailableBlockedSlots,
+    baseBlockedSlots,
+    baseBreakSlots,
+    baseDragDisabledPractitionerBlockedSlots,
+    baseUnavailablePractitionerBlockedSlots,
+    baseVacationBlockedSlots,
+    manualBlockedSlots,
+    totalSlots,
+  ]);
+
+  useCalendarDevtools({
+    appointments,
+    draggedAppointment,
+    dragPreview,
+  });
 
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, appointment: Appointment) => {
@@ -3406,74 +3021,6 @@ export function useCalendarLogic({
     setDragPreview({ column: "", slot: 0, visible: false });
   };
 
-  const handleResizeStart = (
-    e: React.MouseEvent,
-    appointmentId: string,
-    currentDuration: number,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isNonRootSeriesAppointment(appointmentId)) {
-      showNonRootSeriesEditToast();
-      return;
-    }
-
-    const targetAppointment = appointments.find(
-      (apt) => apt.id === appointmentId,
-    );
-
-    if (
-      simulatedContext &&
-      targetAppointment &&
-      !targetAppointment.isSimulation &&
-      targetAppointment.convexId
-    ) {
-      void (async () => {
-        try {
-          const plainTime = Temporal.PlainTime.from(
-            targetAppointment.startTime,
-          );
-          const startZoned = selectedDate.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-          const endZoned = startZoned.add({
-            minutes: targetAppointment.duration,
-          });
-
-          const converted = await convertRealAppointmentToSimulation(
-            targetAppointment,
-            {
-              durationMinutes: targetAppointment.duration,
-              endISO: endZoned.toString(),
-              startISO: startZoned.toString(),
-            },
-          );
-          if (converted) {
-            setResizing({
-              appointmentId: converted.id,
-              originalDuration: currentDuration,
-              startY: e.clientY,
-            });
-          }
-        } catch (error) {
-          captureErrorGlobal(error, {
-            context: "Failed to parse time in resize start",
-            startTime: targetAppointment.startTime,
-          });
-          toast.error("Startzeit konnte nicht ermittelt werden");
-        }
-      })();
-      return;
-    }
-
-    setResizing({
-      appointmentId,
-      originalDuration: currentDuration,
-      startY: e.clientY,
-    });
-  };
-
   const addAppointment = (column: string, slot: number) => {
     // Check if this slot is blocked (including breaks and rules)
     const blockedSlotData = allBlockedSlots.find(
@@ -3487,7 +3034,7 @@ export function useCalendarLogic({
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual === true;
       // Only allow booking if an appointment type is selected
-      const canBook = selectedAppointmentTypeId !== undefined;
+      const canBook = placementAppointmentTypeId !== undefined;
       setBlockedSlotWarning({
         canBook,
         column,
@@ -3510,115 +3057,17 @@ export function useCalendarLogic({
   };
 
   const createAppointmentInSlot = (column: string, slot: number) => {
-    if (simulatedContext) {
-      if (!simulatedContext.locationId) {
-        alert("Bitte wählen Sie zuerst einen Standort aus.");
-        return;
-      }
-
-      if (!simulatedContext.appointmentTypeId) {
-        alert("Bitte wählen Sie zuerst einen Termintyp aus.");
-        return;
-      }
-
-      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
-        simulatedContext.appointmentTypeId,
-        "useCalendarLogic.createAppointmentInSlot.simulation",
-      );
-      if (!appointmentTypeInfo) {
-        toast.error("Die Terminart konnte nicht geladen werden.");
-        return;
-      }
-
-      const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-      if (
-        Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
-        SLOT_DURATION
-      ) {
-        return;
-      }
-
-      const practitioner = workingPractitioners.find((p) => p.id === column);
-      if (!practiceId) {
-        toast.error("Praxis nicht gefunden");
-        return;
-      }
-
-      if (!practitioner && column !== "ekg" && column !== "labor") {
-        toast.error("Ungültige Ressource");
-        return;
-      }
-
-      const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-      const hours = Math.floor(minutesFromStart / 60);
-      const minutes = minutesFromStart % 60;
-      const plainTime = new Temporal.PlainTime(hours, minutes);
-
-      const startZoned = selectedDate.toZonedDateTime({
-        plainTime,
-        timeZone: TIMEZONE,
-      });
-      const startISO = startZoned.toString();
-      const title = pendingAppointmentTitle || appointmentTypeInfo.name;
-
-      const hasTemporaryPatientDraft =
-        patient?.recordType === "temporary" &&
-        patient.convexPatientId === undefined &&
-        patient.name.trim().length > 0 &&
-        patient.phoneNumber.trim().length > 0;
-
-      if (
-        !patient?.convexPatientId &&
-        !patient?.userId &&
-        !hasTemporaryPatientDraft
-      ) {
-        toast.error(
-          "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren.",
-        );
-        return;
-      }
-
-      void runCreateAppointment({
-        appointmentTypeId: simulatedContext.appointmentTypeId,
-        isNewPatient: simulatedContext.patient.isNew,
-        isSimulation: true,
-        locationId: simulatedContext.locationId,
-        ...(patient.dateOfBirth && {
-          patientDateOfBirth: patient.dateOfBirth,
-        }),
-        ...(patient.convexPatientId && {
-          patientId: patient.convexPatientId,
-        }),
-        ...(hasTemporaryPatientDraft && {
-          temporaryPatientName: patient.name.trim(),
-          temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
-        }),
-        ...(patient.userId && { userId: patient.userId }),
-        practiceId,
-        ...(practitioner && { practitionerId: practitioner.id }),
-        start: startISO,
-        title,
-      }).then((createdAppointmentId) => {
-        if (createdAppointmentId) {
-          onClearAppointmentTypeSelection?.();
-        }
-      });
-      return;
-    }
-
-    if (!selectedAppointmentTypeId) {
+    const mode = simulatedContext ? "simulation" : "real";
+    const appointmentTypeId =
+      simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
+    if (!appointmentTypeId) {
       toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
       return;
     }
 
-    if (!selectedLocationId) {
-      toast.error("Bitte wählen Sie zuerst einen Standort aus.");
-      return;
-    }
-
     const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
-      selectedAppointmentTypeId,
-      "useCalendarLogic.createAppointmentInSlot.real",
+      appointmentTypeId,
+      `useCalendarLogic.createAppointmentInSlot.${mode}`,
     );
     if (!appointmentTypeInfo) {
       toast.error("Die Terminart konnte nicht geladen werden.");
@@ -3634,83 +3083,55 @@ export function useCalendarLogic({
     }
 
     const practitioner = workingPractitioners.find((p) => p.id === column);
-    if (!practiceId) {
-      toast.error("Praxis nicht gefunden");
-      return;
-    }
-
     if (!practitioner && column !== "ekg" && column !== "labor") {
       toast.error("Ungültige Ressource");
       return;
     }
 
-    const minutesFromStart = businessStartHour * 60 + slot * SLOT_DURATION;
-    const hours = Math.floor(minutesFromStart / 60);
-    const minutes = minutesFromStart % 60;
-    const plainTime = new Temporal.PlainTime(hours, minutes);
-
-    const startZoned = selectedDate.toZonedDateTime({
-      plainTime,
-      timeZone: TIMEZONE,
+    const requestResult = buildCalendarAppointmentRequest({
+      appointmentTypeId,
+      appointmentTypeName: appointmentTypeInfo.name,
+      businessStartHour,
+      isNewPatient: simulatedContext
+        ? simulatedContext.patient.isNew
+        : (patient?.isNewPatient ?? false),
+      locationId: simulatedContext?.locationId ?? selectedLocationId,
+      mode,
+      patient,
+      pendingAppointmentTitle,
+      practiceId,
+      practitionerId: practitioner?.id,
+      selectedDate,
+      slot,
+      slotDurationMinutes: SLOT_DURATION,
     });
-    const startISO = startZoned.toString();
-    const title = pendingAppointmentTitle || appointmentTypeInfo.name;
 
-    const hasTemporaryPatientDraft =
-      patient?.recordType === "temporary" &&
-      patient.convexPatientId === undefined &&
-      patient.name.trim().length > 0 &&
-      patient.phoneNumber.trim().length > 0;
+    if (requestResult.kind === "error") {
+      toast.error(requestResult.message);
+      return;
+    }
 
-    if (
-      !patient?.convexPatientId &&
-      !patient?.userId &&
-      !hasTemporaryPatientDraft
-    ) {
-      if (onPatientRequired) {
-        onPatientRequired({
-          appointmentTypeId: selectedAppointmentTypeId,
-          isSimulation: false,
-          locationId: selectedLocationId,
-          practiceId,
-          ...(practitioner && { practitionerId: practitioner.id }),
-          start: startISO,
-          title,
-        });
+    if (requestResult.kind === "missing-patient") {
+      if (mode === "real" && onPatientRequired) {
+        onPatientRequired(requestResult.requestContext);
         return;
       }
 
       toast.error(
-        "Bitte wählen Sie zuerst einen Patienten aus der rechten Seitenleiste aus.",
+        mode === "simulation"
+          ? "Bitte legen Sie zuerst einen Patienten an, bevor Sie den Termin platzieren."
+          : "Bitte wählen Sie zuerst einen Patienten aus der rechten Seitenleiste aus.",
       );
       return;
     }
 
-    void runCreateAppointment({
-      appointmentTypeId: selectedAppointmentTypeId,
-      isNewPatient: patient.isNewPatient ?? false,
-      isSimulation: false,
-      locationId: selectedLocationId,
-      ...(patient.dateOfBirth && {
-        patientDateOfBirth: patient.dateOfBirth,
-      }),
-      ...(patient.convexPatientId && {
-        patientId: patient.convexPatientId,
-      }),
-      ...(hasTemporaryPatientDraft && {
-        temporaryPatientName: patient.name.trim(),
-        temporaryPatientPhoneNumber: patient.phoneNumber.trim(),
-      }),
-      ...(patient.userId && { userId: patient.userId }),
-      practiceId,
-      ...(practitioner && { practitionerId: practitioner.id }),
-      start: startISO,
-      title,
-    }).then((createdAppointmentId) => {
-      if (createdAppointmentId) {
-        onClearAppointmentTypeSelection?.();
-      }
-    });
+    void runCreateAppointment(requestResult.request).then(
+      (createdAppointmentId) => {
+        if (createdAppointmentId) {
+          onClearAppointmentTypeSelection?.();
+        }
+      },
+    );
   };
 
   const handleEditAppointment = (appointment: Appointment) => {
@@ -3757,53 +3178,6 @@ export function useCalendarLogic({
     setDragPreview({ column: "", slot: 0, visible: false });
   };
 
-  const handleBlockedSlotResizeStart = (
-    e: React.MouseEvent,
-    blockedSlotId: string,
-    currentDuration: number,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const startResizing = (id: string) => {
-      setResizingBlockedSlot({
-        blockedSlotId: id,
-        originalDuration: currentDuration,
-        startY: e.clientY,
-      });
-    };
-
-    if (simulatedContext) {
-      const blockedSlotDoc = blockedSlotDocMapRef.current.get(blockedSlotId);
-      if (blockedSlotDoc && !blockedSlotDoc.isSimulation) {
-        void (async () => {
-          const convertedId = await convertRealBlockedSlotToSimulation(
-            blockedSlotId,
-            {
-              endISO: blockedSlotDoc.end,
-              locationId: blockedSlotDoc.locationId,
-              ...(blockedSlotDoc.practitionerId
-                ? { practitionerId: blockedSlotDoc.practitionerId }
-                : {}),
-              startISO: blockedSlotDoc.start,
-              title:
-                blockedSlotDoc.title ||
-                manualBlockedSlots.find((slot) => slot.id === blockedSlotId)
-                  ?.title ||
-                "Gesperrter Zeitraum",
-            },
-          );
-          if (convertedId) {
-            startResizing(convertedId);
-          }
-        })();
-        return;
-      }
-    }
-
-    startResizing(blockedSlotId);
-  };
-
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
@@ -3813,194 +3187,6 @@ export function useCalendarLogic({
       clearInterval(timer);
     };
   }, []);
-
-  // Handle mouse move for resizing
-  useEffect(() => {
-    let mounted = true;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!mounted) {
-        return;
-      }
-
-      // Handle appointment resizing
-      if (resizing) {
-        const deltaY = e.clientY - resizing.startY;
-        const deltaSlots = Math.round(deltaY / 16);
-        const newDuration = Math.max(
-          SLOT_DURATION,
-          resizing.originalDuration + deltaSlots * SLOT_DURATION,
-        );
-
-        const appointment = appointments.find(
-          (apt) => apt.id === resizing.appointmentId,
-        );
-        if (appointment) {
-          const startSlot = timeToSlot(appointment.startTime);
-          if (
-            !checkCollision(
-              appointment.column,
-              startSlot,
-              newDuration,
-              appointment.id,
-            )
-          ) {
-            // Convex optimistic updates will handle the UI update
-            const convexId = appointment.convexId;
-            if (convexId !== undefined) {
-              if (simulatedContext && !appointment.isSimulation) {
-                return;
-              }
-
-              let startZoned: Temporal.ZonedDateTime;
-              let endZoned: Temporal.ZonedDateTime;
-              try {
-                const plainTime = Temporal.PlainTime.from(
-                  appointment.startTime,
-                );
-                startZoned = selectedDate.toZonedDateTime({
-                  plainTime,
-                  timeZone: TIMEZONE,
-                });
-                endZoned = startZoned.add({ minutes: newDuration });
-              } catch (error) {
-                captureErrorGlobal(error, {
-                  context: "Failed to parse time in resize",
-                  startTime: appointment.startTime,
-                });
-                return;
-              }
-
-              void (async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-                if (!mounted) {
-                  return;
-                }
-
-                try {
-                  await runUpdateAppointment({
-                    end: endZoned.toString(),
-                    id: convexId,
-                  });
-                } catch (error) {
-                  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-                  if (!mounted) {
-                    return;
-                  }
-
-                  captureErrorGlobal(error, {
-                    appointmentId: convexId,
-                    context:
-                      "NewCalendar - Failed to update appointment duration",
-                  });
-                  toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-                  // Convex will revert the optimistic update on error
-                }
-              })();
-            }
-          }
-        }
-      }
-
-      // Handle blocked slot resizing
-      if (resizingBlockedSlot) {
-        const deltaY = e.clientY - resizingBlockedSlot.startY;
-        const deltaSlots = Math.round(deltaY / 16);
-        const newDuration = Math.max(
-          SLOT_DURATION,
-          resizingBlockedSlot.originalDuration + deltaSlots * SLOT_DURATION,
-        );
-
-        const blockedSlot = manualBlockedSlots.find(
-          (bs) => bs.id === resizingBlockedSlot.blockedSlotId,
-        );
-        const blockedSlotDoc =
-          blockedSlot?.id === undefined
-            ? undefined
-            : blockedSlotDocMapRef.current.get(blockedSlot.id);
-        if (
-          blockedSlot?.startSlot !== undefined &&
-          blockedSlotDoc !== undefined &&
-          !checkCollision(
-            blockedSlot.column,
-            blockedSlot.startSlot,
-            newDuration,
-            resizingBlockedSlot.blockedSlotId,
-          )
-        ) {
-          const startSlot = blockedSlot.startSlot;
-          void (async () => {
-            try {
-              const startTime = slotToTime(startSlot);
-              const plainTime = Temporal.PlainTime.from(startTime);
-              const startZoned = selectedDate.toZonedDateTime({
-                plainTime,
-                timeZone: TIMEZONE,
-              });
-              const endZoned = startZoned.add({ minutes: newDuration });
-
-              await runUpdateBlockedSlot({
-                end: endZoned.toString(),
-                id: blockedSlotDoc._id,
-                ...(simulatedContext && { isSimulation: true }),
-              });
-            } catch (error) {
-              captureErrorGlobal(error, {
-                blockedSlotId: resizingBlockedSlot.blockedSlotId,
-                context: "Failed to update blocked slot duration",
-              });
-              toast.error(
-                "Dauer des gesperrten Zeitraums konnte nicht aktualisiert werden",
-              );
-            }
-          })();
-        }
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (resizing) {
-        // Mark this appointment as just resized to prevent immediate edit dialog
-        justFinishedResizingRef.current = resizing.appointmentId;
-        // Clear the flag after a short delay (enough time for click event to be processed)
-        setTimeout(() => {
-          justFinishedResizingRef.current = null;
-        }, 100);
-      }
-      if (resizingBlockedSlot) {
-        // Mark this blocked slot as just resized to prevent immediate edit dialog
-        justFinishedResizingRef.current = resizingBlockedSlot.blockedSlotId;
-        setTimeout(() => {
-          justFinishedResizingRef.current = null;
-        }, 100);
-      }
-      setResizing(null);
-      setResizingBlockedSlot(null);
-    };
-
-    if (resizing || resizingBlockedSlot) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    }
-
-    return () => {
-      mounted = false;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [
-    resizing,
-    resizingBlockedSlot,
-    appointments,
-    manualBlockedSlots,
-    timeToSlot,
-    slotToTime,
-    checkCollision,
-    runUpdateAppointment,
-    runUpdateBlockedSlot,
-    selectedDate,
-    simulatedContext,
-  ]);
 
   // Cleanup auto scroll on unmount
   useEffect(() => {

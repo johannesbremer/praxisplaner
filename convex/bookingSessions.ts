@@ -3,6 +3,14 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
+import {
+  BEIHILFE_STATUS_VALUES,
+  GENDER_VALUES,
+  HZV_STATUS_VALUES,
+  PKV_INSURANCE_TYPE_VALUES,
+  PKV_TARIFF_VALUES,
+} from "../lib/booking-models";
+import { isIsoDateString, isZonedDateTimeString } from "../lib/typed-regex.js";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { createAppointmentFromTrustedSource } from "./appointments";
@@ -30,7 +38,6 @@ import {
   type StepTablePatch,
 } from "./bookingSessions.shared";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import { assertMatchesConvexValidator } from "./runtimeValidation";
 import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
@@ -1147,6 +1154,196 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   privacy: [],
 };
 
+export function assertValidSanitizedBookingSessionState(
+  step: BookingSessionState["step"],
+  state: Record<string, unknown>,
+): asserts state is BookingSessionState {
+  if (!isPlainObject(state) || state["step"] !== step) {
+    throw new Error(`Invalid booking session snapshot for step '${step}'`);
+  }
+
+  switch (step) {
+    case "existing-calendar-selection": {
+      assertValidStep(
+        step,
+        hasExistingPatientStepFields(state) &&
+          isDataSharingContacts(state["dataSharingContacts"]),
+      );
+      return;
+    }
+    case "existing-confirmation": {
+      assertValidStep(
+        step,
+        hasExistingPatientStepFields(state) &&
+          isDataSharingContacts(state["dataSharingContacts"]) &&
+          isId(state["appointmentId"]) &&
+          isId(state["appointmentTypeId"]) &&
+          typeof state["bookedDurationMinutes"] === "number" &&
+          isOptionalId(state["patientId"]) &&
+          isString(state["reasonDescription"]) &&
+          isSelectedSlot(state["selectedSlot"]),
+      );
+      return;
+    }
+    case "existing-data-input": {
+      assertValidStep(
+        step,
+        hasExistingPatientBase(state) && isId(state["practitionerId"]),
+      );
+      return;
+    }
+    case "existing-data-input-complete": {
+      assertValidStep(step, hasExistingPatientStepFields(state));
+      return;
+    }
+    case "existing-doctor-selection": {
+      assertValidStep(step, hasExistingPatientBase(state));
+      return;
+    }
+    case "location": {
+      return;
+    }
+    case "new-calendar-selection": {
+      assertValidStep(
+        step,
+        isDataSharingContacts(state["dataSharingContacts"]) &&
+          isEmergencyContacts(state["emergencyContacts"]) &&
+          ((hasGkvInsuranceBase(state) &&
+            isOneOf(state["hzvStatus"], HZV_STATUS_VALUES) &&
+            isPersonalData(state["personalData"]) &&
+            isOptionalMedicalHistory(state["medicalHistory"])) ||
+            (hasPkvInsuranceBase(state) &&
+              isPersonalData(state["personalData"]) &&
+              isOptionalMedicalHistory(state["medicalHistory"]))),
+      );
+      return;
+    }
+    case "new-confirmation": {
+      assertValidStep(
+        step,
+        isId(state["appointmentId"]) &&
+          isId(state["appointmentTypeId"]) &&
+          typeof state["bookedDurationMinutes"] === "number" &&
+          isDataSharingContacts(state["dataSharingContacts"]) &&
+          isEmergencyContacts(state["emergencyContacts"]) &&
+          isOptionalId(state["patientId"]) &&
+          isPersonalData(state["personalData"]) &&
+          isString(state["reasonDescription"]) &&
+          isSelectedSlot(state["selectedSlot"]) &&
+          ((hasGkvInsuranceBase(state) &&
+            isOneOf(state["hzvStatus"], HZV_STATUS_VALUES)) ||
+            hasPkvInsuranceBase(state)),
+      );
+      return;
+    }
+    case "new-data-input": {
+      assertValidStep(
+        step,
+        hasGkvInsuranceBase(state)
+          ? isOneOf(state["hzvStatus"], HZV_STATUS_VALUES)
+          : hasPkvInsuranceBase(state),
+      );
+      return;
+    }
+    case "new-data-input-complete": {
+      assertValidStep(
+        step,
+        (hasGkvInsuranceBase(state) &&
+          isOneOf(state["hzvStatus"], HZV_STATUS_VALUES) &&
+          isPersonalData(state["personalData"]) &&
+          isOptionalMedicalHistory(state["medicalHistory"])) ||
+          (hasPkvInsuranceBase(state) &&
+            isPersonalData(state["personalData"]) &&
+            isOptionalMedicalHistory(state["medicalHistory"])),
+      );
+      return;
+    }
+    case "new-data-sharing": {
+      assertValidStep(
+        step,
+        (hasGkvInsuranceBase(state) &&
+          isOneOf(state["hzvStatus"], HZV_STATUS_VALUES) &&
+          isPersonalData(state["personalData"]) &&
+          isOptionalMedicalHistory(state["medicalHistory"])) ||
+          (hasPkvInsuranceBase(state) &&
+            isPersonalData(state["personalData"]) &&
+            isOptionalMedicalHistory(state["medicalHistory"])),
+      );
+      return;
+    }
+    case "new-gkv-details": {
+      assertValidStep(step, hasGkvInsuranceBase(state));
+      return;
+    }
+    case "new-gkv-details-complete": {
+      assertValidStep(
+        step,
+        hasGkvInsuranceBase(state) &&
+          isOneOf(state["hzvStatus"], HZV_STATUS_VALUES) &&
+          isEmergencyContacts(state["emergencyContacts"]),
+      );
+      return;
+    }
+    case "new-insurance-type": {
+      assertValidStep(step, hasNewPatientBase(state));
+      return;
+    }
+    case "new-pkv-details": {
+      assertValidStep(step, hasPkvInsuranceBase(state));
+      return;
+    }
+    case "new-pkv-details-complete": {
+      assertValidStep(
+        step,
+        hasPkvInsuranceBase(state) &&
+          isEmergencyContacts(state["emergencyContacts"]),
+      );
+      return;
+    }
+    case "new-pvs-consent": {
+      assertValidStep(
+        step,
+        hasNewPatientBase(state) && state["insuranceType"] === "pkv",
+      );
+      return;
+    }
+    case "patient-status": {
+      assertValidStep(step, isId(state["locationId"]));
+      return;
+    }
+    case "privacy": {
+      return;
+    }
+  }
+}
+
+export function sanitizeState(
+  step: BookingSessionState["step"],
+  state: Record<string, unknown>,
+): BookingSessionState {
+  const allow = new Set(["step", ...STEP_SNAPSHOT_ALLOWED_FIELDS[step]]);
+  const sanitized: Record<string, unknown> = { step };
+  for (const [key, value] of Object.entries(state)) {
+    if (allow.has(key)) {
+      sanitized[key] = value;
+    }
+  }
+  assertValidSanitizedBookingSessionState(step, sanitized);
+  if (!hasStep(sanitized, step)) {
+    throw new Error(`Invalid booking session snapshot for step '${step}'`);
+  }
+  return sanitized;
+}
+
+function assertValidStep(
+  step: BookingSessionState["step"],
+  isValid: boolean,
+): void {
+  if (!isValid) {
+    throw new Error(`Invalid booking session snapshot for step '${step}'`);
+  }
+}
+
 function filterStepSnapshot(
   step: BookingSessionState["step"],
   snapshot: Record<string, unknown>,
@@ -1161,26 +1358,179 @@ function filterStepSnapshot(
   return filtered;
 }
 
-function sanitizeState(
-  step: BookingSessionState["step"],
-  state: Record<string, unknown>,
-): BookingSessionState {
-  const allow = new Set(["step", ...STEP_SNAPSHOT_ALLOWED_FIELDS[step]]);
-  const sanitized: Record<string, unknown> = { step };
-  for (const [key, value] of Object.entries(state)) {
-    if (allow.has(key)) {
-      sanitized[key] = value;
-    }
-  }
-  assertMatchesConvexValidator(
-    bookingSessionStepValidator,
-    sanitized,
-    `Invalid booking session snapshot for step '${step}'`,
+function hasExistingPatientBase(state: Record<string, unknown>): boolean {
+  return state["isNewPatient"] === false && isId(state["locationId"]);
+}
+
+function hasExistingPatientStepFields(state: Record<string, unknown>): boolean {
+  return (
+    hasExistingPatientBase(state) &&
+    isId(state["practitionerId"]) &&
+    isPersonalData(state["personalData"])
   );
-  if (!hasStep(sanitized, step)) {
-    throw new Error(`Invalid booking session snapshot for step '${step}'`);
+}
+
+function hasGkvInsuranceBase(state: Record<string, unknown>): boolean {
+  return hasNewPatientBase(state) && state["insuranceType"] === "gkv";
+}
+
+function hasNewPatientBase(state: Record<string, unknown>): boolean {
+  return state["isNewPatient"] === true && isId(state["locationId"]);
+}
+
+function hasPkvInsuranceBase(state: Record<string, unknown>): boolean {
+  return (
+    hasNewPatientBase(state) &&
+    state["insuranceType"] === "pkv" &&
+    state["pvsConsent"] === true &&
+    isOptionalOneOf(state["beihilfeStatus"], BEIHILFE_STATUS_VALUES) &&
+    isOptionalOneOf(state["pkvInsuranceType"], PKV_INSURANCE_TYPE_VALUES) &&
+    isOptionalOneOf(state["pkvTariff"], PKV_TARIFF_VALUES)
+  );
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isDataSharingContactInput(
+  value: unknown,
+): value is DataSharingContactInput {
+  if (!isPlainObject(value)) {
+    return false;
   }
-  return sanitized;
+
+  return (
+    isString(value["city"]) &&
+    isString(value["dateOfBirth"]) &&
+    isIsoDateString(value["dateOfBirth"]) &&
+    isString(value["firstName"]) &&
+    isOneOf(value["gender"], GENDER_VALUES) &&
+    isString(value["lastName"]) &&
+    isString(value["phoneNumber"]) &&
+    isString(value["postalCode"]) &&
+    isString(value["street"]) &&
+    isOptionalString(value["title"])
+  );
+}
+
+function isDataSharingContacts(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => isDataSharingContactInput(entry))
+  );
+}
+
+function isEmergencyContact(value: unknown): boolean {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    isString(value["name"]) &&
+    isString(value["phoneNumber"]) &&
+    isString(value["relationship"])
+  );
+}
+
+function isEmergencyContacts(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((entry) => isEmergencyContact(entry)))
+  );
+}
+
+function isId(value: unknown): value is string {
+  return isString(value) && value.length > 0;
+}
+
+function isMedicalHistory(value: unknown): boolean {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    isBoolean(value["hasAllergies"]) &&
+    isBoolean(value["hasHeartCondition"]) &&
+    isBoolean(value["hasLungCondition"]) &&
+    isBoolean(value["hasDiabetes"]) &&
+    isOptionalString(value["allergiesDescription"]) &&
+    isOptionalString(value["currentMedications"]) &&
+    isOptionalString(value["otherConditions"])
+  );
+}
+
+function isOneOf<T extends readonly string[]>(
+  value: unknown,
+  allowedValues: T,
+): value is T[number] {
+  return isString(value) && allowedValues.includes(value);
+}
+
+function isOptionalId(value: unknown): value is string | undefined {
+  return value === undefined || isId(value);
+}
+
+function isOptionalMedicalHistory(value: unknown): boolean {
+  return value === undefined || isMedicalHistory(value);
+}
+
+function isOptionalOneOf<T extends readonly string[]>(
+  value: unknown,
+  allowedValues: T,
+): value is T[number] | undefined {
+  return value === undefined || isOneOf(value, allowedValues);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || isString(value);
+}
+
+function isPersonalData(value: unknown): value is PersonalDataInput {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    isString(value["dateOfBirth"]) &&
+    isIsoDateString(value["dateOfBirth"]) &&
+    isString(value["firstName"]) &&
+    isOptionalString(value["title"]) &&
+    isOptionalOneOf(value["gender"], GENDER_VALUES) &&
+    isString(value["lastName"]) &&
+    isString(value["phoneNumber"]) &&
+    isOptionalString(value["email"]) &&
+    isOptionalString(value["street"]) &&
+    isOptionalString(value["postalCode"]) &&
+    isOptionalString(value["city"])
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function isSelectedSlot(
+  value: unknown,
+): value is StateAtStep<"new-confirmation">["selectedSlot"] {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    isId(value["practitionerId"]) &&
+    isString(value["practitionerName"]) &&
+    isString(value["startTime"]) &&
+    isZonedDateTimeString(value["startTime"])
+  );
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 const PKV_STEPS_REQUIRING_PVS_CONSENT = new Set<BookingSessionState["step"]>([

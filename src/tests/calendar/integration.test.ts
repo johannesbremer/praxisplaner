@@ -1,534 +1,270 @@
-import { describe, expect, test } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { Temporal } from "temporal-polyfill";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { slotToTime } from "../../utils/time-calculations";
+import { toTableId } from "../../../convex/identity";
+import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
 
-describe("Calendar Integration Scenarios", () => {
-  describe("Complete Appointment Lifecycle", () => {
-    test("should handle appointment creation workflow", () => {
-      // Simulate the full workflow of creating an appointment
-      const clickedSlot = 108; // 09:00 AM
+const { captureErrorGlobal, toastError } = vi.hoisted(() => ({
+  captureErrorGlobal: vi.fn(),
+  toastError: vi.fn(),
+}));
 
-      // Convert slot to time using imported utility
-      const startTime = slotToTime(clickedSlot);
+vi.mock("sonner", () => ({
+  toast: {
+    error: toastError,
+  },
+}));
 
-      expect(startTime).toBe("09:00");
+vi.mock("../../utils/error-tracking", () => ({
+  captureErrorGlobal,
+}));
 
-      // Create appointment object
-      const appointment = {
-        color: "bg-blue-500",
-        column: "practitioner-1",
-        duration: 30,
-        id: crypto.randomUUID(),
-        isSimulation: false,
-        startTime,
-      };
+function createResizeStartEvent(clientY: number) {
+  return {
+    clientY,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  };
+}
 
-      expect(appointment.startTime).toBe("09:00");
-      expect(appointment.duration).toBe(30);
-    });
-
-    test("should handle appointment drag-and-drop workflow", () => {
-      // Simulate dragging an appointment to a new time
-      const originalAppointment = {
-        color: "bg-blue-500",
-        column: "practitioner-1",
-        duration: 30,
-        id: "apt-1",
-        isSimulation: false,
-        startTime: "09:00",
-      };
-
-      const newSlot = 120; // 10:00 AM
-
-      // Convert slot to time using imported utility
-      const newStartTime = slotToTime(newSlot);
-
-      const updatedAppointment = {
-        ...originalAppointment,
-        startTime: newStartTime,
-      };
-
-      expect(updatedAppointment.startTime).toBe("10:00");
-      expect(updatedAppointment.duration).toBe(30); // Duration unchanged
-    });
-
-    test("should handle appointment resize workflow", () => {
-      const appointment = {
-        color: "bg-blue-500",
-        column: "practitioner-1",
-        duration: 30,
-        id: "apt-1",
-        isSimulation: false,
-        startTime: "09:00",
-      };
-
-      // Simulate resizing by 3 slots (15 minutes)
-      const SLOT_HEIGHT = 16;
-      const SLOT_DURATION = 5;
-      const mouseDelta = 3 * SLOT_HEIGHT; // 48px
-      const durationChange =
-        Math.round(mouseDelta / SLOT_HEIGHT) * SLOT_DURATION;
-
-      const newDuration = appointment.duration + durationChange;
-
-      expect(newDuration).toBe(45); // 30 + 15 minutes
-    });
+describe("calendar resize interactions", () => {
+  beforeEach(() => {
+    toastError.mockReset();
+    captureErrorGlobal.mockReset();
   });
 
-  describe("Multi-Column Scenarios", () => {
-    test("should distribute appointments across multiple practitioners", () => {
-      const appointments = [
-        { column: "practitioner-1", id: "1", startTime: "09:00" },
-        { column: "practitioner-2", id: "2", startTime: "09:00" },
-        { column: "practitioner-1", id: "3", startTime: "10:00" },
-        { column: "ekg", id: "4", startTime: "09:30" },
-      ];
+  it("keeps resize mutations local until mouseup, then commits exactly once", async () => {
+    const runUpdateAppointment = vi.fn(() => Promise.resolve());
 
-      const columns = ["practitioner-1", "practitioner-2", "ekg"];
-
-      for (const column of columns) {
-        const columnAppointments = appointments.filter(
-          (apt) => apt.column === column,
-        );
-        expect(columnAppointments.length).toBeGreaterThan(0);
-      }
-    });
-
-    test("should handle special resource columns", () => {
-      const columns: { type: string }[] = [
-        { type: "practitioner" },
-        { type: "practitioner" },
-        { type: "equipment" },
-        { type: "equipment" },
-      ];
-
-      const practitionerColumns = columns.filter(
-        (c) => c.type === "practitioner",
-      );
-      const equipmentColumns = columns.filter((c) => c.type === "equipment");
-
-      expect(practitionerColumns.length).toBe(2);
-      expect(equipmentColumns.length).toBe(2);
-    });
-  });
-
-  describe("Business Hours Scenarios", () => {
-    test("should calculate view window for full day", () => {
-      const schedules = [
-        { endTime: "17:00", practitionerId: "p1", startTime: "08:00" },
-        { endTime: "18:00", practitionerId: "p2", startTime: "09:00" },
-      ];
-
-      const timeToMinutes = (time: string) => {
-        const [hours = 0, minutes = 0] = time.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const startTimes = schedules.map((s) => timeToMinutes(s.startTime));
-      const endTimes = schedules.map((s) => timeToMinutes(s.endTime));
-
-      const earliestStart = Math.min(...startTimes);
-      const latestEnd = Math.max(...endTimes);
-
-      const businessStartHour = Math.floor(earliestStart / 60);
-      const businessEndHour = Math.ceil(latestEnd / 60);
-
-      expect(businessStartHour).toBe(8);
-      expect(businessEndHour).toBe(18);
-
-      const totalHours = businessEndHour - businessStartHour;
-      expect(totalHours).toBe(10);
-    });
-
-    test("should handle practitioner with different hours", () => {
-      const schedules = [
-        { endTime: "16:00", practitionerId: "p1", startTime: "08:00" },
-        { endTime: "20:00", practitionerId: "p2", startTime: "12:00" },
-      ];
-
-      // Calendar should show from 08:00 to 20:00
-      const timeToMinutes = (time: string) => {
-        const [hours = 0, minutes = 0] = time.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const allTimes = [
-        ...schedules.map((s) => timeToMinutes(s.startTime)),
-        ...schedules.map((s) => timeToMinutes(s.endTime)),
-      ];
-
-      const earliestMinutes = Math.min(...allTimes);
-      const latestMinutes = Math.max(...allTimes);
-
-      expect(earliestMinutes).toBe(480); // 08:00
-      expect(latestMinutes).toBe(1200); // 20:00
-    });
-  });
-
-  describe("Appointment Conflict Detection", () => {
-    test("should detect overlapping appointments", () => {
-      const appointments = [
-        { column: "p1", duration: 60, id: "1", startTime: "09:00" },
-        { column: "p1", duration: 30, id: "2", startTime: "09:30" },
-      ];
-
-      const timeToMinutes = (time: string) => {
-        const [hours = 0, minutes = 0] = time.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const apt1 = appointments[0];
-      const apt2 = appointments[1];
-
-      if (!apt1 || !apt2) {
-        throw new Error("Expected two appointments");
-      }
-
-      const apt1Start = timeToMinutes(apt1.startTime);
-      const apt1End = apt1Start + apt1.duration;
-      const apt2Start = timeToMinutes(apt2.startTime);
-      const apt2End = apt2Start + apt2.duration;
-
-      // Check if appointments overlap
-      const overlaps = apt1Start < apt2End && apt2Start < apt1End;
-
-      expect(overlaps).toBe(true);
-    });
-
-    test("should detect non-overlapping appointments", () => {
-      const appointments = [
-        { column: "p1", duration: 30, id: "1", startTime: "09:00" },
-        { column: "p1", duration: 30, id: "2", startTime: "09:30" },
-      ];
-
-      const timeToMinutes = (time: string) => {
-        const [hours = 0, minutes = 0] = time.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const apt1 = appointments[0];
-      const apt2 = appointments[1];
-
-      if (!apt1 || !apt2) {
-        throw new Error("Expected two appointments");
-      }
-
-      const apt1Start = timeToMinutes(apt1.startTime);
-      const apt1End = apt1Start + apt1.duration;
-      const apt2Start = timeToMinutes(apt2.startTime);
-      const apt2End = apt2Start + apt2.duration;
-
-      // Check if appointments overlap (they should be adjacent)
-      const overlaps = apt1Start < apt2End && apt2Start < apt1End;
-
-      // They touch but don't overlap
-      expect(apt1End).toBe(apt2Start);
-      expect(overlaps).toBe(false);
-    });
-
-    test("should allow overlapping appointments in different columns", () => {
-      const appointments = [
-        { column: "p1", duration: 60, id: "1", startTime: "09:00" },
-        { column: "p2", duration: 30, id: "2", startTime: "09:30" },
-      ];
-
-      const apt1 = appointments[0];
-      const apt2 = appointments[1];
-
-      if (!apt1 || !apt2) {
-        throw new Error("Expected two appointments");
-      }
-
-      // Same time slots but different columns - should be allowed
-      const sameColumn = apt1.column === apt2.column;
-      expect(sameColumn).toBe(false);
-    });
-  });
-
-  describe("Current Time Indicator", () => {
-    test("should calculate current time slot correctly", () => {
-      const SLOT_DURATION = 5;
-      const businessStartHour = 8;
-
-      // Simulate current time at 10:45
-      const currentHour = 10;
-      const currentMinute = 45;
-
-      const minutesSinceStart =
-        (currentHour - businessStartHour) * 60 + currentMinute;
-      const currentSlot = Math.floor(minutesSinceStart / SLOT_DURATION);
-
-      expect(currentSlot).toBe(33); // 2 hours 45 minutes = 165 minutes / 5
-    });
-
-    test("should handle current time before business hours", () => {
-      const businessStartHour = 8;
-      const currentHour = 7;
-
-      // Test the logic: when before business hours, should return -1
-      // With currentHour (7) < businessStartHour (8), current time is before business hours
-      expect(currentHour).toBeLessThan(businessStartHour);
-
-      const currentSlot = -1;
-      expect(currentSlot).toBe(-1);
-    });
-
-    test("should handle current time during business hours", () => {
-      const SLOT_DURATION = 5;
-      const businessStartHour = 8;
-      const businessEndHour = 17;
-      const currentHour = 12;
-      const currentMinute = 30;
-
-      const minutesSinceStart =
-        (currentHour - businessStartHour) * 60 + currentMinute;
-      const currentSlot = Math.floor(minutesSinceStart / SLOT_DURATION);
-      const totalSlots =
-        ((businessEndHour - businessStartHour) * 60) / SLOT_DURATION;
-
-      // Verify slot is within business hours range
-      expect(currentSlot).toBeGreaterThanOrEqual(0);
-      expect(currentSlot).toBeLessThan(totalSlots);
-      expect(currentSlot).toBe(54); // 4.5 hours * 12 slots per hour
-    });
-  });
-
-  describe("Color Assignment", () => {
-    test("should assign unique colors to practitioners", () => {
-      const COLORS = [
-        "bg-blue-500",
-        "bg-green-500",
-        "bg-purple-500",
-        "bg-orange-500",
-      ];
-
-      const practitioners = [
-        { id: "p1", name: "Dr. Smith" },
-        { id: "p2", name: "Dr. Jones" },
-        { id: "p3", name: "Dr. Wilson" },
-      ];
-
-      const colorMap = new Map(
-        practitioners.map((p, i) => [p.id, COLORS[i % COLORS.length]]),
-      );
-
-      expect(colorMap.get("p1")).toBe("bg-blue-500");
-      expect(colorMap.get("p2")).toBe("bg-green-500");
-      expect(colorMap.get("p3")).toBe("bg-purple-500");
-    });
-
-    test("should wrap colors when more practitioners than colors", () => {
-      const COLORS = ["bg-blue-500", "bg-green-500"];
-      const practitionerCount = 5;
-
-      const colors = Array.from(
-        { length: practitionerCount },
-        (_, i) => COLORS[i % COLORS.length],
-      );
-
-      expect(colors[0]).toBe("bg-blue-500");
-      expect(colors[1]).toBe("bg-green-500");
-      expect(colors[2]).toBe("bg-blue-500"); // Wraps around
-      expect(colors[3]).toBe("bg-green-500");
-      expect(colors[4]).toBe("bg-blue-500");
-    });
-  });
-
-  describe("Simulation Mode", () => {
-    test("should distinguish simulation appointments from real ones", () => {
-      const appointments = [
-        {
-          color: "bg-blue-500",
-          column: "p1",
-          duration: 30,
-          id: "real-1",
-          isSimulation: false,
-          startTime: "09:00",
+    const { result } = renderHook(() =>
+      useCalendarInteractions({
+        baseAppointments: [
+          {
+            color: "bg-blue-500",
+            column: "practitioner_1",
+            convexId: toTableId<"appointments">("appointment_1"),
+            duration: 30,
+            id: "appointment_1",
+            isSimulation: false,
+            startTime: "09:00",
+            title: "Checkup",
+          },
+        ],
+        baseManualBlockedSlots: [],
+        blockedSlotDocMapRef: { current: new Map() },
+        checkCollision: vi.fn().mockReturnValue(false),
+        convertRealAppointmentToSimulation: vi.fn(),
+        convertRealBlockedSlotToSimulation: vi.fn(),
+        isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        runUpdateAppointment,
+        runUpdateBlockedSlot: vi.fn(),
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+        showNonRootSeriesEditToast: vi.fn(),
+        simulatedContext: undefined,
+        slotToTime: (slot) =>
+          `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`,
+        timeToSlot: (time) => {
+          const [hours = "0", minutes = "0"] = time.split(":");
+          return (Number(hours) - 8) * 12 + Math.floor(Number(minutes) / 5);
         },
-        {
-          color: "bg-green-500",
-          column: "p1",
-          duration: 30,
-          id: "sim-1",
-          isSimulation: true,
-          replacesAppointmentId: "real-1" as never,
-          startTime: "10:00",
+      }),
+    );
+
+    act(() => {
+      result.current.handleResizeStart(
+        createResizeStartEvent(100),
+        "appointment_1",
+        30,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
+    });
+
+    expect(runUpdateAppointment).not.toHaveBeenCalled();
+    expect(result.current.appointments[0]?.duration).toBe(45);
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+
+    await waitFor(() => {
+      expect(runUpdateAppointment).toHaveBeenCalledTimes(1);
+    });
+    expect(runUpdateAppointment).toHaveBeenCalledWith({
+      end: "2026-04-23T09:45:00+02:00[Europe/Berlin]",
+      id: "appointment_1",
+    });
+  });
+
+  it("skips the mutation when the resize does not change the duration", async () => {
+    const runUpdateAppointment = vi.fn(() => Promise.resolve());
+
+    const { result } = renderHook(() =>
+      useCalendarInteractions({
+        baseAppointments: [
+          {
+            color: "bg-blue-500",
+            column: "practitioner_1",
+            convexId: toTableId<"appointments">("appointment_1"),
+            duration: 30,
+            id: "appointment_1",
+            isSimulation: false,
+            startTime: "09:00",
+            title: "Checkup",
+          },
+        ],
+        baseManualBlockedSlots: [],
+        blockedSlotDocMapRef: { current: new Map() },
+        checkCollision: vi.fn().mockReturnValue(false),
+        convertRealAppointmentToSimulation: vi.fn(),
+        convertRealBlockedSlotToSimulation: vi.fn(),
+        isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        runUpdateAppointment,
+        runUpdateBlockedSlot: vi.fn(),
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+        showNonRootSeriesEditToast: vi.fn(),
+        simulatedContext: undefined,
+        slotToTime: () => "09:00",
+        timeToSlot: () => 12,
+      }),
+    );
+
+    act(() => {
+      result.current.handleResizeStart(
+        createResizeStartEvent(100),
+        "appointment_1",
+        30,
+      );
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+
+    await waitFor(() => {
+      expect(runUpdateAppointment).not.toHaveBeenCalled();
+    });
+  });
+
+  it("prevents the commit when the resized appointment would collide", async () => {
+    const runUpdateAppointment = vi.fn(() => Promise.resolve());
+
+    const { result } = renderHook(() =>
+      useCalendarInteractions({
+        baseAppointments: [
+          {
+            color: "bg-blue-500",
+            column: "practitioner_1",
+            convexId: toTableId<"appointments">("appointment_1"),
+            duration: 30,
+            id: "appointment_1",
+            isSimulation: false,
+            startTime: "09:00",
+            title: "Checkup",
+          },
+        ],
+        baseManualBlockedSlots: [],
+        blockedSlotDocMapRef: { current: new Map() },
+        checkCollision: vi.fn().mockReturnValue(true),
+        convertRealAppointmentToSimulation: vi.fn(),
+        convertRealBlockedSlotToSimulation: vi.fn(),
+        isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        runUpdateAppointment,
+        runUpdateBlockedSlot: vi.fn(),
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+        showNonRootSeriesEditToast: vi.fn(),
+        simulatedContext: undefined,
+        slotToTime: () => "09:00",
+        timeToSlot: () => 12,
+      }),
+    );
+
+    act(() => {
+      result.current.handleResizeStart(
+        createResizeStartEvent(100),
+        "appointment_1",
+        30,
+      );
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+
+    await waitFor(() => {
+      expect(runUpdateAppointment).not.toHaveBeenCalled();
+    });
+  });
+
+  it("commits blocked-slot resizes once on mouseup", async () => {
+    const runUpdateBlockedSlot = vi.fn(() => Promise.resolve());
+
+    const { result } = renderHook(() =>
+      useCalendarInteractions({
+        baseAppointments: [],
+        baseManualBlockedSlots: [
+          {
+            column: "practitioner_1",
+            duration: 30,
+            id: "blocked_slot_1",
+            isManual: true,
+            slot: 12,
+            startSlot: 12,
+            title: "Blocked",
+          },
+        ],
+        blockedSlotDocMapRef: {
+          current: new Map([
+            [
+              "blocked_slot_1",
+              {
+                _id: toTableId<"blockedSlots">("blocked_slot_1"),
+                end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+                locationId: toTableId<"locations">("location_1"),
+                practitionerId: toTableId<"practitioners">("practitioner_1"),
+                start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+                title: "Blocked",
+              },
+            ],
+          ]),
         },
-      ];
+        checkCollision: vi.fn().mockReturnValue(false),
+        convertRealAppointmentToSimulation: vi.fn(),
+        convertRealBlockedSlotToSimulation: vi.fn(),
+        isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        runUpdateAppointment: vi.fn(),
+        runUpdateBlockedSlot,
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+        showNonRootSeriesEditToast: vi.fn(),
+        simulatedContext: undefined,
+        slotToTime: () => "09:00",
+        timeToSlot: () => 12,
+      }),
+    );
 
-      const realAppointments = appointments.filter((apt) => !apt.isSimulation);
-      const simulatedAppointments = appointments.filter(
-        (apt) => apt.isSimulation,
+    act(() => {
+      result.current.handleBlockedSlotResizeStart(
+        createResizeStartEvent(100),
+        "blocked_slot_1",
+        30,
       );
-
-      expect(realAppointments.length).toBe(1);
-      expect(simulatedAppointments.length).toBe(1);
-      expect(simulatedAppointments[0]?.replacesAppointmentId).toBe("real-1");
     });
 
-    test("should handle appointment replacement in simulation", () => {
-      const realAppointment = {
-        color: "bg-blue-500",
-        column: "p1",
-        convexId: "convex-real-1" as never,
-        duration: 30,
-        id: "real-1",
-        isSimulation: false,
-        startTime: "09:00",
-      };
-
-      const simulatedAppointment = {
-        color: "bg-green-500",
-        column: "p2",
-        duration: 30,
-        id: "sim-1",
-        isSimulation: true,
-        replacesAppointmentId: realAppointment.convexId,
-        startTime: "10:00",
-      };
-
-      // In simulation mode, real appointment should be hidden if it has a replacement
-      type AppointmentType =
-        | typeof realAppointment
-        | typeof simulatedAppointment;
-      const appointments: AppointmentType[] = [
-        realAppointment,
-        simulatedAppointment,
-      ];
-      const visibleAppointments = appointments.filter(
-        (apt) =>
-          !apt.isSimulation ||
-          !appointments.some(
-            (other) =>
-              other.isSimulation &&
-              "replacesAppointmentId" in other &&
-              "convexId" in apt &&
-              other.replacesAppointmentId === apt.convexId,
-          ),
-      );
-
-      // Both should be visible (they represent different states)
-      expect(visibleAppointments.length).toBe(2);
-    });
-  });
-
-  describe("Performance Calculations", () => {
-    test("should efficiently calculate slot positions for many appointments", () => {
-      const SLOT_HEIGHT = 16;
-      const SLOT_DURATION = 5;
-      const appointmentCount = 100;
-
-      const timeToSlot = (time: string) => {
-        const [hours = 0, minutes = 0] = time.split(":").map(Number);
-        return Math.floor((hours * 60 + minutes) / SLOT_DURATION);
-      };
-
-      const start = performance.now();
-
-      // Generate 100 appointments with random times
-      const appointments = Array.from({ length: appointmentCount }, (_, i) => {
-        const hour = 8 + Math.floor(i / 10);
-        const minute = (i % 10) * 5;
-        const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
-        const slot = timeToSlot(time);
-
-        return {
-          duration: 30,
-          height: (30 / SLOT_DURATION) * SLOT_HEIGHT,
-          id: `apt-${i}`,
-          slot,
-          startTime: time,
-          top: slot * SLOT_HEIGHT,
-        };
-      });
-
-      const end = performance.now();
-      const duration = end - start;
-
-      expect(appointments.length).toBe(100);
-      expect(duration).toBeLessThan(50); // Should complete in < 50ms
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
     });
 
-    test("should handle rapid state updates efficiently", () => {
-      let dragPreview = { column: "", slot: 0, visible: false };
+    expect(runUpdateBlockedSlot).not.toHaveBeenCalled();
+    expect(result.current.manualBlockedSlots[0]?.duration).toBe(45);
 
-      const start = performance.now();
-
-      // Simulate 100 drag over events
-      for (let i = 0; i < 100; i++) {
-        dragPreview = {
-          column: "p1",
-          slot: i,
-          visible: true,
-        };
-      }
-
-      const end = performance.now();
-      const duration = end - start;
-
-      expect(dragPreview.slot).toBe(99);
-      expect(duration).toBeLessThan(10); // Should be very fast
-    });
-  });
-
-  describe("Edge Cases and Error Handling", () => {
-    test("should handle empty column list", () => {
-      const columns: string[] = [];
-
-      const gridColumns = Math.max(columns.length, 0);
-
-      expect(gridColumns).toBe(0);
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mouseup"));
     });
 
-    test("should handle appointment with missing data", () => {
-      const appointment = {
-        color: "bg-blue-500",
-        column: "p1",
-        duration: 30,
-        id: "apt-1",
-        isSimulation: false,
-        startTime: "09:00",
-      };
-
-      // All required fields present
-      expect(appointment.id).toBeTruthy();
-      expect(appointment.startTime).toBeTruthy();
-      expect(appointment.duration).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(runUpdateBlockedSlot).toHaveBeenCalledTimes(1);
     });
-
-    test("should handle invalid time format gracefully", () => {
-      const parseTime = (time: string): number => {
-        const parts = time.split(":");
-        if (parts.length !== 2) {
-          return 0;
-        }
-
-        const [hours = 0, minutes = 0] = parts.map(Number);
-
-        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-          return 0;
-        }
-        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-          return 0;
-        }
-
-        return hours * 60 + minutes;
-      };
-
-      expect(parseTime("09:00")).toBe(540);
-      expect(parseTime("invalid")).toBe(0);
-      expect(parseTime("25:00")).toBe(0);
-      expect(parseTime("12:99")).toBe(0);
-    });
-
-    test("should handle date boundary crossing", () => {
-      const midnight = new Date("2025-10-01T00:00:00");
-      const endOfDay = new Date("2025-10-01T23:59:59");
-
-      expect(midnight.getDate()).toBe(1);
-      expect(endOfDay.getDate()).toBe(1);
-      expect(midnight.getHours()).toBe(0);
-      expect(endOfDay.getHours()).toBe(23);
+    expect(runUpdateBlockedSlot).toHaveBeenCalledWith({
+      end: "2026-04-23T09:45:00+02:00[Europe/Berlin]",
+      id: "blocked_slot_1",
     });
   });
 });

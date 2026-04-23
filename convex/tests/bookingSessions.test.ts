@@ -7,6 +7,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { assertValidSanitizedBookingSessionState } from "../bookingSessions";
 import { insertSelfLineageEntity } from "../lineage";
 import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
@@ -1812,5 +1813,75 @@ describe("bookingSessions slot selection argument contracts", () => {
       ExistingPatientSlotArgs
     >;
     expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
+  });
+});
+
+describe("booking session snapshot sanitization", () => {
+  test("accepts representative valid sanitized state", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [
+          {
+            city: "Berlin",
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            gender: "female",
+            lastName: "Lovelace",
+            phoneNumber: "+491701234567",
+            postalCode: "10115",
+            street: "Example Street 1",
+          },
+        ],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationId: "location_1",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        step: "new-calendar-selection",
+      });
+    }).not.toThrow();
+  });
+
+  test("rejects missing required fields for representative steps", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationId: "location_1",
+        step: "new-calendar-selection",
+      });
+    }).toThrow("Invalid booking session snapshot");
+
+    expect(() => {
+      assertValidSanitizedBookingSessionState("existing-confirmation", {
+        appointmentId: "appointment_1",
+        appointmentTypeId: "appointment_type_1",
+        bookedDurationMinutes: 30,
+        dataSharingContacts: [],
+        isNewPatient: false,
+        locationId: "location_1",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Grace",
+          lastName: "Hopper",
+          phoneNumber: "+491709999999",
+        },
+        practitionerId: "practitioner_1",
+        reasonDescription: "Follow-up",
+        selectedSlot: {
+          practitionerId: "practitioner_1",
+          practitionerName: "Dr. Grace Hopper",
+          startTime: "not-a-zoned-date-time",
+        },
+        step: "existing-confirmation",
+      });
+    }).toThrow("Invalid booking session snapshot");
   });
 });

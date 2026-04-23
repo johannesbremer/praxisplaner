@@ -37,7 +37,6 @@ import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSetEntityDeletion from "../ruleSetEntityDeletion.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
-import type * as runtimeValidation from "../runtimeValidation.js";
 import type * as scheduling from "../scheduling.js";
 import type * as schedulingCore from "../schedulingCore.js";
 import type * as temporaryPatients from "../temporaryPatients.js";
@@ -84,7 +83,6 @@ declare const fullApi: ApiFromModules<{
   ruleSetEntityDeletion: typeof ruleSetEntityDeletion;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;
-  runtimeValidation: typeof runtimeValidation;
   scheduling: typeof scheduling;
   schedulingCore: typeof schedulingCore;
   temporaryPatients: typeof temporaryPatients;
