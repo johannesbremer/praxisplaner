@@ -99,6 +99,58 @@ describe("calendar resize interactions", () => {
     });
   });
 
+  it("commits the latest preview duration when mousemove and mouseup happen in the same act", async () => {
+    const runUpdateAppointment = vi.fn(() => Promise.resolve());
+
+    const { result } = renderHook(() =>
+      useCalendarInteractions({
+        baseAppointments: [
+          {
+            color: "bg-blue-500",
+            column: "practitioner_1",
+            convexId: toTableId<"appointments">("appointment_1"),
+            duration: 30,
+            id: "appointment_1",
+            isSimulation: false,
+            startTime: "09:00",
+            title: "Checkup",
+          },
+        ],
+        baseManualBlockedSlots: [],
+        blockedSlotDocMapRef: { current: new Map() },
+        checkCollision: vi.fn().mockReturnValue(false),
+        convertRealAppointmentToSimulation: vi.fn(),
+        convertRealBlockedSlotToSimulation: vi.fn(),
+        isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        runUpdateAppointment,
+        runUpdateBlockedSlot: vi.fn(),
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+        showNonRootSeriesEditToast: vi.fn(),
+        simulatedContext: undefined,
+        slotToTime: () => "09:00",
+        timeToSlot: () => 12,
+      }),
+    );
+
+    act(() => {
+      result.current.handleResizeStart(
+        createResizeStartEvent(100),
+        "appointment_1",
+        30,
+      );
+      document.dispatchEvent(new MouseEvent("mousemove", { clientY: 148 }));
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+
+    await waitFor(() => {
+      expect(runUpdateAppointment).toHaveBeenCalledTimes(1);
+    });
+    expect(runUpdateAppointment).toHaveBeenCalledWith({
+      end: "2026-04-23T09:45:00+02:00[Europe/Berlin]",
+      id: "appointment_1",
+    });
+  });
+
   it("skips the mutation when the resize does not change the duration", async () => {
     const runUpdateAppointment = vi.fn(() => Promise.resolve());
 

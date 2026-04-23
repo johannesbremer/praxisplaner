@@ -136,6 +136,66 @@ export function useCalendarLogic({
     simulatedContext,
   });
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
+  const appointmentHistoryDocMapRef = useRef(
+    new Map<Id<"appointments">, AppointmentResult>(),
+  );
+  const blockedSlotHistoryDocMapRef = useRef(
+    new Map<Id<"blockedSlots">, Doc<"blockedSlots">>(),
+  );
+
+  useEffect(() => {
+    for (const appointment of appointmentsData ?? []) {
+      appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
+    }
+  }, [appointmentsData]);
+
+  useEffect(() => {
+    for (const blockedSlot of blockedSlotsData ?? []) {
+      blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
+    }
+  }, [blockedSlotsData]);
+
+  const getAppointmentHistoryDoc = useCallback(
+    (id: Id<"appointments">) => {
+      return (
+        appointmentDocMapRef.current.get(id) ??
+        appointmentHistoryDocMapRef.current.get(id)
+      );
+    },
+    [appointmentDocMapRef],
+  );
+
+  const getBlockedSlotHistoryDoc = useCallback(
+    (id: Id<"blockedSlots">) => {
+      return (
+        blockedSlotDocMapRef.current.get(id) ??
+        blockedSlotHistoryDocMapRef.current.get(id)
+      );
+    },
+    [blockedSlotDocMapRef],
+  );
+
+  const rememberAppointmentHistoryDoc = useCallback(
+    (appointment: AppointmentResult) => {
+      appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
+    },
+    [],
+  );
+
+  const forgetAppointmentHistoryDoc = useCallback((id: Id<"appointments">) => {
+    appointmentHistoryDocMapRef.current.delete(id);
+  }, []);
+
+  const rememberBlockedSlotHistoryDoc = useCallback(
+    (blockedSlot: Doc<"blockedSlots">) => {
+      blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
+    },
+    [],
+  );
+
+  const forgetBlockedSlotHistoryDoc = useCallback((id: Id<"blockedSlots">) => {
+    blockedSlotHistoryDocMapRef.current.delete(id);
+  }, []);
 
   const isNonRootSeriesAppointment = useCallback(
     (appointmentId?: string) => {
@@ -620,7 +680,7 @@ export function useCalendarLogic({
   const runUpdateAppointmentInternal = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
       const mutation = getAppointmentUpdateMutation(
-        appointmentDocMapRef.current.get(args.id),
+        getAppointmentHistoryDoc(args.id),
       );
 
       return await mutation.withOptimisticUpdate(
@@ -628,8 +688,8 @@ export function useCalendarLogic({
       )(args);
     },
     [
-      appointmentDocMapRef,
       applyOptimisticAppointmentUpdate,
+      getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
     ],
   );
@@ -898,7 +958,7 @@ export function useCalendarLogic({
 
   const runUpdateAppointment = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
-      const before = appointmentDocMapRef.current.get(args.id);
+      const before = getAppointmentHistoryDoc(args.id);
       if (before?.seriesId) {
         await getAppointmentUpdateMutation(before)(args);
         return;
@@ -935,6 +995,15 @@ export function useCalendarLogic({
         practitionerId: args.practitionerId ?? before.practitionerId,
         start: typedStart ?? before.start,
       };
+      const afterSnapshot: AppointmentResult = {
+        ...before,
+        end: afterState.end,
+        ...(afterState.practitionerId === undefined
+          ? {}
+          : { practitionerId: afterState.practitionerId }),
+        start: afterState.start,
+      };
+      rememberAppointmentHistoryDoc(afterSnapshot);
 
       const matchesState = (
         appointment: AppointmentResult,
@@ -963,7 +1032,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Termin aktualisiert",
         redo: async () => {
-          const current = appointmentDocMapRef.current.get(args.id);
+          const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
@@ -988,10 +1057,11 @@ export function useCalendarLogic({
             }),
             start: afterState.start,
           });
+          rememberAppointmentHistoryDoc(afterSnapshot);
           return { status: "applied" };
         },
         undo: async () => {
-          const current = appointmentDocMapRef.current.get(args.id);
+          const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
@@ -1016,29 +1086,32 @@ export function useCalendarLogic({
             }),
             start: beforeState.start,
           });
+          rememberAppointmentHistoryDoc(before);
           return { status: "applied" };
         },
       });
     },
     [
-      appointmentDocMapRef,
+      getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
       parseZonedDateTime,
       pushHistoryAction,
+      rememberAppointmentHistoryDoc,
       runUpdateAppointmentInternal,
     ],
   );
 
   const runDeleteAppointment = useCallback(
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
-      const deleted = appointmentDocMapRef.current.get(args.id);
+      const deleted = getAppointmentHistoryDoc(args.id);
       if (deleted?.seriesId) {
         await deleteAppointmentMutation(args);
         return;
       }
 
       await runDeleteAppointmentInternal(args);
+      forgetAppointmentHistoryDoc(args.id);
 
       if (!deleted) {
         return;
@@ -1112,17 +1185,23 @@ export function useCalendarLogic({
           }
 
           currentAppointmentId = recreatedId;
+          rememberAppointmentHistoryDoc({
+            ...deleted,
+            _id: recreatedId,
+          });
           return { status: "applied" };
         },
       });
     },
     [
-      appointmentDocMapRef,
       deleteAppointmentMutation,
+      forgetAppointmentHistoryDoc,
+      getAppointmentHistoryDoc,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
       pushHistoryAction,
+      rememberAppointmentHistoryDoc,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
     ],
@@ -1192,7 +1271,7 @@ export function useCalendarLogic({
 
   const runUpdateBlockedSlot = useCallback(
     async (args: Parameters<typeof updateBlockedSlotMutation>[0]) => {
-      const before = blockedSlotDocMapRef.current.get(args.id);
+      const before = getBlockedSlotHistoryDoc(args.id);
       const mutationResult = await runUpdateBlockedSlotInternal(args);
 
       if (!before) {
@@ -1212,6 +1291,16 @@ export function useCalendarLogic({
         start: args.start ?? before.start,
         title: args.title ?? before.title,
       };
+      const afterSnapshot: Doc<"blockedSlots"> = {
+        ...before,
+        end: afterState.end,
+        ...(afterState.practitionerId === undefined
+          ? {}
+          : { practitionerId: afterState.practitionerId }),
+        start: afterState.start,
+        title: afterState.title,
+      };
+      rememberBlockedSlotHistoryDoc(afterSnapshot);
 
       const matchesState = (
         slot: Doc<"blockedSlots">,
@@ -1241,7 +1330,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Sperrung aktualisiert",
         redo: async () => {
-          const current = blockedSlotDocMapRef.current.get(args.id);
+          const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
@@ -1266,10 +1355,11 @@ export function useCalendarLogic({
             start: afterState.start,
             title: afterState.title,
           });
+          rememberBlockedSlotHistoryDoc(afterSnapshot);
           return { status: "applied" };
         },
         undo: async () => {
-          const current = blockedSlotDocMapRef.current.get(args.id);
+          const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
@@ -1295,6 +1385,7 @@ export function useCalendarLogic({
             start: beforeState.start,
             title: beforeState.title,
           });
+          rememberBlockedSlotHistoryDoc(before);
           return { status: "applied" };
         },
       });
@@ -1302,17 +1393,19 @@ export function useCalendarLogic({
       return mutationResult;
     },
     [
-      blockedSlotDocMapRef,
+      getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
+      rememberBlockedSlotHistoryDoc,
       runUpdateBlockedSlotInternal,
     ],
   );
 
   const runDeleteBlockedSlot = useCallback(
     async (args: Parameters<typeof deleteBlockedSlotMutation>[0]) => {
-      const deleted = blockedSlotDocMapRef.current.get(args.id);
+      const deleted = getBlockedSlotHistoryDoc(args.id);
       const mutationResult = await runDeleteBlockedSlotInternal(args);
+      forgetBlockedSlotHistoryDoc(args.id);
 
       if (!deleted) {
         return mutationResult;
@@ -1369,6 +1462,10 @@ export function useCalendarLogic({
           }
 
           currentBlockedSlotId = recreatedId;
+          rememberBlockedSlotHistoryDoc({
+            ...deleted,
+            _id: recreatedId,
+          });
           return { status: "applied" };
         },
       });
@@ -1376,9 +1473,11 @@ export function useCalendarLogic({
       return mutationResult;
     },
     [
-      blockedSlotDocMapRef,
+      forgetBlockedSlotHistoryDoc,
+      getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
+      rememberBlockedSlotHistoryDoc,
       runCreateBlockedSlotInternal,
       runDeleteBlockedSlotInternal,
     ],

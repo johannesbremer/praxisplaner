@@ -117,6 +117,8 @@ export function useCalendarInteractions({
 }) {
   const [activeResizeDraft, setActiveResizeDraft] =
     useState<ActiveResizeDraft | null>(null);
+  const activeResizeDraftRef = useRef<ActiveResizeDraft | null>(null);
+  const detachResizeListenersRef = useRef<(() => void) | null>(null);
   const justFinishedResizingRef = useRef<null | string>(null);
 
   const appointmentsRef = useRef(baseAppointments);
@@ -191,6 +193,166 @@ export function useCalendarInteractions({
     showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
   }, [showNonRootSeriesEditToast]);
 
+  const setResizeDraft = useCallback((draft: ActiveResizeDraft | null) => {
+    activeResizeDraftRef.current = draft;
+    setActiveResizeDraft(draft);
+  }, []);
+
+  const clearResizeListeners = useCallback(() => {
+    detachResizeListenersRef.current?.();
+    detachResizeListenersRef.current = null;
+  }, []);
+
+  const handleDocumentMouseMove = useCallback(
+    (event: MouseEvent) => {
+      const currentDraft = activeResizeDraftRef.current;
+      if (!currentDraft) {
+        setResizeDraft(null);
+        return;
+      }
+
+      const deltaY = event.clientY - currentDraft.startClientY;
+      const deltaSlots = Math.round(deltaY / 16);
+
+      setResizeDraft({
+        ...currentDraft,
+        previewDuration: Math.max(
+          SLOT_DURATION,
+          currentDraft.originalDuration + deltaSlots * SLOT_DURATION,
+        ),
+      });
+    },
+    [setResizeDraft],
+  );
+
+  const handleDocumentMouseUp = useCallback(() => {
+    const resizeDraft = activeResizeDraftRef.current;
+    if (!resizeDraft) {
+      clearResizeListeners();
+      return;
+    }
+
+    justFinishedResizingRef.current = resizeDraft.entityId;
+    globalThis.setTimeout(() => {
+      justFinishedResizingRef.current = null;
+    }, 100);
+    clearResizeListeners();
+    setResizeDraft(null);
+
+    if (resizeDraft.previewDuration === resizeDraft.originalDuration) {
+      return;
+    }
+
+    if (resizeDraft.kind === "appointment") {
+      const appointment = appointmentsRef.current.find(
+        (entry) => entry.id === resizeDraft.entityId,
+      );
+      if (
+        !appointment ||
+        checkCollisionRef.current(
+          appointment.column,
+          resizeDraft.startSlot,
+          resizeDraft.previewDuration,
+          resizeDraft.entityId,
+        ) ||
+        !appointment.convexId
+      ) {
+        return;
+      }
+      const appointmentId = appointment.convexId;
+
+      void (async () => {
+        try {
+          const startTime = slotToTimeRef.current(resizeDraft.startSlot);
+          const plainTime = Temporal.PlainTime.from(startTime);
+          const startZoned = selectedDateRef.current.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
+          });
+          const endZoned = startZoned.add({
+            minutes: resizeDraft.previewDuration,
+          });
+          await runUpdateAppointmentRef.current({
+            end: endZoned.toString(),
+            id: appointmentId,
+          });
+        } catch (error) {
+          captureErrorGlobal(error, {
+            appointmentId,
+            context: "NewCalendar - Failed to update appointment duration",
+          });
+          toast.error("Termin-Dauer konnte nicht aktualisiert werden");
+        }
+      })();
+      return;
+    }
+
+    const blockedSlot = manualBlockedSlotsRef.current.find(
+      (entry) => entry.id === resizeDraft.entityId,
+    );
+    if (
+      !blockedSlot ||
+      checkCollisionRef.current(
+        blockedSlot.column,
+        resizeDraft.startSlot,
+        resizeDraft.previewDuration,
+        resizeDraft.entityId,
+      )
+    ) {
+      return;
+    }
+
+    const blockedSlotDoc =
+      blockedSlot.id === undefined
+        ? undefined
+        : blockedSlotDocMapRef.current.get(blockedSlot.id);
+    if (!blockedSlotDoc) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const startTime = slotToTimeRef.current(resizeDraft.startSlot);
+        const plainTime = Temporal.PlainTime.from(startTime);
+        const startZoned = selectedDateRef.current.toZonedDateTime({
+          plainTime,
+          timeZone: TIMEZONE,
+        });
+        const endZoned = startZoned.add({
+          minutes: resizeDraft.previewDuration,
+        });
+        await runUpdateBlockedSlotRef.current({
+          end: endZoned.toString(),
+          id: blockedSlotDoc._id,
+          ...(simulatedContextRef.current ? { isSimulation: true } : {}),
+        });
+      } catch (error) {
+        captureErrorGlobal(error, {
+          blockedSlotId: resizeDraft.entityId,
+          context: "Failed to update blocked slot duration",
+        });
+        toast.error(
+          "Dauer des gesperrten Zeitraums konnte nicht aktualisiert werden",
+        );
+      }
+    })();
+  }, [blockedSlotDocMapRef, clearResizeListeners, setResizeDraft]);
+
+  const ensureResizeListeners = useCallback(() => {
+    if (detachResizeListenersRef.current) {
+      return;
+    }
+
+    document.addEventListener("mousemove", handleDocumentMouseMove);
+    document.addEventListener("mouseup", handleDocumentMouseUp);
+    detachResizeListenersRef.current = () => {
+      document.removeEventListener("mousemove", handleDocumentMouseMove);
+      document.removeEventListener("mouseup", handleDocumentMouseUp);
+    };
+  }, [handleDocumentMouseMove, handleDocumentMouseUp]);
+
+  useEffect(() => clearResizeListeners, [clearResizeListeners]);
+
   const handleResizeStart = useCallback(
     (
       event: ResizeStartEvent,
@@ -213,7 +375,8 @@ export function useCalendarInteractions({
       }
 
       const startResizing = (entityId: string) => {
-        setActiveResizeDraft({
+        ensureResizeListeners();
+        setResizeDraft({
           entityId,
           kind: "appointment",
           originalDuration: currentDuration,
@@ -265,7 +428,7 @@ export function useCalendarInteractions({
 
       startResizing(appointmentId);
     },
-    [],
+    [ensureResizeListeners, setResizeDraft],
   );
 
   const handleBlockedSlotResizeStart = useCallback(
@@ -281,7 +444,8 @@ export function useCalendarInteractions({
         const blockedSlot = manualBlockedSlotsRef.current.find(
           (slot) => slot.id === entityId,
         );
-        setActiveResizeDraft({
+        ensureResizeListeners();
+        setResizeDraft({
           entityId,
           kind: "blockedSlot",
           originalDuration: currentDuration,
@@ -335,152 +499,8 @@ export function useCalendarInteractions({
 
       startResizing(blockedSlotId);
     },
-    [blockedSlotDocMapRef],
+    [blockedSlotDocMapRef, ensureResizeListeners, setResizeDraft],
   );
-
-  useEffect(() => {
-    if (!activeResizeDraft) {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      setActiveResizeDraft((currentDraft) => {
-        if (!currentDraft) {
-          return null;
-        }
-
-        const deltaY = event.clientY - currentDraft.startClientY;
-        const deltaSlots = Math.round(deltaY / 16);
-
-        return {
-          ...currentDraft,
-          previewDuration: Math.max(
-            SLOT_DURATION,
-            currentDraft.originalDuration + deltaSlots * SLOT_DURATION,
-          ),
-        };
-      });
-    };
-
-    const clearJustResized = () => {
-      globalThis.setTimeout(() => {
-        justFinishedResizingRef.current = null;
-      }, 100);
-    };
-
-    const handleMouseUp = () => {
-      const resizeDraft = activeResizeDraft;
-      justFinishedResizingRef.current = resizeDraft.entityId;
-      clearJustResized();
-      setActiveResizeDraft(null);
-
-      if (resizeDraft.previewDuration === resizeDraft.originalDuration) {
-        return;
-      }
-
-      if (resizeDraft.kind === "appointment") {
-        const appointment = appointmentsRef.current.find(
-          (entry) => entry.id === resizeDraft.entityId,
-        );
-        if (
-          !appointment ||
-          checkCollisionRef.current(
-            appointment.column,
-            resizeDraft.startSlot,
-            resizeDraft.previewDuration,
-            resizeDraft.entityId,
-          ) ||
-          !appointment.convexId
-        ) {
-          return;
-        }
-        const appointmentId = appointment.convexId;
-
-        void (async () => {
-          try {
-            const startTime = slotToTimeRef.current(resizeDraft.startSlot);
-            const plainTime = Temporal.PlainTime.from(startTime);
-            const startZoned = selectedDateRef.current.toZonedDateTime({
-              plainTime,
-              timeZone: TIMEZONE,
-            });
-            const endZoned = startZoned.add({
-              minutes: resizeDraft.previewDuration,
-            });
-            await runUpdateAppointmentRef.current({
-              end: endZoned.toString(),
-              id: appointmentId,
-            });
-          } catch (error) {
-            captureErrorGlobal(error, {
-              appointmentId,
-              context: "NewCalendar - Failed to update appointment duration",
-            });
-            toast.error("Termin-Dauer konnte nicht aktualisiert werden");
-          }
-        })();
-        return;
-      }
-
-      const blockedSlot = manualBlockedSlotsRef.current.find(
-        (entry) => entry.id === resizeDraft.entityId,
-      );
-      if (
-        !blockedSlot ||
-        checkCollisionRef.current(
-          blockedSlot.column,
-          resizeDraft.startSlot,
-          resizeDraft.previewDuration,
-          resizeDraft.entityId,
-        )
-      ) {
-        return;
-      }
-
-      const blockedSlotDoc =
-        blockedSlot.id === undefined
-          ? undefined
-          : blockedSlotDocMapRef.current.get(blockedSlot.id);
-      if (!blockedSlotDoc) {
-        return;
-      }
-
-      void (async () => {
-        try {
-          const startTime = slotToTimeRef.current(resizeDraft.startSlot);
-          const plainTime = Temporal.PlainTime.from(startTime);
-          const startZoned = selectedDateRef.current.toZonedDateTime({
-            plainTime,
-            timeZone: TIMEZONE,
-          });
-          const endZoned = startZoned.add({
-            minutes: resizeDraft.previewDuration,
-          });
-          await runUpdateBlockedSlotRef.current({
-            end: endZoned.toString(),
-            id: blockedSlotDoc._id,
-            ...(simulatedContextRef.current ? { isSimulation: true } : {}),
-          });
-        } catch (error) {
-          captureErrorGlobal(error, {
-            blockedSlotId: resizeDraft.entityId,
-            context: "Failed to update blocked slot duration",
-          });
-          toast.error(
-            "Dauer des gesperrten Zeitraums konnte nicht aktualisiert werden",
-          );
-        }
-      })();
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [activeResizeDraft, blockedSlotDocMapRef]);
 
   const appointments = useMemo(() => {
     if (activeResizeDraft?.kind !== "appointment") {
