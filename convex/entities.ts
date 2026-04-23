@@ -3544,6 +3544,7 @@ async function fetchConditionTreeNode(
       conditionType: node.conditionType,
       nodeType: "CONDITION",
       operator: node.operator,
+      ...(node.scope && { scope: node.scope }),
       ...(node.valueIds && { valueIds: node.valueIds }),
       ...(node.valueNumber !== undefined && { valueNumber: node.valueNumber }),
     };

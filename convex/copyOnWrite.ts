@@ -615,6 +615,15 @@ async function copyConditionNode(
         });
         break;
       }
+      case "CONCURRENT_COUNT":
+      case "DAILY_CAPACITY": {
+        remappedValueIds = remapRuleConditionValueIds({
+          entityIds: sourceNode.valueIds,
+          entityLabel: "Appointment Type",
+          idMap: appointmentTypeIdMap,
+        });
+        break;
+      }
       case "LOCATION": {
         remappedValueIds = remapRuleConditionValueIds({
           entityIds: sourceNode.valueIds,
@@ -668,6 +677,7 @@ async function copyConditionNode(
     parentConditionId?: Id<"ruleConditions">;
     practiceId: Id<"practices">;
     ruleSetId: Id<"ruleSets">;
+    scope?: "location" | "practice" | "practitioner";
     valueIds?: string[];
     valueNumber?: number;
   } = {
@@ -698,6 +708,9 @@ async function copyConditionNode(
     }
     if (sourceNode.operator) {
       insertData.operator = sourceNode.operator;
+    }
+    if (sourceNode.scope) {
+      insertData.scope = sourceNode.scope;
     }
     if (remappedValueIds) {
       insertData.valueIds = remappedValueIds;
