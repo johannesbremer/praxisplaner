@@ -62,10 +62,16 @@ export function useCalendarData(args: {
     api.appointments.getCalendarDayAppointments,
     calendarDayQueryArgs ?? "skip",
   );
+  const allAppointmentsData = useQuery(api.appointments.getAppointments, {
+    scope: "all",
+  });
   const blockedSlotsData = useQuery(
     api.appointments.getCalendarDayBlockedSlots,
     calendarDayQueryArgs ?? "skip",
   );
+  const allBlockedSlotsData = useQuery(api.appointments.getBlockedSlots, {
+    scope: "all",
+  });
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
     args.practiceId && args.ruleSetId
@@ -100,6 +106,34 @@ export function useCalendarData(args: {
   useEffect(() => {
     blockedSlotDocMapRef.current = blockedSlotDocMap;
   }, [blockedSlotDocMap]);
+
+  const allPracticeAppointmentDocMap = useMemo(() => {
+    const map = new Map<Id<"appointments">, AppointmentResult>();
+    for (const appointment of allAppointmentsData ?? []) {
+      if (appointment.practiceId === args.practiceId) {
+        map.set(appointment._id, appointment);
+      }
+    }
+    return map;
+  }, [allAppointmentsData, args.practiceId]);
+  const allPracticeAppointmentDocMapRef = useRef(allPracticeAppointmentDocMap);
+  useEffect(() => {
+    allPracticeAppointmentDocMapRef.current = allPracticeAppointmentDocMap;
+  }, [allPracticeAppointmentDocMap]);
+
+  const allPracticeBlockedSlotDocMap = useMemo(() => {
+    const map = new Map<string, Doc<"blockedSlots">>();
+    for (const blockedSlot of allBlockedSlotsData ?? []) {
+      if (blockedSlot.practiceId === args.practiceId) {
+        map.set(blockedSlot._id, blockedSlot);
+      }
+    }
+    return map;
+  }, [allBlockedSlotsData, args.practiceId]);
+  const allPracticeBlockedSlotDocMapRef = useRef(allPracticeBlockedSlotDocMap);
+  useEffect(() => {
+    allPracticeBlockedSlotDocMapRef.current = allPracticeBlockedSlotDocMap;
+  }, [allPracticeBlockedSlotDocMap]);
 
   const practitionersData = useQuery(
     args.ruleSetId
@@ -278,6 +312,10 @@ export function useCalendarData(args: {
 
   return {
     activeRuleSetId,
+    allPracticeAppointmentDocMapRef,
+    allPracticeAppointmentsLoaded: allAppointmentsData !== undefined,
+    allPracticeBlockedSlotDocMapRef,
+    allPracticeBlockedSlotsLoaded: allBlockedSlotsData !== undefined,
     appointmentDocMap,
     appointmentDocMapRef,
     appointments,

@@ -45,6 +45,31 @@ export interface SimulationConversionOptions {
   startISO?: string;
 }
 
+interface ConflictAppointmentCandidate {
+  end: string;
+  isSimulation?: boolean;
+  locationId: Id<"locations">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  start: string;
+}
+
+interface ConflictAppointmentRecord extends ConflictAppointmentCandidate {
+  _id: Id<"appointments">;
+}
+
+interface ConflictBlockedSlotCandidate {
+  end: string;
+  isSimulation?: boolean;
+  locationId: Id<"locations">;
+  practitionerId?: Id<"practitioners">;
+  start: string;
+}
+
+interface ConflictBlockedSlotRecord extends ConflictBlockedSlotCandidate {
+  _id: Id<"blockedSlots">;
+}
+
 export function collectDeletedPractitionerCalendarRanges(args: {
   appointments: AppointmentResult[];
   blockedSlots: readonly CalendarBlockedSlotRecord[];
@@ -170,6 +195,111 @@ export function handleEditBlockedSlot(
     return false;
   }
   return true;
+}
+
+export function hasAppointmentConflictInRecords(
+  candidate: ConflictAppointmentCandidate,
+  appointments: Iterable<ConflictAppointmentRecord>,
+  excludeId: Id<"appointments"> | undefined,
+  toEpochMilliseconds: (iso: string) => number,
+): boolean {
+  const candidateStart = toEpochMilliseconds(candidate.start);
+  const candidateEnd = toEpochMilliseconds(candidate.end);
+
+  for (const existing of appointments) {
+    if (excludeId && existing._id === excludeId) {
+      continue;
+    }
+
+    if (
+      candidate.replacesAppointmentId &&
+      existing._id === candidate.replacesAppointmentId
+    ) {
+      continue;
+    }
+
+    if (existing.locationId !== candidate.locationId) {
+      continue;
+    }
+
+    if (
+      (existing.isSimulation === true) !==
+      (candidate.isSimulation === true)
+    ) {
+      continue;
+    }
+
+    if (existing.practitionerId !== candidate.practitionerId) {
+      continue;
+    }
+
+    const existingStart = toEpochMilliseconds(existing.start);
+    const existingEnd = toEpochMilliseconds(existing.end);
+    if (candidateStart < existingEnd && existingStart < candidateEnd) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function hasBlockedSlotConflictInRecords(args: {
+  appointments: Iterable<ConflictAppointmentRecord>;
+  blockedSlots: Iterable<ConflictBlockedSlotRecord>;
+  candidate: ConflictBlockedSlotCandidate;
+  excludeId?: Id<"blockedSlots">;
+  toEpochMilliseconds: (iso: string) => number;
+}): boolean {
+  const candidateStart = args.toEpochMilliseconds(args.candidate.start);
+  const candidateEnd = args.toEpochMilliseconds(args.candidate.end);
+
+  for (const existing of args.blockedSlots) {
+    if (args.excludeId && existing._id === args.excludeId) {
+      continue;
+    }
+
+    if (existing.locationId !== args.candidate.locationId) {
+      continue;
+    }
+
+    if (existing.practitionerId !== args.candidate.practitionerId) {
+      continue;
+    }
+
+    if (
+      (existing.isSimulation === true) !==
+      (args.candidate.isSimulation === true)
+    ) {
+      continue;
+    }
+
+    const existingStart = args.toEpochMilliseconds(existing.start);
+    const existingEnd = args.toEpochMilliseconds(existing.end);
+    if (candidateStart < existingEnd && existingStart < candidateEnd) {
+      return true;
+    }
+  }
+
+  return hasAppointmentConflictInRecords(
+    args.candidate,
+    args.appointments,
+    undefined,
+    args.toEpochMilliseconds,
+  );
+}
+
+export function mergeConflictRecordsById<T extends { _id: string }>(
+  ...maps: readonly ReadonlyMap<string, T>[]
+): T[] {
+  const merged = new Map<string, T>();
+
+  for (const map of maps) {
+    for (const [id, record] of map) {
+      merged.set(id, record);
+    }
+  }
+
+  return [...merged.values()];
 }
 
 export function parsePlainTimeResult(

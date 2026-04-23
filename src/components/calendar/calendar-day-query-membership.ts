@@ -41,7 +41,7 @@ export function matchesCalendarDayQueryEntity(
 }
 
 export function shouldCollapseOptimisticReplacementInDayQuery(args: {
-  isSimulation: boolean | undefined;
+  isSimulation?: boolean;
   scope: CalendarDayQueryArgs["scope"];
 }): boolean {
   return args.scope === "simulation" && args.isSimulation === true;
