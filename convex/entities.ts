@@ -35,7 +35,6 @@ import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferen
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
   bumpDraftRevision,
-  type EntityType,
   resolveDraftForWrite,
   validateAppointmentTypeLineageKeysInRuleSet,
   validateLocationLineageKeysInRuleSet,
@@ -3233,11 +3232,7 @@ export const deleteRule = mutation({
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
-    await verifyEntityInUnsavedRuleSet(
-      ctx.db,
-      rule.ruleSetId,
-      "rule" as EntityType,
-    );
+    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
 
     // Recursively delete the entire tree
     await deleteConditionTreeNode(ctx.db, rule._id);
@@ -3316,11 +3311,7 @@ export const updateRule = mutation({
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching
-    await verifyEntityInUnsavedRuleSet(
-      ctx.db,
-      rule.ruleSetId,
-      "rule" as EntityType,
-    );
+    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
 
     await ctx.db.patch("ruleConditions", rule._id, updates);
 
