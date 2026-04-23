@@ -1,6 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
 
+import { raiseError } from "@/lib/raise-error";
 import {
   type InstantString,
   isInstantString,
@@ -50,8 +51,18 @@ export function isTimeString(value: unknown): value is TimeString {
   return typeof value === "string" && TIME_OF_DAY_REGEX.test(value);
 }
 
+export function requireTimeString(value: string, source: string): TimeString {
+  return parseTimeStringResult(value, source).match(
+    (timeString) => timeString,
+    raiseError,
+  );
+}
+
 function buildTimeString(hours: number, minutes: number): TimeString {
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}` as TimeString;
+  return requireTimeString(
+    `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`,
+    "buildTimeString",
+  );
 }
 
 function parseTimeParts(
@@ -333,9 +344,14 @@ export function formatDateFull(date: Temporal.PlainDate): string {
  * ```
  */
 export function timeToMinutes(timeStr: string): number {
-  const parts = parseTimeParts(timeStr);
+  const parts = parseTimeParts(requireTimeString(timeStr, "timeToMinutes"));
   if (!parts) {
-    return 0;
+    return raiseError(
+      invalidStateError(
+        `Expected HH:mm time string in timeToMinutes, got "${timeStr}".`,
+        "timeToMinutes",
+      ),
+    );
   }
 
   return parts.hours * 60 + parts.minutes;

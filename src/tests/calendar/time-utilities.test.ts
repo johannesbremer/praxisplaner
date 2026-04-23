@@ -53,10 +53,25 @@ describe("Calendar Time Utilities", () => {
       expect(timeToSlot("12:00", 0)).toBe(144);
     });
 
-    test("should handle invalid time strings gracefully", () => {
-      expect(timeToMinutes("invalid")).toBe(0);
-      expect(timeToMinutes("")).toBe(0);
-      expect(timeToMinutes("99:99")).toBe(0);
+    test("should reject invalid time strings", () => {
+      expect(() => timeToMinutes("invalid")).toThrow(
+        'Expected HH:mm time string, got "invalid".',
+      );
+      expect(() => timeToMinutes("")).toThrow(
+        'Expected HH:mm time string, got "".',
+      );
+      expect(() => timeToMinutes("99:99")).toThrow(
+        'Expected HH:mm time string, got "99:99".',
+      );
+    });
+
+    test("should reject invalid slot conversions", () => {
+      expect(() => slotToTime(-1)).toThrow(
+        'Expected HH:mm time string, got "-1:-5".',
+      );
+      expect(() => slotToTime(288)).toThrow(
+        'Expected HH:mm time string, got "24:00".',
+      );
     });
   });
 

@@ -17,6 +17,7 @@ import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { invalidStateError } from "../utils/frontend-errors";
+import { requireTimeString } from "../utils/time-calculations";
 
 export interface BaseScheduleDialogProps {
   isOpen: boolean;
@@ -104,7 +105,7 @@ function asTypedBreakTimes(
 }
 
 function asTypedTime(value: string): TimeString {
-  return value as TimeString;
+  return requireTimeString(value, "base-schedule-management-shared");
 }
 
 export const resolvePractitionerLineageId = (
