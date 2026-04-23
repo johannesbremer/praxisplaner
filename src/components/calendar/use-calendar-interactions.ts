@@ -6,7 +6,6 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { Appointment } from "./types";
-import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
 
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
@@ -99,7 +98,7 @@ export function useCalendarInteractions({
       startISO?: string;
       title?: string;
     },
-  ) => Promise<null | SimulatedBlockedSlotConversionResult>;
+  ) => Promise<Id<"blockedSlots"> | null>;
   isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
   runUpdateAppointment: (args: {
     end?: string;
@@ -194,8 +193,24 @@ export function useCalendarInteractions({
     showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
   }, [showNonRootSeriesEditToast]);
 
-  const resolveBlockedSlotStartSlotFromISO = useCallback(
-    (entityId: string, startISO: string): null | number => {
+  const resolveBlockedSlotStartSlot = useCallback(
+    (entityId: string, fallbackStartISO?: string): null | number => {
+      const blockedSlot = manualBlockedSlotsRef.current.find(
+        (slot) => slot.id === entityId,
+      );
+      if (blockedSlot?.startSlot !== undefined) {
+        return blockedSlot.startSlot;
+      }
+      if (blockedSlot?.slot !== undefined) {
+        return blockedSlot.slot;
+      }
+
+      const startISO =
+        blockedSlotDocMapRef.current.get(entityId)?.start ?? fallbackStartISO;
+      if (!startISO) {
+        return null;
+      }
+
       try {
         const startTime = Temporal.ZonedDateTime.from(startISO)
           .toPlainTime()
@@ -210,29 +225,7 @@ export function useCalendarInteractions({
         return null;
       }
     },
-    [],
-  );
-
-  const resolveBlockedSlotStartSlot = useCallback(
-    (entityId: string): null | number => {
-      const blockedSlot = manualBlockedSlotsRef.current.find(
-        (slot) => slot.id === entityId,
-      );
-      if (blockedSlot?.startSlot !== undefined) {
-        return blockedSlot.startSlot;
-      }
-      if (blockedSlot?.slot !== undefined) {
-        return blockedSlot.slot;
-      }
-
-      const startISO = blockedSlotDocMapRef.current.get(entityId)?.start;
-      if (!startISO) {
-        return null;
-      }
-
-      return resolveBlockedSlotStartSlotFromISO(entityId, startISO);
-    },
-    [blockedSlotDocMapRef, resolveBlockedSlotStartSlotFromISO],
+    [blockedSlotDocMapRef],
   );
 
   const setResizeDraft = useCallback((draft: ActiveResizeDraft | null) => {
@@ -482,7 +475,11 @@ export function useCalendarInteractions({
       event.preventDefault();
       event.stopPropagation();
 
-      const startResizing = (entityId: string, startSlot: null | number) => {
+      const startResizing = (entityId: string, fallbackStartISO?: string) => {
+        const startSlot = resolveBlockedSlotStartSlot(
+          entityId,
+          fallbackStartISO,
+        );
         if (startSlot === null) {
           toast.error(
             "Startzeit des gesperrten Zeitraums konnte nicht ermittelt werden",
@@ -509,7 +506,7 @@ export function useCalendarInteractions({
       ) {
         void (async () => {
           try {
-            const converted =
+            const convertedId =
               await convertRealBlockedSlotToSimulationRef.current(
                 blockedSlotId,
                 {
@@ -527,14 +524,8 @@ export function useCalendarInteractions({
                     "Gesperrter Zeitraum",
                 },
               );
-            if (converted) {
-              startResizing(
-                converted.id,
-                resolveBlockedSlotStartSlotFromISO(
-                  converted.id,
-                  converted.startISO,
-                ),
-              );
+            if (convertedId) {
+              startResizing(convertedId, blockedSlotDoc.start);
             }
           } catch (error) {
             captureErrorGlobal(error, {
@@ -549,12 +540,11 @@ export function useCalendarInteractions({
         return;
       }
 
-      startResizing(blockedSlotId, resolveBlockedSlotStartSlot(blockedSlotId));
+      startResizing(blockedSlotId);
     },
     [
       blockedSlotDocMapRef,
       ensureResizeListeners,
-      resolveBlockedSlotStartSlotFromISO,
       resolveBlockedSlotStartSlot,
       setResizeDraft,
     ],

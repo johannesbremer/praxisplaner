@@ -31,6 +31,10 @@ import {
   temporalDayToLegacy,
   zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
+import {
+  matchesCalendarDayQueryEntity,
+  shouldCollapseOptimisticReplacementInDayQuery,
+} from "./calendar-day-query-membership";
 import { SLOT_DURATION } from "./types";
 import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
 import { useCalendarData } from "./use-calendar-data";
@@ -45,7 +49,6 @@ import {
   filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
   parsePlainTimeResult,
-  type SimulatedBlockedSlotConversionResult,
   type SimulationConversionOptions,
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
@@ -547,17 +550,30 @@ export function useCalendarLogic({
               optimisticArgs.replacesAppointmentId;
           }
 
-          const baseList =
-            optimisticArgs.replacesAppointmentId === undefined
-              ? existingAppointments
-              : existingAppointments.filter(
-                  (apt) => apt._id !== optimisticArgs.replacesAppointmentId,
-                );
-
-          localStore.setQuery(appointmentQueryRef, calendarDayQueryArgs, [
-            ...baseList,
+          const shouldCollapseReplacement =
+            optimisticArgs.replacesAppointmentId !== undefined &&
+            shouldCollapseOptimisticReplacementInDayQuery({
+              isSimulation: newAppointment.isSimulation,
+              scope: calendarDayQueryArgs.scope,
+            });
+          const baseList = shouldCollapseReplacement
+            ? existingAppointments.filter(
+                (apt) => apt._id !== optimisticArgs.replacesAppointmentId,
+              )
+            : existingAppointments;
+          const shouldAppend = matchesCalendarDayQueryEntity(
+            calendarDayQueryArgs,
             newAppointment,
-          ]);
+          );
+          if (baseList === existingAppointments && !shouldAppend) {
+            return;
+          }
+
+          localStore.setQuery(
+            appointmentQueryRef,
+            calendarDayQueryArgs,
+            shouldAppend ? [...baseList, newAppointment] : baseList,
+          );
         },
       )(args);
     },
@@ -766,17 +782,30 @@ export function useCalendarLogic({
               optimisticArgs.replacesBlockedSlotId;
           }
 
-          const baseList =
-            optimisticArgs.replacesBlockedSlotId === undefined
-              ? existingBlockedSlots
-              : existingBlockedSlots.filter(
-                  (slot) => slot._id !== optimisticArgs.replacesBlockedSlotId,
-                );
-
-          localStore.setQuery(blockedSlotQueryRef, blockedSlotsQueryArgs, [
-            ...baseList,
+          const shouldCollapseReplacement =
+            optimisticArgs.replacesBlockedSlotId !== undefined &&
+            shouldCollapseOptimisticReplacementInDayQuery({
+              isSimulation: newBlockedSlot.isSimulation,
+              scope: blockedSlotsQueryArgs.scope,
+            });
+          const baseList = shouldCollapseReplacement
+            ? existingBlockedSlots.filter(
+                (slot) => slot._id !== optimisticArgs.replacesBlockedSlotId,
+              )
+            : existingBlockedSlots;
+          const shouldAppend = matchesCalendarDayQueryEntity(
+            blockedSlotsQueryArgs,
             newBlockedSlot,
-          ]);
+          );
+          if (baseList === existingBlockedSlots && !shouldAppend) {
+            return;
+          }
+
+          localStore.setQuery(
+            blockedSlotQueryRef,
+            blockedSlotsQueryArgs,
+            shouldAppend ? [...baseList, newBlockedSlot] : baseList,
+          );
         },
       )(args);
     },
@@ -2675,7 +2704,7 @@ export function useCalendarLogic({
     async (
       blockedSlotId: string,
       options: BlockedSlotConversionOptions,
-    ): Promise<null | SimulatedBlockedSlotConversionResult> => {
+    ): Promise<Id<"blockedSlots"> | null> => {
       if (!simulatedContext) {
         return null;
       }
@@ -2698,10 +2727,7 @@ export function useCalendarLogic({
       }
 
       if (original.isSimulation) {
-        return {
-          id: original._id,
-          startISO: original.start,
-        };
+        return original._id;
       }
 
       const locationId = resultFromNullable(
@@ -2745,10 +2771,7 @@ export function useCalendarLogic({
             source: "convertRealBlockedSlotToSimulation.createBlockedSlot",
           }),
       ).match(
-        (newId) => ({
-          id: newId,
-          startISO,
-        }),
+        (newId) => newId,
         (error) => {
           captureFrontendError(error, {
             blockedSlotId,
