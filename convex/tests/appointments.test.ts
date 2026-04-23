@@ -2165,6 +2165,88 @@ describe("calendar day appointment queries", () => {
     ).resolves.toHaveLength(0);
   });
 
+  test("getCalendarDayAppointments ignores simulation replacements from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignPracticeData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_cross_practice_simulation_replacement",
+      "day-query-cross-practice-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-cross-practice-simulation-replacement@example.com",
+      subject: "workos_day_query_cross_practice_simulation_replacement",
+    });
+    const targetRange = makeDayRange(10);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...foreignPracticeData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: realAppointmentId,
+        locationId: baseData.locationId,
+      },
+    ]);
+  });
+
   test("getCalendarDayBlockedSlots filters by location lineage and remaps ids after filtering", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -2382,5 +2464,89 @@ describe("calendar day appointment queries", () => {
         scope: "simulation",
       }),
     ).resolves.toHaveLength(0);
+  });
+
+  test("getCalendarDayBlockedSlots ignores simulation replacements from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignPracticeData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slot_cross_practice_replacement",
+      "day-blocked-slot-cross-practice-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slot-cross-practice-replacement@example.com",
+      subject: "workos_day_blocked_slot_cross_practice_replacement",
+    });
+    const targetRange = makeDayRange(11);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realBlockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Real blocked slot",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertBlockedSlotRecord(t, {
+      isSimulation: true,
+      locationId: foreignPracticeData.locationId,
+      practiceId: foreignPracticeData.practiceId,
+      practitionerId: foreignPracticeData.practitionerId,
+      replacesBlockedSlotId: realBlockedSlotId,
+      title: "Foreign blocked slot replacement",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 14, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 14, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: baseData.locationId,
+        title: "Real blocked slot",
+      },
+    ]);
   });
 });

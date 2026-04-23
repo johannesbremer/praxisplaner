@@ -552,6 +552,7 @@ async function getOptionalLocationLineageKey(
 
 async function getSimulationAppointmentReplacements(
   ctx: QueryCtx,
+  practiceId: Id<"practices">,
   replacedAppointmentIds: Id<"appointments">[],
 ): Promise<AppointmentDoc[]> {
   if (replacedAppointmentIds.length === 0) {
@@ -574,6 +575,7 @@ async function getSimulationAppointmentReplacements(
       .flat()
       .filter(
         (appointment) =>
+          appointment.practiceId === practiceId &&
           appointment.isSimulation === true &&
           isVisibleAppointment(appointment),
       ),
@@ -582,6 +584,7 @@ async function getSimulationAppointmentReplacements(
 
 async function getSimulationBlockedSlotReplacements(
   ctx: QueryCtx,
+  practiceId: Id<"practices">,
   replacedBlockedSlotIds: Id<"blockedSlots">[],
 ): Promise<BlockedSlotDoc[]> {
   if (replacedBlockedSlotIds.length === 0) {
@@ -600,7 +603,13 @@ async function getSimulationBlockedSlotReplacements(
   );
 
   return dedupeById(
-    replacementGroups.flat().filter((blockedSlot) => blockedSlot.isSimulation),
+    replacementGroups
+      .flat()
+      .filter(
+        (blockedSlot) =>
+          blockedSlot.practiceId === practiceId &&
+          blockedSlot.isSimulation === true,
+      ),
   );
 }
 
@@ -846,6 +855,7 @@ export const getCalendarDayAppointments = query({
       scope === "simulation"
         ? await getSimulationAppointmentReplacements(
             ctx,
+            args.practiceId,
             visibleAppointments
               .filter((appointment) => appointment.isSimulation !== true)
               .map((appointment) => appointment._id),
@@ -2234,6 +2244,7 @@ export const getCalendarDayBlockedSlots = query({
       const replacementBlockedSlots =
         await getSimulationBlockedSlotReplacements(
           ctx,
+          args.practiceId,
           visibleBlockedSlots
             .filter((blockedSlot) => blockedSlot.isSimulation !== true)
             .map((blockedSlot) => blockedSlot._id),
