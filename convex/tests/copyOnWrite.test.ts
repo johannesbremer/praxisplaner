@@ -247,7 +247,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             operator: "IS",
             // Intentionally passing an ID from the older saved rule set.
             // The mutation should remap this by lineage into the active draft.
-            valueIds: [appointmentType1.entityId as string],
+            valueIds: [appointmentType1.entityId],
           },
         ],
         nodeType: "AND",
@@ -331,7 +331,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             nodeType: "CONDITION",
             operator: "IS",
             // CORRECT: Using appointment type ID from same rule set
-            valueIds: [appointmentType.entityId as string],
+            valueIds: [appointmentType.entityId],
           },
         ],
         nodeType: "AND",
@@ -412,7 +412,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "APPOINTMENT_TYPE",
             nodeType: "CONDITION",
             operator: "IS",
-            valueIds: [appointmentType1.entityId as string],
+            valueIds: [appointmentType1.entityId],
           },
         ],
         nodeType: "AND",
@@ -720,7 +720,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             nodeType: "CONDITION",
             operator: "GREATER_THAN_OR_EQUAL",
             scope: "location",
-            valueIds: [appointmentType.entityId as string],
+            valueIds: [appointmentType.entityId],
             valueNumber: 4,
           },
         ],
@@ -1454,7 +1454,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "APPOINTMENT_TYPE",
             nodeType: "CONDITION",
             operator: "IS",
-            valueIds: [createdType.entityId as string],
+            valueIds: [createdType.entityId],
           },
         ],
         nodeType: "AND",
@@ -1534,7 +1534,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             conditionType: "APPOINTMENT_TYPE",
             nodeType: "CONDITION",
             operator: "IS",
-            valueIds: [createdType.entityId as string],
+            valueIds: [createdType.entityId],
           },
           {
             conditionType: "DAY_OF_WEEK",

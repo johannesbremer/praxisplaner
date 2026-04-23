@@ -259,9 +259,7 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
                       </FieldLabel>
                       <Select
                         onValueChange={(value) => {
-                          field.handleChange(
-                            value as "" | "diverse" | "female" | "male",
-                          );
+                          field.handleChange(value);
                         }}
                         value={field.state.value}
                       >

@@ -733,11 +733,11 @@ export function VacationScheduler({
         undo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
-            const undoResult = (await removeMfa({
+            const undoResult = await removeMfa({
               mfaId: existing?._id ?? currentMfaId,
               practiceId,
               ...getCowMutationArgs(),
-            })) as DraftMutationResult;
+            });
             handleDraftMutationResult(undoResult);
           } catch (error) {
             if (isMissingMfaError(error)) {
@@ -780,11 +780,11 @@ export function VacationScheduler({
         toast.error("MFA konnte nicht gefunden werden");
         return;
       }
-      const result = (await removeMfa({
+      const result = await removeMfa({
         mfaId,
         practiceId,
         ...getCowMutationArgs(),
-      })) as DraftMutationResult;
+      });
       handleDraftMutationResult(result);
       let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
@@ -793,11 +793,11 @@ export function VacationScheduler({
         redo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
-            const redoResult = (await removeMfa({
+            const redoResult = await removeMfa({
               mfaId: existing?._id ?? currentMfaId,
               practiceId,
               ...getCowMutationArgs(),
-            })) as DraftMutationResult;
+            });
             handleDraftMutationResult(redoResult);
           } catch (error) {
             if (isMissingMfaError(error)) {

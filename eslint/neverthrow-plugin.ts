@@ -56,9 +56,7 @@ export function createNeverthrowConfigs(options: NeverthrowConfigOptions) {
       files: FRONTEND_FILES,
       ignores: FRONTEND_IGNORES,
       languageOptions: {
-        parser: options.parser as NonNullable<
-          NonNullable<Linter.Config["languageOptions"]>["parser"]
-        >,
+        parser: options.parser,
         parserOptions: {
           ecmaFeatures: {
             jsx: true,

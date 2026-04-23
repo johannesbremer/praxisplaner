@@ -29,7 +29,7 @@ describe("frontend lineage mapping", () => {
     if (originalPosthog) {
       mutableGlobalThis.posthog = originalPosthog;
     } else {
-      Reflect.deleteProperty(globalThis as Record<string, unknown>, "posthog");
+      Reflect.deleteProperty(globalThis, "posthog");
     }
   });
 

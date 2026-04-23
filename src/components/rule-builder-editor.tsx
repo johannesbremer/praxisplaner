@@ -265,7 +265,7 @@ export function RuleEditDialog({
                           operator: "IS",
                           type: "APPOINTMENT_TYPE",
                           valueIds: [],
-                        } as Condition);
+                        });
                       }}
                       size="sm"
                       type="button"
