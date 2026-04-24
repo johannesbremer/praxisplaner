@@ -17,7 +17,7 @@ import {
 } from "../../../lib/vacation-utils";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
-import { createOptimisticId } from "../../utils/convex-ids";
+import { createOptimisticId, isOptimisticId } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
@@ -157,15 +157,33 @@ export function useCalendarLogic({
   const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
 
   useEffect(() => {
+    for (const id of appointmentHistoryDocMapRef.current.keys()) {
+      if (isOptimisticId(id)) {
+        appointmentHistoryDocMapRef.current.delete(id);
+      }
+    }
+
     for (const appointment of appointmentsData ?? []) {
       deletedAppointmentIdsRef.current.delete(appointment._id);
+      if (isOptimisticId(appointment._id)) {
+        continue;
+      }
       appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
     }
   }, [appointmentsData]);
 
   useEffect(() => {
+    for (const id of blockedSlotHistoryDocMapRef.current.keys()) {
+      if (isOptimisticId(id)) {
+        blockedSlotHistoryDocMapRef.current.delete(id);
+      }
+    }
+
     for (const blockedSlot of blockedSlotsData ?? []) {
       deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
+      if (isOptimisticId(blockedSlot._id)) {
+        continue;
+      }
       blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
     }
   }, [blockedSlotsData]);

@@ -7,6 +7,7 @@ import {
   mergeConflictRecordsById,
   mergeConflictRecordsByIdExcluding,
 } from "../../components/calendar/use-calendar-logic-helpers";
+import { isOptimisticId } from "../../utils/convex-ids";
 
 const toEpochMilliseconds = (iso: string) =>
   new Date(iso.replace("[Europe/Berlin]", "")).getTime();
@@ -116,6 +117,11 @@ describe("calendar conflict detection", () => {
     });
 
     expect(merged).toHaveLength(0);
+  });
+
+  it("recognizes optimistic ids generated from uuids", () => {
+    expect(isOptimisticId("550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(isOptimisticId("blocked_slot_1")).toBe(false);
   });
 
   it("ignores the appointment being replaced when checking appointment conflicts", () => {

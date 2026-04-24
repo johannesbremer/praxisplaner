@@ -63,14 +63,22 @@ export function useCalendarData(args: {
     calendarDayQueryArgs ?? "skip",
   );
   const allAppointmentsData = useQuery(api.appointments.getAppointments, {
+    ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
     scope: "all",
+    ...(args.ruleSetId === undefined
+      ? {}
+      : { selectedRuleSetId: args.ruleSetId }),
   });
   const blockedSlotsData = useQuery(
     api.appointments.getCalendarDayBlockedSlots,
     calendarDayQueryArgs ?? "skip",
   );
   const allBlockedSlotsData = useQuery(api.appointments.getBlockedSlots, {
+    ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
     scope: "all",
+    ...(args.ruleSetId === undefined
+      ? {}
+      : { selectedRuleSetId: args.ruleSetId }),
   });
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
