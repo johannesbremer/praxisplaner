@@ -72,8 +72,6 @@ export type MaterializedSchedule = FrontendLineageEntity<
   Doc<"baseSchedules"> & {
     _creationTime: number;
     lineageKey?: Id<"baseSchedules">;
-    locationId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
   }
 >;
 
@@ -187,11 +185,7 @@ export const matchesSchedulePayload = (
 
 export const toSchedulePayload = (
   schedule: MaterializedSchedule,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
-  void practitioners;
-  void locations;
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
   return ok({
     ...(breakTimes && { breakTimes }),
@@ -269,14 +263,7 @@ export const resolvePractitionerLineageIdFromSnapshot = (
 
 export const toSchedulePayloadFromLineageSnapshot = (
   schedule: MaterializedSchedule,
-  practitionerLineageById: ReadonlyMap<
-    Id<"practitioners">,
-    Id<"practitioners">
-  >,
-  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
-  void practitionerLineageById;
-  void locationLineageById;
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
   return ok({
     ...(breakTimes && { breakTimes }),
@@ -356,9 +343,7 @@ export const scheduleDocFromInput = (params: {
     dayOfWeek: number;
     endTime: string;
     lineageKey?: Id<"baseSchedules">;
-    locationId: Id<"locations">;
     locationLineageId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
     practitionerLineageId: Id<"practitioners">;
     startTime: string;
   };
@@ -375,10 +360,8 @@ export const scheduleDocFromInput = (params: {
     dayOfWeek: params.schedule.dayOfWeek,
     endTime: params.schedule.endTime,
     lineageKey,
-    locationId: params.schedule.locationId,
     locationLineageKey: params.schedule.locationLineageId,
     practiceId: params.practiceId,
-    practitionerId: params.schedule.practitionerId,
     practitionerLineageKey: params.schedule.practitionerLineageId,
     ruleSetId: params.ruleSetId,
     startTime: params.schedule.startTime,
@@ -482,9 +465,7 @@ export const applyReplaceResultToRef = (params: {
           dayOfWeek: appliedSchedule.dayOfWeek,
           endTime: appliedSchedule.endTime,
           lineageKey: appliedSchedule.lineageKey,
-          locationId: appliedSchedule.locationId,
           locationLineageId: appliedSchedule.locationLineageKey,
-          practitionerId: appliedSchedule.practitionerId,
           practitionerLineageId: appliedSchedule.practitionerLineageKey,
           startTime: appliedSchedule.startTime,
         },

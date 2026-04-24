@@ -204,9 +204,9 @@ export default function BaseScheduleManagement({
     breakTimes?: { end: string; start: string }[];
     daysOfWeek: number[];
     endTime: string;
-    locationId: Id<"locations">;
+    locationLineageKey: Id<"locations">;
     locationName?: string;
-    practitionerId: Id<"practitioners">;
+    practitionerLineageKey: Id<"practitioners">;
     scheduleIds: Id<"baseSchedules">[];
     startTime: string;
   }) => {
@@ -227,17 +227,6 @@ export default function BaseScheduleManagement({
       toast.error("Fehler: Ungültige Zeitplan-Daten");
       return;
     }
-    const locationLineageKey = locations.find(
-      (location) => location._id === scheduleGroup.locationId,
-    )?.lineageKey;
-    const practitionerLineageKey = practitioners.find(
-      (practitioner) => practitioner._id === scheduleGroup.practitionerId,
-    )?.lineageKey;
-    if (!locationLineageKey || !practitionerLineageKey) {
-      toast.error("Fehler: Zeitplan-Referenzen konnten nicht aufgelöst werden");
-      return;
-    }
-
     // Create a representative schedule object for editing
     const representativeSchedule: ExtendedSchedule = {
       _id: asBaseScheduleId(firstScheduleId), // Use first ID for form processing
@@ -245,11 +234,9 @@ export default function BaseScheduleManagement({
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
       lineageKey: asBaseScheduleLineageKey(firstScheduleId),
-      locationId: scheduleGroup.locationId,
-      locationLineageKey,
+      locationLineageKey: scheduleGroup.locationLineageKey,
       practiceId,
-      practitionerId: scheduleGroup.practitionerId,
-      practitionerLineageKey,
+      practitionerLineageKey: scheduleGroup.practitionerLineageKey,
       ruleSetId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
@@ -268,13 +255,7 @@ export default function BaseScheduleManagement({
         scheduleIds.includes(schedule._id),
       );
       const deletedSchedulePayloads = Result.combine(
-        deletedSchedules.map((schedule) =>
-          toSchedulePayload(
-            schedule,
-            practitionersRef.current,
-            locationsRef.current,
-          ),
-        ),
+        deletedSchedules.map((schedule) => toSchedulePayload(schedule)),
       ).match(
         (value) => value,
         (error) => {
@@ -427,9 +408,9 @@ export default function BaseScheduleManagement({
         breakTimes?: { end: string; start: string }[];
         daysOfWeek: number[];
         endTime: string;
-        locationId: Id<"locations">;
+        locationLineageKey: Id<"locations">;
         locationName?: string;
-        practitionerId: Id<"practitioners">;
+        practitionerLineageKey: Id<"practitioners">;
         scheduleIds: Id<"baseSchedules">[];
         startTime: string;
       };
@@ -437,12 +418,13 @@ export default function BaseScheduleManagement({
   > = {};
 
   for (const schedule of schedules) {
-    // Look up practitioner name from ID
     const practitioner = practitioners.find(
-      (p) => p._id === schedule.practitionerId,
+      (p) => p.lineageKey === schedule.practitionerLineageKey,
     );
     const practitionerName = practitioner?.name ?? "Unknown";
-    const location = locations.find((l) => l._id === schedule.locationId);
+    const location = locations.find(
+      (l) => l.lineageKey === schedule.locationLineageKey,
+    );
     const locationName = location?.name;
 
     schedulesByPractitioner[practitionerName] ??= [];
@@ -452,7 +434,7 @@ export default function BaseScheduleManagement({
       (item) =>
         item.scheduleGroup.startTime === schedule.startTime &&
         item.scheduleGroup.endTime === schedule.endTime &&
-        item.scheduleGroup.locationId === schedule.locationId &&
+        item.scheduleGroup.locationLineageKey === schedule.locationLineageKey &&
         JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
           JSON.stringify(schedule.breakTimes ?? []),
     );
@@ -471,9 +453,9 @@ export default function BaseScheduleManagement({
           ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
           daysOfWeek: [schedule.dayOfWeek],
           endTime: schedule.endTime,
-          locationId: schedule.locationId,
+          locationLineageKey: schedule.locationLineageKey,
           ...(locationName && { locationName }),
-          practitionerId: schedule.practitionerId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
           scheduleIds: [schedule._id],
           startTime: schedule.startTime,
         },
@@ -754,8 +736,21 @@ function BaseScheduleDialog({
           : [schedule.dayOfWeek]
         : [],
       endTime: schedule?.endTime ?? "17:00",
-      locationId: schedule?.locationId ?? locations[0]?._id ?? "",
-      practitionerId: schedule?.practitionerId ?? "",
+      locationId:
+        (schedule
+          ? locations.find(
+              (location) => location.lineageKey === schedule.locationLineageKey,
+            )?._id
+          : undefined) ??
+        locations[0]?._id ??
+        "",
+      practitionerId:
+        (schedule
+          ? practitioners.find(
+              (practitioner) =>
+                practitioner.lineageKey === schedule.practitionerLineageKey,
+            )?._id
+          : undefined) ?? "",
       startTime: schedule?.startTime ?? "08:00",
     },
     onSubmit: async ({ value }) => {
@@ -804,6 +799,10 @@ function BaseScheduleDialog({
           value.locationId,
           locationsRef.current,
         );
+        const selectedPractitionerId = resolveSelectedPractitionerId(
+          value.practitionerId,
+          practitionersRef.current,
+        );
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -821,6 +820,16 @@ function BaseScheduleDialog({
           }
 
           const selectedDays = value.daysOfWeek;
+
+          if (!selectedLocationId || !selectedLocationLineageId) {
+            toast.error("Bitte wählen Sie einen Standort aus");
+            return;
+          }
+
+          if (!selectedPractitionerId) {
+            toast.error("Bitte wählen Sie einen Arzt aus");
+            return;
+          }
 
           if (selectedDays.length === 0) {
             const error = new Error(
@@ -840,11 +849,7 @@ function BaseScheduleDialog({
 
           const resolvedOldSchedulePayloads = Result.combine(
             deletedScheduleSnapshots.map((previous) =>
-              toSchedulePayloadFromLineageSnapshot(
-                previous,
-                practitionerLineageByIdAtSubmitStart,
-                locationLineageByIdAtSubmitStart,
-              ),
+              toSchedulePayloadFromLineageSnapshot(previous),
             ),
           ).match<null | SchedulePayload[]>(
             (value) => value,
@@ -878,10 +883,9 @@ function BaseScheduleDialog({
                 ...(existingPayload
                   ? { lineageKey: existingPayload.lineageKey }
                   : {}),
-                locationId: selectedLocationId ?? schedule.locationId,
-                locationLineageId:
-                  selectedLocationLineageId ?? schedule.locationLineageKey,
-                practitionerId: schedule.practitionerId,
+                locationId: selectedLocationId,
+                locationLineageId: selectedLocationLineageId,
+                practitionerId: selectedPractitionerId,
                 practitionerLineageId: schedule.practitionerLineageKey,
                 startTime: value.startTime,
               };
@@ -1273,17 +1277,27 @@ function BaseScheduleDialog({
     const practitionerExists =
       !!schedule &&
       practitioners.some(
-        (practitioner) => practitioner._id === schedule.practitionerId,
+        (practitioner) =>
+          practitioner.lineageKey === schedule.practitionerLineageKey,
       );
     const locationExists =
       !!schedule &&
-      locations.some((location) => location._id === schedule.locationId);
+      locations.some(
+        (location) => location.lineageKey === schedule.locationLineageKey,
+      );
 
     const selectedPractitionerId = practitionerExists
-      ? schedule.practitionerId
+      ? (practitioners.find(
+          (practitioner) =>
+            practitioner.lineageKey === schedule.practitionerLineageKey,
+        )?._id ?? "")
       : "";
     const selectedLocationId =
-      (locationExists ? schedule.locationId : undefined) ??
+      (locationExists
+        ? locations.find(
+            (location) => location.lineageKey === schedule.locationLineageKey,
+          )?._id
+        : undefined) ??
       locations[0]?._id ??
       "";
 
