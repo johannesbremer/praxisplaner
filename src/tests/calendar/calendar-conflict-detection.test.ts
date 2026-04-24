@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { toTableId } from "../../../convex/identity";
 import {
+  getCurrentCalendarRecordById,
   hasCalendarOccupancyConflictInRecords,
   mergeConflictRecordsById,
   mergeConflictRecordsByIdExcluding,
+  mergeCurrentConflictRecordsByIdExcluding,
 } from "../../components/calendar/use-calendar-logic-helpers";
 import { isOptimisticId } from "../../utils/convex-ids";
 
@@ -122,6 +124,72 @@ describe("calendar conflict detection", () => {
         ],
       ]),
     );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
+  });
+
+  it("prefers refreshed current records over stale history snapshots for undo lookups", () => {
+    const resolved = getCurrentCalendarRecordById({
+      allPracticeMap: new Map([
+        [
+          "appointment_1",
+          {
+            _id: toTableId<"appointments">("appointment_1"),
+            end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            practitionerLineageKey: practitioner1,
+            start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+          },
+        ],
+      ]),
+      historyMap: new Map([
+        [
+          "appointment_1",
+          {
+            _id: toTableId<"appointments">("appointment_1"),
+            end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            practitionerLineageKey: practitioner1,
+            start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+          },
+        ],
+      ]),
+      id: "appointment_1",
+    });
+
+    expect(resolved?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
+  });
+
+  it("prefers refreshed current records over stale history snapshots for conflict preflight", () => {
+    const merged = mergeCurrentConflictRecordsByIdExcluding({
+      allPracticeMap: new Map([
+        [
+          "blocked_slot_1",
+          {
+            _id: toTableId<"blockedSlots">("blocked_slot_1"),
+            end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+          },
+        ],
+      ]),
+      historyMap: new Map([
+        [
+          "blocked_slot_1",
+          {
+            _id: toTableId<"blockedSlots">("blocked_slot_1"),
+            end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+          },
+        ],
+      ]),
+    });
 
     expect(merged).toHaveLength(1);
     expect(merged[0]?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");

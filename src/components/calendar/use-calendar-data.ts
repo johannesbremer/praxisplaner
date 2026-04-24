@@ -22,6 +22,13 @@ import {
   toCalendarBlockedSlotRecord,
 } from "./calendar-view-models";
 
+interface CalendarAppointmentTypeInfo {
+  allowedPractitionerLineageKeys: Id<"practitioners">[];
+  duration: number;
+  hasFollowUpPlan: boolean;
+  name: string;
+}
+
 export function useCalendarData(args: {
   patient: PatientInfo | undefined;
   practiceId: Id<"practices">;
@@ -287,44 +294,12 @@ export function useCalendarData(args: {
         : "skip",
   );
 
-  const appointmentTypeMap = useMemo(() => {
-    const map = new Map<
-      Id<"appointmentTypes">,
-      {
-        allowedPractitionerIds: Id<"practitioners">[];
-        duration: number;
-        hasFollowUpPlan: boolean;
-        name: string;
-      }
-    >();
-    for (const appointmentType of appointmentTypesData ?? []) {
-      map.set(appointmentType._id, {
-        allowedPractitionerIds: appointmentType.allowedPractitionerIds,
-        duration: appointmentType.duration,
-        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
-        name: appointmentType.name,
-      });
-    }
-    return map;
-  }, [appointmentTypesData]);
-
   const appointmentTypeIdByLineageKey = useMemo(
     () =>
       new Map(
         (appointmentTypesData ?? []).flatMap((appointmentType) =>
           appointmentType.lineageKey
             ? [[appointmentType.lineageKey, appointmentType._id] as const]
-            : [],
-        ),
-      ),
-    [appointmentTypesData],
-  );
-  const appointmentTypeLineageKeyById = useMemo(
-    () =>
-      new Map(
-        (appointmentTypesData ?? []).flatMap((appointmentType) =>
-          appointmentType.lineageKey
-            ? [[appointmentType._id, appointmentType.lineageKey] as const]
             : [],
         ),
       ),
@@ -374,6 +349,40 @@ export function useCalendarData(args: {
       ),
     [practitionersData],
   );
+  const appointmentTypeLineageKeyById = useMemo(
+    () =>
+      new Map(
+        (appointmentTypesData ?? []).flatMap((appointmentType) =>
+          appointmentType.lineageKey
+            ? [[appointmentType._id, appointmentType.lineageKey] as const]
+            : [],
+        ),
+      ),
+    [appointmentTypesData],
+  );
+  const appointmentTypeInfoByLineageKey = useMemo(() => {
+    const map = new Map<Id<"appointmentTypes">, CalendarAppointmentTypeInfo>();
+    for (const appointmentType of appointmentTypesData ?? []) {
+      if (!appointmentType.lineageKey) {
+        continue;
+      }
+
+      const allowedPractitionerLineageKeys =
+        appointmentType.allowedPractitionerIds.flatMap((practitionerId) => {
+          const practitionerLineageKey =
+            practitionerLineageKeyById.get(practitionerId);
+          return practitionerLineageKey ? [practitionerLineageKey] : [];
+        });
+
+      map.set(appointmentType.lineageKey, {
+        allowedPractitionerLineageKeys,
+        duration: appointmentType.duration,
+        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        name: appointmentType.name,
+      });
+    }
+    return map;
+  }, [appointmentTypesData, practitionerLineageKeyById]);
   const practitionerNameByLineageKey = useMemo(
     () =>
       new Map(
@@ -387,14 +396,19 @@ export function useCalendarData(args: {
   );
   const getRequiredAppointmentTypeInfo = useCallback(
     (appointmentTypeId: Id<"appointmentTypes">, source: string) => {
-      const appointmentTypeInfo = appointmentTypeMap.get(appointmentTypeId);
+      const appointmentTypeLineageKey =
+        appointmentTypeLineageKeyById.get(appointmentTypeId);
+      const appointmentTypeInfo =
+        appointmentTypeLineageKey === undefined
+          ? undefined
+          : appointmentTypeInfoByLineageKey.get(appointmentTypeLineageKey);
       if (appointmentTypeInfo) {
         return appointmentTypeInfo;
       }
 
       captureFrontendError(
         invalidStateError(
-          `Terminart ${appointmentTypeId} konnte nicht in appointmentTypeMap aufgelöst werden.`,
+          `Terminart ${appointmentTypeId} konnte nicht in appointmentTypeInfoByLineageKey aufgelöst werden.`,
           source,
         ),
         {
@@ -406,7 +420,7 @@ export function useCalendarData(args: {
       );
       return null;
     },
-    [appointmentTypeMap],
+    [appointmentTypeInfoByLineageKey, appointmentTypeLineageKeyById],
   );
 
   const slotsResult = useQuery(
@@ -511,8 +525,8 @@ export function useCalendarData(args: {
     appointments,
     appointmentsData,
     appointmentTypeIdByLineageKey,
+    appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
-    appointmentTypeMap,
     baseSchedulesData,
     blockedSlotDocMap,
     blockedSlotDocMapRef,

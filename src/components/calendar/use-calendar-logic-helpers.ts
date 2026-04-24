@@ -196,6 +196,24 @@ export function filterBlockedSlotsForDateAndLocation<
   });
 }
 
+export function getCurrentCalendarRecordById<T extends { _id: string }>(args: {
+  activeDayMap?: ReadonlyMap<string, T>;
+  allPracticeMap: ReadonlyMap<string, T>;
+  deletedIds?: ReadonlySet<string>;
+  historyMap: ReadonlyMap<string, T>;
+  id: string;
+}): T | undefined {
+  if (args.deletedIds?.has(args.id)) {
+    return undefined;
+  }
+
+  return (
+    args.allPracticeMap.get(args.id) ??
+    args.activeDayMap?.get(args.id) ??
+    args.historyMap.get(args.id)
+  );
+}
+
 export function handleEditBlockedSlot(
   blockedSlotId: string,
   justFinishedResizingRef: RefObject<null | string>,
@@ -267,6 +285,21 @@ export function mergeConflictRecordsByIdExcluding<
   }
 
   return [...merged.values()];
+}
+
+export function mergeCurrentConflictRecordsByIdExcluding<
+  T extends { _id: string },
+>(args: {
+  allPracticeMap: ReadonlyMap<string, T>;
+  excludedIds?: ReadonlySet<string>;
+  historyMap: ReadonlyMap<string, T>;
+}): T[] {
+  return mergeConflictRecordsByIdExcluding({
+    maps: [args.historyMap, args.allPracticeMap],
+    ...(args.excludedIds === undefined
+      ? {}
+      : { excludedIds: args.excludedIds }),
+  });
 }
 
 export function parsePlainTimeResult(

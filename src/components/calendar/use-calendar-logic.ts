@@ -72,9 +72,10 @@ import {
   type BlockedSlotConversionOptions,
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
+  getCurrentCalendarRecordById,
   handleEditBlockedSlot,
   hasCalendarOccupancyConflictInRecords,
-  mergeConflictRecordsByIdExcluding,
+  mergeCurrentConflictRecordsByIdExcluding,
   parsePlainTimeResult,
   type SimulationConversionOptions,
   TIMEZONE,
@@ -154,8 +155,8 @@ export function useCalendarLogic({
     appointments: baseAppointments,
     appointmentsData,
     appointmentTypeIdByLineageKey,
+    appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
-    appointmentTypeMap,
     baseSchedulesData,
     blockedSlotDocMapRef,
     blockedSlotsData,
@@ -238,6 +239,18 @@ export function useCalendarLogic({
     [allPracticeAppointmentDocMapRef, appointmentDocMapRef],
   );
 
+  const getCurrentAppointmentDoc = useCallback(
+    (id: Id<"appointments">) =>
+      getCurrentCalendarRecordById({
+        activeDayMap: appointmentDocMapRef.current,
+        allPracticeMap: allPracticeAppointmentDocMapRef.current,
+        deletedIds: deletedAppointmentIdsRef.current,
+        historyMap: appointmentHistoryDocMapRef.current,
+        id,
+      }),
+    [allPracticeAppointmentDocMapRef, appointmentDocMapRef],
+  );
+
   const getBlockedSlotHistoryDoc = useCallback(
     (id: Id<"blockedSlots">) => {
       if (deletedBlockedSlotIdsRef.current.has(id)) {
@@ -250,6 +263,18 @@ export function useCalendarLogic({
         allPracticeBlockedSlotDocMapRef.current.get(id)
       );
     },
+    [allPracticeBlockedSlotDocMapRef, blockedSlotDocMapRef],
+  );
+
+  const getCurrentBlockedSlotDoc = useCallback(
+    (id: Id<"blockedSlots">) =>
+      getCurrentCalendarRecordById({
+        activeDayMap: blockedSlotDocMapRef.current,
+        allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
+        deletedIds: deletedBlockedSlotIdsRef.current,
+        historyMap: blockedSlotHistoryDocMapRef.current,
+        id,
+      }),
     [allPracticeBlockedSlotDocMapRef, blockedSlotDocMapRef],
   );
 
@@ -451,40 +476,34 @@ export function useCalendarLogic({
 
   const placementAppointmentTypeId =
     simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
-  const draggedAppointmentTypeId =
-    draggedAppointment?.resource?.appointmentTypeLineageKey === undefined
+  const placementAppointmentTypeLineageKey =
+    placementAppointmentTypeId === undefined
       ? undefined
-      : getAppointmentTypeIdForLineageKey(
-          draggedAppointment.resource.appointmentTypeLineageKey,
-        );
+      : appointmentTypeLineageKeyById.get(placementAppointmentTypeId);
+  const draggedAppointmentTypeLineageKey =
+    draggedAppointment?.resource?.appointmentTypeLineageKey;
 
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
-      appointmentTypeId: Id<"appointmentTypes"> | undefined,
-      practitionerIds: Iterable<Id<"practitioners">>,
+      appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined,
+      practitionerLineageKeys: Iterable<Id<"practitioners">>,
     ) => {
-      if (!appointmentTypeId) {
+      if (!appointmentTypeLineageKey) {
         return new Set<Id<"practitioners">>();
       }
 
       const allowedPractitionerIds = new Set(
-        (
-          appointmentTypeMap.get(appointmentTypeId)?.allowedPractitionerIds ??
-          []
-        )
-          .map((practitionerId) =>
-            getPractitionerLineageKeyForDisplayId(practitionerId),
-          )
-          .filter(Boolean),
+        appointmentTypeInfoByLineageKey.get(appointmentTypeLineageKey)
+          ?.allowedPractitionerLineageKeys,
       );
 
       return new Set(
-        [...practitionerIds].filter(
+        [...practitionerLineageKeys].filter(
           (practitionerId) => !allowedPractitionerIds.has(practitionerId),
         ),
       );
     },
-    [appointmentTypeMap, getPractitionerLineageKeyForDisplayId],
+    [appointmentTypeInfoByLineageKey],
   );
 
   const createBlockedSlotsForColumns = useCallback(
@@ -598,19 +617,15 @@ export function useCalendarLogic({
       excludeId?: Id<"appointments">,
     ) => {
       return hasCalendarOccupancyConflictInRecords({
-        appointments: mergeConflictRecordsByIdExcluding({
+        appointments: mergeCurrentConflictRecordsByIdExcluding({
+          allPracticeMap: allPracticeAppointmentDocMapRef.current,
           excludedIds: deletedAppointmentIdsRef.current,
-          maps: [
-            allPracticeAppointmentDocMapRef.current,
-            appointmentHistoryDocMapRef.current,
-          ],
+          historyMap: appointmentHistoryDocMapRef.current,
         }),
-        blockedSlots: mergeConflictRecordsByIdExcluding({
+        blockedSlots: mergeCurrentConflictRecordsByIdExcluding({
+          allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
           excludedIds: deletedBlockedSlotIdsRef.current,
-          maps: [
-            allPracticeBlockedSlotDocMapRef.current,
-            blockedSlotHistoryDocMapRef.current,
-          ],
+          historyMap: blockedSlotHistoryDocMapRef.current,
         }),
         candidate,
         ...(excludeId === undefined ? {} : { excludeId }),
@@ -636,19 +651,15 @@ export function useCalendarLogic({
       excludeId?: Id<"blockedSlots">,
     ) => {
       return hasCalendarOccupancyConflictInRecords({
-        appointments: mergeConflictRecordsByIdExcluding({
+        appointments: mergeCurrentConflictRecordsByIdExcluding({
+          allPracticeMap: allPracticeAppointmentDocMapRef.current,
           excludedIds: deletedAppointmentIdsRef.current,
-          maps: [
-            allPracticeAppointmentDocMapRef.current,
-            appointmentHistoryDocMapRef.current,
-          ],
+          historyMap: appointmentHistoryDocMapRef.current,
         }),
-        blockedSlots: mergeConflictRecordsByIdExcluding({
+        blockedSlots: mergeCurrentConflictRecordsByIdExcluding({
+          allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
           excludedIds: deletedBlockedSlotIdsRef.current,
-          maps: [
-            allPracticeBlockedSlotDocMapRef.current,
-            blockedSlotHistoryDocMapRef.current,
-          ],
+          historyMap: blockedSlotHistoryDocMapRef.current,
         }),
         candidate,
         ...(excludeId === undefined ? {} : { excludeId }),
@@ -1528,7 +1539,7 @@ export function useCalendarLogic({
         label: "Termin aktualisiert",
         redo: async () => {
           await ensureLatestConflictData();
-          const current = getAppointmentHistoryDoc(args.id);
+          const current = getCurrentAppointmentDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
@@ -1573,7 +1584,7 @@ export function useCalendarLogic({
         },
         undo: async () => {
           await ensureLatestConflictData();
-          const current = getAppointmentHistoryDoc(args.id);
+          const current = getCurrentAppointmentDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
@@ -1621,6 +1632,7 @@ export function useCalendarLogic({
     [
       ensureLatestConflictData,
       getAppointmentHistoryDoc,
+      getCurrentAppointmentDoc,
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
       parseZonedDateTime,
@@ -1968,7 +1980,7 @@ export function useCalendarLogic({
         label: "Sperrung aktualisiert",
         redo: async () => {
           await ensureLatestConflictData();
-          const current = getBlockedSlotHistoryDoc(args.id);
+          const current = getCurrentBlockedSlotDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
               message:
@@ -2013,7 +2025,7 @@ export function useCalendarLogic({
         },
         undo: async () => {
           await ensureLatestConflictData();
-          const current = getBlockedSlotHistoryDoc(args.id);
+          const current = getCurrentBlockedSlotDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
               message:
@@ -2064,6 +2076,7 @@ export function useCalendarLogic({
     [
       ensureLatestConflictData,
       getBlockedSlotHistoryDoc,
+      getCurrentBlockedSlotDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
       rememberBlockedSlotHistoryDoc,
@@ -2575,12 +2588,12 @@ export function useCalendarLogic({
     );
     const placementUnsupportedPractitionerIds =
       getUnsupportedPractitionerIdsForAppointmentType(
-        placementAppointmentTypeId,
+        placementAppointmentTypeLineageKey,
         workingPractitionerIdList,
       );
     const dragUnsupportedPractitionerIds =
       getUnsupportedPractitionerIdsForAppointmentType(
-        draggedAppointmentTypeId,
+        draggedAppointmentTypeLineageKey,
         workingPractitionerIdList,
       );
 
@@ -2636,10 +2649,10 @@ export function useCalendarLogic({
     baseSchedulesData,
     currentDayOfWeek,
     appointmentsData,
-    draggedAppointmentTypeId,
+    draggedAppointmentTypeLineageKey,
     locationLineageKeyById,
     getUnsupportedPractitionerIdsForAppointmentType,
-    placementAppointmentTypeId,
+    placementAppointmentTypeLineageKey,
     practitionerIdByLineageKey,
     practitionerLineageKeyById,
     practitionerNameByLineageKey,
