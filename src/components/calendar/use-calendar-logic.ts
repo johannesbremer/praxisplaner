@@ -1440,6 +1440,29 @@ export function useCalendarLogic({
         return;
       }
 
+      const nextLocationLineageKey =
+        args.locationId === undefined
+          ? before?.locationLineageKey
+          : getLocationLineageKeyForDisplayId(args.locationId);
+      if (
+        args.locationId !== undefined &&
+        nextLocationLineageKey === undefined
+      ) {
+        toast.error("Standort konnte nicht aufgelöst werden.");
+        return;
+      }
+      const nextPractitionerLineageKey =
+        args.practitionerId === undefined
+          ? before?.practitionerLineageKey
+          : getPractitionerLineageKeyForDisplayId(args.practitionerId);
+      if (
+        args.practitionerId !== undefined &&
+        nextPractitionerLineageKey === undefined
+      ) {
+        toast.error("Behandler konnte nicht aufgelöst werden.");
+        return;
+      }
+
       await runUpdateAppointmentInternal(args);
 
       if (!before) {
@@ -1466,38 +1489,11 @@ export function useCalendarLogic({
       ) {
         return;
       }
-      const currentDisplayRefs = resolveBlockedSlotReferenceDisplayIds({
-        locationLineageKey: before.locationLineageKey,
-        ...(before.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: before.practitionerLineageKey }),
-      });
-      const nextReferenceLineage =
-        args.locationId === undefined && args.practitionerId === undefined
-          ? null
-          : currentDisplayRefs === null &&
-              (args.locationId === undefined ||
-                args.practitionerId === undefined)
-            ? null
-            : resolveBlockedSlotReferenceLineageKeys({
-                locationId:
-                  args.locationId ??
-                  currentDisplayRefs?.locationId ??
-                  before.locationLineageKey,
-                ...(args.practitionerId === undefined
-                  ? currentDisplayRefs?.practitionerId === undefined
-                    ? {}
-                    : { practitionerId: currentDisplayRefs.practitionerId }
-                  : { practitionerId: args.practitionerId }),
-              });
-
       const afterState = {
         end: typedEnd ?? before.end,
-        locationLineageKey:
-          nextReferenceLineage?.locationLineageKey ?? before.locationLineageKey,
+        locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
         practitionerLineageKey:
-          nextReferenceLineage?.practitionerLineageKey ??
-          before.practitionerLineageKey,
+          nextPractitionerLineageKey ?? before.practitionerLineageKey,
         start: typedStart ?? before.start,
       };
       const afterSnapshot: CalendarAppointmentRecord = {
@@ -1637,12 +1633,13 @@ export function useCalendarLogic({
       getAppointmentHistoryDoc,
       getCurrentAppointmentDoc,
       getAppointmentUpdateMutation,
+      getLocationLineageKeyForDisplayId,
+      getPractitionerLineageKeyForDisplayId,
       hasAppointmentConflict,
       parseZonedDateTime,
       pushHistoryAction,
       rememberAppointmentHistoryDoc,
       resolveBlockedSlotReferenceDisplayIds,
-      resolveBlockedSlotReferenceLineageKeys,
       runUpdateAppointmentInternal,
     ],
   );
@@ -1889,6 +1886,28 @@ export function useCalendarLogic({
   const runUpdateBlockedSlot = useCallback(
     async (args: Parameters<typeof updateBlockedSlotMutation>[0]) => {
       const before = getBlockedSlotHistoryDoc(args.id);
+      const nextLocationLineageKey =
+        args.locationId === undefined
+          ? before?.locationLineageKey
+          : getLocationLineageKeyForDisplayId(args.locationId);
+      if (
+        args.locationId !== undefined &&
+        nextLocationLineageKey === undefined
+      ) {
+        toast.error("Standort konnte nicht aufgelöst werden.");
+        return;
+      }
+      const nextPractitionerLineageKey =
+        args.practitionerId === undefined
+          ? before?.practitionerLineageKey
+          : getPractitionerLineageKeyForDisplayId(args.practitionerId);
+      if (
+        args.practitionerId !== undefined &&
+        nextPractitionerLineageKey === undefined
+      ) {
+        toast.error("Behandler konnte nicht aufgelöst werden.");
+        return;
+      }
       const mutationResult = await runUpdateBlockedSlotInternal(args);
 
       if (!before) {
@@ -1905,40 +1924,12 @@ export function useCalendarLogic({
 
       const afterState = {
         end: args.end ?? before.end,
-        locationLineageKey: before.locationLineageKey,
-        practitionerLineageKey: before.practitionerLineageKey,
+        locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
+        practitionerLineageKey:
+          nextPractitionerLineageKey ?? before.practitionerLineageKey,
         start: args.start ?? before.start,
         title: args.title ?? before.title,
       };
-      const currentDisplayRefs = resolveBlockedSlotReferenceDisplayIds({
-        locationLineageKey: before.locationLineageKey,
-        ...(before.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: before.practitionerLineageKey }),
-      });
-      const nextReferenceLineage =
-        args.locationId === undefined && args.practitionerId === undefined
-          ? null
-          : currentDisplayRefs === null &&
-              (args.locationId === undefined ||
-                args.practitionerId === undefined)
-            ? null
-            : resolveBlockedSlotReferenceLineageKeys({
-                locationId:
-                  args.locationId ??
-                  currentDisplayRefs?.locationId ??
-                  before.locationLineageKey,
-                ...(args.practitionerId === undefined
-                  ? currentDisplayRefs?.practitionerId === undefined
-                    ? {}
-                    : { practitionerId: currentDisplayRefs.practitionerId }
-                  : { practitionerId: args.practitionerId }),
-              });
-      if (nextReferenceLineage) {
-        afterState.locationLineageKey = nextReferenceLineage.locationLineageKey;
-        afterState.practitionerLineageKey =
-          nextReferenceLineage.practitionerLineageKey;
-      }
       const afterSnapshot: CalendarBlockedSlotRecord = {
         ...before,
         end: afterState.end,
@@ -2080,11 +2071,12 @@ export function useCalendarLogic({
       ensureLatestConflictData,
       getBlockedSlotHistoryDoc,
       getCurrentBlockedSlotDoc,
+      getLocationLineageKeyForDisplayId,
+      getPractitionerLineageKeyForDisplayId,
       hasBlockedSlotConflict,
       pushHistoryAction,
       rememberBlockedSlotHistoryDoc,
       resolveBlockedSlotReferenceDisplayIds,
-      resolveBlockedSlotReferenceLineageKeys,
       runUpdateBlockedSlotInternal,
     ],
   );

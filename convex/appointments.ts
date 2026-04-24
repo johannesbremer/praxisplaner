@@ -24,6 +24,7 @@ import {
   resolveLocationLineageKey,
   resolveOccupancyReferenceLineageKeys,
   resolvePractitionerIdForRuleSetByLineage,
+  resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
 import {
@@ -2340,22 +2341,28 @@ export const updateBlockedSlot = mutation({
 
     const updatedReferences =
       locationId !== undefined || practitionerId !== undefined
-        ? await resolveOccupancyReferenceLineageKeys(ctx.db, {
-            locationId: asLocationId(
-              locationId ?? existingBlockedSlot.locationLineageKey,
-            ),
+        ? {
+            locationLineageKey:
+              locationId === undefined
+                ? existingBlockedSlot.locationLineageKey
+                : await resolveLocationLineageKey(
+                    ctx.db,
+                    asLocationId(locationId),
+                  ),
             ...(practitionerId === undefined
-              ? existingBlockedSlot.practitionerLineageKey
-                ? {
-                    practitionerId: asPractitionerId(
+              ? existingBlockedSlot.practitionerLineageKey === undefined
+                ? {}
+                : {
+                    practitionerLineageKey:
                       existingBlockedSlot.practitionerLineageKey,
-                    ),
                   }
-                : {}
-              : practitionerId
-                ? { practitionerId: asPractitionerId(practitionerId) }
-                : {}),
-          })
+              : {
+                  practitionerLineageKey: await resolvePractitionerLineageKey(
+                    ctx.db,
+                    asPractitionerId(practitionerId),
+                  ),
+                }),
+          }
         : undefined;
 
     await ctx.db.patch("blockedSlots", id, {

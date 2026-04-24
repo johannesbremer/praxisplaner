@@ -1093,6 +1093,66 @@ describe("appointments update safety", () => {
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
   });
 
+  test("updateBlockedSlot keeps stored lineage references for time-only updates", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_blocked_slot_time_only";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-blocked-slot-time-only@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-blocked-slot-time-only@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const blockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window: makeSlotWindow(8),
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", baseData.locationId, {
+        deleted: true,
+      });
+      await ctx.db.patch("practitioners", baseData.practitionerId, {
+        deleted: true,
+      });
+    });
+
+    const movedWindow = makeSlotWindow(9);
+
+    await expect(
+      authed.mutation(api.appointments.updateBlockedSlot, {
+        end: movedWindow.end,
+        id: blockedSlotId,
+        start: movedWindow.start,
+      }),
+    ).resolves.toBeNull();
+
+    await t.run(async (ctx) => {
+      const updated = await ctx.db.get("blockedSlots", blockedSlotId);
+      expect(updated).not.toBeNull();
+      expect(updated?.start).toBe(movedWindow.start);
+      expect(updated?.end).toBe(movedWindow.end);
+      expect(updated?.locationLineageKey).toBe(baseData.locationId);
+      expect(updated?.practitionerLineageKey).toBe(baseData.practitionerId);
+    });
+  });
+
   test("simulation conflicts are scoped to the current draft rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
