@@ -65,7 +65,9 @@ export const availableSlotsResultValidator = v.object({
       blockedByRuleId: v.optional(v.id("ruleConditions")), // Changed from "rules" to "ruleConditions"
       duration: v.number(),
       locationId: v.id("locations"),
+      locationLineageKey: v.id("locations"),
       practitionerId: v.id("practitioners"),
+      practitionerLineageKey: v.id("practitioners"),
       practitionerName: v.string(),
       reason: v.optional(v.string()), // Natural language explanation for blocked slots
       startTime: v.string(),

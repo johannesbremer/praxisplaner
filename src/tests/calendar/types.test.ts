@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { regex } from "@/lib/arkregex";
 
+import { toTableId } from "../../../convex/identity";
 import {
   type Appointment,
   APPOINTMENT_COLORS,
@@ -11,6 +12,9 @@ import {
 const TAILWIND_BG_COLOR_REGEX = regex.as(String.raw`^bg-\w+-\d{3}$`);
 
 describe("Calendar Types and Constants", () => {
+  const practitioner1 = toTableId<"practitioners">("practitioner_1");
+  const practitioner2 = toTableId<"practitioners">("practitioner_2");
+
   describe("SLOT_DURATION", () => {
     test("should be 5 minutes", () => {
       expect(SLOT_DURATION).toBe(5);
@@ -52,7 +56,7 @@ describe("Calendar Types and Constants", () => {
     test("should accept valid appointment object", () => {
       const appointment: Appointment = {
         color: "bg-blue-500",
-        column: "practitioner-1",
+        column: practitioner1,
         duration: 30,
         id: "test-1",
         isSimulation: false,
@@ -63,7 +67,7 @@ describe("Calendar Types and Constants", () => {
       expect(appointment.id).toBe("test-1");
       expect(appointment.startTime).toBe("10:00");
       expect(appointment.duration).toBe(30);
-      expect(appointment.column).toBe("practitioner-1");
+      expect(appointment.column).toBe(practitioner1);
       expect(appointment.color).toBe("bg-blue-500");
       expect(appointment.isSimulation).toBe(false);
     });
@@ -71,7 +75,7 @@ describe("Calendar Types and Constants", () => {
     test("should accept appointment with optional convexId", () => {
       const appointment: Appointment = {
         color: "bg-blue-500",
-        column: "practitioner-1",
+        column: practitioner1,
         convexId: "convex-id-123" as never,
         duration: 30,
         id: "test-1",
@@ -86,7 +90,7 @@ describe("Calendar Types and Constants", () => {
     test("should accept appointment with resource metadata", () => {
       const appointment: Appointment = {
         color: "bg-blue-500",
-        column: "practitioner-1",
+        column: practitioner1,
         duration: 30,
         id: "test-1",
         isSimulation: false,
@@ -108,7 +112,7 @@ describe("Calendar Types and Constants", () => {
     test("should accept simulated appointment", () => {
       const appointment: Appointment = {
         color: "bg-blue-500",
-        column: "practitioner-1",
+        column: practitioner1,
         duration: 30,
         id: "test-1",
         isSimulation: true,
@@ -127,7 +131,7 @@ describe("Calendar Types and Constants", () => {
       for (const duration of durations) {
         const appointment: Appointment = {
           color: "bg-blue-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration,
           id: `test-${duration}`,
           isSimulation: false,
@@ -145,7 +149,7 @@ describe("Calendar Types and Constants", () => {
       for (const startTime of times) {
         const appointment: Appointment = {
           color: "bg-blue-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration: 30,
           id: `test-${startTime}`,
           isSimulation: false,
@@ -158,7 +162,7 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept appointments for different column types", () => {
-      const columns = ["practitioner-1", "practitioner-2", "ekg", "labor"];
+      const columns = [practitioner1, practitioner2, "ekg", "labor"] as const;
 
       for (const column of columns) {
         const appointment: Appointment = {
@@ -181,7 +185,7 @@ describe("Calendar Types and Constants", () => {
       const appointments: Appointment[] = APPOINTMENT_COLORS.map(
         (color, index) => ({
           color,
-          column: `practitioner-${index}`,
+          column: index % 2 === 0 ? practitioner1 : practitioner2,
           duration: 30,
           id: `apt-${index}`,
           isSimulation: false,

@@ -5,16 +5,19 @@ import { regex } from "@/lib/arkregex";
 
 import type { Appointment } from "../../../src/components/calendar/types";
 
+import { toTableId } from "../../../convex/identity";
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
 import { assertElement } from "../test-utils";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
+  const practitioner1 = toTableId<"practitioners">("practitioner_1");
+  const practitioner2 = toTableId<"practitioners">("practitioner_2");
 
   const mockAppointments: Appointment[] = [
     {
       color: "bg-blue-500",
-      column: "practitioner-1",
+      column: practitioner1,
       duration: 30,
       id: "apt-1",
       isSimulation: false,
@@ -23,7 +26,7 @@ describe("CalendarGrid", () => {
     },
     {
       color: "bg-green-500",
-      column: "practitioner-2",
+      column: practitioner2,
       duration: 45,
       id: "apt-2",
       isSimulation: false,
@@ -33,8 +36,8 @@ describe("CalendarGrid", () => {
   ];
 
   const mockColumns = [
-    { id: "practitioner-1", title: "Dr. Smith" },
-    { id: "practitioner-2", title: "Dr. Jones" },
+    { id: practitioner1, title: "Dr. Smith" },
+    { id: practitioner2, title: "Dr. Jones" },
   ];
 
   const mockSlotToTime = vi.fn((slot: number) => {
@@ -64,7 +67,7 @@ describe("CalendarGrid", () => {
     columns: mockColumns,
     currentTimeSlot: -1,
     draggedAppointment: null,
-    dragPreview: { column: "", slot: 0, visible: false },
+    dragPreview: { column: null, slot: 0, visible: false },
     slotDuration: 5,
     slotToTime: mockSlotToTime,
     timeToSlot: mockTimeToSlot,
@@ -143,7 +146,7 @@ describe("CalendarGrid", () => {
     });
 
     test("renders with single column", () => {
-      const singleColumn = [{ id: "practitioner-1", title: "Dr. Smith" }];
+      const singleColumn = [{ id: practitioner1, title: "Dr. Smith" }];
       render(<CalendarGrid {...defaultProps} columns={singleColumn} />);
       expect(screen.getByText("Dr. Smith")).toBeInTheDocument();
       expect(screen.queryByText("Dr. Jones")).not.toBeInTheDocument();
@@ -151,7 +154,7 @@ describe("CalendarGrid", () => {
 
     test("renders with many columns", () => {
       const manyColumns = Array.from({ length: 5 }, (_, i) => ({
-        id: `practitioner-${i}`,
+        id: toTableId<"practitioners">(`practitioner_${i}`),
         title: `Doctor ${i}`,
       }));
 
@@ -183,7 +186,7 @@ describe("CalendarGrid", () => {
           {...defaultProps}
           columns={[
             {
-              id: "practitioner-1",
+              id: practitioner1,
               isAppointmentTypeUnavailable: true,
               isMuted: true,
               title: "Dr. Smith",
@@ -273,9 +276,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid
           {...defaultProps}
           columns={[
-            { id: "practitioner-1", title: "Dr. Smith" },
+            { id: practitioner1, title: "Dr. Smith" },
             {
-              id: "practitioner-2",
+              id: practitioner2,
               isDragDisabled: true,
               isMuted: true,
               title: "Dr. Jones",
@@ -300,7 +303,7 @@ describe("CalendarGrid", () => {
 
     test("renders drag preview when dragging", () => {
       const dragPreview = {
-        column: "practitioner-1",
+        column: practitioner1,
         slot: 12,
         visible: true,
       };
@@ -331,7 +334,7 @@ describe("CalendarGrid", () => {
 
     test("positions drag preview correctly", () => {
       const dragPreview = {
-        column: "practitioner-1",
+        column: practitioner1,
         slot: 24,
         visible: true,
       };
@@ -359,7 +362,7 @@ describe("CalendarGrid", () => {
 
     test("shows dragged appointment details in preview", () => {
       const dragPreview = {
-        column: "practitioner-1",
+        column: practitioner1,
         slot: 12,
         visible: true,
       };
@@ -450,7 +453,7 @@ describe("CalendarGrid", () => {
       const mixedAppointments: Appointment[] = [
         {
           color: "bg-blue-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration: 30,
           id: "apt-1",
           isSimulation: false,
@@ -459,7 +462,7 @@ describe("CalendarGrid", () => {
         },
         {
           color: "bg-green-500",
-          column: "practitioner-2",
+          column: practitioner2,
           duration: 30,
           id: "apt-2",
           isSimulation: false,
@@ -468,7 +471,7 @@ describe("CalendarGrid", () => {
         },
         {
           color: "bg-red-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration: 30,
           id: "apt-3",
           isSimulation: false,
@@ -490,7 +493,7 @@ describe("CalendarGrid", () => {
       const overlappingAppointments: Appointment[] = [
         {
           color: "bg-blue-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration: 60,
           id: "apt-1",
           isSimulation: false,
@@ -499,7 +502,7 @@ describe("CalendarGrid", () => {
         },
         {
           color: "bg-green-500",
-          column: "practitioner-1",
+          column: practitioner1,
           duration: 30,
           id: "apt-2",
           isSimulation: false,

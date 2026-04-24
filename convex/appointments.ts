@@ -105,15 +105,18 @@ const appointmentResultValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("appointments"),
   appointmentTypeId: v.id("appointmentTypes"),
+  appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
   createdAt: v.int64(),
   end: v.string(),
   isSimulation: v.optional(v.boolean()),
   lastModified: v.int64(),
   locationId: v.id("locations"),
+  locationLineageKey: v.id("locations"),
   patientId: v.optional(v.id("patients")),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
   reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
@@ -135,8 +138,10 @@ const blockedSlotListItemValidator = v.object({
   isSimulation: v.optional(v.boolean()),
   lastModified: v.int64(),
   locationId: v.id("locations"),
+  locationLineageKey: v.id("locations"),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
   replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
   start: v.string(),
   title: v.string(),
@@ -325,6 +330,7 @@ async function mapBlockedSlotForDisplay(
               blockedSlot.locationLineageKey,
               targetRuleSetId,
             ),
+      locationLineageKey: blockedSlot.locationLineageKey,
       practiceId: blockedSlot.practiceId,
       ...(blockedSlot.practitionerLineageKey
         ? {
@@ -336,6 +342,7 @@ async function mapBlockedSlotForDisplay(
                     blockedSlot.practitionerLineageKey,
                     targetRuleSetId,
                   ),
+            practitionerLineageKey: blockedSlot.practitionerLineageKey,
           }
         : {}),
       ...(blockedSlot.replacesBlockedSlotId === undefined
@@ -701,11 +708,13 @@ function toAppointmentListItem(
     _creationTime: appointment._creationTime,
     _id: appointment._id,
     appointmentTypeId: appointment.appointmentTypeLineageKey,
+    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
     appointmentTypeTitle: appointment.appointmentTypeTitle,
     createdAt: appointment.createdAt,
     ...timeRange,
     lastModified: appointment.lastModified,
     locationId: appointment.locationLineageKey,
+    locationLineageKey: appointment.locationLineageKey,
     practiceId: appointment.practiceId,
     ...(appointment.cancelledAt === undefined
       ? {}
@@ -717,7 +726,10 @@ function toAppointmentListItem(
       ? {}
       : { patientId: appointment.patientId }),
     ...(appointment.practitionerLineageKey
-      ? { practitionerId: appointment.practitionerLineageKey }
+      ? {
+          practitionerId: appointment.practitionerLineageKey,
+          practitionerLineageKey: appointment.practitionerLineageKey,
+        }
       : {}),
     ...(appointment.reassignmentSourceVacationLineageKey === undefined
       ? {}

@@ -72,7 +72,9 @@ export interface SchedulingResultSlot {
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number; // minutes
   locationId: Id<"locations">;
+  locationLineageKey: Id<"locations">;
   practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
   practitionerName: string;
   reason?: string; // Natural language explanation for blocked slots
   startTime: ZonedDateTimeString; // ISO string
@@ -84,7 +86,9 @@ const schedulingResultSlotValidator = v.object({
   blockedByRuleId: v.optional(v.id("ruleConditions")),
   duration: v.number(),
   locationId: v.id("locations"),
+  locationLineageKey: v.id("locations"),
   practitionerId: v.id("practitioners"),
+  practitionerLineageKey: v.id("practitioners"),
   practitionerName: v.string(),
   reason: v.optional(v.string()),
   startTime: v.string(),
@@ -178,7 +182,9 @@ function toPublicSchedulingResultSlot(
   return {
     duration: slot.duration,
     locationId: slot.locationId,
+    locationLineageKey: slot.locationLineageKey,
     practitionerId: slot.practitionerId,
+    practitionerLineageKey: slot.practitionerLineageKey,
     practitionerName: slot.practitionerName,
     startTime: asZonedDateTimeString(slot.startTime),
     status: slot.status,
@@ -1116,14 +1122,18 @@ export const getBlockedSlotsWithoutAppointmentType = query({
           blockedByRuleId?: Id<"ruleConditions">;
           duration: number;
           locationId: Id<"locations">;
+          locationLineageKey: Id<"locations">;
           practitionerId: Id<"practitioners">;
+          practitionerLineageKey: Id<"practitioners">;
           reason?: string;
           startTime: string;
           status: "BLOCKED";
         } = {
           duration: slot.duration,
           locationId: slot.locationId,
+          locationLineageKey: slot.locationLineageKey,
           practitionerId: slot.practitionerId,
+          practitionerLineageKey: slot.practitionerLineageKey,
           startTime: asZonedDateTimeString(slot.startTime),
           status: "BLOCKED" as const,
         };
@@ -1152,7 +1162,9 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         blockedByRuleId: v.optional(v.id("ruleConditions")),
         duration: v.number(),
         locationId: v.id("locations"),
+        locationLineageKey: v.id("locations"),
         practitionerId: v.id("practitioners"),
+        practitionerLineageKey: v.id("practitioners"),
         reason: v.optional(v.string()),
         startTime: v.string(),
         status: v.literal("BLOCKED"),

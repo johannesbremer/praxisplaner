@@ -56,7 +56,7 @@ export function buildCalendarAppointments(args: {
         color:
           APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
           "bg-gray-500",
-        column: appointment.practitionerId || "ekg",
+        column: appointment.practitionerLineageKey || "ekg",
         convexId: appointment._id,
         duration,
         id: appointment._id,
@@ -65,11 +65,16 @@ export function buildCalendarAppointments(args: {
         replacesAppointmentId: appointment.replacesAppointmentId ?? null,
         resource: {
           appointmentTypeId: appointment.appointmentTypeId,
+          appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+          appointmentTypeTitle: appointment.appointmentTypeTitle,
           isSimulation: appointment.isSimulation === true,
           locationId: appointment.locationId,
+          locationLineageKey: appointment.locationLineageKey,
           patientId: appointment.patientId,
           practitionerId: appointment.practitionerId,
+          practitionerLineageKey: appointment.practitionerLineageKey,
           seriesId: appointment.seriesId,
+          title: appointment.title,
           userId: appointment.userId,
         },
         startTime: formatTime(startZoned.toPlainTime()),

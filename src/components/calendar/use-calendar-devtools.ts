@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 
-import type { Appointment } from "./types";
+import type { Appointment, CalendarColumnId } from "./types";
 
 import { emitCalendarEvent } from "../../devtools/event-client";
 
 export interface CalendarAppointmentSnapshot {
-  column: string;
+  column: CalendarColumnId;
   duration: number;
   id: string;
   startTime: string;
@@ -50,7 +50,11 @@ export function diffCalendarAppointments(
 export function useCalendarDevtools(args: {
   appointments: readonly Appointment[];
   draggedAppointment: Appointment | null;
-  dragPreview: { column: string; slot: number; visible: boolean };
+  dragPreview: {
+    column: CalendarColumnId | null;
+    slot: number;
+    visible: boolean;
+  };
 }) {
   const mountTimeRef = useRef<null | number>(null);
   const lastRenderRef = useRef<null | number>(null);
@@ -117,7 +121,7 @@ export function useCalendarDevtools(args: {
 
     if (args.draggedAppointment) {
       emitCalendarEvent("custom-devtools:calendar-drag", {
-        column: args.dragPreview.column,
+        column: args.dragPreview.column ?? "",
         dragging: true,
         slotIndex: args.dragPreview.slot,
       });

@@ -16,7 +16,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
 
-import type { Appointment, NewCalendarProps } from "./calendar/types";
+import type {
+  Appointment,
+  CalendarColumnId,
+  NewCalendarProps,
+} from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
 import {
@@ -455,14 +459,14 @@ export function NewCalendar({
   );
 
   const handleBlockSlot = useCallback(
-    (column: string, slot: number) => {
+    (column: CalendarColumnId, slot: number) => {
       if (!isBlockingModeActive) {
         return;
       }
 
       const practitionerId = workingPractitioners.find(
-        (practitioner) => practitioner.id === column,
-      )?.id;
+        (practitioner) => practitioner.lineageKey === column,
+      )?.displayId;
       if (practitionerId === undefined) {
         return;
       }

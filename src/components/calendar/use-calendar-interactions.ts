@@ -6,7 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BlockedSlotResult } from "../../../convex/appointments";
-import type { Appointment } from "./types";
+import type { Appointment, CalendarColumnId } from "./types";
 
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
@@ -31,7 +31,7 @@ export type ActiveResizeDraft =
     };
 
 export interface CalendarManualBlockedSlot {
-  column: string;
+  column: CalendarColumnId;
   duration?: number;
   id?: string;
   isManual?: boolean;
@@ -69,7 +69,7 @@ export function useCalendarInteractions({
   baseManualBlockedSlots: CalendarManualBlockedSlot[];
   blockedSlotDocMapRef: RefObject<Map<string, BlockedSlotRecord>>;
   checkCollision: (
-    column: string,
+    column: CalendarColumnId,
     slot: number,
     duration: number,
     excludeId?: string,

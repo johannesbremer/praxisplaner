@@ -3,7 +3,7 @@ import type React from "react";
 import { Plus } from "lucide-react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { Appointment, CalendarColumn } from "./types";
+import type { Appointment, CalendarColumn, CalendarColumnId } from "./types";
 
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
@@ -11,7 +11,7 @@ import { CalendarBlockedSlot } from "./calendar-blocked-slot";
 import { CalendarTimeSlots } from "./calendar-time-slots";
 
 interface BlockedSlot {
-  column: string;
+  column: CalendarColumnId;
   duration?: number;
   id?: string;
   isManual?: boolean;
@@ -29,21 +29,21 @@ interface CalendarGridProps {
   draggedAppointment: Appointment | null;
   draggedBlockedSlotId?: null | string;
   dragPreview: {
-    column: string;
+    column: CalendarColumnId | null;
     slot: number;
     visible: boolean;
   };
   isBlockingModeActive?: boolean;
-  onAddAppointment: (column: string, slot: number) => void;
+  onAddAppointment: (column: CalendarColumnId, slot: number) => void;
   onBlockedSlotDragEnd?: () => void;
-  onBlockSlot?: (column: string, slot: number) => void;
+  onBlockSlot?: (column: CalendarColumnId, slot: number) => void;
   onDeleteAppointment: (appointment: Appointment) => void;
   onDeleteBlockedSlot?: (id: string) => void;
   onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent, column: string) => void;
+  onDragOver: (e: React.DragEvent, column: CalendarColumnId) => void;
   onDragStart: (e: React.DragEvent, appointment: Appointment) => void;
   onDragStartBlockedSlot?: (e: React.DragEvent, id: string) => void;
-  onDrop: (e: React.DragEvent, column: string) => Promise<void>;
+  onDrop: (e: React.DragEvent, column: CalendarColumnId) => Promise<void>;
   onEditAppointment: (appointment: Appointment) => void;
   onEditBlockedSlot?: (id: string) => void;
   onResizeStart: (
@@ -105,7 +105,7 @@ export function CalendarGrid({
     column.isAppointmentTypeUnavailable === true ||
     (draggedAppointment !== null && column.isDragDisabled === true);
 
-  const renderAppointments = (column: string) => {
+  const renderAppointments = (column: CalendarColumnId) => {
     return appointments
       .filter((apt) => apt.column === column)
       .map((appointment) => {
@@ -144,7 +144,7 @@ export function CalendarGrid({
       });
   };
 
-  const renderDragPreview = (column: string) => {
+  const renderDragPreview = (column: CalendarColumnId) => {
     if (!dragPreview.visible || dragPreview.column !== column) {
       return null;
     }
@@ -208,7 +208,7 @@ export function CalendarGrid({
     return null;
   };
 
-  const renderBlockedSlots = (column: string) => {
+  const renderBlockedSlots = (column: CalendarColumnId) => {
     // Separate manual blocked slots (from database) from rule-based blocked slots
     const manualBlocked = blockedSlots.filter(
       (slot) => slot.column === column && slot.isManual,

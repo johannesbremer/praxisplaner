@@ -11,35 +11,52 @@ import type {
 export interface Appointment {
   appointmentTypeTitle?: string; // Appointment type title for display
   color: string;
-  column: string; // Resource ID (practitioner ID or "ekg" / "labor")
+  column: CalendarColumnId;
   convexId?: Id<"appointments">; // Original Convex ID for real appointments
   duration: number; // in minutes
   id: string;
   isSimulation: boolean;
   patientName?: string; // Patient name for display
   replacesAppointmentId?: Id<"appointments"> | null;
-  resource?: {
-    appointmentTypeId?: AppointmentResult["appointmentTypeId"];
-    appointmentTypeTitle?: string;
-    isSimulation?: boolean;
-    locationId?: AppointmentResult["locationId"];
-    patientId?: AppointmentResult["patientId"];
-    practitionerId?: AppointmentResult["practitionerId"];
-    seriesId?: AppointmentResult["seriesId"];
-    title?: string;
-    userId?: AppointmentResult["userId"];
-  };
+  resource?: CalendarAppointmentResource;
   startTime: string;
   title: string;
 }
 
+export interface CalendarAppointmentResource {
+  appointmentTypeId?: AppointmentResult["appointmentTypeId"];
+  appointmentTypeLineageKey?: AppointmentResult["appointmentTypeLineageKey"];
+  appointmentTypeTitle?: string;
+  isSimulation?: boolean;
+  locationId?: AppointmentResult["locationId"];
+  locationLineageKey?: AppointmentResult["locationLineageKey"];
+  patientId?: AppointmentResult["patientId"];
+  practitionerId?: AppointmentResult["practitionerId"];
+  practitionerLineageKey?: AppointmentResult["practitionerLineageKey"];
+  seriesId?: AppointmentResult["seriesId"];
+  title?: string;
+  userId?: AppointmentResult["userId"];
+}
+
 export interface CalendarColumn {
-  id: string;
+  id: CalendarColumnId;
   isAppointmentTypeUnavailable?: boolean;
   isDragDisabled?: boolean;
   isMuted?: boolean;
   isUnavailable?: boolean;
+  practitionerId?: Id<"practitioners">;
+  practitionerLineageKey?: Id<"practitioners">;
   title: string;
+}
+
+export type CalendarColumnId = "ekg" | "labor" | Id<"practitioners">;
+
+export interface WorkingPractitioner {
+  displayId: Id<"practitioners">;
+  endTime: string;
+  lineageKey: Id<"practitioners">;
+  name: string;
+  startTime: string;
 }
 
 /**

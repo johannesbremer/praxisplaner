@@ -290,6 +290,61 @@ export function useCalendarData(args: {
     return map;
   }, [appointmentTypesData]);
 
+  const appointmentTypeLineageKeyById = useMemo(
+    () =>
+      new Map(
+        (appointmentTypesData ?? []).flatMap((appointmentType) =>
+          appointmentType.lineageKey
+            ? [[appointmentType._id, appointmentType.lineageKey] as const]
+            : [],
+        ),
+      ),
+    [appointmentTypesData],
+  );
+  const locationLineageKeyById = useMemo(
+    () =>
+      new Map(
+        (locationsData ?? []).flatMap((location) =>
+          location.lineageKey
+            ? [[location._id, location.lineageKey] as const]
+            : [],
+        ),
+      ),
+    [locationsData],
+  );
+  const practitionerIdByLineageKey = useMemo(
+    () =>
+      new Map(
+        (practitionersData ?? []).flatMap((practitioner) =>
+          practitioner.lineageKey
+            ? [[practitioner.lineageKey, practitioner._id] as const]
+            : [],
+        ),
+      ),
+    [practitionersData],
+  );
+  const practitionerLineageKeyById = useMemo(
+    () =>
+      new Map(
+        (practitionersData ?? []).flatMap((practitioner) =>
+          practitioner.lineageKey
+            ? [[practitioner._id, practitioner.lineageKey] as const]
+            : [],
+        ),
+      ),
+    [practitionersData],
+  );
+  const practitionerNameByLineageKey = useMemo(
+    () =>
+      new Map(
+        (practitionersData ?? []).flatMap((practitioner) =>
+          practitioner.lineageKey
+            ? [[practitioner.lineageKey, practitioner.name] as const]
+            : [],
+        ),
+      ),
+    [practitionersData],
+  );
   const getRequiredAppointmentTypeInfo = useCallback(
     (appointmentTypeId: Id<"appointmentTypes">, source: string) => {
       const appointmentTypeInfo = appointmentTypeMap.get(appointmentTypeId);
@@ -415,6 +470,7 @@ export function useCalendarData(args: {
     appointmentDocMapRef,
     appointments,
     appointmentsData,
+    appointmentTypeLineageKeyById,
     appointmentTypeMap,
     baseSchedulesData,
     blockedSlotDocMap,
@@ -423,7 +479,11 @@ export function useCalendarData(args: {
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
     getRequiredAppointmentTypeInfo,
+    locationLineageKeyById,
     locationsData,
+    practitionerIdByLineageKey,
+    practitionerLineageKeyById,
+    practitionerNameByLineageKey,
     practitionersData,
     refreshAllPracticeConflictData,
     slotsResult,

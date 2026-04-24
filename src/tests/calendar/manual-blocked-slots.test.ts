@@ -1,8 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
 
-import type { Id } from "../../../convex/_generated/dataModel";
-
+import { toTableId } from "../../../convex/identity";
 import {
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
@@ -249,14 +248,14 @@ describe("Manual Blocked Slots Integration", () => {
     });
 
     it("should keep deleted practitioners visible when they only have manual blocked slots", () => {
-      const deletedPractitionerId = "practitioner2" as Id<"practitioners">;
+      const deletedPractitionerId = toTableId<"practitioners">("practitioner2");
       const selectedDate = Temporal.PlainDate.from("2026-04-18");
-      const locationId = "location1" as Id<"locations">;
+      const locationId = toTableId<"locations">("location1");
       const blockedSlotsData = [
         {
           end: "2026-04-18T10:00:00+02:00[Europe/Berlin]",
-          locationId,
-          practitionerId: deletedPractitionerId,
+          locationLineageKey: locationId,
+          practitionerLineageKey: deletedPractitionerId,
           start: "2026-04-18T09:00:00+02:00[Europe/Berlin]",
         },
       ];
@@ -264,15 +263,15 @@ describe("Manual Blocked Slots Integration", () => {
       const result = collectDeletedPractitionerCalendarRanges({
         appointments: [],
         blockedSlots: blockedSlotsData,
-        deletedPractitionerIds: new Set([deletedPractitionerId]),
-        effectiveLocationId: locationId,
+        deletedPractitionerLineageKeys: new Set([deletedPractitionerId]),
+        effectiveLocationLineageKey: locationId,
         selectedDate,
       });
 
       expect(result).toEqual([
         {
           endMinutes: 600,
-          practitionerId: deletedPractitionerId,
+          practitionerLineageKey: deletedPractitionerId,
           startMinutes: 540,
         },
       ]);
@@ -280,19 +279,19 @@ describe("Manual Blocked Slots Integration", () => {
 
     it("should ignore blocked slots outside the selected location", () => {
       const selectedDate = Temporal.PlainDate.from("2026-04-18");
-      const locationId = "location1" as Id<"locations">;
-      const otherLocationId = "location2" as Id<"locations">;
+      const locationId = toTableId<"locations">("location1");
+      const otherLocationId = toTableId<"locations">("location2");
       const blockedSlotsData = [
         {
           end: "2026-04-18T10:00:00+02:00[Europe/Berlin]",
-          locationId,
-          practitionerId: "practitioner1" as Id<"practitioners">,
+          locationLineageKey: locationId,
+          practitionerLineageKey: toTableId<"practitioners">("practitioner1"),
           start: "2026-04-18T09:00:00+02:00[Europe/Berlin]",
         },
         {
           end: "2026-04-18T12:00:00+02:00[Europe/Berlin]",
-          locationId: otherLocationId,
-          practitionerId: "practitioner1" as Id<"practitioners">,
+          locationLineageKey: otherLocationId,
+          practitionerLineageKey: toTableId<"practitioners">("practitioner1"),
           start: "2026-04-18T11:00:00+02:00[Europe/Berlin]",
         },
       ];
@@ -304,7 +303,7 @@ describe("Manual Blocked Slots Integration", () => {
       );
 
       expect(result).toHaveLength(1);
-      expect(result[0]?.locationId).toBe(locationId);
+      expect(result[0]?.locationLineageKey).toBe(locationId);
     });
 
     it("should handle multiple blocked slots from same practitioner", () => {

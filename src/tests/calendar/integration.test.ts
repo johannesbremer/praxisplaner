@@ -22,6 +22,10 @@ vi.mock("../../utils/error-tracking", () => ({
   captureErrorGlobal,
 }));
 
+const location1 = toTableId<"locations">("location_1");
+const practice1 = toTableId<"practices">("practice_1");
+const practitioner1 = toTableId<"practitioners">("practitioner_1");
+
 function buildBlockedSlotResult(
   overrides: Partial<BlockedSlotResult> & Pick<BlockedSlotResult, "_id">,
 ): BlockedSlotResult {
@@ -32,9 +36,11 @@ function buildBlockedSlotResult(
     createdAt: 0n,
     end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
     lastModified: 0n,
-    locationId: toTableId<"locations">("location_1"),
-    practiceId: toTableId<"practices">("practice_1"),
-    practitionerId: toTableId<"practitioners">("practitioner_1"),
+    locationId: location1,
+    locationLineageKey: location1,
+    practiceId: practice1,
+    practitionerId: practitioner1,
+    practitionerLineageKey: practitioner1,
     start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
     title: "Blocked",
     ...rest,
@@ -63,7 +69,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [
           {
             color: "bg-blue-500",
-            column: "practitioner_1",
+            column: practitioner1,
             convexId: toTableId<"appointments">("appointment_1"),
             duration: 30,
             id: "appointment_1",
@@ -128,7 +134,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [
           {
             color: "bg-blue-500",
-            column: "practitioner_1",
+            column: practitioner1,
             convexId: toTableId<"appointments">("appointment_1"),
             duration: 30,
             id: "appointment_1",
@@ -180,7 +186,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [
           {
             color: "bg-blue-500",
-            column: "practitioner_1",
+            column: practitioner1,
             convexId: toTableId<"appointments">("appointment_1"),
             duration: 30,
             id: "appointment_1",
@@ -227,7 +233,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [
           {
             color: "bg-blue-500",
-            column: "practitioner_1",
+            column: practitioner1,
             convexId: toTableId<"appointments">("appointment_1"),
             duration: 30,
             id: "appointment_1",
@@ -275,7 +281,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [],
         baseManualBlockedSlots: [
           {
-            column: "practitioner_1",
+            column: practitioner1,
             duration: 30,
             id: "blocked_slot_1",
             isManual: true,
@@ -365,7 +371,7 @@ describe("calendar resize interactions", () => {
           baseAppointments: [],
           baseManualBlockedSlots: [
             {
-              column: "practitioner_1",
+              column: practitioner1,
               duration: 30,
               id: "blocked_slot_1",
               isManual: true,
@@ -384,7 +390,7 @@ describe("calendar resize interactions", () => {
           selectedDate: Temporal.PlainDate.from("2026-04-23"),
           showNonRootSeriesEditToast: vi.fn(),
           simulatedContext: {
-            locationId: toTableId<"locations">("location_1"),
+            locationId: location1,
           },
           slotToTime,
           timeToSlot,
@@ -420,7 +426,7 @@ describe("calendar resize interactions", () => {
       baseAppointments: [],
       baseManualBlockedSlots: [
         {
-          column: "practitioner_1",
+          column: practitioner1,
           duration: 30,
           id: "blocked_slot_sim",
           isManual: true,
@@ -439,7 +445,7 @@ describe("calendar resize interactions", () => {
       selectedDate: Temporal.PlainDate.from("2026-04-23"),
       showNonRootSeriesEditToast: vi.fn(),
       simulatedContext: {
-        locationId: toTableId<"locations">("location_1"),
+        locationId: location1,
       },
       slotToTime,
       timeToSlot,
