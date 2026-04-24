@@ -197,50 +197,41 @@ export function handleEditBlockedSlot(
   return true;
 }
 
+export function hasAppointmentConflictInCalendarRecords(args: {
+  appointments: Iterable<ConflictAppointmentRecord>;
+  blockedSlots: Iterable<ConflictBlockedSlotRecord>;
+  candidate: ConflictAppointmentCandidate;
+  excludeId?: Id<"appointments">;
+  toEpochMilliseconds: (iso: string) => number;
+}): boolean {
+  return (
+    hasAppointmentConflictInRecords(
+      args.candidate,
+      args.appointments,
+      args.excludeId,
+      args.toEpochMilliseconds,
+    ) ||
+    hasSlotOverlapConflictInRecords({
+      candidate: args.candidate,
+      excludeId: undefined,
+      records: args.blockedSlots,
+      toEpochMilliseconds: args.toEpochMilliseconds,
+    })
+  );
+}
+
 export function hasAppointmentConflictInRecords(
   candidate: ConflictAppointmentCandidate,
   appointments: Iterable<ConflictAppointmentRecord>,
   excludeId: Id<"appointments"> | undefined,
   toEpochMilliseconds: (iso: string) => number,
 ): boolean {
-  const candidateStart = toEpochMilliseconds(candidate.start);
-  const candidateEnd = toEpochMilliseconds(candidate.end);
-
-  for (const existing of appointments) {
-    if (excludeId && existing._id === excludeId) {
-      continue;
-    }
-
-    if (
-      candidate.replacesAppointmentId &&
-      existing._id === candidate.replacesAppointmentId
-    ) {
-      continue;
-    }
-
-    if (existing.locationId !== candidate.locationId) {
-      continue;
-    }
-
-    if (
-      (existing.isSimulation === true) !==
-      (candidate.isSimulation === true)
-    ) {
-      continue;
-    }
-
-    if (existing.practitionerId !== candidate.practitionerId) {
-      continue;
-    }
-
-    const existingStart = toEpochMilliseconds(existing.start);
-    const existingEnd = toEpochMilliseconds(existing.end);
-    if (candidateStart < existingEnd && existingStart < candidateEnd) {
-      return true;
-    }
-  }
-
-  return false;
+  return hasSlotOverlapConflictInRecords({
+    candidate,
+    excludeId,
+    records: appointments,
+    toEpochMilliseconds,
+  });
 }
 
 export function hasBlockedSlotConflictInRecords(args: {
@@ -250,34 +241,15 @@ export function hasBlockedSlotConflictInRecords(args: {
   excludeId?: Id<"blockedSlots">;
   toEpochMilliseconds: (iso: string) => number;
 }): boolean {
-  const candidateStart = args.toEpochMilliseconds(args.candidate.start);
-  const candidateEnd = args.toEpochMilliseconds(args.candidate.end);
-
-  for (const existing of args.blockedSlots) {
-    if (args.excludeId && existing._id === args.excludeId) {
-      continue;
-    }
-
-    if (existing.locationId !== args.candidate.locationId) {
-      continue;
-    }
-
-    if (existing.practitionerId !== args.candidate.practitionerId) {
-      continue;
-    }
-
-    if (
-      (existing.isSimulation === true) !==
-      (args.candidate.isSimulation === true)
-    ) {
-      continue;
-    }
-
-    const existingStart = args.toEpochMilliseconds(existing.start);
-    const existingEnd = args.toEpochMilliseconds(existing.end);
-    if (candidateStart < existingEnd && existingStart < candidateEnd) {
-      return true;
-    }
+  if (
+    hasSlotOverlapConflictInRecords({
+      candidate: args.candidate,
+      excludeId: args.excludeId,
+      records: args.blockedSlots,
+      toEpochMilliseconds: args.toEpochMilliseconds,
+    })
+  ) {
+    return true;
   }
 
   return hasAppointmentConflictInRecords(
@@ -326,4 +298,64 @@ export function parsePlainTimeResult(
       invalidStateError(`Invalid time format: ${value}`, source, error),
     );
   }
+}
+
+function hasSlotOverlapConflictInRecords(args: {
+  candidate: {
+    end: string;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+    start: string;
+  };
+  excludeId: string | undefined;
+  records: Iterable<{
+    _id: string;
+    end: string;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+    start: string;
+  }>;
+  toEpochMilliseconds: (iso: string) => number;
+}): boolean {
+  const candidateStart = args.toEpochMilliseconds(args.candidate.start);
+  const candidateEnd = args.toEpochMilliseconds(args.candidate.end);
+
+  for (const existing of args.records) {
+    if (args.excludeId && existing._id === args.excludeId) {
+      continue;
+    }
+
+    if (
+      "replacesAppointmentId" in args.candidate &&
+      args.candidate.replacesAppointmentId &&
+      existing._id === args.candidate.replacesAppointmentId
+    ) {
+      continue;
+    }
+
+    if (existing.locationId !== args.candidate.locationId) {
+      continue;
+    }
+
+    if (
+      (existing.isSimulation === true) !==
+      (args.candidate.isSimulation === true)
+    ) {
+      continue;
+    }
+
+    if (existing.practitionerId !== args.candidate.practitionerId) {
+      continue;
+    }
+
+    const existingStart = args.toEpochMilliseconds(existing.start);
+    const existingEnd = args.toEpochMilliseconds(existing.end);
+    if (candidateStart < existingEnd && existingStart < candidateEnd) {
+      return true;
+    }
+  }
+
+  return false;
 }

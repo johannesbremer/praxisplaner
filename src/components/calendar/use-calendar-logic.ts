@@ -52,7 +52,7 @@ import {
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
-  hasAppointmentConflictInRecords,
+  hasAppointmentConflictInCalendarRecords,
   hasBlockedSlotConflictInRecords,
   mergeConflictRecordsByIdExcluding,
   parsePlainTimeResult,
@@ -429,20 +429,31 @@ export function useCalendarLogic({
       },
       excludeId?: Id<"appointments">,
     ) => {
-      return hasAppointmentConflictInRecords(
-        candidate,
-        mergeConflictRecordsByIdExcluding({
+      return hasAppointmentConflictInCalendarRecords({
+        appointments: mergeConflictRecordsByIdExcluding({
           excludedIds: deletedAppointmentIdsRef.current,
           maps: [
             allPracticeAppointmentDocMapRef.current,
             appointmentHistoryDocMapRef.current,
           ],
         }),
-        excludeId,
+        blockedSlots: mergeConflictRecordsByIdExcluding({
+          excludedIds: deletedBlockedSlotIdsRef.current,
+          maps: [
+            allPracticeBlockedSlotDocMapRef.current,
+            blockedSlotHistoryDocMapRef.current,
+          ],
+        }),
+        candidate,
+        ...(excludeId === undefined ? {} : { excludeId }),
         toEpochMilliseconds,
-      );
+      });
     },
-    [allPracticeAppointmentDocMapRef, toEpochMilliseconds],
+    [
+      allPracticeAppointmentDocMapRef,
+      allPracticeBlockedSlotDocMapRef,
+      toEpochMilliseconds,
+    ],
   );
 
   const hasBlockedSlotConflict = useCallback(

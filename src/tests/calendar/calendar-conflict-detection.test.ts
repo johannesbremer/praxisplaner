@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { toTableId } from "../../../convex/identity";
 import {
+  hasAppointmentConflictInCalendarRecords,
   hasAppointmentConflictInRecords,
   hasBlockedSlotConflictInRecords,
   mergeConflictRecordsById,
@@ -42,6 +43,32 @@ describe("calendar conflict detection", () => {
   it("detects blocked-slot replay conflicts against blocked slots outside the active location cache", () => {
     expect(
       hasBlockedSlotConflictInRecords({
+        appointments: [],
+        blockedSlots: [
+          {
+            _id: toTableId<"blockedSlots">("blocked_slot_1"),
+            end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationId: toTableId<"locations">("location_2"),
+            practitionerId: toTableId<"practitioners">("practitioner_2"),
+            start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+          },
+        ],
+        candidate: {
+          end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          locationId: toTableId<"locations">("location_2"),
+          practitionerId: toTableId<"practitioners">("practitioner_2"),
+          start: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
+        },
+        toEpochMilliseconds,
+      }),
+    ).toBe(true);
+  });
+
+  it("detects appointment replay conflicts against blocked slots", () => {
+    expect(
+      hasAppointmentConflictInCalendarRecords({
         appointments: [],
         blockedSlots: [
           {

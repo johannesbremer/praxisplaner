@@ -15,6 +15,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
+  findConflictingBlockedSlot,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -1212,6 +1213,25 @@ export async function createAppointmentFromTrustedSource(
     throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
   }
 
+  const conflictingBlockedSlot = await findConflictingBlockedSlot(ctx.db, {
+    candidate: {
+      end,
+      locationLineageKey: storedReferences.locationLineageKey,
+      ...(storedReferences.practitionerLineageKey && {
+        practitionerLineageKey: storedReferences.practitionerLineageKey,
+      }),
+      start: args.start,
+    },
+    occupancyView: getOccupancyViewForBookingScope(
+      getAppointmentBookingScope(isSimulation),
+    ),
+    practiceId,
+  });
+
+  if (conflictingBlockedSlot) {
+    throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+  }
+
   const insertData = {
     ...rest,
     ...storedReferences,
@@ -1627,6 +1647,27 @@ async function updateAppointmentByMode(
     });
 
     if (conflictingAppointment) {
+      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+    }
+
+    const conflictingBlockedSlot = await findConflictingBlockedSlot(ctx.db, {
+      candidate: {
+        end: resolvedEnd,
+        locationLineageKey: asLocationLineageKey(resolvedLocationId),
+        ...(resolvedPractitionerId
+          ? {
+              practitionerLineageKey: asPractitionerLineageKey(
+                resolvedPractitionerId,
+              ),
+            }
+          : {}),
+        start: resolvedStart,
+      },
+      occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
+      practiceId: existingAppointment.practiceId,
+    });
+
+    if (conflictingBlockedSlot) {
       throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
     }
   }

@@ -979,6 +979,97 @@ describe("appointments update safety", () => {
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
   });
 
+  test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_create_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "create-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "create-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(5);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Termin kollidiert mit Sperrung",
+        userId,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("updateAppointment rejects moving an appointment onto an occupied blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(6),
+    });
+    const blockedWindow = makeSlotWindow(7);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window: blockedWindow,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: blockedWindow.end,
+        id: appointmentToMove,
+        start: blockedWindow.start,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
   test("simulation conflicts are scoped to the current draft rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
