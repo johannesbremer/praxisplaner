@@ -74,6 +74,9 @@ type SessionWithInternalState = SessionDoc & {
   state: InternalBookingSessionState;
 };
 
+const STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX =
+  "[BOOKING_SESSION:STALE_PUBLIC_STATE]";
+
 function getCalendarStepForConfirmationState(
   state: Extract<
     BookingSessionState,
@@ -138,6 +141,14 @@ function isConfirmationState(
 > {
   return (
     state.step === "existing-confirmation" || state.step === "new-confirmation"
+  );
+}
+
+function isRecoverableSessionHydrationError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.startsWith("Missing snapshot for booking session step") ||
+      error.message.startsWith(STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX))
   );
 }
 
@@ -234,20 +245,32 @@ async function resolveAppointmentTypeNameForPublicState(
   ruleSetId: Id<"ruleSets">,
   appointmentTypeLineageKey: AppointmentTypeLineageKey,
 ): Promise<string> {
-  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
-    db,
-    {
-      lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
-      ruleSetId,
-    },
-  );
-  const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
-  if (!appointmentType) {
-    throw new Error(
-      `Terminart ${appointmentTypeLineageKey} konnte nicht geladen werden.`,
+  try {
+    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+      db,
+      {
+        lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
+        ruleSetId,
+      },
     );
+    const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
+    if (!appointmentType) {
+      throw new Error(
+        `Terminart ${appointmentTypeLineageKey} konnte nicht geladen werden.`,
+      );
+    }
+    if (isRuleSetEntityDeleted(appointmentType)) {
+      throw new Error(
+        `Terminart ${appointmentTypeLineageKey} ist im Regelset nicht mehr verfügbar.`,
+      );
+    }
+    return appointmentType.name;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw stalePublicSessionStateError(error);
+    }
+    throw error;
   }
-  return appointmentType.name;
 }
 
 async function resolveLocationIdForInternalState(
@@ -266,17 +289,29 @@ async function resolveLocationNameForPublicState(
   ruleSetId: Id<"ruleSets">,
   locationLineageKey: LocationLineageKey,
 ): Promise<string> {
-  const locationId = await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: locationLineageKey,
-    ruleSetId,
-  });
-  const location = await db.get("locations", locationId);
-  if (!location) {
-    throw new Error(
-      `Standort ${locationLineageKey} konnte nicht geladen werden.`,
-    );
+  try {
+    const locationId = await resolveLocationIdForRuleSetByLineage(db, {
+      lineageKey: locationLineageKey,
+      ruleSetId,
+    });
+    const location = await db.get("locations", locationId);
+    if (!location) {
+      throw new Error(
+        `Standort ${locationLineageKey} konnte nicht geladen werden.`,
+      );
+    }
+    if (isRuleSetEntityDeleted(location)) {
+      throw new Error(
+        `Standort ${locationLineageKey} ist im Regelset nicht mehr verfügbar.`,
+      );
+    }
+    return location.name;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw stalePublicSessionStateError(error);
+    }
+    throw error;
   }
-  return location.name;
 }
 
 async function resolvePractitionerIdForInternalState(
@@ -295,17 +330,29 @@ async function resolvePractitionerNameForPublicState(
   ruleSetId: Id<"ruleSets">,
   practitionerLineageKey: PractitionerLineageKey,
 ): Promise<string> {
-  const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: practitionerLineageKey,
-    ruleSetId,
-  });
-  const practitioner = await db.get("practitioners", practitionerId);
-  if (!practitioner) {
-    throw new Error(
-      `Behandler ${practitionerLineageKey} konnte nicht geladen werden.`,
-    );
+  try {
+    const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
+      lineageKey: practitionerLineageKey,
+      ruleSetId,
+    });
+    const practitioner = await db.get("practitioners", practitionerId);
+    if (!practitioner) {
+      throw new Error(
+        `Behandler ${practitionerLineageKey} konnte nicht geladen werden.`,
+      );
+    }
+    if (isRuleSetEntityDeleted(practitioner)) {
+      throw new Error(
+        `Behandler ${practitionerLineageKey} ist im Regelset nicht mehr verfügbar.`,
+      );
+    }
+    return practitioner.name;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw stalePublicSessionStateError(error);
+    }
+    throw error;
   }
-  return practitioner.name;
 }
 
 function resolveStoredAppointmentTypeLineageKey(
@@ -329,6 +376,12 @@ function resolveStoredPractitionerLineageKey(
   return practitionerLineageKey;
 }
 
+function stalePublicSessionStateError(error: Error): Error {
+  return new Error(
+    `${STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX} ${error.message}`,
+  );
+}
+
 function toStoredSelectedSlot(
   db: MutationCtx["db"] | QueryCtx["db"],
   selectedSlot: ReturnType<typeof asSelectedSlotInput>,
@@ -350,10 +403,7 @@ async function tryHydrateInternalSessionState(
   try {
     return await hydrateInternalSessionState(ctx, session);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Missing snapshot for booking session step")
-    ) {
+    if (isRecoverableSessionHydrationError(error)) {
       return null;
     }
     throw error;
@@ -368,10 +418,7 @@ async function tryHydrateSessionState(
     const internalState = await hydrateInternalSessionState(ctx, session);
     return await materializePublicSessionState(ctx, session, internalState);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Missing snapshot for booking session step")
-    ) {
+    if (isRecoverableSessionHydrationError(error)) {
       return null;
     }
     throw error;

@@ -761,6 +761,109 @@ describe("bookingSessions user identity handling", () => {
     expect(activeSession).toBeNull();
   });
 
+  test("get returns null when public session remapping can no longer resolve the selected location", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_get");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    expect(session).toBeNull();
+  });
+
+  test("getActiveForUser skips sessions whose public remapping can no longer resolve", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_active");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const activeSession = await authed.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId,
+        ruleSetId,
+      },
+    );
+    expect(activeSession).toBeNull();
+  });
+
+  test("create deletes stale sessions whose public remapping can no longer resolve", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_create");
+
+    const staleSessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, {
+      sessionId: staleSessionId,
+    });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId: staleSessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const replacementSessionId = await authed.mutation(
+      api.bookingSessions.create,
+      {
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(replacementSessionId).not.toBe(staleSessionId);
+
+    const state = await t.run(async (ctx) => {
+      const staleSession = await ctx.db.get("bookingSessions", staleSessionId);
+      const replacementSession = await ctx.db.get(
+        "bookingSessions",
+        replacementSessionId,
+      );
+      return { replacementSession, staleSession };
+    });
+
+    expect(state.staleSession).toBeNull();
+    expect(state.replacementSession?._id).toBe(replacementSessionId);
+    expect(state.replacementSession?.state.step).toBe("privacy");
+  });
+
   test("submitNewDataSharing stores owner userId on each contact", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
