@@ -288,9 +288,9 @@ function createAppointmentTypeFormSchema(params: {
       .trim()
       .min(2, "Name muss mindestens 2 Zeichen lang sein")
       .max(50, "Name darf maximal 50 Zeichen lang sein"),
-    practitionerIds: z
-      .array(createPractitionerIdSchema(params.practitionerIds))
-      .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
+    practitionerIds: z.array(
+      createPractitionerIdSchema(params.practitionerIds),
+    ),
   }) satisfies z.ZodType<AppointmentTypeFormValues>;
 }
 
@@ -403,13 +403,6 @@ const practitionerIdsFromSnapshots = (
     }
     seen.add(practitionerId);
     ids.push(practitionerId);
-  }
-
-  if (ids.length === 0) {
-    return {
-      message: "Mindestens ein Behandler muss ausgewählt werden.",
-      status: "conflict",
-    };
   }
 
   return { ids };
@@ -1483,8 +1476,8 @@ export function AppointmentTypesManagement({
                               Behandler auswählen
                             </FieldLegend>
                             <FieldDescription>
-                              Wählen Sie mindestens einen Behandler für diese
-                              Terminart aus.
+                              Wählen Sie die Behandler aus, die diese Terminart
+                              anbieten.
                             </FieldDescription>
                             <FieldGroup
                               className="gap-3"

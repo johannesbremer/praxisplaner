@@ -677,37 +677,21 @@ async function resolvePractitionerEntityInRuleSet(
 /**
  * Resolve selected practitioner entity IDs to lineage keys and validate they
  * exist in the target rule set.
- * @throws Error if practitionerIds is undefined, empty, or contains invalid practitioners
- * @returns Array of resolved practitioner lineage keys (never undefined when practitioners are required)
+ * @throws Error if practitionerIds contains invalid practitioners
+ * @returns Array of resolved practitioner lineage keys
  */
 async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
   ruleSetId: Id<"ruleSets">,
-  required: true,
-): Promise<PractitionerLineageKey[]>;
-async function resolvePractitionerLineageKeys(
-  db: DatabaseReader,
-  practitionerIds: Id<"practitioners">[] | undefined,
-  ruleSetId: Id<"ruleSets">,
-  required?: false,
 ): Promise<PractitionerLineageKey[] | undefined>;
 async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
   ruleSetId: Id<"ruleSets">,
-  required = false,
 ): Promise<PractitionerLineageKey[] | undefined> {
   if (!practitionerIds) {
-    if (required) {
-      throw new Error("At least one practitioner must be selected");
-    }
     return undefined;
-  }
-
-  // Validate at least one practitioner is provided when required
-  if (required && practitionerIds.length === 0) {
-    throw new Error("At least one practitioner must be selected");
   }
 
   const seen = new Set<PractitionerLineageKey>();
@@ -743,7 +727,7 @@ export const createAppointmentType = mutation({
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
-    practitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
+    practitionerIds: v.array(v.id("practitioners")),
     selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
@@ -760,8 +744,9 @@ export const createAppointmentType = mutation({
       ctx.db,
       args.practitionerIds,
       ruleSetId,
-      true, // Required: at least one practitioner
     );
+    const normalizedAllowedPractitionerLineageKeys =
+      allowedPractitionerLineageKeys ?? [];
     const followUpPlan = await validateFollowUpPlan(
       ctx.db,
       ruleSetId,
@@ -809,7 +794,8 @@ export const createAppointmentType = mutation({
           "appointment type",
         );
         await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-          allowedPractitionerLineageKeys,
+          allowedPractitionerLineageKeys:
+            normalizedAllowedPractitionerLineageKeys,
           deleted: false,
           duration: args.duration,
           followUpPlan: followUpPlan ?? [],
@@ -828,7 +814,7 @@ export const createAppointmentType = mutation({
 
     // Create the appointment type
     const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-      allowedPractitionerLineageKeys,
+      allowedPractitionerLineageKeys: normalizedAllowedPractitionerLineageKeys,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
       ...(followUpPlan && { followUpPlan }),
@@ -917,14 +903,12 @@ export const updateAppointmentType = mutation({
       updates.duration = args.duration;
     }
     if (args.practitionerIds !== undefined) {
-      // Use the shared helper with required=true to validate at least one practitioner
       const resolved = await resolvePractitionerLineageKeys(
         ctx.db,
         args.practitionerIds,
         ruleSetId,
-        true, // Required: at least one practitioner
       );
-      updates.allowedPractitionerLineageKeys = resolved;
+      updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
     if (args.followUpPlan !== undefined) {
       const validatedFollowUpPlan = await validateFollowUpPlan(

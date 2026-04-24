@@ -1291,6 +1291,55 @@ describe("appointment series", () => {
     expect(updatedAppointmentType?.followUpPlan).toEqual([]);
   });
 
+  test("createAppointmentType allows an empty practitioner allowlist", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, ruleSetId } = await createBasePractice(t);
+
+    const created = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Ohne Behandler",
+      practiceId,
+      practitionerIds: [],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    const createdAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", created.entityId);
+    });
+
+    expect(createdAppointmentType?.allowedPractitionerLineageKeys).toEqual([]);
+  });
+
+  test("updateAppointmentType allows clearing the practitioner allowlist", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const created = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Mit Behandler",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    await t.mutation(api.entities.updateAppointmentType, {
+      appointmentTypeId: created.entityId,
+      expectedDraftRevision: created.draftRevision,
+      practiceId,
+      practitionerIds: [],
+      selectedRuleSetId: created.ruleSetId,
+    });
+
+    const updatedAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", created.entityId);
+    });
+
+    expect(updatedAppointmentType?.allowedPractitionerLineageKeys).toEqual([]);
+  });
+
   test("updating or deleting the root appointment applies to the whole series", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
