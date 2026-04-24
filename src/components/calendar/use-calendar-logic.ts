@@ -52,8 +52,7 @@ import {
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
-  hasAppointmentConflictInCalendarRecords,
-  hasBlockedSlotConflictInRecords,
+  hasCalendarOccupancyConflictInRecords,
   mergeConflictRecordsByIdExcluding,
   parsePlainTimeResult,
   type SimulationConversionOptions,
@@ -429,7 +428,7 @@ export function useCalendarLogic({
       },
       excludeId?: Id<"appointments">,
     ) => {
-      return hasAppointmentConflictInCalendarRecords({
+      return hasCalendarOccupancyConflictInRecords({
         appointments: mergeConflictRecordsByIdExcluding({
           excludedIds: deletedAppointmentIdsRef.current,
           maps: [
@@ -467,7 +466,7 @@ export function useCalendarLogic({
       },
       excludeId?: Id<"blockedSlots">,
     ) => {
-      return hasBlockedSlotConflictInRecords({
+      return hasCalendarOccupancyConflictInRecords({
         appointments: mergeConflictRecordsByIdExcluding({
           excludedIds: deletedAppointmentIdsRef.current,
           maps: [

@@ -14,8 +14,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
-  findConflictingAppointment,
-  findConflictingBlockedSlot,
+  findConflictingCalendarOccupancy,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -1188,7 +1187,7 @@ export async function createAppointmentFromTrustedSource(
     activeAppointmentType.duration,
   );
 
-  const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
       end,
       locationLineageKey: storedReferences.locationLineageKey,
@@ -1209,26 +1208,7 @@ export async function createAppointmentFromTrustedSource(
     }),
   });
 
-  if (conflictingAppointment) {
-    throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
-  }
-
-  const conflictingBlockedSlot = await findConflictingBlockedSlot(ctx.db, {
-    candidate: {
-      end,
-      locationLineageKey: storedReferences.locationLineageKey,
-      ...(storedReferences.practitionerLineageKey && {
-        practitionerLineageKey: storedReferences.practitionerLineageKey,
-      }),
-      start: args.start,
-    },
-    occupancyView: getOccupancyViewForBookingScope(
-      getAppointmentBookingScope(isSimulation),
-    ),
-    practiceId,
-  });
-
-  if (conflictingBlockedSlot) {
+  if (conflictingOccupancy) {
     throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
   }
 
@@ -1625,49 +1605,31 @@ async function updateAppointmentByMode(
   if (hasSchedulingChange) {
     const appointmentBookingScope =
       getAppointmentBookingScope(resolvedIsSimulation);
-    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
-      candidate: {
-        end: resolvedEnd,
-        locationLineageKey: asLocationLineageKey(resolvedLocationId),
-        ...(resolvedPractitionerId
-          ? {
-              practitionerLineageKey: asPractitionerLineageKey(
-                resolvedPractitionerId,
-              ),
-            }
+    const conflictingOccupancy = await findConflictingCalendarOccupancy(
+      ctx.db,
+      {
+        candidate: {
+          end: resolvedEnd,
+          locationLineageKey: asLocationLineageKey(resolvedLocationId),
+          ...(resolvedPractitionerId
+            ? {
+                practitionerLineageKey: asPractitionerLineageKey(
+                  resolvedPractitionerId,
+                ),
+              }
+            : {}),
+          start: resolvedStart,
+        },
+        practiceId: existingAppointment.practiceId,
+        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+          ? { draftRuleSetId: resolvedSimulationRuleSetId }
           : {}),
-        start: resolvedStart,
+        excludeAppointmentIds: [existingAppointment._id],
+        occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
       },
-      excludeAppointmentIds: [existingAppointment._id],
-      practiceId: existingAppointment.practiceId,
-      ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
-        ? { draftRuleSetId: resolvedSimulationRuleSetId }
-        : {}),
-      occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
-    });
+    );
 
-    if (conflictingAppointment) {
-      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
-    }
-
-    const conflictingBlockedSlot = await findConflictingBlockedSlot(ctx.db, {
-      candidate: {
-        end: resolvedEnd,
-        locationLineageKey: asLocationLineageKey(resolvedLocationId),
-        ...(resolvedPractitionerId
-          ? {
-              practitionerLineageKey: asPractitionerLineageKey(
-                resolvedPractitionerId,
-              ),
-            }
-          : {}),
-        start: resolvedStart,
-      },
-      occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
-      practiceId: existingAppointment.practiceId,
-    });
-
-    if (conflictingBlockedSlot) {
+    if (conflictingOccupancy) {
       throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
     }
   }

@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { toTableId } from "../../../convex/identity";
 import {
-  hasAppointmentConflictInCalendarRecords,
-  hasAppointmentConflictInRecords,
-  hasBlockedSlotConflictInRecords,
+  hasCalendarOccupancyConflictInRecords,
   mergeConflictRecordsById,
   mergeConflictRecordsByIdExcluding,
 } from "../../components/calendar/use-calendar-logic-helpers";
@@ -16,7 +14,7 @@ const toEpochMilliseconds = (iso: string) =>
 describe("calendar conflict detection", () => {
   it("detects blocked-slot replay conflicts against appointments outside the active day cache", () => {
     expect(
-      hasBlockedSlotConflictInRecords({
+      hasCalendarOccupancyConflictInRecords({
         appointments: [
           {
             _id: toTableId<"appointments">("appointment_1"),
@@ -42,7 +40,7 @@ describe("calendar conflict detection", () => {
 
   it("detects blocked-slot replay conflicts against blocked slots outside the active location cache", () => {
     expect(
-      hasBlockedSlotConflictInRecords({
+      hasCalendarOccupancyConflictInRecords({
         appointments: [],
         blockedSlots: [
           {
@@ -68,7 +66,7 @@ describe("calendar conflict detection", () => {
 
   it("detects appointment replay conflicts against blocked slots", () => {
     expect(
-      hasAppointmentConflictInCalendarRecords({
+      hasCalendarOccupancyConflictInRecords({
         appointments: [],
         blockedSlots: [
           {
@@ -153,16 +151,8 @@ describe("calendar conflict detection", () => {
 
   it("ignores the appointment being replaced when checking appointment conflicts", () => {
     expect(
-      hasAppointmentConflictInRecords(
-        {
-          end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
-          isSimulation: true,
-          locationId: toTableId<"locations">("location_1"),
-          practitionerId: toTableId<"practitioners">("practitioner_1"),
-          replacesAppointmentId: toTableId<"appointments">("appointment_1"),
-          start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
-        },
-        [
+      hasCalendarOccupancyConflictInRecords({
+        appointments: [
           {
             _id: toTableId<"appointments">("appointment_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
@@ -172,9 +162,17 @@ describe("calendar conflict detection", () => {
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
-        undefined,
+        blockedSlots: [],
+        candidate: {
+          end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
+          isSimulation: true,
+          locationId: toTableId<"locations">("location_1"),
+          practitionerId: toTableId<"practitioners">("practitioner_1"),
+          replacesAppointmentId: toTableId<"appointments">("appointment_1"),
+          start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+        },
         toEpochMilliseconds,
-      ),
+      }),
     ).toBe(false);
   });
 });
