@@ -1830,6 +1830,7 @@ describe("booking session snapshot sanitization", () => {
             phoneNumber: "+491701234567",
             postalCode: "10115",
             street: "Example Street 1",
+            userId: "user_1",
           },
         ],
         hzvStatus: "has-contract",
@@ -1881,6 +1882,36 @@ describe("booking session snapshot sanitization", () => {
           startTime: "not-a-zoned-date-time",
         },
         step: "existing-confirmation",
+      });
+    }).toThrow("Invalid booking session snapshot");
+  });
+
+  test("rejects data sharing contacts without the schema-required userId", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [
+          {
+            city: "Berlin",
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            gender: "female",
+            lastName: "Lovelace",
+            phoneNumber: "+491701234567",
+            postalCode: "10115",
+            street: "Example Street 1",
+          },
+        ],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationId: "location_1",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        step: "new-calendar-selection",
       });
     }).toThrow("Invalid booking session snapshot");
   });

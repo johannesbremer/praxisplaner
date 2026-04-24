@@ -1,5 +1,5 @@
-import { useQuery } from "convex/react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useConvex, useQuery } from "convex/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
@@ -30,6 +30,7 @@ export function useCalendarData(args: {
         patient: { dateOfBirth?: string; isNew: boolean };
       };
 }) {
+  const convex = useConvex();
   const activeRuleSetData = useQuery(
     api.ruleSets.getActiveRuleSet,
     args.practiceId ? { practiceId: args.practiceId } : "skip",
@@ -62,23 +63,23 @@ export function useCalendarData(args: {
     api.appointments.getCalendarDayAppointments,
     calendarDayQueryArgs ?? "skip",
   );
-  const allAppointmentsData = useQuery(api.appointments.getAppointments, {
-    ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
-    scope: "all",
-    ...(args.ruleSetId === undefined
-      ? {}
-      : { selectedRuleSetId: args.ruleSetId }),
-  });
   const blockedSlotsData = useQuery(
     api.appointments.getCalendarDayBlockedSlots,
     calendarDayQueryArgs ?? "skip",
   );
-  const allBlockedSlotsData = useQuery(api.appointments.getBlockedSlots, {
-    ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
-    scope: "all",
-    ...(args.ruleSetId === undefined
-      ? {}
-      : { selectedRuleSetId: args.ruleSetId }),
+  const allPracticeConflictScopeKey = useMemo(
+    () =>
+      `${args.practiceId}:${activeRuleSetId ?? "active"}:${args.ruleSetId ?? "selected"}`,
+    [activeRuleSetId, args.practiceId, args.ruleSetId],
+  );
+  const [allPracticeConflictData, setAllPracticeConflictData] = useState<{
+    appointments: AppointmentResult[] | undefined;
+    blockedSlots: Doc<"blockedSlots">[] | undefined;
+    key: string;
+  }>({
+    appointments: undefined,
+    blockedSlots: undefined,
+    key: allPracticeConflictScopeKey,
   });
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
@@ -115,30 +116,111 @@ export function useCalendarData(args: {
     blockedSlotDocMapRef.current = blockedSlotDocMap;
   }, [blockedSlotDocMap]);
 
-  const allPracticeAppointmentDocMap = useMemo(() => {
-    const map = new Map<Id<"appointments">, AppointmentResult>();
-    for (const appointment of allAppointmentsData ?? []) {
-      if (appointment.practiceId === args.practiceId) {
+  const buildAllPracticeAppointmentDocMap = useCallback(
+    (appointments: readonly AppointmentResult[]) => {
+      const map = new Map<Id<"appointments">, AppointmentResult>();
+      for (const appointment of appointments) {
         map.set(appointment._id, appointment);
       }
+      return map;
+    },
+    [],
+  );
+
+  const buildAllPracticeBlockedSlotDocMap = useCallback(
+    (blockedSlots: readonly Doc<"blockedSlots">[]) => {
+      const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
+      for (const blockedSlot of blockedSlots) {
+        map.set(blockedSlot._id, blockedSlot);
+      }
+      return map;
+    },
+    [],
+  );
+
+  const allPracticeAppointmentDocMapRef = useRef(
+    new Map<Id<"appointments">, AppointmentResult>(),
+  );
+  const allPracticeBlockedSlotDocMapRef = useRef(
+    new Map<Id<"blockedSlots">, Doc<"blockedSlots">>(),
+  );
+  const fullPracticeConflictLoadRef = useRef(0);
+
+  const refreshAllPracticeConflictData = useCallback(async () => {
+    const requestId = ++fullPracticeConflictLoadRef.current;
+    const [appointments, blockedSlots] = await Promise.all([
+      convex.query(api.appointments.getAppointments, {
+        ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
+        scope: "all",
+        ...(args.ruleSetId === undefined
+          ? {}
+          : { selectedRuleSetId: args.ruleSetId }),
+      }),
+      convex.query(api.appointments.getBlockedSlots, {
+        ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
+        scope: "all",
+        ...(args.ruleSetId === undefined
+          ? {}
+          : { selectedRuleSetId: args.ruleSetId }),
+      }),
+    ]);
+
+    if (requestId !== fullPracticeConflictLoadRef.current) {
+      return;
     }
-    return map;
-  }, [allAppointmentsData, args.practiceId]);
-  const allPracticeAppointmentDocMapRef = useRef(allPracticeAppointmentDocMap);
+
+    const nextAppointments = appointments.filter(
+      (appointment) => appointment.practiceId === args.practiceId,
+    );
+    const nextBlockedSlots = blockedSlots.filter(
+      (blockedSlot) => blockedSlot.practiceId === args.practiceId,
+    );
+
+    allPracticeAppointmentDocMapRef.current =
+      buildAllPracticeAppointmentDocMap(nextAppointments);
+    allPracticeBlockedSlotDocMapRef.current =
+      buildAllPracticeBlockedSlotDocMap(nextBlockedSlots);
+    setAllPracticeConflictData({
+      appointments: nextAppointments,
+      blockedSlots: nextBlockedSlots,
+      key: allPracticeConflictScopeKey,
+    });
+  }, [
+    activeRuleSetId,
+    allPracticeConflictScopeKey,
+    args.practiceId,
+    args.ruleSetId,
+    buildAllPracticeAppointmentDocMap,
+    buildAllPracticeBlockedSlotDocMap,
+    convex,
+  ]);
+
+  useEffect(() => {
+    fullPracticeConflictLoadRef.current += 1;
+    allPracticeAppointmentDocMapRef.current = new Map();
+    allPracticeBlockedSlotDocMapRef.current = new Map();
+    void refreshAllPracticeConflictData();
+  }, [refreshAllPracticeConflictData]);
+
+  const allAppointmentsData =
+    allPracticeConflictData.key === allPracticeConflictScopeKey
+      ? allPracticeConflictData.appointments
+      : undefined;
+  const allBlockedSlotsData =
+    allPracticeConflictData.key === allPracticeConflictScopeKey
+      ? allPracticeConflictData.blockedSlots
+      : undefined;
+
+  const allPracticeAppointmentDocMap = useMemo(() => {
+    return buildAllPracticeAppointmentDocMap(allAppointmentsData ?? []);
+  }, [allAppointmentsData, buildAllPracticeAppointmentDocMap]);
   useEffect(() => {
     allPracticeAppointmentDocMapRef.current = allPracticeAppointmentDocMap;
   }, [allPracticeAppointmentDocMap]);
 
   const allPracticeBlockedSlotDocMap = useMemo(() => {
-    const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
-    for (const blockedSlot of allBlockedSlotsData ?? []) {
-      if (blockedSlot.practiceId === args.practiceId) {
-        map.set(blockedSlot._id, blockedSlot);
-      }
-    }
-    return map;
-  }, [allBlockedSlotsData, args.practiceId]);
-  const allPracticeBlockedSlotDocMapRef = useRef(allPracticeBlockedSlotDocMap);
+    return buildAllPracticeBlockedSlotDocMap(allBlockedSlotsData ?? []);
+  }, [allBlockedSlotsData, buildAllPracticeBlockedSlotDocMap]);
   useEffect(() => {
     allPracticeBlockedSlotDocMapRef.current = allPracticeBlockedSlotDocMap;
   }, [allPracticeBlockedSlotDocMap]);
@@ -340,6 +422,7 @@ export function useCalendarData(args: {
     getRequiredAppointmentTypeInfo,
     locationsData,
     practitionersData,
+    refreshAllPracticeConflictData,
     slotsResult,
     vacationsData,
   };

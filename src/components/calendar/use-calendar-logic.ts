@@ -140,6 +140,7 @@ export function useCalendarLogic({
     getRequiredAppointmentTypeInfo,
     locationsData,
     practitionersData,
+    refreshAllPracticeConflictData,
     slotsResult,
     vacationsData,
   } = useCalendarData({
@@ -493,9 +494,9 @@ export function useCalendarLogic({
     ],
   );
 
-  const canValidateAppointmentHistoryConflict = allPracticeAppointmentsLoaded;
-  const canValidateBlockedSlotHistoryConflict =
-    allPracticeAppointmentsLoaded && allPracticeBlockedSlotsLoaded;
+  const ensureLatestConflictData = useCallback(async () => {
+    await refreshAllPracticeConflictData();
+  }, [refreshAllPracticeConflictData]);
 
   const runUndo = useCallback(async () => {
     const result = await undoHistoryAction();
@@ -1033,13 +1034,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Termin erstellt",
         redo: async () => {
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           if (
             hasAppointmentConflict({
               end: createEnd,
@@ -1110,9 +1105,9 @@ export function useCalendarLogic({
       return createdId;
     },
     [
-      canValidateAppointmentHistoryConflict,
       buildCreatedAppointmentHistoryDoc,
       createAppointmentMutation,
+      ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
@@ -1200,13 +1195,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Termin aktualisiert",
         redo: async () => {
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
@@ -1236,13 +1225,7 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           const current = getAppointmentHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
@@ -1274,7 +1257,7 @@ export function useCalendarLogic({
       });
     },
     [
-      canValidateAppointmentHistoryConflict,
+      ensureLatestConflictData,
       getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
@@ -1343,13 +1326,7 @@ export function useCalendarLogic({
           }
         },
         undo: async () => {
-          if (!canValidateAppointmentHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           if (
             hasAppointmentConflict({
               end: createEnd,
@@ -1386,8 +1363,8 @@ export function useCalendarLogic({
       });
     },
     [
-      canValidateAppointmentHistoryConflict,
       deleteAppointmentMutation,
+      ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
       getAppointmentHistoryDoc,
       getAppointmentCreationEnd,
@@ -1432,13 +1409,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Sperrung erstellt",
         redo: async () => {
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           if (
             hasBlockedSlotConflict({
               end: createArgs.end,
@@ -1501,7 +1472,7 @@ export function useCalendarLogic({
       return createdId;
     },
     [
-      canValidateBlockedSlotHistoryConflict,
+      ensureLatestConflictData,
       forgetBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
@@ -1572,13 +1543,7 @@ export function useCalendarLogic({
       pushHistoryAction({
         label: "Sperrung aktualisiert",
         redo: async () => {
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, beforeState)) {
             return {
@@ -1608,13 +1573,7 @@ export function useCalendarLogic({
           return { status: "applied" };
         },
         undo: async () => {
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           const current = getBlockedSlotHistoryDoc(args.id);
           if (!current || !matchesState(current, afterState)) {
             return {
@@ -1649,7 +1608,7 @@ export function useCalendarLogic({
       return mutationResult;
     },
     [
-      canValidateBlockedSlotHistoryConflict,
+      ensureLatestConflictData,
       getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
@@ -1697,13 +1656,7 @@ export function useCalendarLogic({
           }
         },
         undo: async () => {
-          if (!canValidateBlockedSlotHistoryConflict) {
-            return {
-              message:
-                "Die Kalenderdaten werden noch geladen. Bitte erneut versuchen.",
-              status: "conflict",
-            };
-          }
+          await ensureLatestConflictData();
           if (
             hasBlockedSlotConflict({
               end: createArgs.end,
@@ -1739,7 +1692,7 @@ export function useCalendarLogic({
       return mutationResult;
     },
     [
-      canValidateBlockedSlotHistoryConflict,
+      ensureLatestConflictData,
       forgetBlockedSlotHistoryDoc,
       getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
