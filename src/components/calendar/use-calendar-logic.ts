@@ -478,12 +478,11 @@ export function useCalendarLogic({
     ],
   );
 
-  const placementAppointmentTypeId =
-    simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
   const placementAppointmentTypeLineageKey =
-    placementAppointmentTypeId === undefined
+    simulatedContext?.appointmentTypeLineageKey ??
+    (selectedAppointmentTypeId === undefined
       ? undefined
-      : appointmentTypeLineageKeyById.get(placementAppointmentTypeId);
+      : appointmentTypeLineageKeyById.get(selectedAppointmentTypeId));
   const draggedAppointmentTypeLineageKey =
     draggedAppointment?.record.appointmentTypeLineageKey;
 
@@ -2270,14 +2269,13 @@ export function useCalendarLogic({
     let daySchedules = baseSchedulesData.filter(
       (schedule) => schedule.dayOfWeek === currentDayOfWeek,
     );
-    const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
     const effectiveLocationLineageKey =
-      effectiveLocationId === undefined
+      simulatedContext?.locationLineageKey ??
+      (selectedLocationId === undefined
         ? undefined
-        : locationLineageKeyById.get(effectiveLocationId);
+        : locationLineageKeyById.get(selectedLocationId));
 
-    if (simulatedContext?.locationId && effectiveLocationLineageKey) {
+    if (simulatedContext?.locationLineageKey && effectiveLocationLineageKey) {
       daySchedules = daySchedules.filter(
         (schedule) =>
           schedule.locationLineageKey === effectiveLocationLineageKey,
@@ -2836,12 +2834,11 @@ export function useCalendarLogic({
       title?: string;
     }[] = [];
 
-    const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
     const effectiveLocationLineageKey =
-      effectiveLocationId === undefined
+      simulatedContext?.locationLineageKey ??
+      (selectedLocationId === undefined
         ? undefined
-        : locationLineageKeyById.get(effectiveLocationId);
+        : locationLineageKeyById.get(selectedLocationId));
     const dateFilteredBlocks = filterBlockedSlotsForDateAndLocation(
       blockedSlotsData,
       selectedDate,
@@ -2912,7 +2909,7 @@ export function useCalendarLogic({
     selectedDate,
     selectedLocationId,
     locationLineageKeyById,
-    simulatedContext?.locationId,
+    simulatedContext?.locationLineageKey,
   ]);
 
   const baseVacationBlockedSlots = useMemo(() => {
@@ -2930,12 +2927,11 @@ export function useCalendarLogic({
       slot: number;
     }[] = [];
 
-    const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
     const effectiveLocationLineageKey =
-      effectiveLocationId === undefined
+      simulatedContext?.locationLineageKey ??
+      (selectedLocationId === undefined
         ? undefined
-        : locationLineageKeyById.get(effectiveLocationId);
+        : locationLineageKeyById.get(selectedLocationId));
 
     for (const practitioner of workingPractitioners) {
       const practitionerId = getPractitionerIdForLineageKey(
@@ -3292,7 +3288,9 @@ export function useCalendarLogic({
 
       // Use validated simulatedContext with proper typing
       const contextLocationId: Id<"locations"> | undefined =
-        simulatedContext.locationId;
+        simulatedContext.locationLineageKey === undefined
+          ? undefined
+          : getLocationIdForLineageKey(simulatedContext.locationLineageKey);
 
       // Determine location with explicit precedence
       const locationId: Id<"locations"> | undefined =
@@ -4013,7 +4011,7 @@ export function useCalendarLogic({
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual === true;
       // Only allow booking if an appointment type is selected
-      const canBook = placementAppointmentTypeId !== undefined;
+      const canBook = placementAppointmentTypeLineageKey !== undefined;
       setBlockedSlotWarning({
         canBook,
         column,
@@ -4038,7 +4036,11 @@ export function useCalendarLogic({
   const createAppointmentInSlot = (column: CalendarColumnId, slot: number) => {
     const mode = simulatedContext ? "simulation" : "real";
     const appointmentTypeId =
-      simulatedContext?.appointmentTypeId ?? selectedAppointmentTypeId;
+      simulatedContext?.appointmentTypeLineageKey === undefined
+        ? selectedAppointmentTypeId
+        : appointmentTypeIdByLineageKey.get(
+            simulatedContext.appointmentTypeLineageKey,
+          );
     if (!appointmentTypeId) {
       toast.info("Bitte wählen Sie zunächst eine Terminart aus.");
       return;
@@ -4071,12 +4073,21 @@ export function useCalendarLogic({
 
     const requestResult = buildCalendarAppointmentRequest({
       appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeInfo.lineageKey,
       appointmentTypeName: appointmentTypeInfo.name,
       businessStartHour,
       isNewPatient: simulatedContext
         ? simulatedContext.patient.isNew
         : (patient?.isNewPatient ?? false),
-      locationId: simulatedContext?.locationId ?? selectedLocationId,
+      locationId:
+        simulatedContext?.locationLineageKey === undefined
+          ? selectedLocationId
+          : getLocationIdForLineageKey(simulatedContext.locationLineageKey),
+      locationLineageKey:
+        simulatedContext?.locationLineageKey ??
+        (selectedLocationId
+          ? getLocationLineageKeyForDisplayId(selectedLocationId)
+          : undefined),
       mode,
       patient,
       pendingAppointmentTitle,
@@ -4085,6 +4096,7 @@ export function useCalendarLogic({
         practitioner === undefined
           ? undefined
           : getPractitionerIdForLineageKey(practitioner.lineageKey),
+      practitionerLineageKey: practitioner?.lineageKey,
       selectedDate,
       slot,
       slotDurationMinutes: SLOT_DURATION,
@@ -4190,15 +4202,16 @@ export function useCalendarLogic({
     if (simulatedContext && onUpdateSimulatedContext) {
       const patientDateOfBirth = simulatedContext.patient.dateOfBirth;
       const newContext = createSimulatedContext({
-        ...(simulatedContext.appointmentTypeId && {
-          appointmentTypeId: simulatedContext.appointmentTypeId,
+        ...(simulatedContext.appointmentTypeLineageKey && {
+          appointmentTypeLineageKey: simulatedContext.appointmentTypeLineageKey,
         }),
         isNewPatient: simulatedContext.patient.isNew,
         ...(patientDateOfBirth !== undefined && {
           patientDateOfBirth,
         }),
         ...(locationId && {
-          locationId,
+          locationLineageKey:
+            getLocationLineageKeyForDisplayId(locationId) ?? locationId,
         }),
       });
 
@@ -4245,7 +4258,10 @@ export function useCalendarLogic({
     runDeleteBlockedSlot,
     runUpdateBlockedSlot,
     selectedDate,
-    selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+    selectedLocationId:
+      (simulatedContext?.locationLineageKey &&
+        getLocationIdForLineageKey(simulatedContext.locationLineageKey)) ||
+      selectedLocationId,
     setBlockedSlotWarning,
     slotToTime,
     timeToSlot,

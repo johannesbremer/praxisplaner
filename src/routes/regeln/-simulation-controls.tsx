@@ -1,3 +1,4 @@
+import { useQuery } from "convex/react";
 import { RefreshCw, Trash2 } from "lucide-react";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -13,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { api } from "@/convex/_generated/api";
 
 import type { SchedulingSimulatedContext } from "../../types";
 
@@ -69,6 +71,14 @@ function SimulationControls({
   const unsavedRuleSet = ruleSetsQuery?.find(
     (rs) => !rs.isActive && rs.description === "Ungespeicherte Änderungen",
   );
+  const appointmentTypes = useQuery(
+    api.entities.getAppointmentTypes,
+    simulationRuleSetId ? { ruleSetId: simulationRuleSetId } : "skip",
+  );
+  const selectedAppointmentTypeId = appointmentTypes?.find(
+    (appointmentType) =>
+      appointmentType.lineageKey === simulatedContext.appointmentTypeLineageKey,
+  )?._id;
 
   return (
     <Card>
@@ -122,17 +132,23 @@ function SimulationControls({
           <AppointmentTypeSelector
             onTypeDeselect={() => {
               const updated = { ...simulatedContext };
-              delete updated.appointmentTypeId;
+              delete updated.appointmentTypeLineageKey;
               onSimulatedContextChange(updated);
             }}
             onTypeSelect={(type) => {
+              const appointmentType = appointmentTypes?.find(
+                (candidate) => candidate._id === type,
+              );
+              if (!appointmentType) {
+                return;
+              }
               onSimulatedContextChange({
                 ...simulatedContext,
-                appointmentTypeId: type,
+                appointmentTypeLineageKey: appointmentType.lineageKey,
               });
             }}
             ruleSetId={simulationRuleSetId}
-            selectedType={simulatedContext.appointmentTypeId}
+            selectedType={selectedAppointmentTypeId}
           />
         )}
 

@@ -145,9 +145,9 @@ export function NewCalendar({
     setPendingAppointmentTitle(undefined);
 
     if (simulatedContext && onUpdateSimulatedContext) {
-      const { locationId, patient, requestedAt } = simulatedContext;
+      const { locationLineageKey, patient, requestedAt } = simulatedContext;
       onUpdateSimulatedContext({
-        ...(locationId && { locationId }),
+        ...(locationLineageKey && { locationLineageKey }),
         patient,
         ...(requestedAt && { requestedAt }),
       });
@@ -163,6 +163,10 @@ export function NewCalendar({
   const selectedUserData = useQuery(
     api.users.getById,
     selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
+  );
+  const appointmentTypesData = useQuery(
+    api.entities.getAppointmentTypes,
+    ruleSetId ? { ruleSetId } : "skip",
   );
 
   const selectedPatientInfo: PatientInfo | undefined = (() => {
@@ -398,17 +402,23 @@ export function NewCalendar({
     // This will trigger blocked slots to show right away when the modal opens
     if (simulatedContext && onUpdateSimulatedContext) {
       if (appointmentTypeId) {
+        const appointmentTypeLineageKey = appointmentTypesData?.find(
+          (appointmentType) => appointmentType._id === appointmentTypeId,
+        )?.lineageKey;
+        if (!appointmentTypeLineageKey) {
+          return;
+        }
         // Add appointment type to context - this triggers blocked slots query
         const newContext = {
           ...simulatedContext,
-          appointmentTypeId,
+          appointmentTypeLineageKey,
         };
         onUpdateSimulatedContext(newContext);
-      } else if (simulatedContext.appointmentTypeId !== undefined) {
+      } else if (simulatedContext.appointmentTypeLineageKey !== undefined) {
         // Remove appointment type from context - this clears blocked slots
-        const { locationId, patient, requestedAt } = simulatedContext;
+        const { locationLineageKey, patient, requestedAt } = simulatedContext;
         onUpdateSimulatedContext({
-          ...(locationId && { locationId }),
+          ...(locationLineageKey && { locationLineageKey }),
           patient,
           ...(requestedAt && { requestedAt }),
         });
@@ -515,7 +525,7 @@ export function NewCalendar({
         runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
         selectedDate,
-        selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+        selectedLocationId,
         selectedPatientId: activeSelectedPatientId,
         showGdtAlert,
         simulatedContext,

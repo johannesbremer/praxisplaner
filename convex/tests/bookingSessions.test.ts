@@ -92,7 +92,7 @@ async function bootstrapToExistingCalendarSelection(
     sessionId,
   });
   await authed.mutation(api.bookingSessions.selectDoctor, {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     sessionId,
   });
   await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -121,7 +121,7 @@ async function bootstrapToExistingDataSharing(
     sessionId,
   });
   await authed.mutation(api.bookingSessions.selectDoctor, {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     sessionId,
   });
   await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -225,7 +225,7 @@ async function bootstrapToPatientStatus(
 ) {
   await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
   await authed.mutation(api.bookingSessions.selectLocation, {
-    locationId,
+    locationLineageKey: locationId,
     sessionId,
   });
 }
@@ -393,7 +393,7 @@ function makePastSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
       .subtract({ minutes: 5 })
@@ -406,7 +406,7 @@ function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin")
       .add({ days: 1 })
@@ -425,7 +425,7 @@ function makeSoonSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
       .add({ minutes: 30 })
@@ -636,7 +636,7 @@ describe("bookingSessions user identity handling", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -1193,7 +1193,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
@@ -1287,7 +1287,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -1396,7 +1396,7 @@ describe("bookingSessions slot selection validation", () => {
     );
 
     await authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-      appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeId,
       reasonDescription: "Kontrolle",
       selectedSlot: makeSelectedSlot(practitionerId),
       sessionId,
@@ -1448,7 +1448,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "   ",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
@@ -1472,12 +1472,12 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        appointmentTypeLineageKey: otherRuleSetAppointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Ungültige terminart.");
+    ).rejects.toThrow("Lineage-Key");
   });
 
   test("selectNewPatientSlot rejects slots in the past", async () => {
@@ -1498,7 +1498,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makePastSelectedSlot(practitionerId),
         sessionId,
@@ -1529,7 +1529,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
@@ -1560,7 +1560,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: " ",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
@@ -1589,12 +1589,12 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        appointmentTypeLineageKey: otherRuleSetAppointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Ungültige terminart.");
+    ).rejects.toThrow("Lineage-Key");
   });
 
   test("selectExistingPatientSlot rejects slots in the past", async () => {
@@ -1623,7 +1623,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makePastSelectedSlot(practitionerId),
         sessionId,
@@ -1662,7 +1662,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
@@ -1736,13 +1736,13 @@ describe("bookingSessions slot selection validation", () => {
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
     const selectedSlot: SelectedSlotInput = {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       practitionerName: "Dr. Test",
       startTime: nextWeekdayAt(1, 9, 0),
     };
 
     await authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-      appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeId,
       reasonDescription: "Kontrolle",
       selectedSlot,
       sessionId,
@@ -1770,8 +1770,11 @@ describe("bookingSessions slot selection validation", () => {
 });
 
 describe("bookingSessions slot selection argument contracts", () => {
-  test("new patient slot args require appointmentTypeId", () => {
-    type MissingAppointmentType = Omit<NewPatientSlotArgs, "appointmentTypeId">;
+  test("new patient slot args require appointmentTypeLineageKey", () => {
+    type MissingAppointmentType = Omit<
+      NewPatientSlotArgs,
+      "appointmentTypeLineageKey"
+    >;
     type IsMissingTypeAccepted = IsAssignable<
       MissingAppointmentType,
       NewPatientSlotArgs
@@ -1791,10 +1794,10 @@ describe("bookingSessions slot selection argument contracts", () => {
     expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
   });
 
-  test("existing patient slot args require appointmentTypeId", () => {
+  test("existing patient slot args require appointmentTypeLineageKey", () => {
     type MissingAppointmentType = Omit<
       ExistingPatientSlotArgs,
-      "appointmentTypeId"
+      "appointmentTypeLineageKey"
     >;
     type IsMissingTypeAccepted = IsAssignable<
       MissingAppointmentType,
@@ -1836,7 +1839,8 @@ describe("booking session snapshot sanitization", () => {
         hzvStatus: "has-contract",
         insuranceType: "gkv",
         isNewPatient: true,
-        locationId: "location_1",
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -1855,7 +1859,8 @@ describe("booking session snapshot sanitization", () => {
         hzvStatus: "has-contract",
         insuranceType: "gkv",
         isNewPatient: true,
-        locationId: "location_1",
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
         step: "new-calendar-selection",
       });
     }).toThrow("Invalid booking session snapshot");
@@ -1863,21 +1868,21 @@ describe("booking session snapshot sanitization", () => {
     expect(() => {
       assertValidSanitizedBookingSessionState("existing-confirmation", {
         appointmentId: "appointment_1",
-        appointmentTypeId: "appointment_type_1",
+        appointmentTypeLineageKey: "appointment_type_1",
         bookedDurationMinutes: 30,
         dataSharingContacts: [],
         isNewPatient: false,
-        locationId: "location_1",
+        locationLineageKey: "location_1",
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Grace",
           lastName: "Hopper",
           phoneNumber: "+491709999999",
         },
-        practitionerId: "practitioner_1",
+        practitionerLineageKey: "practitioner_1",
         reasonDescription: "Follow-up",
         selectedSlot: {
-          practitionerId: "practitioner_1",
+          practitionerLineageKey: "practitioner_1",
           practitionerName: "Dr. Grace Hopper",
           startTime: "not-a-zoned-date-time",
         },
@@ -1904,7 +1909,8 @@ describe("booking session snapshot sanitization", () => {
         hzvStatus: "has-contract",
         insuranceType: "gkv",
         isNewPatient: true,
-        locationId: "location_1",
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",

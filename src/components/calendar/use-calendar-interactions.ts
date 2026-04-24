@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { SimulatedContextInput } from "../../../convex/typedDtos";
 import type {
   CalendarAppointmentLayout,
   CalendarBlockedSlotRecord,
@@ -117,7 +118,7 @@ export function useCalendarInteractions({
   }) => Promise<unknown>;
   selectedDate: Temporal.PlainDate;
   showNonRootSeriesEditToast: () => void;
-  simulatedContext: undefined | { locationId?: Id<"locations"> };
+  simulatedContext: SimulatedContextInput | undefined;
   slotToTime: (slot: number) => string;
   timeToSlot: (time: string) => number;
 }) {

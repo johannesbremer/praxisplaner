@@ -275,8 +275,8 @@ async function previewPractitionerCoverageForAppointment(
   ) {
     return suggestionBase;
   }
-  const selectedAppointmentTypeId = asAppointmentTypeId(
-    selectedAppointmentType._id,
+  const selectedLocationLineageKey = asLocationLineageKey(
+    args.appointment.locationLineageKey,
   );
   const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
     ctx.db,
@@ -309,8 +309,8 @@ async function previewPractitionerCoverageForAppointment(
       practiceId: args.practiceId,
       ruleSetId: args.ruleSetId,
       simulatedContext: {
-        appointmentTypeId: selectedAppointmentTypeId,
-        locationId: selectedLocationId,
+        appointmentTypeLineageKey,
+        locationLineageKey: selectedLocationLineageKey,
         patient: {
           ...(patientDateOfBirth ? { dateOfBirth: patientDateOfBirth } : {}),
           isNew: false,

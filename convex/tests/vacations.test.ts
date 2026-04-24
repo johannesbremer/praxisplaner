@@ -1078,8 +1078,8 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerId,
-    ).toBe(draftTargetPractitionerId);
+      )?.practitionerLineageKey,
+    ).toBe(selectedTargetPractitioner.lineageKey);
   });
 
   test("coverage preview degrades deleted draft appointment types to unmoved suggestions", async () => {
@@ -1235,8 +1235,8 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerId,
-    ).toBe(draftPreferredPractitionerId);
+      )?.practitionerLineageKey,
+    ).toBe(fixture.preferredPractitionerId);
     expect(vacations).toHaveLength(1);
     expect(vacations[0]?.portion).toBe("morning");
 
@@ -2521,8 +2521,8 @@ describe("vacations", () => {
       practiceId: fixture.practiceId,
       ruleSetId: unsavedRuleSet._id,
       simulatedContext: {
-        appointmentTypeId: unsavedAppointmentType._id,
-        locationId: unsavedLocation._id,
+        appointmentTypeLineageKey: unsavedAppointmentType.lineageKey,
+        locationLineageKey: unsavedLocation.lineageKey,
         patient: { isNew: true },
       },
     });
@@ -2574,8 +2574,8 @@ describe("vacations", () => {
       practiceId: fixture.practiceId,
       ruleSetId: refreshedUnsavedRuleSet._id,
       simulatedContext: {
-        appointmentTypeId: refreshedAppointmentType._id,
-        locationId: refreshedLocation._id,
+        appointmentTypeLineageKey: refreshedAppointmentType.lineageKey,
+        locationLineageKey: refreshedLocation.lineageKey,
         patient: { isNew: true },
       },
     });

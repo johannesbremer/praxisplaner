@@ -16,11 +16,11 @@ export type CalendarAppointmentCreateResult =
   | {
       kind: "missing-patient";
       requestContext: {
-        appointmentTypeId: Id<"appointmentTypes">;
+        appointmentTypeLineageKey: Id<"appointmentTypes">;
         isSimulation: boolean;
-        locationId: Id<"locations">;
+        locationLineageKey: Id<"locations">;
         practiceId: Id<"practices">;
-        practitionerId?: Id<"practitioners">;
+        practitionerLineageKey?: Id<"practitioners">;
         start: string;
         title: string;
       };
@@ -36,27 +36,34 @@ type CreateAppointmentArgs = FunctionArgs<
 
 export function buildCalendarAppointmentRequest(args: {
   appointmentTypeId: Id<"appointmentTypes"> | undefined;
+  appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined;
   appointmentTypeName: string | undefined;
   businessStartHour: number;
   isNewPatient: boolean;
   locationId: Id<"locations"> | undefined;
+  locationLineageKey: Id<"locations"> | undefined;
   mode: "real" | "simulation";
   patient: PatientInfo | undefined;
   pendingAppointmentTitle: string | undefined;
   practiceId: Id<"practices"> | undefined;
   practitionerId: Id<"practitioners"> | undefined;
+  practitionerLineageKey: Id<"practitioners"> | undefined;
   selectedDate: Temporal.PlainDate;
   slot: number;
   slotDurationMinutes: number;
 }): CalendarAppointmentCreateResult {
-  if (!args.appointmentTypeId || !args.appointmentTypeName) {
+  if (
+    !args.appointmentTypeId ||
+    !args.appointmentTypeLineageKey ||
+    !args.appointmentTypeName
+  ) {
     return {
       kind: "error",
       message: "Die Terminart konnte nicht geladen werden.",
     };
   }
 
-  if (!args.locationId) {
+  if (!args.locationId || !args.locationLineageKey) {
     return {
       kind: "error",
       message: "Bitte wählen Sie zuerst einen Standort aus.",
@@ -108,12 +115,12 @@ export function buildCalendarAppointmentRequest(args: {
     return {
       kind: "missing-patient",
       requestContext: {
-        appointmentTypeId: args.appointmentTypeId,
+        appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         isSimulation: args.mode === "simulation",
-        locationId: args.locationId,
+        locationLineageKey: args.locationLineageKey,
         practiceId: args.practiceId,
-        ...(args.practitionerId && {
-          practitionerId: args.practitionerId,
+        ...(args.practitionerLineageKey && {
+          practitionerLineageKey: args.practitionerLineageKey,
         }),
         start: startISO,
         title,

@@ -3036,7 +3036,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
+        appointmentTypeLineageKey: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -3107,7 +3107,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
+        appointmentTypeLineageKey: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -3182,7 +3182,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3202,7 +3202,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -3285,7 +3285,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
+        appointmentTypeLineageKey: generalTypeId,
         patient: { isNew: false },
       },
     });
@@ -3295,14 +3295,14 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Dr. Smith's slots should all be blocked
     const smithSlots = mondaySlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithSlots.length).toBeGreaterThan(0);
     expect(smithSlots.every((slot) => slot.status === "BLOCKED")).toBe(true);
 
     // Dr. Jones's slots should all be available
     const jonesSlots = mondaySlots.slots.filter(
-      (s) => s.practitionerId === drJonesId,
+      (s) => s.practitionerLineageKey === drJonesId,
     );
     expect(jonesSlots.length).toBeGreaterThan(0);
     expect(jonesSlots.every((slot) => slot.status === "AVAILABLE")).toBe(true);
@@ -3401,14 +3401,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId: copiedRuleSetId,
       simulatedContext: {
-        appointmentTypeId: copiedIds.copiedAppointmentTypeId,
+        appointmentTypeLineageKey: baseAppointmentTypeId,
         patient: { isNew: false },
       },
     });
 
     const nineAmSlot = slots.slots.find(
       (slot) =>
-        slot.practitionerId === copiedIds.copiedPractitionerId &&
+        slot.practitionerLineageKey === basePractitionerId &&
         slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
     );
 
@@ -3482,7 +3482,7 @@ describe("E2E: Slot Generation with Rules", () => {
       },
       practiceId,
       simulatedContext: {
-        locationId: copiedIds.copiedLocationId,
+        locationLineageKey: baseLocationId,
         patient: { isNew: false },
       },
     });
@@ -3578,7 +3578,7 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(
       blockedSlots.slots.some(
         (slot) =>
-          slot.practitionerId === targetIds.targetPractitionerId &&
+          slot.practitionerLineageKey === basePractitionerId &&
           slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
       ),
     ).toBe(true);
@@ -3667,7 +3667,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3683,7 +3683,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -3699,7 +3699,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -3818,14 +3818,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
-        locationId: mainOfficeId,
+        appointmentTypeLineageKey: surgeryTypeId,
+        locationLineageKey: mainOfficeId,
         patient: { isNew: false },
       },
     });
 
     const smithMainOfficeSlots = blockedSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithMainOfficeSlots.length).toBeGreaterThan(0);
     expect(
@@ -3838,14 +3838,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
-        locationId: branchId,
+        appointmentTypeLineageKey: surgeryTypeId,
+        locationLineageKey: branchId,
         patient: { isNew: false },
       },
     });
 
     const smithBranchSurgerySlots = smithBranchSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithBranchSurgerySlots.length).toBeGreaterThan(0);
     expect(
@@ -3858,14 +3858,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
-        locationId: mainOfficeId,
+        appointmentTypeLineageKey: surgeryTypeId,
+        locationLineageKey: mainOfficeId,
         patient: { isNew: false },
       },
     });
 
     const jonesSurgerySlots = jonesMainOfficeSlots.slots.filter(
-      (s) => s.practitionerId === drJonesId,
+      (s) => s.practitionerLineageKey === drJonesId,
     );
     expect(jonesSurgerySlots.length).toBeGreaterThan(0);
     expect(jonesSurgerySlots.every((slot) => slot.status === "AVAILABLE")).toBe(
@@ -3878,14 +3878,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
-        locationId: mainOfficeId,
+        appointmentTypeLineageKey: checkupTypeId,
+        locationLineageKey: mainOfficeId,
         patient: { isNew: false },
       },
     });
 
     const smithMainOfficeCheckupSlots = smithCheckupSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithMainOfficeCheckupSlots.length).toBeGreaterThan(0);
     expect(
@@ -3966,7 +3966,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
+        appointmentTypeLineageKey: generalTypeId,
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
@@ -3983,7 +3983,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
+        appointmentTypeLineageKey: generalTypeId,
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
@@ -4066,7 +4066,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -4082,7 +4082,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -4098,7 +4098,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
       },
     });
@@ -4114,7 +4114,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -4188,7 +4188,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: emergencyTypeId,
+        appointmentTypeLineageKey: emergencyTypeId,
         patient: { isNew: false },
       },
     });
@@ -4204,7 +4204,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -4318,14 +4318,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
-        locationId: branchId,
+        appointmentTypeLineageKey: generalTypeId,
+        locationLineageKey: branchId,
         patient: { isNew: false },
       },
     });
 
     const smithBranchSlots = blockedSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithBranchSlots.length).toBeGreaterThan(0);
     expect(smithBranchSlots.every((slot) => slot.status === "BLOCKED")).toBe(
@@ -4341,14 +4341,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: generalTypeId,
-        locationId: mainOfficeId,
+        appointmentTypeLineageKey: generalTypeId,
+        locationLineageKey: mainOfficeId,
         patient: { isNew: false },
       },
     });
 
     const smithMainSlots = allowedSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithMainSlots.length).toBeGreaterThan(0);
     expect(smithMainSlots.every((slot) => slot.status === "AVAILABLE")).toBe(
@@ -4357,7 +4357,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Test 3: Monday + Dr. Jones + Branch Office = AVAILABLE (different practitioner)
     const jonesSlots = blockedSlots.slots.filter(
-      (s) => s.practitionerId === drJonesId,
+      (s) => s.practitionerLineageKey === drJonesId,
     );
     expect(jonesSlots.length).toBeGreaterThan(0);
     expect(jonesSlots.every((slot) => slot.status === "AVAILABLE")).toBe(true);
@@ -4473,7 +4473,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
       },
@@ -4619,14 +4619,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
       },
     });
 
     const smithSlots = blockedSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithSlots.length).toBeGreaterThan(0);
     expect(smithSlots.every((slot) => slot.status === "BLOCKED")).toBe(true);
@@ -4636,7 +4636,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Test 2: Same day/time but with Dr. Jones = AVAILABLE
     const jonesSlots = blockedSlots.slots.filter(
-      (s) => s.practitionerId === drJonesId,
+      (s) => s.practitionerLineageKey === drJonesId,
     );
     expect(jonesSlots.length).toBeGreaterThan(0);
     expect(jonesSlots.every((slot) => slot.status === "AVAILABLE")).toBe(true);
@@ -4647,14 +4647,14 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: surgeryTypeId,
+        appointmentTypeLineageKey: surgeryTypeId,
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
       },
     });
 
     const smithNearSlots = nearSlots.slots.filter(
-      (s) => s.practitionerId === drSmithId,
+      (s) => s.practitionerLineageKey === drSmithId,
     );
     expect(smithNearSlots.length).toBeGreaterThan(0);
     expect(smithNearSlots.every((slot) => slot.status === "AVAILABLE")).toBe(
@@ -4744,7 +4744,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });
@@ -4763,7 +4763,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: emergencyTypeId,
+        appointmentTypeLineageKey: emergencyTypeId,
         patient: { isNew: false },
       },
     });
@@ -4779,7 +4779,7 @@ describe("E2E: Slot Generation with Rules", () => {
       practiceId,
       ruleSetId,
       simulatedContext: {
-        appointmentTypeId: checkupTypeId,
+        appointmentTypeLineageKey: checkupTypeId,
         patient: { isNew: false },
       },
     });

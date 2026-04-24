@@ -75,11 +75,11 @@ export interface NewCalendarProps {
     | undefined;
   onPatientRequired?:
     | ((params: {
-        appointmentTypeId: Id<"appointmentTypes">;
+        appointmentTypeLineageKey: Id<"appointmentTypes">;
         isSimulation: boolean;
-        locationId: Id<"locations">;
+        locationLineageKey: Id<"locations">;
         practiceId: Id<"practices">;
-        practitionerId?: Id<"practitioners">;
+        practitionerLineageKey?: Id<"practitioners">;
         start: string;
         title: string;
       }) => void)

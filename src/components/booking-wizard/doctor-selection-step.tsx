@@ -26,9 +26,11 @@ export function DoctorSelectionStep({
   const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const selectDoctor = useMutation(api.bookingSessions.selectDoctor);
 
-  const handleSelectDoctor = async (practitionerId: Id<"practitioners">) => {
+  const handleSelectDoctor = async (
+    practitionerLineageKey: Id<"practitioners">,
+  ) => {
     try {
-      await selectDoctor({ practitionerId, sessionId });
+      await selectDoctor({ practitionerLineageKey, sessionId });
     } catch (error) {
       console.error("Failed to select doctor:", error);
       toast.error("Ärztin konnte nicht ausgewählt werden", {
@@ -70,7 +72,7 @@ export function DoctorSelectionStep({
             <Button
               className="h-auto p-4 justify-start"
               key={practitioner._id}
-              onClick={() => void handleSelectDoctor(practitioner._id)}
+              onClick={() => void handleSelectDoctor(practitioner.lineageKey)}
               variant="outline"
             >
               <User className="h-5 w-5 mr-3 shrink-0" />

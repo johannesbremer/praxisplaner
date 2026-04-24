@@ -334,27 +334,31 @@ function LogicView() {
   );
 
   // Get the first appointment type ID for default
-  const defaultAppointmentTypeId = appointmentTypesQuery?.[0]?._id;
+  const defaultAppointmentTypeLineageKey =
+    appointmentTypesQuery?.[0]?.lineageKey;
   const hasAutoInitializedDefaultAppointmentTypeRef = useRef(false);
 
   React.useEffect(() => {
     hasAutoInitializedDefaultAppointmentTypeRef.current = false;
   }, [firstRuleSetId]);
 
-  // Initialize appointmentTypeId once appointment types are loaded
+  // Initialize appointmentTypeLineageKey once appointment types are loaded
   React.useEffect(() => {
     if (
-      defaultAppointmentTypeId &&
-      !simulatedContext.appointmentTypeId &&
+      defaultAppointmentTypeLineageKey &&
+      !simulatedContext.appointmentTypeLineageKey &&
       !hasAutoInitializedDefaultAppointmentTypeRef.current
     ) {
       hasAutoInitializedDefaultAppointmentTypeRef.current = true;
       setSimulatedContext((prev) => ({
         ...prev,
-        appointmentTypeId: defaultAppointmentTypeId,
+        appointmentTypeLineageKey: defaultAppointmentTypeLineageKey,
       }));
     }
-  }, [defaultAppointmentTypeId, simulatedContext.appointmentTypeId]);
+  }, [
+    defaultAppointmentTypeLineageKey,
+    simulatedContext.appointmentTypeLineageKey,
+  ]);
 
   // Transform rule sets to include isActive computed field
   // RuleSetSummary interface expects: { _id, description, isActive, version }
@@ -516,11 +520,13 @@ function LogicView() {
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
   const effectiveSimulatedContext = useMemo(() => {
-    const nextLocationId = locationIdFromUrl ?? simulatedContext.locationId;
+    const nextLocationLineageKey =
+      locationsListQuery?.find((location) => location._id === locationIdFromUrl)
+        ?.lineageKey ?? simulatedContext.locationLineageKey;
     const nextPatientIsNew = isNewPatient;
 
     if (
-      nextLocationId === simulatedContext.locationId &&
+      nextLocationLineageKey === simulatedContext.locationLineageKey &&
       nextPatientIsNew === simulatedContext.patient.isNew
     ) {
       return simulatedContext;
@@ -528,19 +534,24 @@ function LogicView() {
 
     return {
       ...simulatedContext,
-      ...(nextLocationId ? { locationId: nextLocationId } : {}),
+      ...(nextLocationLineageKey
+        ? { locationLineageKey: nextLocationLineageKey }
+        : {}),
       patient: { isNew: nextPatientIsNew },
     };
-  }, [isNewPatient, locationIdFromUrl, simulatedContext]);
+  }, [isNewPatient, locationIdFromUrl, locationsListQuery, simulatedContext]);
   const updateSimulatedContext = useCallback(
     (ctx: SimulatedContext) => {
       setSimulatedContext(ctx);
+      const nextLocationId = locationsListQuery?.find(
+        (location) => location.lineageKey === ctx.locationLineageKey,
+      )?._id;
       pushUrl({
         isNewPatient: ctx.patient.isNew,
-        locationId: ctx.locationId,
+        locationId: nextLocationId,
       });
     },
-    [pushUrl],
+    [locationsListQuery, pushUrl],
   );
 
   // Determine current working rule set based on the properly computed ruleSetIdFromUrl
@@ -857,8 +868,8 @@ function LogicView() {
     setIsResettingSimulation(true);
     try {
       const resetContext = createSimulatedContext({
-        ...(defaultAppointmentTypeId && {
-          appointmentTypeId: defaultAppointmentTypeId,
+        ...(defaultAppointmentTypeLineageKey && {
+          appointmentTypeLineageKey: defaultAppointmentTypeLineageKey,
         }),
         isNewPatient: true,
       });
@@ -876,7 +887,11 @@ function LogicView() {
     } finally {
       setIsResettingSimulation(false);
     }
-  }, [defaultAppointmentTypeId, performClearSimulatedAppointments, pushUrl]);
+  }, [
+    defaultAppointmentTypeLineageKey,
+    performClearSimulatedAppointments,
+    pushUrl,
+  ]);
 
   // TODO: Fetch rules for the current working rule set (re-enable once new rule system is implemented)
   // const rulesQuery = useQuery(

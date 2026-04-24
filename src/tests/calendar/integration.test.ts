@@ -323,7 +323,10 @@ describe("calendar resize interactions", () => {
         runUpdateBlockedSlot: vi.fn(),
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
         showNonRootSeriesEditToast: vi.fn(),
-        simulatedContext: { locationId: location1 },
+        simulatedContext: {
+          locationLineageKey: location1,
+          patient: { isNew: true },
+        },
         slotToTime: (slot) =>
           `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`,
         timeToSlot: (time) => {
@@ -472,7 +475,10 @@ describe("calendar resize interactions", () => {
         runUpdateBlockedSlot,
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
         showNonRootSeriesEditToast: vi.fn(),
-        simulatedContext: { locationId: location1 },
+        simulatedContext: {
+          locationLineageKey: location1,
+          patient: { isNew: true },
+        },
         slotToTime: (slot) =>
           `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`,
         timeToSlot: (time) => {
@@ -562,7 +568,8 @@ describe("calendar resize interactions", () => {
           selectedDate: Temporal.PlainDate.from("2026-04-23"),
           showNonRootSeriesEditToast: vi.fn(),
           simulatedContext: {
-            locationId: location1,
+            locationLineageKey: location1,
+            patient: { isNew: true },
           },
           slotToTime,
           timeToSlot,
@@ -618,7 +625,8 @@ describe("calendar resize interactions", () => {
       selectedDate: Temporal.PlainDate.from("2026-04-23"),
       showNonRootSeriesEditToast: vi.fn(),
       simulatedContext: {
-        locationId: location1,
+        locationLineageKey: location1,
+        patient: { isNew: true },
       },
       slotToTime,
       timeToSlot,

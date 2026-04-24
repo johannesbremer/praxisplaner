@@ -28,10 +28,10 @@ export type BookingSessionState = BookingSessionStep;
 export type DataSharingContact =
   Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
 export type DataSharingContactInput = TypedDataSharingContactInput;
-export type InternalBookingSelectedSlot =
-  RewriteBookingReferences<SelectedSlotInput>;
-export type InternalBookingSessionState =
-  RewriteBookingReferences<BookingSessionStep>;
+export type InternalBookingSelectedSlot = SelectedSlotInput;
+export type InternalBookingSessionState = RewriteBookingReferences<
+  StripTopLevelPublicBookingLabels<BookingSessionStep>
+>;
 export type InternalStateAtStep<S extends InternalBookingSessionState["step"]> =
   Extract<InternalBookingSessionState, { step: S }>;
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
@@ -128,6 +128,11 @@ export type StepTablePatch<T extends StepTableName> = StepTableInput<T> & {
   lastModified: bigint;
 };
 
+type PublicBookingLabelKey =
+  | "appointmentTypeName"
+  | "locationName"
+  | "practitionerName";
+
 type RewriteBookingReferenceKey<Key extends string> =
   Key extends "appointmentTypeId"
     ? "appointmentTypeLineageKey"
@@ -149,3 +154,11 @@ type RewriteBookingReferences<Value> =
               : Key]: RewriteBookingReferences<Value[Key]>;
           }
         : Value;
+
+type StripTopLevelPublicBookingLabels<Value> = Value extends object
+  ? {
+      [Key in keyof Value as Key extends PublicBookingLabelKey
+        ? never
+        : Key]: Value[Key];
+    }
+  : Value;

@@ -1093,28 +1093,13 @@ async function queryAvailableSlotsForDay(
   if (cachedSlots) {
     return cachedSlots;
   }
-
-  const result: { log: string[]; slots: InternalSchedulingResultSlot[] } =
-    await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
-      date: args.date,
-      ...(args.excludedAppointmentIds && {
-        excludedAppointmentIds: args.excludedAppointmentIds,
-      }),
-      practiceId: args.practiceId,
-      ruleSetId: args.ruleSetId,
-      ...(args.scope && { scope: args.scope }),
-      simulatedContext: {
-        appointmentTypeId: args.appointmentType._id,
-        ...(args.locationId && { locationId: args.locationId }),
-        patient: {
-          ...(args.patientDateOfBirth && {
-            dateOfBirth: args.patientDateOfBirth,
-          }),
-          isNew: args.isNewPatient ?? false,
-        },
-        requestedAt: args.requestedAt,
-      },
-    });
+  const appointmentTypeLineageKey = args.appointmentType.lineageKey;
+  if (!appointmentTypeLineageKey) {
+    throw appointmentSeriesError(
+      "CHAIN_NOT_FOUND",
+      "Appointment type is missing its lineage key",
+    );
+  }
 
   const [
     allowedPractitionerLineageKeys,
@@ -1141,6 +1126,30 @@ async function queryAvailableSlotsForDay(
           asPractitionerId(args.practitionerId),
         ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
   ]);
+
+  const result: { log: string[]; slots: InternalSchedulingResultSlot[] } =
+    await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+      date: args.date,
+      ...(args.excludedAppointmentIds && {
+        excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
+      simulatedContext: {
+        appointmentTypeLineageKey,
+        ...(selectedLocationLineageKey === undefined
+          ? {}
+          : { locationLineageKey: selectedLocationLineageKey }),
+        patient: {
+          ...(args.patientDateOfBirth && {
+            dateOfBirth: args.patientDateOfBirth,
+          }),
+          isNew: args.isNewPatient ?? false,
+        },
+        requestedAt: args.requestedAt,
+      },
+    });
 
   const slots = result.slots
     .filter((slot) => slot.status === "AVAILABLE")

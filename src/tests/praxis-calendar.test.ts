@@ -69,14 +69,19 @@ describe("calendar appointment request builder", () => {
     appointmentTypeId: toTableId<"appointmentTypes">(
       "appointment_type_checkup",
     ),
+    appointmentTypeLineageKey: toTableId<"appointmentTypes">(
+      "appointment_type_lineage_checkup",
+    ),
     appointmentTypeName: "Checkup",
     businessStartHour: 8,
     isNewPatient: false,
     locationId: toTableId<"locations">("location_main"),
+    locationLineageKey: toTableId<"locations">("location_lineage_main"),
     patient: undefined,
     pendingAppointmentTitle: undefined,
     practiceId: toTableId<"practices">("practice_main"),
     practitionerId: undefined,
+    practitionerLineageKey: undefined,
     selectedDate,
     slot: 12,
     slotDurationMinutes: 5,
@@ -93,12 +98,18 @@ describe("calendar appointment request builder", () => {
       mode: "real",
       patient,
       practitionerId: toTableId<"practitioners">("practitioner_1"),
+      practitionerLineageKey: toTableId<"practitioners">(
+        "practitioner_lineage_1",
+      ),
     });
     const simulationResult = buildCalendarAppointmentRequest({
       ...sharedArgs,
       mode: "simulation",
       patient,
       practitionerId: toTableId<"practitioners">("practitioner_1"),
+      practitionerLineageKey: toTableId<"practitioners">(
+        "practitioner_lineage_1",
+      ),
     });
 
     expect(realResult).toMatchObject({
@@ -144,9 +155,9 @@ describe("calendar appointment request builder", () => {
     ).toEqual({
       kind: "missing-patient",
       requestContext: {
-        appointmentTypeId: "appointment_type_checkup",
+        appointmentTypeLineageKey: "appointment_type_lineage_checkup",
         isSimulation: false,
-        locationId: "location_main",
+        locationLineageKey: "location_lineage_main",
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "EKG Follow-up",

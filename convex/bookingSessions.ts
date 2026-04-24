@@ -8,11 +8,8 @@ import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
-  resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
-  resolveLocationLineageKey,
   resolvePractitionerIdForRuleSetByLineage,
-  resolvePractitionerLineageKey,
 } from "./appointmentReferences";
 import { createAppointmentFromTrustedSource } from "./appointments";
 import {
@@ -41,13 +38,9 @@ import {
   type StepTablePatch,
 } from "./bookingSessions.shared";
 import {
-  asAppointmentTypeId,
   asAppointmentTypeLineageKey,
-  asLocationId,
   asLocationLineageKey,
-  asPractitionerId,
   asPractitionerLineageKey,
-  toTableId,
 } from "./identity";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
@@ -150,79 +143,30 @@ async function materializeInternalState(
   session: SessionDoc,
   state: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
-  const materialized: Record<string, unknown> = {};
+  const materialized: Record<string, unknown> = { ...state };
 
-  for (const [key, value] of Object.entries(state)) {
-    switch (key) {
-      case "appointmentTypeLineageKey": {
-        if (typeof value !== "string") {
-          throw new TypeError(
-            "Invalid appointment type lineage key in snapshot",
-          );
-        }
-        materialized["appointmentTypeId"] =
-          await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
-            lineageKey: asAppointmentTypeLineageKey(
-              toTableId<"appointmentTypes">(value),
-            ),
-            ruleSetId: session.ruleSetId,
-          });
-        break;
-      }
-      case "locationLineageKey": {
-        if (typeof value !== "string") {
-          throw new TypeError("Invalid location lineage key in snapshot");
-        }
-        materialized["locationId"] = await resolveLocationIdForRuleSetByLineage(
-          ctx.db,
-          {
-            lineageKey: asLocationLineageKey(toTableId<"locations">(value)),
-            ruleSetId: session.ruleSetId,
-          },
-        );
-        break;
-      }
-      case "practitionerLineageKey": {
-        if (typeof value !== "string") {
-          throw new TypeError("Invalid practitioner lineage key in snapshot");
-        }
-        materialized["practitionerId"] =
-          await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: asPractitionerLineageKey(
-              toTableId<"practitioners">(value),
-            ),
-            ruleSetId: session.ruleSetId,
-          });
-        break;
-      }
-      case "selectedSlot": {
-        if (
-          !isPlainObject(value) ||
-          typeof value["practitionerLineageKey"] !== "string" ||
-          typeof value["practitionerName"] !== "string" ||
-          typeof value["startTime"] !== "string"
-        ) {
-          throw new Error("Invalid selected slot snapshot");
-        }
-        materialized["selectedSlot"] = {
-          practitionerId: await resolvePractitionerIdForRuleSetByLineage(
-            ctx.db,
-            {
-              lineageKey: asPractitionerLineageKey(
-                toTableId<"practitioners">(value["practitionerLineageKey"]),
-              ),
-              ruleSetId: session.ruleSetId,
-            },
-          ),
-          practitionerName: value["practitionerName"],
-          startTime: value["startTime"],
-        };
-        break;
-      }
-      default: {
-        materialized[key] = value;
-      }
-    }
+  if ("appointmentTypeLineageKey" in state) {
+    materialized["appointmentTypeName"] =
+      await resolveAppointmentTypeNameForPublicState(
+        ctx.db,
+        session.ruleSetId,
+        state.appointmentTypeLineageKey,
+      );
+  }
+  if ("locationLineageKey" in state) {
+    materialized["locationName"] = await resolveLocationNameForPublicState(
+      ctx.db,
+      session.ruleSetId,
+      state.locationLineageKey,
+    );
+  }
+  if ("practitionerLineageKey" in state) {
+    materialized["practitionerName"] =
+      await resolvePractitionerNameForPublicState(
+        ctx.db,
+        session.ruleSetId,
+        state.practitionerLineageKey,
+      );
   }
 
   const publicState = sanitizeState(session.state.step, {
@@ -282,6 +226,27 @@ function requireSelectableRuleSetEntity<
   return entity;
 }
 
+async function resolveAppointmentTypeNameForPublicState(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  ruleSetId: Id<"ruleSets">,
+  appointmentTypeLineageKey: Id<"appointmentTypes">,
+): Promise<string> {
+  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+    db,
+    {
+      lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
+      ruleSetId,
+    },
+  );
+  const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
+  if (!appointmentType) {
+    throw new Error(
+      `Terminart ${appointmentTypeLineageKey} konnte nicht geladen werden.`,
+    );
+  }
+  return appointmentType.name;
+}
+
 async function resolveLocationIdForInternalState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
@@ -291,6 +256,24 @@ async function resolveLocationIdForInternalState(
     lineageKey: asLocationLineageKey(locationLineageKey),
     ruleSetId,
   });
+}
+
+async function resolveLocationNameForPublicState(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  ruleSetId: Id<"ruleSets">,
+  locationLineageKey: Id<"locations">,
+): Promise<string> {
+  const locationId = await resolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: asLocationLineageKey(locationLineageKey),
+    ruleSetId,
+  });
+  const location = await db.get("locations", locationId);
+  if (!location) {
+    throw new Error(
+      `Standort ${locationLineageKey} konnte nicht geladen werden.`,
+    );
+  }
+  return location.name;
 }
 
 async function resolvePractitionerIdForInternalState(
@@ -304,45 +287,53 @@ async function resolvePractitionerIdForInternalState(
   });
 }
 
-async function resolveStoredAppointmentTypeLineageKey(
+async function resolvePractitionerNameForPublicState(
   db: MutationCtx["db"] | QueryCtx["db"],
-  appointmentTypeId: Id<"appointmentTypes">,
-) {
-  return await resolveAppointmentTypeLineageKey(
-    db,
-    asAppointmentTypeId(appointmentTypeId),
-  );
-}
-
-async function resolveStoredLocationLineageKey(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  locationId: Id<"locations">,
-) {
-  return await resolveLocationLineageKey(db, asLocationId(locationId), {
-    allowDeleted: true,
+  ruleSetId: Id<"ruleSets">,
+  practitionerLineageKey: Id<"practitioners">,
+): Promise<string> {
+  const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+    ruleSetId,
   });
+  const practitioner = await db.get("practitioners", practitionerId);
+  if (!practitioner) {
+    throw new Error(
+      `Behandler ${practitionerLineageKey} konnte nicht geladen werden.`,
+    );
+  }
+  return practitioner.name;
 }
 
-async function resolveStoredPractitionerLineageKey(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  practitionerId: Id<"practitioners">,
+function resolveStoredAppointmentTypeLineageKey(
+  _db: MutationCtx["db"] | QueryCtx["db"],
+  appointmentTypeLineageKey: Id<"appointmentTypes">,
 ) {
-  return await resolvePractitionerLineageKey(
-    db,
-    asPractitionerId(practitionerId),
-  );
+  return asAppointmentTypeLineageKey(appointmentTypeLineageKey);
 }
 
-async function toStoredSelectedSlot(
+function resolveStoredLocationLineageKey(
+  _db: MutationCtx["db"] | QueryCtx["db"],
+  locationLineageKey: Id<"locations">,
+) {
+  return asLocationLineageKey(locationLineageKey);
+}
+
+function resolveStoredPractitionerLineageKey(
+  _db: MutationCtx["db"] | QueryCtx["db"],
+  practitionerLineageKey: Id<"practitioners">,
+) {
+  return asPractitionerLineageKey(practitionerLineageKey);
+}
+
+function toStoredSelectedSlot(
   db: MutationCtx["db"] | QueryCtx["db"],
   selectedSlot: ReturnType<typeof asSelectedSlotInput>,
-): Promise<
-  StepTableDocMap["bookingExistingCalendarSelectionSteps"]["selectedSlot"]
-> {
+): StepTableDocMap["bookingExistingCalendarSelectionSteps"]["selectedSlot"] {
   return {
-    practitionerLineageKey: await resolveStoredPractitionerLineageKey(
+    practitionerLineageKey: resolveStoredPractitionerLineageKey(
       db,
-      selectedSlot.practitionerId,
+      selectedSlot.practitionerLineageKey,
     ),
     practitionerName: selectedSlot.practitionerName,
     startTime: selectedSlot.startTime,
@@ -1240,37 +1231,55 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
 > = {
   "existing-calendar-selection": [
     "isNewPatient",
-    "locationId",
-    "practitionerId",
+    "locationLineageKey",
+    "locationName",
+    "practitionerLineageKey",
+    "practitionerName",
     "personalData",
     "dataSharingContacts",
   ],
   "existing-confirmation": [
     "appointmentId",
-    "appointmentTypeId",
+    "appointmentTypeLineageKey",
+    "appointmentTypeName",
     "bookedDurationMinutes",
     "isNewPatient",
-    "locationId",
-    "practitionerId",
+    "locationLineageKey",
+    "locationName",
+    "practitionerLineageKey",
+    "practitionerName",
     "personalData",
     "dataSharingContacts",
     "reasonDescription",
     "selectedSlot",
     "patientId",
   ],
-  "existing-data-input": ["isNewPatient", "locationId", "practitionerId"],
+  "existing-data-input": [
+    "isNewPatient",
+    "locationLineageKey",
+    "locationName",
+    "practitionerLineageKey",
+    "practitionerName",
+  ],
   "existing-data-input-complete": [
     "isNewPatient",
-    "locationId",
-    "practitionerId",
+    "locationLineageKey",
+    "locationName",
+    "practitionerLineageKey",
+    "practitionerName",
     "personalData",
   ],
-  "existing-doctor-selection": ["isNewPatient", "locationId"],
+  "existing-doctor-selection": [
+    "isNewPatient",
+    "locationLineageKey",
+    "locationName",
+  ],
   location: [],
   "new-calendar-selection": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
     "pvsConsent",
     "pkvInsuranceType",
@@ -1282,11 +1291,13 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   ],
   "new-confirmation": [
     "appointmentId",
-    "appointmentTypeId",
+    "appointmentTypeLineageKey",
+    "appointmentTypeName",
     "bookedDurationMinutes",
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
     "pvsConsent",
     "pkvInsuranceType",
@@ -1303,7 +1314,8 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "new-data-input": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
     "pvsConsent",
     "pkvInsuranceType",
@@ -1313,7 +1325,8 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "new-data-input-complete": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
     "pvsConsent",
     "pkvInsuranceType",
@@ -1325,7 +1338,8 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
   "new-data-sharing": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
     "pvsConsent",
     "pkvInsuranceType",
@@ -1334,31 +1348,44 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "personalData",
     "medicalHistory",
   ],
-  "new-gkv-details": ["insuranceType", "isNewPatient", "locationId"],
+  "new-gkv-details": [
+    "insuranceType",
+    "isNewPatient",
+    "locationLineageKey",
+    "locationName",
+  ],
   "new-gkv-details-complete": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "hzvStatus",
   ],
-  "new-insurance-type": ["isNewPatient", "locationId"],
+  "new-insurance-type": ["isNewPatient", "locationLineageKey", "locationName"],
   "new-pkv-details": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "pvsConsent",
   ],
   "new-pkv-details-complete": [
     "insuranceType",
     "isNewPatient",
-    "locationId",
+    "locationLineageKey",
+    "locationName",
     "pvsConsent",
     "pkvInsuranceType",
     "pkvTariff",
     "beihilfeStatus",
   ],
-  "new-pvs-consent": ["insuranceType", "isNewPatient", "locationId"],
-  "patient-status": ["locationId"],
+  "new-pvs-consent": [
+    "insuranceType",
+    "isNewPatient",
+    "locationLineageKey",
+    "locationName",
+  ],
+  "patient-status": ["locationLineageKey", "locationName"],
   privacy: [],
 };
 
@@ -1611,7 +1638,8 @@ function hasValidTypedBookingStrings(state: Record<string, unknown>): boolean {
     selectedSlot !== undefined &&
     (!isPlainObject(selectedSlot) ||
       typeof selectedSlot["startTime"] !== "string" ||
-      !isZonedDateTimeString(selectedSlot["startTime"]))
+      !isZonedDateTimeString(selectedSlot["startTime"]) ||
+      typeof selectedSlot["practitionerLineageKey"] !== "string")
   ) {
     return false;
   }
@@ -2152,7 +2180,7 @@ export const acceptPrivacy = mutation({
  */
 export const selectLocation = mutation({
   args: {
-    locationId: v.id("locations"),
+    locationLineageKey: v.id("locations"),
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
@@ -2160,19 +2188,24 @@ export const selectLocation = mutation({
     assertInternalStep(session.state, "location");
 
     // Verify location exists and belongs to this practice
-    const location = await ctx.db.get("locations", args.locationId);
+    const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
+      lineageKey: asLocationLineageKey(args.locationLineageKey),
+      ruleSetId: session.ruleSetId,
+    });
+    const location = await ctx.db.get("locations", locationId);
     requireSelectableRuleSetEntity({
       entity: location,
       entityLabel: "Standort",
       expectedPracticeId: session.practiceId,
+      expectedRuleSetId: session.ruleSetId,
     });
 
     await setSessionStep(ctx, args.sessionId, "patient-status");
 
     const base = getStepBase(session);
-    const locationLineageKey = await resolveStoredLocationLineageKey(
+    const locationLineageKey = resolveStoredLocationLineageKey(
       ctx.db,
-      args.locationId,
+      args.locationLineageKey,
     );
     await upsertStep(ctx, "bookingLocationSteps", session, {
       ...base,
@@ -2502,7 +2535,7 @@ export const submitNewDataSharing = mutation({
  */
 export const selectNewPatientSlot = mutation({
   args: {
-    appointmentTypeId: v.id("appointmentTypes"),
+    appointmentTypeLineageKey: v.id("appointmentTypes"),
     reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
     sessionId: v.id("bookingSessions"),
@@ -2526,31 +2559,37 @@ export const selectNewPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(selectedSlot.startTime);
 
+    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+      ctx.db,
+      {
+        lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
+        ruleSetId: session.ruleSetId,
+      },
+    );
     const selectedAppointmentType = requireSelectableRuleSetEntity({
-      entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
+      entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
       expectedRuleSetId: session.ruleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeId,
       locationLineageKey: state.locationLineageKey,
       patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
-      practitionerLineageKey: await resolveStoredPractitionerLineageKey(
+      practitionerLineageKey: resolveStoredPractitionerLineageKey(
         ctx.db,
-        selectedSlot.practitionerId,
+        selectedSlot.practitionerLineageKey,
       ),
       ruleSetId: session.ruleSetId,
       startTime: selectedSlot.startTime,
     });
 
     const base = getStepBase(session);
-    const appointmentTypeLineageKey =
-      await resolveStoredAppointmentTypeLineageKey(
-        ctx.db,
-        args.appointmentTypeId,
-      );
-    const storedSelectedSlot = await toStoredSelectedSlot(ctx.db, selectedSlot);
+    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
+      ctx.db,
+      args.appointmentTypeLineageKey,
+    );
+    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
       ...base,
       appointmentTypeLineageKey,
@@ -2594,12 +2633,16 @@ export const selectNewPatientSlot = mutation({
     );
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeId,
       isNewPatient: true,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
-      practitionerId: selectedSlot.practitionerId,
+      practitionerId: await resolvePractitionerIdForInternalState(
+        ctx.db,
+        session.ruleSetId,
+        selectedSlot.practitionerLineageKey,
+      ),
       start: selectedSlot.startTime,
       title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
@@ -2689,7 +2732,7 @@ export const selectNewPatientSlot = mutation({
  */
 export const selectDoctor = mutation({
   args: {
-    practitionerId: v.id("practitioners"),
+    practitionerLineageKey: v.id("practitioners"),
     sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
@@ -2700,7 +2743,14 @@ export const selectDoctor = mutation({
     );
 
     // Verify practitioner exists
-    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+    const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
+      ctx.db,
+      {
+        lineageKey: asPractitionerLineageKey(args.practitionerLineageKey),
+        ruleSetId: session.ruleSetId,
+      },
+    );
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
     requireSelectableRuleSetEntity({
       entity: practitioner,
       entityLabel: "Behandler",
@@ -2711,9 +2761,9 @@ export const selectDoctor = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-data-input");
 
     const base = getStepBase(session);
-    const practitionerLineageKey = await resolveStoredPractitionerLineageKey(
+    const practitionerLineageKey = resolveStoredPractitionerLineageKey(
       ctx.db,
-      args.practitionerId,
+      args.practitionerLineageKey,
     );
     await upsertStep(ctx, "bookingExistingDoctorSelectionSteps", session, {
       ...base,
@@ -2824,7 +2874,7 @@ export const submitExistingDataSharing = mutation({
  */
 export const selectExistingPatientSlot = mutation({
   args: {
-    appointmentTypeId: v.id("appointmentTypes"),
+    appointmentTypeLineageKey: v.id("appointmentTypes"),
     reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
     sessionId: v.id("bookingSessions"),
@@ -2844,13 +2894,20 @@ export const selectExistingPatientSlot = mutation({
     }
     assertSlotStartIsInFuture(selectedSlot.startTime);
 
+    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+      ctx.db,
+      {
+        lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
+        ruleSetId: session.ruleSetId,
+      },
+    );
     const appointmentType = requireSelectableRuleSetEntity({
-      entity: await ctx.db.get("appointmentTypes", args.appointmentTypeId),
+      entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
       expectedRuleSetId: session.ruleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeId,
       locationLineageKey: state.locationLineageKey,
       patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
@@ -2873,7 +2930,7 @@ export const selectExistingPatientSlot = mutation({
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeId,
       isNewPatient: false,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
@@ -2888,12 +2945,11 @@ export const selectExistingPatientSlot = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-confirmation");
 
     const base = getStepBase(session);
-    const appointmentTypeLineageKey =
-      await resolveStoredAppointmentTypeLineageKey(
-        ctx.db,
-        args.appointmentTypeId,
-      );
-    const storedSelectedSlot = await toStoredSelectedSlot(ctx.db, selectedSlot);
+    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
+      ctx.db,
+      args.appointmentTypeLineageKey,
+    );
+    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {
       ...base,
       appointmentTypeLineageKey,

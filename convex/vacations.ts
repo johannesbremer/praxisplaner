@@ -851,6 +851,12 @@ export const createVacationWithCoverageAdjustments = mutation({
         practiceId: args.practiceId,
         targetRuleSetId: ruleSetId,
       });
+      const selectedAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+        appointment.appointmentTypeLineageKey,
+      );
+      const selectedLocationLineageKey = asLocationLineageKey(
+        appointment.locationLineageKey,
+      );
 
       const targetPractitionerLineageKey = await resolvePractitionerLineageKey(
         ctx.db,
@@ -894,8 +900,8 @@ export const createVacationWithCoverageAdjustments = mutation({
           practiceId: args.practiceId,
           ruleSetId,
           simulatedContext: {
-            appointmentTypeId: selectedAppointmentTypeId,
-            locationId: selectedLocationId,
+            appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+            locationLineageKey: selectedLocationLineageKey,
             patient: {
               ...(patientDateOfBirth
                 ? { dateOfBirth: patientDateOfBirth }

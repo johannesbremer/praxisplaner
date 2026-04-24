@@ -49,7 +49,7 @@ describe("Regeln Integration - Simulation Metadata", () => {
     expect(event.isSimulation).toBe(true);
     expect(event.appointmentTypeId).toBe(appointmentTypeId);
     expect(event.locationId).toBe("location1");
-    expect(event.practitionerId).toBe(practitionerId);
+    expect(event.practitionerLineageKey).toBe(practitionerId);
   });
 
   it("defaults to real appointments when simulation flag is absent", () => {
@@ -63,19 +63,19 @@ describe("Regeln Integration - Simulation Metadata", () => {
   it("allows updating simulated context dynamically", () => {
     const appointmentTypeId = toTableId<"appointmentTypes">("appointmentType3");
     const context: SchedulingSimulatedContext = {
-      appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeId,
       patient: { isNew: true },
     };
 
     const updatedContext: SchedulingSimulatedContext = {
       ...context,
-      locationId: toTableId<"locations">("location2"),
+      locationLineageKey: toTableId<"locations">("location2"),
       patient: { isNew: false },
     };
 
-    expect(updatedContext.appointmentTypeId).toBe(appointmentTypeId);
+    expect(updatedContext.appointmentTypeLineageKey).toBe(appointmentTypeId);
     expect(updatedContext.patient.isNew).toBe(false);
-    expect(updatedContext.locationId).toBe("location2");
+    expect(updatedContext.locationLineageKey).toBe("location2");
   });
 
   it("preserves practitioner metadata for simulation events", () => {
@@ -88,7 +88,7 @@ describe("Regeln Integration - Simulation Metadata", () => {
       practitionerLineageKey: practitionerId,
     });
 
-    expect(event.practitionerId).toBe(practitionerId);
+    expect(event.practitionerLineageKey).toBe(practitionerId);
     expect(event.isSimulation).toBe(true);
   });
 });

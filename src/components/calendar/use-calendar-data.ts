@@ -25,6 +25,7 @@ interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: Id<"practitioners">[];
   duration: number;
   hasFollowUpPlan: boolean;
+  lineageKey: Id<"appointmentTypes">;
   name: string;
 }
 
@@ -38,8 +39,8 @@ export function useCalendarData(args: {
   simulatedContext:
     | undefined
     | {
-        appointmentTypeId?: Id<"appointmentTypes">;
-        locationId?: Id<"locations">;
+        appointmentTypeLineageKey?: Id<"appointmentTypes">;
+        locationLineageKey?: Id<"locations">;
         patient: { dateOfBirth?: string; isNew: boolean };
       };
 }) {
@@ -48,10 +49,35 @@ export function useCalendarData(args: {
     api.ruleSets.getActiveRuleSet,
     args.practiceId ? { practiceId: args.practiceId } : "skip",
   );
+  const locationsData = useQuery(
+    args.ruleSetId
+      ? api.entities.getLocations
+      : api.entities.getLocationsFromActive,
+    args.ruleSetId
+      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
+      : args.practiceId
+        ? { practiceId: args.practiceId }
+        : "skip",
+  );
+  const appointmentTypesData = useQuery(
+    args.ruleSetId
+      ? api.entities.getAppointmentTypes
+      : api.entities.getAppointmentTypesFromActive,
+    args.ruleSetId
+      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
+      : args.practiceId
+        ? { practiceId: args.practiceId }
+        : "skip",
+  );
   const appointmentScope = args.simulatedContext ? "simulation" : "real";
   const activeRuleSetId = activeRuleSetData?._id;
   const effectiveLocationId =
-    args.simulatedContext?.locationId ?? args.selectedLocationId;
+    args.simulatedContext?.locationLineageKey === undefined
+      ? args.selectedLocationId
+      : (locationsData?.find(
+          (location) =>
+            location.lineageKey === args.simulatedContext?.locationLineageKey,
+        )?._id ?? args.selectedLocationId);
   const calendarDayQueryArgs = useMemo(
     () =>
       buildCalendarDayQueryArgs({
@@ -272,27 +298,6 @@ export function useCalendarData(args: {
         ? { practiceId: args.practiceId }
         : "skip",
   );
-  const locationsData = useQuery(
-    args.ruleSetId
-      ? api.entities.getLocations
-      : api.entities.getLocationsFromActive,
-    args.ruleSetId
-      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
-      : args.practiceId
-        ? { practiceId: args.practiceId }
-        : "skip",
-  );
-  const appointmentTypesData = useQuery(
-    args.ruleSetId
-      ? api.entities.getAppointmentTypes
-      : api.entities.getAppointmentTypesFromActive,
-    args.ruleSetId
-      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
-      : args.practiceId
-        ? { practiceId: args.practiceId }
-        : "skip",
-  );
-
   const appointmentTypeIdByLineageKey = useMemo(
     () =>
       new Map(
@@ -377,6 +382,7 @@ export function useCalendarData(args: {
         allowedPractitionerLineageKeys,
         duration: appointmentType.duration,
         hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
       });
     }
@@ -424,8 +430,8 @@ export function useCalendarData(args: {
 
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    args.simulatedContext?.appointmentTypeId &&
-      args.simulatedContext.locationId &&
+    args.simulatedContext?.appointmentTypeLineageKey &&
+      args.simulatedContext.locationLineageKey &&
       args.practiceId &&
       args.ruleSetId
       ? {
@@ -441,15 +447,26 @@ export function useCalendarData(args: {
           args.ruleSetId
         ? (() => {
             const patientDateOfBirth = args.patient?.dateOfBirth;
+            const appointmentTypeLineageKey = appointmentTypesData?.find(
+              (appointmentType) =>
+                appointmentType._id === args.selectedAppointmentTypeId,
+            )?.lineageKey;
+            const locationLineageKey = locationsData?.find(
+              (location) => location._id === args.selectedLocationId,
+            )?.lineageKey;
             return {
               date: args.selectedDate.toString(),
               practiceId: args.practiceId,
               ruleSetId: args.ruleSetId,
               scope: "real" as const,
               simulatedContext: createSimulatedContext({
-                appointmentTypeId: args.selectedAppointmentTypeId,
+                ...(appointmentTypeLineageKey === undefined
+                  ? {}
+                  : { appointmentTypeLineageKey }),
                 isNewPatient: args.patient?.isNewPatient ?? false,
-                locationId: args.selectedLocationId,
+                ...(locationLineageKey === undefined
+                  ? {}
+                  : { locationLineageKey }),
                 ...(patientDateOfBirth !== undefined && {
                   patientDateOfBirth,
                 }),

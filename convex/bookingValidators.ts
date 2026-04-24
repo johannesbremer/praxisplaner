@@ -107,16 +107,12 @@ export const emergencyContactValidator = v.object({
 });
 
 export const selectedSlotValidator = v.object({
-  practitionerId: v.id("practitioners"),
-  practitionerName: v.string(),
-  startTime: v.string(),
-});
-
-export const selectedSlotStorageValidator = v.object({
   practitionerLineageKey: v.id("practitioners"),
   practitionerName: v.string(),
   startTime: v.string(),
 });
+
+export const selectedSlotStorageValidator = selectedSlotValidator;
 
 export const gkvDetailsValidator = v.object({
   hzvStatus: hzvStatusValidator,
