@@ -22,6 +22,7 @@ import {
   resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
+  resolveOccupancyReferenceLineageKeys,
   resolvePractitionerIdForRuleSetByLineage,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
@@ -78,6 +79,7 @@ type AppointmentScope = "all" | "real" | "simulation";
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
+type BlockedSlotListItem = Infer<typeof blockedSlotListItemValidator>;
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 interface TrustedAppointmentInput {
@@ -157,6 +159,7 @@ export type AppointmentResult = Omit<
   "end" | "start"
 > &
   TypedDateTimeRange;
+export type BlockedSlotResult = BlockedSlotListItem;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
@@ -299,6 +302,72 @@ function isVisibleAppointment(
   return !isAppointmentCancelled(appointment);
 }
 
+async function mapBlockedSlotForDisplay(
+  db: DatabaseReader,
+  blockedSlot: BlockedSlotDoc,
+  targetRuleSetId?: Id<"ruleSets">,
+): Promise<BlockedSlotListItem | null> {
+  try {
+    return {
+      _creationTime: blockedSlot._creationTime,
+      _id: blockedSlot._id,
+      createdAt: blockedSlot.createdAt,
+      end: blockedSlot.end,
+      ...(blockedSlot.isSimulation === undefined
+        ? {}
+        : { isSimulation: blockedSlot.isSimulation }),
+      lastModified: blockedSlot.lastModified,
+      locationId:
+        targetRuleSetId === undefined
+          ? blockedSlot.locationLineageKey
+          : await resolveLocationIdForDisplayRuleSet(
+              db,
+              blockedSlot.locationLineageKey,
+              targetRuleSetId,
+            ),
+      practiceId: blockedSlot.practiceId,
+      ...(blockedSlot.practitionerLineageKey
+        ? {
+            practitionerId:
+              targetRuleSetId === undefined
+                ? blockedSlot.practitionerLineageKey
+                : await resolvePractitionerIdForDisplayRuleSet(
+                    db,
+                    blockedSlot.practitionerLineageKey,
+                    targetRuleSetId,
+                  ),
+          }
+        : {}),
+      ...(blockedSlot.replacesBlockedSlotId === undefined
+        ? {}
+        : { replacesBlockedSlotId: blockedSlot.replacesBlockedSlotId }),
+      start: blockedSlot.start,
+      title: blockedSlot.title,
+    };
+  } catch (error) {
+    if (isMissingDisplayLineageMappingError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function mapBlockedSlotsForDisplay(
+  db: DatabaseReader,
+  blockedSlots: BlockedSlotDoc[],
+  targetRuleSetId?: Id<"ruleSets">,
+): Promise<BlockedSlotListItem[]> {
+  const mappedSlots = await Promise.all(
+    blockedSlots.map((slot) =>
+      mapBlockedSlotForDisplay(db, slot, targetRuleSetId),
+    ),
+  );
+
+  return mappedSlots.filter(
+    (slot): slot is BlockedSlotListItem => slot !== null,
+  );
+}
+
 function requireEntityUsableForNewAppointment<
   T extends { deleted?: boolean },
 >(params: {
@@ -365,46 +434,6 @@ async function resolvePreferredAppointmentPatientDateOfBirth(
   }
 
   return args.provisionalDateOfBirth;
-}
-
-/**
- * Resolves blocked-slot references into the displayed rule set via lineage.
- */
-async function remapBlockedSlotIds(
-  ctx: { db: DatabaseReader },
-  blockedSlots: BlockedSlotDoc[],
-  targetRuleSetId: Id<"ruleSets">,
-): Promise<BlockedSlotDoc[]> {
-  const remappedSlots = await Promise.all(
-    blockedSlots.map(async (slot) => {
-      try {
-        const remappedSlot: BlockedSlotDoc = {
-          ...slot,
-          locationId: await resolveLocationIdForDisplayRuleSet(
-            ctx.db,
-            slot.locationId,
-            targetRuleSetId,
-          ),
-        };
-        if (slot.practitionerId) {
-          remappedSlot.practitionerId =
-            await resolvePractitionerIdForDisplayRuleSet(
-              ctx.db,
-              slot.practitionerId,
-              targetRuleSetId,
-            );
-        }
-        return remappedSlot;
-      } catch (error) {
-        if (isMissingDisplayLineageMappingError(error)) {
-          return null;
-        }
-        throw error;
-      }
-    }),
-  );
-
-  return remappedSlots.filter((slot): slot is BlockedSlotDoc => slot !== null);
 }
 
 /**
@@ -479,57 +508,20 @@ function filterAppointmentsForScope<T extends AppointmentDoc>(
   );
 }
 
-async function filterBlockedSlotsForCalendarDay(
+function filterBlockedSlotsForCalendarDay(
   blockedSlots: BlockedSlotDoc[],
-  args: { dayEnd: string; dayStart: string },
-  matchesLocation: (blockedSlot: BlockedSlotDoc) => Promise<boolean>,
-): Promise<BlockedSlotDoc[]> {
-  const blockedSlotsWithVisibility = await Promise.all(
-    blockedSlots.map(async (blockedSlot) =>
+  args: {
+    dayEnd: string;
+    dayStart: string;
+    selectedLocationLineageKey: Id<"locations"> | undefined;
+  },
+): BlockedSlotDoc[] {
+  return blockedSlots.filter(
+    (blockedSlot) =>
       isCalendarDayRangeMatch(args, blockedSlot.start) &&
-      (await matchesLocation(blockedSlot))
-        ? blockedSlot
-        : null,
-    ),
+      (args.selectedLocationLineageKey === undefined ||
+        blockedSlot.locationLineageKey === args.selectedLocationLineageKey),
   );
-
-  return blockedSlotsWithVisibility.filter(
-    (blockedSlot): blockedSlot is BlockedSlotDoc => blockedSlot !== null,
-  );
-}
-
-function getBlockedSlotLocationMatcher(
-  ctx: QueryCtx,
-  selectedLocationLineageKey: Id<"locations"> | undefined,
-) {
-  const blockedLocationLineageCache = new Map<
-    Id<"locations">,
-    Id<"locations"> | undefined
-  >();
-
-  return async (blockedSlot: BlockedSlotDoc) => {
-    if (selectedLocationLineageKey === undefined) {
-      return true;
-    }
-
-    if (blockedLocationLineageCache.has(blockedSlot.locationId)) {
-      return (
-        blockedLocationLineageCache.get(blockedSlot.locationId) ===
-        selectedLocationLineageKey
-      );
-    }
-
-    try {
-      const lineageKey = await getOptionalLocationLineageKey(
-        ctx.db,
-        blockedSlot.locationId,
-      );
-      blockedLocationLineageCache.set(blockedSlot.locationId, lineageKey);
-      return lineageKey === selectedLocationLineageKey;
-    } catch {
-      return false;
-    }
-  };
 }
 
 function getDisplayRuleSetId(args: {
@@ -2193,16 +2185,11 @@ export const getBlockedSlots = query({
       resultSlots = blockedSlots;
     }
 
-    const displayRuleSetId = getDisplayRuleSetId(args);
-    if (displayRuleSetId) {
-      resultSlots = await remapBlockedSlotIds(
-        ctx,
-        resultSlots,
-        displayRuleSetId,
-      );
-    }
-
-    return resultSlots;
+    return await mapBlockedSlotsForDisplay(
+      ctx.db,
+      resultSlots,
+      getDisplayRuleSetId(args),
+    );
   },
   returns: v.array(blockedSlotListItemValidator),
 });
@@ -2224,15 +2211,11 @@ export const getCalendarDayBlockedSlots = query({
         q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
       )
       .collect();
-    const matchesLocation = getBlockedSlotLocationMatcher(
-      ctx,
+    const visibleBlockedSlots = filterBlockedSlotsForCalendarDay(blockedSlots, {
+      dayEnd: args.dayEnd,
+      dayStart: args.dayStart,
       selectedLocationLineageKey,
-    );
-    const visibleBlockedSlots = await filterBlockedSlotsForCalendarDay(
-      blockedSlots,
-      args,
-      matchesLocation,
-    );
+    });
 
     let resultSlots: BlockedSlotDoc[];
     if (scope === "simulation") {
@@ -2248,10 +2231,13 @@ export const getCalendarDayBlockedSlots = query({
         ...visibleBlockedSlots,
         ...replacementBlockedSlots,
       ]);
-      resultSlots = await filterBlockedSlotsForCalendarDay(
+      resultSlots = filterBlockedSlotsForCalendarDay(
         combineBlockedSlotsForSimulation(candidateBlockedSlots),
-        args,
-        matchesLocation,
+        {
+          dayEnd: args.dayEnd,
+          dayStart: args.dayStart,
+          selectedLocationLineageKey,
+        },
       );
     } else if (scope === "real") {
       resultSlots = visibleBlockedSlots.filter(
@@ -2261,17 +2247,12 @@ export const getCalendarDayBlockedSlots = query({
       resultSlots = visibleBlockedSlots;
     }
 
-    const displayRuleSetId = getDisplayRuleSetId(args);
-    if (displayRuleSetId) {
-      resultSlots = await remapBlockedSlotIds(
-        ctx,
-        resultSlots,
-        displayRuleSetId,
-      );
-    }
-
-    return resultSlots.toSorted((left, right) =>
-      left.start.localeCompare(right.start),
+    return await mapBlockedSlotsForDisplay(
+      ctx.db,
+      resultSlots.toSorted((left, right) =>
+        left.start.localeCompare(right.start),
+      ),
+      getDisplayRuleSetId(args),
     );
   },
   returns: v.array(blockedSlotListItemValidator),
@@ -2300,11 +2281,22 @@ export const createBlockedSlot = mutation({
       );
     }
 
+    const references = await resolveOccupancyReferenceLineageKeys(ctx.db, {
+      locationId: asLocationId(rest.locationId),
+      ...(rest.practitionerId
+        ? { practitionerId: asPractitionerId(rest.practitionerId) }
+        : {}),
+    });
+
     const id = await ctx.db.insert("blockedSlots", {
-      ...rest,
       createdAt: BigInt(Date.now()),
       isSimulation: isSimulation ?? false,
       lastModified: BigInt(Date.now()),
+      ...references,
+      end: rest.end,
+      practiceId: rest.practiceId,
+      start: rest.start,
+      title: rest.title,
       ...(replacesBlockedSlotId && { replacesBlockedSlotId }),
     });
 
@@ -2327,16 +2319,37 @@ export const updateBlockedSlot = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const { id, ...updates } = args;
+    const { id, locationId, practitionerId, ...updates } = args;
     const existingBlockedSlot = await ctx.db.get("blockedSlots", id);
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
     }
     await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
 
+    const updatedReferences =
+      locationId !== undefined || practitionerId !== undefined
+        ? await resolveOccupancyReferenceLineageKeys(ctx.db, {
+            locationId: asLocationId(
+              locationId ?? existingBlockedSlot.locationLineageKey,
+            ),
+            ...(practitionerId === undefined
+              ? existingBlockedSlot.practitionerLineageKey
+                ? {
+                    practitionerId: asPractitionerId(
+                      existingBlockedSlot.practitionerLineageKey,
+                    ),
+                  }
+                : {}
+              : practitionerId
+                ? { practitionerId: asPractitionerId(practitionerId) }
+                : {}),
+          })
+        : undefined;
+
     await ctx.db.patch("blockedSlots", id, {
       ...updates,
       lastModified: BigInt(Date.now()),
+      ...updatedReferences,
     });
 
     return null;

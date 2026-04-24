@@ -179,8 +179,8 @@ function findFirstCalendarOccupancyConflict(args: {
       overlapsCalendarOccupancyCandidate(
         {
           end: blockedSlot.end,
-          locationKey: blockedSlot.locationId,
-          practitionerKey: blockedSlot.practitionerId,
+          locationKey: blockedSlot.locationLineageKey,
+          practitionerKey: blockedSlot.practitionerLineageKey,
           start: blockedSlot.start,
         },
         args.candidate,

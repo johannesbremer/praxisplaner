@@ -493,9 +493,9 @@ export default defineSchema({
 
     // Additional fields
     isSimulation: v.optional(v.boolean()),
-    locationId: v.id("locations"),
+    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerId: v.optional(v.id("practitioners")),
+    practitionerLineageKey: v.optional(v.id("practitioners")),
     replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
 
     // Metadata

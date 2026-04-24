@@ -234,16 +234,39 @@ async function insertBlockedSlotRecord(
 ) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
+    const location = await ctx.db.get("locations", args.locationId);
+    const practitioner = args.practitionerId
+      ? await ctx.db.get("practitioners", args.practitionerId)
+      : null;
+
+    if (!location || (args.practitionerId && !practitioner)) {
+      throw new Error(
+        "Blocked slot test fixture is missing referenced entities",
+      );
+    }
+
     return await ctx.db.insert("blockedSlots", {
       createdAt: now,
       end: args.window.end,
       ...(args.isSimulation === true ? { isSimulation: true } : {}),
       lastModified: now,
-      locationId: args.locationId,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
       practiceId: args.practiceId,
-      ...(args.practitionerId === undefined
-        ? {}
-        : { practitionerId: args.practitionerId }),
+      ...(practitioner
+        ? {
+            practitionerLineageKey: requireLineageKey({
+              entityId: practitioner._id,
+              entityType: "practitioner",
+              lineageKey: practitioner.lineageKey,
+              ruleSetId: practitioner.ruleSetId,
+            }),
+          }
+        : {}),
       ...(args.replacesBlockedSlotId === undefined
         ? {}
         : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
@@ -1962,9 +1985,9 @@ describe("appointments update safety", () => {
         createdAt: now,
         end: realWindow.end,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Real blocked slot",
       });
@@ -1973,9 +1996,9 @@ describe("appointments update safety", () => {
         end: simulationWindow.end,
         isSimulation: true,
         lastModified: now,
-        locationId: foreignLocationId,
+        locationLineageKey: foreignLocationId,
         practiceId: baseData.practiceId,
-        practitionerId: foreignPractitionerId,
+        practitionerLineageKey: foreignPractitionerId,
         start: simulationWindow.start,
         title: "Foreign simulation blocked slot",
       });
@@ -2524,9 +2547,9 @@ describe("calendar day appointment queries", () => {
           })
           .toString(),
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 10, minute: 0 },
@@ -2544,9 +2567,9 @@ describe("calendar day appointment queries", () => {
           })
           .toString(),
         lastModified: now,
-        locationId: otherLocationId,
+        locationLineageKey: otherLocationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 12, minute: 0 },

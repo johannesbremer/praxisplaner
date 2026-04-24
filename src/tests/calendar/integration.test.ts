@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { Temporal } from "temporal-polyfill";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { BlockedSlotResult } from "../../../convex/appointments";
+
 import { toTableId } from "../../../convex/identity";
 import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
 
@@ -19,6 +21,25 @@ vi.mock("sonner", () => ({
 vi.mock("../../utils/error-tracking", () => ({
   captureErrorGlobal,
 }));
+
+function buildBlockedSlotResult(
+  overrides: Partial<BlockedSlotResult> & Pick<BlockedSlotResult, "_id">,
+): BlockedSlotResult {
+  const { _id, ...rest } = overrides;
+  return {
+    _creationTime: 0,
+    _id,
+    createdAt: 0n,
+    end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+    lastModified: 0n,
+    locationId: toTableId<"locations">("location_1"),
+    practiceId: toTableId<"practices">("practice_1"),
+    practitionerId: toTableId<"practitioners">("practitioner_1"),
+    start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+    title: "Blocked",
+    ...rest,
+  };
+}
 
 function createResizeStartEvent(clientY: number) {
   return {
@@ -267,14 +288,9 @@ describe("calendar resize interactions", () => {
           current: new Map([
             [
               "blocked_slot_1",
-              {
+              buildBlockedSlotResult({
                 _id: toTableId<"blockedSlots">("blocked_slot_1"),
-                end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
-                locationId: toTableId<"locations">("location_1"),
-                practitionerId: toTableId<"practitioners">("practitioner_1"),
-                start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
-                title: "Blocked",
-              },
+              }),
             ],
           ]),
         },
@@ -332,14 +348,9 @@ describe("calendar resize interactions", () => {
       return (Number(hours) - 8) * 12 + Math.floor(Number(minutes) / 5);
     };
 
-    const originalBlockedSlot = {
+    const originalBlockedSlot = buildBlockedSlotResult({
       _id: toTableId<"blockedSlots">("blocked_slot_1"),
-      end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
-      locationId: toTableId<"locations">("location_1"),
-      practitionerId: toTableId<"practitioners">("practitioner_1"),
-      start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
-      title: "Blocked",
-    };
+    });
     const blockedSlotDocMapRef = {
       current: new Map<string, typeof originalBlockedSlot>([
         ["blocked_slot_1", originalBlockedSlot],

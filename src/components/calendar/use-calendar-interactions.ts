@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BlockedSlotResult } from "../../../convex/appointments";
 import type { Appointment } from "./types";
 
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -46,15 +47,7 @@ export interface ResizeStartEvent {
   stopPropagation(): void;
 }
 
-interface BlockedSlotRecord {
-  _id: Id<"blockedSlots">;
-  end: string;
-  isSimulation?: boolean;
-  locationId: Id<"locations">;
-  practitionerId?: Id<"practitioners">;
-  start: string;
-  title: string;
-}
+type BlockedSlotRecord = BlockedSlotResult;
 
 export function useCalendarInteractions({
   baseAppointments,

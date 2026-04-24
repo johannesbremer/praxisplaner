@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
+import type {
+  AppointmentResult,
+  BlockedSlotResult,
+} from "../../../convex/appointments";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { Appointment, CalendarColumn, NewCalendarProps } from "./types";
 
@@ -158,7 +161,7 @@ export function useCalendarLogic({
   );
   const deletedAppointmentIdsRef = useRef(new Set<Id<"appointments">>());
   const blockedSlotHistoryDocMapRef = useRef(
-    new Map<Id<"blockedSlots">, Doc<"blockedSlots">>(),
+    new Map<Id<"blockedSlots">, BlockedSlotResult>(),
   );
   const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
 
@@ -241,7 +244,7 @@ export function useCalendarLogic({
   }, []);
 
   const rememberBlockedSlotHistoryDoc = useCallback(
-    (blockedSlot: Doc<"blockedSlots">) => {
+    (blockedSlot: BlockedSlotResult) => {
       if (isOptimisticId(blockedSlot._id)) {
         return;
       }
@@ -841,7 +844,7 @@ export function useCalendarLogic({
           const now = Date.now();
           const tempId = createOptimisticId<"blockedSlots">();
 
-          const newBlockedSlot: Doc<"blockedSlots"> = {
+          const newBlockedSlot: BlockedSlotResult = {
             _creationTime: now,
             _id: tempId,
             createdAt: BigInt(now),
@@ -1504,7 +1507,7 @@ export function useCalendarLogic({
         start: args.start ?? before.start,
         title: args.title ?? before.title,
       };
-      const afterSnapshot: Doc<"blockedSlots"> = {
+      const afterSnapshot: BlockedSlotResult = {
         ...before,
         end: afterState.end,
         ...(afterState.practitionerId === undefined
@@ -1516,7 +1519,7 @@ export function useCalendarLogic({
       rememberBlockedSlotHistoryDoc(afterSnapshot);
 
       const matchesState = (
-        slot: Doc<"blockedSlots">,
+        slot: BlockedSlotResult,
         expected: typeof beforeState,
       ) =>
         slot.start === expected.start &&

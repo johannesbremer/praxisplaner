@@ -2,8 +2,11 @@ import { useConvex, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type {
+  AppointmentResult,
+  BlockedSlotResult,
+} from "../../../convex/appointments";
 import type { PatientInfo } from "../../types";
 
 import { api } from "../../../convex/_generated/api";
@@ -74,7 +77,7 @@ export function useCalendarData(args: {
   );
   const [allPracticeConflictData, setAllPracticeConflictData] = useState<{
     appointments: AppointmentResult[] | undefined;
-    blockedSlots: Doc<"blockedSlots">[] | undefined;
+    blockedSlots: BlockedSlotResult[] | undefined;
     key: string;
   }>({
     appointments: undefined,
@@ -105,7 +108,7 @@ export function useCalendarData(args: {
   }, [appointmentDocMap]);
 
   const blockedSlotDocMap = useMemo(() => {
-    const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
+    const map = new Map<Id<"blockedSlots">, BlockedSlotResult>();
     for (const blockedSlot of blockedSlotsData ?? []) {
       map.set(blockedSlot._id, blockedSlot);
     }
@@ -128,8 +131,8 @@ export function useCalendarData(args: {
   );
 
   const buildAllPracticeBlockedSlotDocMap = useCallback(
-    (blockedSlots: readonly Doc<"blockedSlots">[]) => {
-      const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
+    (blockedSlots: readonly BlockedSlotResult[]) => {
+      const map = new Map<Id<"blockedSlots">, BlockedSlotResult>();
       for (const blockedSlot of blockedSlots) {
         map.set(blockedSlot._id, blockedSlot);
       }
@@ -142,7 +145,7 @@ export function useCalendarData(args: {
     new Map<Id<"appointments">, AppointmentResult>(),
   );
   const allPracticeBlockedSlotDocMapRef = useRef(
-    new Map<Id<"blockedSlots">, Doc<"blockedSlots">>(),
+    new Map<Id<"blockedSlots">, BlockedSlotResult>(),
   );
   const fullPracticeConflictLoadRef = useRef(0);
 

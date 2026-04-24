@@ -229,7 +229,10 @@ export function slotOverlapsAppointment(
 }
 
 export function slotOverlapsBlockedSlot(
-  slot: Pick<CandidateSlot, "duration" | "practitionerId" | "startTime">,
+  slot: Pick<
+    CandidateSlot,
+    "duration" | "practitionerLineageKey" | "startTime"
+  >,
   blockedSlot: Doc<"blockedSlots">,
 ): boolean {
   const slotZoned = Temporal.ZonedDateTime.from(slot.startTime);
@@ -242,8 +245,8 @@ export function slotOverlapsBlockedSlot(
   const blockedEnd = Temporal.ZonedDateTime.from(blockedSlot.end).toInstant();
 
   if (
-    blockedSlot.practitionerId &&
-    blockedSlot.practitionerId !== slot.practitionerId
+    blockedSlot.practitionerLineageKey &&
+    blockedSlot.practitionerLineageKey !== slot.practitionerLineageKey
   ) {
     return false;
   }

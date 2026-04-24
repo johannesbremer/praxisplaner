@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { BlockedSlotResult } from "@/convex/appointments";
 import type { PatientInfo, PracticePatientSelection } from "@/src/types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -231,7 +232,7 @@ export function NewCalendar({
   const [blockedSlotEditData, setBlockedSlotEditData] = useState<null | {
     blockedSlotId: Id<"blockedSlots">;
     currentTitle: string;
-    slotData: Doc<"blockedSlots">;
+    slotData: BlockedSlotResult;
     slotIsSimulation: boolean;
   }>(null);
 
