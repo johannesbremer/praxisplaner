@@ -14,6 +14,7 @@ import {
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
+  resolveActivePractitionerLineageKeys,
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
   resolveOccupancyReferenceLineageKeys,
@@ -1106,12 +1107,10 @@ async function queryAvailableSlotsForDay(
     selectedLocationLineageKey,
     selectedPractitionerLineageKey,
   ] = await Promise.all([
-    Promise.all(
+    resolveActivePractitionerLineageKeys(
+      ctx.db,
       args.appointmentType.allowedPractitionerIds.map((practitionerId) =>
-        resolvePractitionerLineageKey(
-          ctx.db,
-          asPractitionerId(practitionerId),
-        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+        asPractitionerId(practitionerId),
       ),
     ).then((lineageKeys) => new Set(lineageKeys)),
     args.locationId === undefined

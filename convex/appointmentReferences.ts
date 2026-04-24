@@ -30,6 +30,33 @@ export interface StoredAppointmentReferences extends OccupancyReferenceLineageKe
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
+export async function resolveActivePractitionerLineageKeys(
+  db: DatabaseReader,
+  practitionerIds: readonly PractitionerId[],
+): Promise<PractitionerLineageKey[]> {
+  const lineageKeys: PractitionerLineageKey[] = [];
+
+  for (const practitionerId of practitionerIds) {
+    const practitioner = await db.get("practitioners", practitionerId);
+    if (!practitioner || isRuleSetEntityDeleted(practitioner)) {
+      continue;
+    }
+
+    lineageKeys.push(
+      asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+    );
+  }
+
+  return lineageKeys;
+}
+
 export async function resolveAppointmentTypeIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {

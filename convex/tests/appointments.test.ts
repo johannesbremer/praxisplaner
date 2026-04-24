@@ -3027,4 +3027,73 @@ describe("calendar day appointment queries", () => {
       },
     ]);
   });
+
+  test("getNextAvailableSlot ignores deleted practitioners left in appointment-type allowlists", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_next_slot_deleted_allowlist",
+      "next-slot-deleted-allowlist@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "next-slot-deleted-allowlist@example.com",
+      subject: "workos_next_slot_deleted_allowlist",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "12:00",
+        locationLineageKey: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        ruleSetId: baseData.ruleSetId,
+        startTime: "08:00",
+      });
+
+      const deletedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          deleted: true,
+          name: "Dr. Deleted",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        allowedPractitionerIds: [
+          baseData.practitionerId,
+          deletedPractitionerId,
+        ],
+      });
+    });
+
+    await expect(
+      authed.query(api.scheduling.getNextAvailableSlot, {
+        date: "2026-04-27",
+        practiceId: baseData.practiceId,
+        ruleSetId: baseData.ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          locationLineageKey: baseData.locationId,
+          patient: { isNew: false },
+        },
+      }),
+    ).resolves.toMatchObject({
+      locationLineageKey: baseData.locationId,
+      practitionerLineageKey: baseData.practitionerId,
+      startTime: "2026-04-27T08:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
+  });
 });

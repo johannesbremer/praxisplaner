@@ -902,7 +902,7 @@ describe("vacations", () => {
     );
   });
 
-  test("coverage preview does not mark practitioners as movable when only the draft appointment type allows them", async () => {
+  test("coverage preview uses the selected rule-set allowlist when it differs from active", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
     const monday = nextWeekday(1);
@@ -974,11 +974,24 @@ describe("vacations", () => {
         ruleSetId: draftVacation.ruleSetId,
       },
     );
+    const draftPractitioners = await t.query(api.entities.getPractitioners, {
+      ruleSetId: draftVacation.ruleSetId,
+    });
+    const allowedDraftTargetIds = draftPractitioners
+      .filter((practitioner) =>
+        [
+          fixture.fallbackPractitionerId,
+          fixture.preferredPractitionerId,
+        ].includes(practitioner.lineageKey),
+      )
+      .map((practitioner) => practitioner._id);
 
     expect(preview.affectedCount).toBe(1);
-    expect(preview.movableCount).toBe(0);
-    expect(preview.unmovedCount).toBe(1);
-    expect(preview.suggestions[0]?.targetPractitionerId).toBeUndefined();
+    expect(preview.movableCount).toBe(1);
+    expect(preview.unmovedCount).toBe(0);
+    expect(allowedDraftTargetIds).toContain(
+      preview.suggestions[0]?.targetPractitionerId,
+    );
   });
 
   test("coverage preview and save use selected rule set practitioner references", async () => {

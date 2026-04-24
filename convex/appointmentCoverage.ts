@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
+  resolveActivePractitionerLineageKeys,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
@@ -284,12 +285,10 @@ async function previewPractitionerCoverageForAppointment(
     { allowDeleted: true },
   ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
   const allowedPractitionerLineageKeys = new Set(
-    await Promise.all(
-      activeAppointmentType.allowedPractitionerIds.map((practitionerId) =>
-        resolvePractitionerLineageKey(
-          ctx.db,
-          asPractitionerId(practitionerId),
-        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+    await resolveActivePractitionerLineageKeys(
+      ctx.db,
+      selectedAppointmentType.allowedPractitionerIds.map((practitionerId) =>
+        asPractitionerId(practitionerId),
       ),
     ),
   );

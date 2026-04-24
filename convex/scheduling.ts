@@ -26,9 +26,9 @@ import {
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
+  resolveActivePractitionerLineageKeys,
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
-  resolvePractitionerLineageKey,
 } from "./appointmentReferences";
 import {
   asAppointmentTypeLineageKey,
@@ -1058,12 +1058,10 @@ export const getNextAvailableSlot = query({
     );
 
     const allowedPractitionerLineageKeys = new Set(
-      await Promise.all(
+      await resolveActivePractitionerLineageKeys(
+        ctx.db,
         appointmentType.allowedPractitionerIds.map((practitionerId) =>
-          resolvePractitionerLineageKey(
-            ctx.db,
-            asPractitionerId(practitionerId),
-          ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+          asPractitionerId(practitionerId),
         ),
       ),
     );
