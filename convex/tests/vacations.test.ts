@@ -416,182 +416,187 @@ describe("vacations", () => {
     const monday = nextWeekday(1);
     const now = BigInt(Date.now());
 
-    const copiedRuleSetId = await t.run(async (ctx) => {
-      const olderStart = monday
-        .subtract({ days: 21 })
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("09:00"),
-          timeZone: "Europe/Berlin",
-        })
-        .toString();
-      const recentStart = monday
-        .subtract({ days: 7 })
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("09:00"),
-          timeZone: "Europe/Berlin",
-        })
-        .toString();
+    const { copiedAbsentPractitionerId, copiedRuleSetId } = await t.run(
+      async (ctx) => {
+        const olderStart = monday
+          .subtract({ days: 21 })
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:00"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString();
+        const recentStart = monday
+          .subtract({ days: 7 })
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:00"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString();
 
-      await insertStoredAppointment(ctx, {
-        appointmentTypeId: fixture.appointmentTypeId,
-        appointmentTypeTitle: "Kontrolle",
-        createdAt: now,
-        end: Temporal.ZonedDateTime.from(olderStart)
-          .add({ minutes: 30 })
-          .toString(),
-        lastModified: now,
-        locationId: fixture.locationId,
-        patientId: fixture.patientId,
-        practiceId: fixture.practiceId,
-        practitionerId: fixture.fallbackPractitionerId,
-        start: olderStart,
-        title: "Alter Termin",
-      });
-
-      await insertStoredAppointment(ctx, {
-        appointmentTypeId: fixture.appointmentTypeId,
-        appointmentTypeTitle: "Kontrolle",
-        createdAt: now,
-        end: Temporal.ZonedDateTime.from(recentStart)
-          .add({ minutes: 30 })
-          .toString(),
-        lastModified: now,
-        locationId: fixture.locationId,
-        patientId: fixture.patientId,
-        practiceId: fixture.practiceId,
-        practitionerId: fixture.preferredPractitionerId,
-        start: recentStart,
-        title: "Letzter Termin",
-      });
-
-      const movableStart = monday
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("09:00"),
-          timeZone: "Europe/Berlin",
-        })
-        .toString();
-      const blockedStart = monday
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from("09:30"),
-          timeZone: "Europe/Berlin",
-        })
-        .toString();
-
-      for (const practitionerId of [
-        fixture.preferredPractitionerId,
-        fixture.fallbackPractitionerId,
-      ]) {
         await insertStoredAppointment(ctx, {
           appointmentTypeId: fixture.appointmentTypeId,
           appointmentTypeTitle: "Kontrolle",
           createdAt: now,
-          end: Temporal.ZonedDateTime.from(blockedStart)
+          end: Temporal.ZonedDateTime.from(olderStart)
             .add({ minutes: 30 })
             .toString(),
           lastModified: now,
           locationId: fixture.locationId,
+          patientId: fixture.patientId,
           practiceId: fixture.practiceId,
-          practitionerId,
-          start: blockedStart,
-          title: "Blockiert",
+          practitionerId: fixture.fallbackPractitionerId,
+          start: olderStart,
+          title: "Alter Termin",
         });
-      }
 
-      await insertStoredAppointment(ctx, {
-        appointmentTypeId: fixture.appointmentTypeId,
-        appointmentTypeTitle: "Kontrolle",
-        createdAt: now,
-        end: Temporal.ZonedDateTime.from(movableStart)
-          .add({ minutes: 30 })
-          .toString(),
-        lastModified: now,
-        locationId: fixture.locationId,
-        patientId: fixture.patientId,
-        practiceId: fixture.practiceId,
-        practitionerId: fixture.absentPractitionerId,
-        start: movableStart,
-        title: "Soll verschoben werden",
-      });
-
-      const copiedRuleSetId = await ctx.db.insert("ruleSets", {
-        createdAt: Date.now(),
-        description: "Coverage Rule Set Copy",
-        draftRevision: 0,
-        parentVersion: fixture.ruleSetId,
-        practiceId: fixture.practiceId,
-        saved: true,
-        version: 2,
-      });
-
-      await ctx.db.patch("practices", fixture.practiceId, {
-        currentActiveRuleSetId: copiedRuleSetId,
-      });
-
-      await ctx.db.insert("locations", {
-        lineageKey: fixture.locationId,
-        name: "Praxis Kopie",
-        practiceId: fixture.practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
-      const copiedAbsentPractitionerId = await ctx.db.insert("practitioners", {
-        lineageKey: fixture.absentPractitionerId,
-        name: "Dr. Urlaub",
-        practiceId: fixture.practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
-      const copiedPreferredPractitionerId = await ctx.db.insert(
-        "practitioners",
-        {
-          lineageKey: fixture.preferredPractitionerId,
-          name: "Dr. Zuletzt Gesehen",
+        await insertStoredAppointment(ctx, {
+          appointmentTypeId: fixture.appointmentTypeId,
+          appointmentTypeTitle: "Kontrolle",
+          createdAt: now,
+          end: Temporal.ZonedDateTime.from(recentStart)
+            .add({ minutes: 30 })
+            .toString(),
+          lastModified: now,
+          locationId: fixture.locationId,
+          patientId: fixture.patientId,
           practiceId: fixture.practiceId,
-          ruleSetId: copiedRuleSetId,
-        },
-      );
-      const copiedFallbackPractitionerId = await ctx.db.insert(
-        "practitioners",
-        {
-          lineageKey: fixture.fallbackPractitionerId,
-          name: "Dr. Frei",
-          practiceId: fixture.practiceId,
-          ruleSetId: copiedRuleSetId,
-        },
-      );
-
-      for (const practitionerLineageKey of [
-        fixture.absentPractitionerId,
-        fixture.preferredPractitionerId,
-        fixture.fallbackPractitionerId,
-      ]) {
-        await ctx.db.insert("baseSchedules", {
-          dayOfWeek: 1,
-          endTime: "16:00",
-          locationLineageKey: fixture.locationId,
-          practiceId: fixture.practiceId,
-          practitionerLineageKey,
-          ruleSetId: copiedRuleSetId,
-          startTime: "08:00",
+          practitionerId: fixture.preferredPractitionerId,
+          start: recentStart,
+          title: "Letzter Termin",
         });
-      }
 
-      await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [
-          copiedAbsentPractitionerId,
-          copiedPreferredPractitionerId,
-          copiedFallbackPractitionerId,
-        ],
-        createdAt: now,
-        duration: 30,
-        followUpPlan: [],
-        lastModified: now,
-        lineageKey: fixture.appointmentTypeId,
-        name: "Kontrolle",
-        practiceId: fixture.practiceId,
-        ruleSetId: copiedRuleSetId,
-      });
+        const movableStart = monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:00"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString();
+        const blockedStart = monday
+          .toZonedDateTime({
+            plainTime: Temporal.PlainTime.from("09:30"),
+            timeZone: "Europe/Berlin",
+          })
+          .toString();
 
-      return copiedRuleSetId;
-    });
+        for (const practitionerId of [
+          fixture.preferredPractitionerId,
+          fixture.fallbackPractitionerId,
+        ]) {
+          await insertStoredAppointment(ctx, {
+            appointmentTypeId: fixture.appointmentTypeId,
+            appointmentTypeTitle: "Kontrolle",
+            createdAt: now,
+            end: Temporal.ZonedDateTime.from(blockedStart)
+              .add({ minutes: 30 })
+              .toString(),
+            lastModified: now,
+            locationId: fixture.locationId,
+            practiceId: fixture.practiceId,
+            practitionerId,
+            start: blockedStart,
+            title: "Blockiert",
+          });
+        }
+
+        await insertStoredAppointment(ctx, {
+          appointmentTypeId: fixture.appointmentTypeId,
+          appointmentTypeTitle: "Kontrolle",
+          createdAt: now,
+          end: Temporal.ZonedDateTime.from(movableStart)
+            .add({ minutes: 30 })
+            .toString(),
+          lastModified: now,
+          locationId: fixture.locationId,
+          patientId: fixture.patientId,
+          practiceId: fixture.practiceId,
+          practitionerId: fixture.absentPractitionerId,
+          start: movableStart,
+          title: "Soll verschoben werden",
+        });
+
+        const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "Coverage Rule Set Copy",
+          draftRevision: 0,
+          parentVersion: fixture.ruleSetId,
+          practiceId: fixture.practiceId,
+          saved: true,
+          version: 2,
+        });
+
+        await ctx.db.patch("practices", fixture.practiceId, {
+          currentActiveRuleSetId: copiedRuleSetId,
+        });
+
+        await ctx.db.insert("locations", {
+          lineageKey: fixture.locationId,
+          name: "Praxis Kopie",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        });
+        const copiedAbsentPractitionerId = await ctx.db.insert(
+          "practitioners",
+          {
+            lineageKey: fixture.absentPractitionerId,
+            name: "Dr. Urlaub",
+            practiceId: fixture.practiceId,
+            ruleSetId: copiedRuleSetId,
+          },
+        );
+        const copiedPreferredPractitionerId = await ctx.db.insert(
+          "practitioners",
+          {
+            lineageKey: fixture.preferredPractitionerId,
+            name: "Dr. Zuletzt Gesehen",
+            practiceId: fixture.practiceId,
+            ruleSetId: copiedRuleSetId,
+          },
+        );
+        const copiedFallbackPractitionerId = await ctx.db.insert(
+          "practitioners",
+          {
+            lineageKey: fixture.fallbackPractitionerId,
+            name: "Dr. Frei",
+            practiceId: fixture.practiceId,
+            ruleSetId: copiedRuleSetId,
+          },
+        );
+
+        for (const practitionerLineageKey of [
+          fixture.absentPractitionerId,
+          fixture.preferredPractitionerId,
+          fixture.fallbackPractitionerId,
+        ]) {
+          await ctx.db.insert("baseSchedules", {
+            dayOfWeek: 1,
+            endTime: "16:00",
+            locationLineageKey: fixture.locationId,
+            practiceId: fixture.practiceId,
+            practitionerLineageKey,
+            ruleSetId: copiedRuleSetId,
+            startTime: "08:00",
+          });
+        }
+
+        await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerIds: [
+            copiedAbsentPractitionerId,
+            copiedPreferredPractitionerId,
+            copiedFallbackPractitionerId,
+          ],
+          createdAt: now,
+          duration: 30,
+          followUpPlan: [],
+          lastModified: now,
+          lineageKey: fixture.appointmentTypeId,
+          name: "Kontrolle",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        });
+
+        return { copiedAbsentPractitionerId, copiedRuleSetId };
+      },
+    );
 
     const preview = await t.query(
       api.appointmentCoverage.previewPractitionerAbsenceCoverage,
@@ -599,7 +604,7 @@ describe("vacations", () => {
         date: monday.toString(),
         portion: "morning",
         practiceId: fixture.practiceId,
-        practitionerId: fixture.absentPractitionerId,
+        practitionerId: copiedAbsentPractitionerId,
         ruleSetId: copiedRuleSetId,
       },
     );

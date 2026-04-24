@@ -457,18 +457,15 @@ export const previewPractitionerAbsenceCoverage = query({
     }
 
     const activeRuleSetId = practice.currentActiveRuleSetId;
-    const selectedPractitionerId = await resolvePractitionerIdForRuleSet(
-      ctx.db,
-      {
-        practiceId: args.practiceId,
-        practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
-        ruleSetId: args.ruleSetId,
-      },
-    );
     const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
-      selectedPractitionerId,
-    );
+      asPractitionerId(args.practitionerId),
+    ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
+    await resolvePractitionerIdForRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerLineageKey: selectedPractitionerLineageKey,
+      ruleSetId: args.ruleSetId,
+    });
 
     const baseSchedules = await ctx.db
       .query("baseSchedules")
@@ -584,7 +581,7 @@ export const previewPractitionerAbsenceCoverage = query({
           appointment,
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,
-          selectedPractitionerId,
+          selectedPractitionerId: args.practitionerId,
         }),
       ),
     );
