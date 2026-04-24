@@ -246,27 +246,52 @@ async function previewPractitionerCoverageForAppointment(
     return suggestionBase;
   }
 
-  const selectedAppointmentType = await ctx.db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q
-        .eq("ruleSetId", args.ruleSetId)
-        .eq(
-          "lineageKey",
-          asAppointmentTypeLineageKey(
-            args.appointment.appointmentTypeLineageKey,
-          ),
-        ),
-    )
-    .first();
+  const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+    args.appointment.appointmentTypeLineageKey,
+  );
+  const [selectedAppointmentType, activeAppointmentType] = await Promise.all([
+    ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("lineageKey", appointmentTypeLineageKey),
+      )
+      .first(),
+    ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.activeRuleSetId)
+          .eq("lineageKey", appointmentTypeLineageKey),
+      )
+      .first(),
+  ]);
   if (
     selectedAppointmentType?.practiceId !== args.practiceId ||
-    isRuleSetEntityDeleted(selectedAppointmentType)
+    isRuleSetEntityDeleted(selectedAppointmentType) ||
+    activeAppointmentType?.practiceId !== args.practiceId ||
+    isRuleSetEntityDeleted(activeAppointmentType)
   ) {
     return suggestionBase;
   }
   const selectedAppointmentTypeId = asAppointmentTypeId(
     selectedAppointmentType._id,
+  );
+  const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
+    ctx.db,
+    asPractitionerId(args.selectedPractitionerId),
+    { allowDeleted: true },
+  ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
+  const allowedPractitionerLineageKeys = new Set(
+    await Promise.all(
+      activeAppointmentType.allowedPractitionerIds.map((practitionerId) =>
+        resolvePractitionerLineageKey(
+          ctx.db,
+          asPractitionerId(practitionerId),
+        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+      ),
+    ),
   );
   const day = Temporal.ZonedDateTime.from(args.appointment.start)
     .withTimeZone("Europe/Berlin")
@@ -298,7 +323,7 @@ async function previewPractitionerCoverageForAppointment(
     (slot) =>
       slot.status === "AVAILABLE" &&
       slot.startTime === args.appointment.start &&
-      slot.practitionerId !== args.selectedPractitionerId,
+      slot.practitionerLineageKey !== selectedPractitionerLineageKey,
   );
 
   if (matchingSlots.length === 0) {
@@ -312,14 +337,12 @@ async function previewPractitionerCoverageForAppointment(
 
   const candidates = matchingSlots.map((slot) => ({
     activePractitionerLineageKey: slot.practitionerLineageKey,
-    isAllowedInSelectedRuleSet:
-      selectedAppointmentType.allowedPractitionerIds.includes(
-        slot.practitionerId,
-      ),
+    isAllowedInSelectedRuleSet: allowedPractitionerLineageKeys.has(
+      slot.practitionerLineageKey,
+    ),
     lastSeenAt:
       latestSeenByPractitioner.get(slot.practitionerLineageKey) ?? null,
     name: slot.practitionerName,
-    selectedPractitionerId: slot.practitionerId,
   }));
 
   const bestCandidate = candidates
@@ -328,7 +351,6 @@ async function previewPractitionerCoverageForAppointment(
         candidate,
       ): candidate is typeof candidate & {
         isAllowedInSelectedRuleSet: true;
-        selectedPractitionerId: Id<"practitioners">;
       } => candidate.isAllowedInSelectedRuleSet,
     )
     .toSorted((left, right) => {
@@ -350,7 +372,11 @@ async function previewPractitionerCoverageForAppointment(
 
   return {
     ...suggestionBase,
-    targetPractitionerId: bestCandidate.selectedPractitionerId,
+    targetPractitionerId: await resolvePractitionerIdInRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerLineageKey: bestCandidate.activePractitionerLineageKey,
+      targetRuleSetId: args.ruleSetId,
+    }),
     targetPractitionerName: bestCandidate.name,
   };
 }

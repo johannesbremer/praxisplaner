@@ -2485,19 +2485,12 @@ export function useCalendarLogic({
     }
 
     const effectiveWorkingRanges = working.flatMap((practitioner) => {
-      const practitionerId = getPractitionerIdForLineageKey(
-        practitioner.lineageKey,
-      );
-      if (!practitionerId) {
-        return [];
-      }
-
       return getPractitionerAvailabilityRangesForDate(
         selectedDate,
-        practitionerId,
+        practitioner.lineageKey,
         baseSchedulesData,
         vacationsData ?? [],
-        effectiveLocationId,
+        effectiveLocationLineageKey,
       );
     });
     const practitionerIds = new Set(
@@ -2627,7 +2620,6 @@ export function useCalendarLogic({
     practitionerIdByLineageKey,
     practitionerLineageKeyById,
     practitionerNameByLineageKey,
-    getPractitionerIdForLineageKey,
     simulatedContext,
     selectedLocationId,
     selectedDate,

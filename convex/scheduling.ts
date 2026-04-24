@@ -71,11 +71,18 @@ import {
 /**
  * Get the current time as a ZonedDateTime string in the configured timezone.
  */
-export interface InternalSchedulingResultSlot extends SchedulingResultSlot {
-  locationId: LocationId;
-  locationLineageKey: LocationLineageKey;
-  practitionerId: PractitionerId;
-  practitionerLineageKey: PractitionerLineageKey;
+export interface InternalSchedulingResultSlot extends Pick<
+  CandidateSlot,
+  | "blockedByBlockedSlotId"
+  | "blockedByRuleId"
+  | "duration"
+  | "locationLineageKey"
+  | "practitionerLineageKey"
+  | "reason"
+  | "startTime"
+  | "status"
+> {
+  practitionerName: string;
 }
 
 export interface SchedulingResultSlot {
@@ -116,9 +123,7 @@ const internalSchedulingResultSlotValidator = v.object({
   blockedByBlockedSlotId: v.optional(v.id("blockedSlots")),
   blockedByRuleId: v.optional(v.id("ruleConditions")),
   duration: v.number(),
-  locationId: v.id("locations"),
   locationLineageKey: v.id("locations"),
-  practitionerId: v.id("practitioners"),
   practitionerLineageKey: v.id("practitioners"),
   practitionerName: v.string(),
   reason: v.optional(v.string()),
@@ -232,6 +237,36 @@ function getRequestedAtForRuleEvaluation(
       .toString(),
   );
 }
+
+async function loadSchedulingDisplayReferenceMaps(
+  db: QueryCtx["db"],
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const [locations, practitioners] = await Promise.all([
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect(),
+    db
+      .query("practitioners")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect(),
+  ]);
+
+  return buildSchedulingDisplayReferences({
+    locations: locations.filter(
+      (location) => location.practiceId === args.practiceId,
+    ),
+    practiceId: args.practiceId,
+    practitioners: practitioners.filter(
+      (practitioner) => practitioner.practiceId === args.practiceId,
+    ),
+  });
+}
+
 function resolveSchedulingDisplayReferences(
   maps: ReturnType<typeof buildSchedulingDisplayReferences>,
   slot: Pick<CandidateSlot, "locationLineageKey" | "practitionerLineageKey">,
@@ -258,25 +293,48 @@ function resolveSchedulingDisplayReferences(
     practitionerName: practitioner.practitionerName,
   };
 }
+async function resolveSchedulingRuleSetId(
+  db: QueryCtx["db"],
+  args: {
+    practiceId: Id<"practices">;
+    preferredRuleSetId?: Id<"ruleSets">;
+  },
+): Promise<Id<"ruleSets"> | null> {
+  if (args.preferredRuleSetId) {
+    return args.preferredRuleSetId;
+  }
+
+  const practice = await db.get("practices", args.practiceId);
+  return practice?.currentActiveRuleSetId ?? null;
+}
 
 function toPublicSchedulingResult(args: {
+  displayReferences: ReturnType<typeof buildSchedulingDisplayReferences>;
   log: string[];
   slots: InternalSchedulingResultSlot[];
 }): { log: string[]; slots: SchedulingResultSlot[] } {
   return {
     log: args.log,
-    slots: args.slots.map((slot) => toPublicSchedulingResultSlot(slot)),
+    slots: args.slots.map((slot) =>
+      toPublicSchedulingResultSlot(slot, args.displayReferences),
+    ),
   };
 }
 
 function toPublicSchedulingResultSlot(
   slot: InternalSchedulingResultSlot,
+  displayReferences: ReturnType<typeof buildSchedulingDisplayReferences>,
 ): SchedulingResultSlot {
+  const resolvedReferences = resolveSchedulingDisplayReferences(
+    displayReferences,
+    slot,
+  );
+
   return {
     duration: slot.duration,
-    locationId: slot.locationId,
+    locationId: resolvedReferences.locationId,
     locationLineageKey: slot.locationLineageKey,
-    practitionerId: slot.practitionerId,
+    practitionerId: resolvedReferences.practitionerId,
     practitionerLineageKey: slot.practitionerLineageKey,
     practitionerName: slot.practitionerName,
     startTime: asZonedDateTimeString(slot.startTime),
@@ -334,11 +392,33 @@ export const getAvailableDates = query({
         )
         .collect(),
     ]);
+    const selectedLocationLineageKey =
+      simulatedContext.locationId === undefined
+        ? undefined
+        : asLocationLineageKey(
+            await resolveLocationLineageKey(
+              ctx.db,
+              asLocationId(simulatedContext.locationId),
+            ),
+          );
 
     const startDate = new Date(dateRange.start);
     const endDate = new Date(dateRange.end);
 
     for (const practitioner of practitioners) {
+      if (practitioner.practiceId !== args.practiceId) {
+        continue;
+      }
+
+      const practitionerLineageKey = asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      );
+
       // Check each day in the range
       for (
         let currentDate = new Date(startDate);
@@ -352,9 +432,9 @@ export const getAvailableDates = query({
         });
         const workingRanges = getPractitionerWorkingRangesForDate(
           plainDate,
-          practitioner._id,
+          practitionerLineageKey,
           baseSchedules,
-          simulatedContext.locationId,
+          selectedLocationLineageKey,
         );
         if (workingRanges.length === 0) {
           continue;
@@ -362,10 +442,10 @@ export const getAvailableDates = query({
 
         const vacationRanges = getPractitionerVacationRangesForDate(
           plainDate,
-          practitioner._id,
+          practitionerLineageKey,
           baseSchedules,
           vacations,
-          simulatedContext.locationId,
+          selectedLocationLineageKey,
         );
 
         const hasAvailableMinutes = workingRanges.some(
@@ -805,9 +885,7 @@ async function getSlotsForDayImpl(
       );
       const slotResult: InternalSchedulingResultSlot = {
         duration: slot.duration,
-        locationId: displayReferences.locationId,
         locationLineageKey: slot.locationLineageKey,
-        practitionerId: displayReferences.practitionerId,
         practitionerLineageKey: slot.practitionerLineageKey,
         practitionerName: displayReferences.practitionerName,
         ...(slot.reason && { reason: slot.reason }),
@@ -921,14 +999,30 @@ export const getSlotsForDay = query({
   ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const effectiveRuleSetId = await resolveSchedulingRuleSetId(ctx.db, {
+      practiceId: args.practiceId,
+      ...(args.ruleSetId ? { preferredRuleSetId: args.ruleSetId } : {}),
+    });
+
+    if (!effectiveRuleSetId) {
+      return asAvailableSlotsResult({ log: [], slots: [] });
+    }
+
+    const displayReferences = await loadSchedulingDisplayReferenceMaps(ctx.db, {
+      practiceId: args.practiceId,
+      ruleSetId: effectiveRuleSetId,
+    });
+
     return asAvailableSlotsResult(
-      toPublicSchedulingResult(
-        await getSlotsForDayImpl(ctx, {
+      toPublicSchedulingResult({
+        displayReferences,
+        ...(await getSlotsForDayImpl(ctx, {
           ...args,
           date: asIsoDateString(args.date),
+          ruleSetId: effectiveRuleSetId,
           simulatedContext: asSimulatedContextInput(args.simulatedContext),
-        }),
-      ),
+        })),
+      }),
     );
   },
   returns: availableSlotsResultValidator,
@@ -981,16 +1075,19 @@ export const getNextAvailableSlot = query({
           );
     const startDate = Temporal.PlainDate.from(date);
     const maxSearchDays = 90;
-    let effectiveRuleSetId = args.ruleSetId;
-
-    if (!effectiveRuleSetId) {
-      const practice = await ctx.db.get("practices", args.practiceId);
-      effectiveRuleSetId = practice?.currentActiveRuleSetId;
-    }
+    const effectiveRuleSetId = await resolveSchedulingRuleSetId(ctx.db, {
+      practiceId: args.practiceId,
+      ...(args.ruleSetId ? { preferredRuleSetId: args.ruleSetId } : {}),
+    });
 
     if (!effectiveRuleSetId) {
       return null;
     }
+
+    const displayReferences = await loadSchedulingDisplayReferenceMaps(ctx.db, {
+      practiceId: args.practiceId,
+      ruleSetId: effectiveRuleSetId,
+    });
 
     const baseSchedules = await ctx.db
       .query("baseSchedules")
@@ -1059,7 +1156,9 @@ export const getNextAvailableSlot = query({
           )[0] ?? null;
 
       if (nextSlot) {
-        return asSchedulingResultSlot(toPublicSchedulingResultSlot(nextSlot));
+        return asSchedulingResultSlot(
+          toPublicSchedulingResultSlot(nextSlot, displayReferences),
+        );
       }
     }
 

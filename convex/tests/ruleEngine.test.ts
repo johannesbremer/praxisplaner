@@ -3415,6 +3415,81 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(nineAmSlot?.status).toBe("BLOCKED");
   });
 
+  test("available date lookup uses lineage keys in copied rule sets", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const baseRuleSetId = await createRuleSet(t, practiceId, true);
+    const copiedRuleSetId = await createRuleSet(t, practiceId, true);
+
+    const basePractitionerId = await createPractitioner(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Dr. Base",
+    );
+    const baseLocationId = await createLocation(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Base Office",
+    );
+
+    const copiedIds = await t.run(async (ctx) => {
+      await ctx.db.patch("practices", practiceId, {
+        currentActiveRuleSetId: copiedRuleSetId,
+      });
+
+      const copiedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: basePractitionerId,
+          name: "Dr. Copied",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseLocationId,
+          name: "Copied Office",
+          practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+
+      return { copiedLocationId, copiedPractitionerId };
+    });
+
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      copiedRuleSetId,
+      copiedIds.copiedPractitionerId,
+      copiedIds.copiedLocationId,
+      1,
+      "09:00",
+      "12:00",
+    );
+
+    const result = await t.query(api.scheduling.getAvailableDates, {
+      dateRange: {
+        end: "2025-10-20T00:00:00.000Z",
+        start: "2025-10-20T00:00:00.000Z",
+      },
+      practiceId,
+      simulatedContext: {
+        locationId: copiedIds.copiedLocationId,
+        patient: { isNew: false },
+      },
+    });
+
+    expect(result.dates).toEqual(["2025-10-20"]);
+  });
+
   test("Compound AND rule blocks slots only when both conditions match", async () => {
     const t = createTestContext();
 

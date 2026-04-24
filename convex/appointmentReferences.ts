@@ -198,8 +198,9 @@ export async function resolvePractitionerIdForRuleSetByLineage(
 export async function resolvePractitionerLineageKey(
   db: DatabaseReader,
   practitionerId: PractitionerId,
+  options?: { allowDeleted?: boolean },
 ): Promise<PractitionerLineageKey> {
-  const practitioner = await requirePractitioner(db, practitionerId);
+  const practitioner = await requirePractitioner(db, practitionerId, options);
   return asPractitionerLineageKey(
     requireLineageKey({
       entityId: practitioner._id,
@@ -266,12 +267,13 @@ async function requireLocation(
 async function requirePractitioner(
   db: DatabaseReader,
   practitionerId: Id<"practitioners">,
+  options?: { allowDeleted?: boolean },
 ) {
   const practitioner = await db.get("practitioners", practitionerId);
   if (!practitioner) {
     throw new Error(`Behandler ${practitionerId} nicht gefunden.`);
   }
-  if (isRuleSetEntityDeleted(practitioner)) {
+  if (options?.allowDeleted !== true && isRuleSetEntityDeleted(practitioner)) {
     throw new Error(
       `Behandler ${practitionerId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
     );

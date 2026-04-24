@@ -13,7 +13,13 @@ import {
   findConflictingAppointment,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
-import { resolveOccupancyReferenceLineageKeys } from "./appointmentReferences";
+import {
+  resolveLocationIdForRuleSetByLineage,
+  resolveLocationLineageKey,
+  resolveOccupancyReferenceLineageKeys,
+  resolvePractitionerIdForRuleSetByLineage,
+  resolvePractitionerLineageKey,
+} from "./appointmentReferences";
 import {
   type FollowUpStep,
   normalizeFollowUpPlan,
@@ -399,15 +405,15 @@ export async function planSeriesFromRootCandidate(
       args.seriesSpecification.ruleSetId,
       step.appointmentTypeLineageKey,
     );
-    const practitionerId =
+    const inheritedPractitionerId =
       step.practitionerMode === "inherit"
         ? previousStep.practitionerId
         : undefined;
-    const locationId =
+    const inheritedLocationId =
       step.locationMode === "inherit" ? previousStep.locationId : undefined;
 
     const matchingSlot = await findSlotForFollowUpStep(ctx, {
-      ...(locationId && { locationId }),
+      ...(inheritedLocationId && { locationId: inheritedLocationId }),
       ...(args.rootCandidate.isNewPatient !== undefined && {
         isNewPatient: args.rootCandidate.isNewPatient,
       }),
@@ -417,7 +423,9 @@ export async function planSeriesFromRootCandidate(
       planningState: args.planningState,
       practiceId: args.rootCandidate.practiceId,
       previousStep,
-      ...(practitionerId && { practitionerId }),
+      ...(inheritedPractitionerId && {
+        practitionerId: inheritedPractitionerId,
+      }),
       requestedAt: args.requestedAt,
       ruleSetId: args.seriesSpecification.ruleSetId,
       ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
@@ -431,7 +439,7 @@ export async function planSeriesFromRootCandidate(
       }),
     });
 
-    if (!matchingSlot?.locationId) {
+    if (!matchingSlot) {
       if (step.required) {
         return {
           blockedStepId: step.stepId,
@@ -442,6 +450,17 @@ export async function planSeriesFromRootCandidate(
       }
       continue;
     }
+
+    const [resolvedLocationId, resolvedPractitionerId] = await Promise.all([
+      resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: matchingSlot.locationLineageKey,
+        ruleSetId: args.seriesSpecification.ruleSetId,
+      }).then((resolvedId) => asLocationId(resolvedId)),
+      resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+        lineageKey: matchingSlot.practitionerLineageKey,
+        ruleSetId: args.seriesSpecification.ruleSetId,
+      }).then((resolvedId) => asPractitionerId(resolvedId)),
+    ]);
 
     const plannedStep: PlannedSeriesStep = {
       appointmentTypeId: targetAppointmentType._id,
@@ -456,14 +475,14 @@ export async function planSeriesFromRootCandidate(
       appointmentTypeTitle: targetAppointmentType.name,
       durationMinutes: targetAppointmentType.duration,
       end: calculateEndTime(
-        matchingSlot.startTime,
+        asZonedDateTimeString(matchingSlot.startTime),
         targetAppointmentType.duration,
       ),
-      locationId: matchingSlot.locationId,
-      practitionerId: matchingSlot.practitionerId,
+      locationId: resolvedLocationId,
+      practitionerId: resolvedPractitionerId,
       practitionerName: matchingSlot.practitionerName,
       seriesStepIndex: plannedSteps.length,
-      start: matchingSlot.startTime,
+      start: asZonedDateTimeString(matchingSlot.startTime),
       stepId: step.stepId,
       ...(step.note ? { note: step.note } : {}),
     };
@@ -1039,7 +1058,7 @@ function normalizeFollowUpPlanSnapshot(
 }
 
 async function queryAvailableSlotsForDay(
-  ctx: Pick<MutationCtx, "runQuery"> | Pick<QueryCtx, "runQuery">,
+  ctx: Pick<MutationCtx, "db" | "runQuery"> | Pick<QueryCtx, "db" | "runQuery">,
   args: {
     appointmentType: Doc<"appointmentTypes">;
     date: IsoDateString;
@@ -1097,16 +1116,46 @@ async function queryAvailableSlotsForDay(
       },
     });
 
+  const [
+    allowedPractitionerLineageKeys,
+    selectedLocationLineageKey,
+    selectedPractitionerLineageKey,
+  ] = await Promise.all([
+    Promise.all(
+      args.appointmentType.allowedPractitionerIds.map((practitionerId) =>
+        resolvePractitionerLineageKey(
+          ctx.db,
+          asPractitionerId(practitionerId),
+        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+      ),
+    ).then((lineageKeys) => new Set(lineageKeys)),
+    args.locationId === undefined
+      ? Promise.resolve()
+      : resolveLocationLineageKey(ctx.db, asLocationId(args.locationId)).then(
+          (lineageKey) => asLocationLineageKey(lineageKey),
+        ),
+    args.practitionerId === undefined
+      ? Promise.resolve()
+      : resolvePractitionerLineageKey(
+          ctx.db,
+          asPractitionerId(args.practitionerId),
+        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+  ]);
+
   const slots = result.slots
     .filter((slot) => slot.status === "AVAILABLE")
     .filter((slot) =>
-      args.appointmentType.allowedPractitionerIds.includes(slot.practitionerId),
+      allowedPractitionerLineageKeys.has(slot.practitionerLineageKey),
     )
     .filter((slot) =>
-      args.practitionerId ? slot.practitionerId === args.practitionerId : true,
+      selectedPractitionerLineageKey
+        ? slot.practitionerLineageKey === selectedPractitionerLineageKey
+        : true,
     )
     .filter((slot) =>
-      args.locationId ? slot.locationId === args.locationId : true,
+      selectedLocationLineageKey
+        ? slot.locationLineageKey === selectedLocationLineageKey
+        : true,
     )
     .toSorted((left, right) => left.startTime.localeCompare(right.startTime));
   args.planningState.slotCache.set(cacheKey, slots);
@@ -1219,12 +1268,22 @@ async function validateRootCandidate(
       simulationRuleSetId: args.simulationRuleSetId,
     }),
   });
+  const [rootLocationLineageKey, rootPractitionerLineageKey] =
+    await Promise.all([
+      resolveLocationLineageKey(ctx.db, asLocationId(args.locationId)).then(
+        (lineageKey) => asLocationLineageKey(lineageKey),
+      ),
+      resolvePractitionerLineageKey(
+        ctx.db,
+        asPractitionerId(args.practitionerId),
+      ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+    ]);
 
   const selectedRootSlot = rootSlots.find(
     (slot) =>
       slot.startTime === args.start &&
-      slot.locationId === args.locationId &&
-      slot.practitionerId === args.practitionerId,
+      slot.locationLineageKey === rootLocationLineageKey &&
+      slot.practitionerLineageKey === rootPractitionerLineageKey,
   );
 
   if (!selectedRootSlot) {

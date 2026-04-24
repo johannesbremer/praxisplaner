@@ -908,7 +908,7 @@ export const createVacationWithCoverageAdjustments = mutation({
       const matchingSlot = schedulingResult.slots.find(
         (slot) =>
           slot.status === "AVAILABLE" &&
-          slot.practitionerId === targetPractitionerIdInDraft &&
+          slot.practitionerLineageKey === targetPractitionerLineageKey &&
           slot.startTime === appointment.start,
       );
 
