@@ -407,7 +407,7 @@ export function VacationScheduler({
     date: Temporal.PlainDate,
   ): VacationPortion[] =>
     ORDERED_PORTIONS.filter((portion) =>
-      isVacationActive(staff.kind, staff.id, date, portion),
+      isVacationActive(staff.kind, staff.lineageKey, date, portion),
     );
 
   const getDisplayedPortionForCell = (
