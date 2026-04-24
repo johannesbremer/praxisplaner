@@ -15,6 +15,7 @@ import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
   resolveActivePractitionerLineageKeys,
+  resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
@@ -66,38 +67,18 @@ export async function resolveAppointmentTypeIdForRuleSet(
     targetRuleSetId: Id<"ruleSets">;
   },
 ): Promise<AppointmentTypeId> {
-  const appointmentType = await db.get(
-    "appointmentTypes",
-    args.appointmentTypeLineageKey,
+  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+    db,
+    {
+      lineageKey: args.appointmentTypeLineageKey,
+      ruleSetId: args.targetRuleSetId,
+    },
   );
-  if (!appointmentType) {
-    throw new Error(
-      `Terminart ${args.appointmentTypeLineageKey} nicht gefunden.`,
-    );
-  }
-  if (appointmentType.practiceId !== args.practiceId) {
+  const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
+  if (appointmentType?.practiceId !== args.practiceId) {
     throw new Error("Terminart gehört nicht zu dieser Praxis.");
   }
-  if (appointmentType.ruleSetId === args.targetRuleSetId) {
-    return asAppointmentTypeId(appointmentType._id);
-  }
-
-  const mappedAppointmentType = await db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q
-        .eq("ruleSetId", args.targetRuleSetId)
-        .eq("lineageKey", args.appointmentTypeLineageKey),
-    )
-    .first();
-
-  if (mappedAppointmentType?.practiceId !== args.practiceId) {
-    throw new Error(
-      "Terminart konnte im Ziel-Regelset nicht aufgelöst werden.",
-    );
-  }
-
-  return asAppointmentTypeId(mappedAppointmentType._id);
+  return asAppointmentTypeId(appointmentTypeId);
 }
 
 export async function resolveLocationIdForRuleSet(

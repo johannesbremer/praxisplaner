@@ -1141,20 +1141,6 @@ describe("vacations", () => {
       });
     });
 
-    const preview = await t.query(
-      api.appointmentCoverage.previewPractitionerAbsenceCoverage,
-      {
-        date: monday.toString(),
-        portion: "morning",
-        practiceId: fixture.practiceId,
-        practitionerId: copiedAbsentPractitionerId,
-        ruleSetId: copiedRuleSetId,
-      },
-    );
-    const targetPractitionerLineageKey =
-      preview.suggestions[0]?.targetPractitionerLineageKey;
-    assertDefined(targetPractitionerLineageKey);
-
     const result = await t.mutation(
       api.vacations.createVacationWithCoverageAdjustments,
       {
@@ -1166,7 +1152,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerLineageKey,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: copiedRuleSetId,
@@ -1195,7 +1181,73 @@ describe("vacations", () => {
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
       )?.practitionerLineageKey,
-    ).toBe(targetPractitionerLineageKey);
+    ).toBe(fixture.preferredPractitionerId);
+  });
+
+  test("coverage-adjusted vacation creation resolves appointment types by lineage when the source row is gone", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+    const { copiedAbsentPractitionerId, copiedRuleSetId } =
+      await createCopiedCoverageRuleSet(t, fixture);
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      const insertedAppointmentId = await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+
+      await ctx.db.delete("appointmentTypes", fixture.appointmentTypeId);
+      return insertedAppointmentId;
+    });
+
+    const result = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: copiedAbsentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
+          },
+        ],
+        selectedRuleSetId: copiedRuleSetId,
+      },
+    );
+
+    const simulatedAppointments = await t.query(
+      api.appointments.getAppointments,
+      {
+        activeRuleSetId: fixture.ruleSetId,
+        scope: "simulation",
+        selectedRuleSetId: result.ruleSetId,
+      },
+    );
+    expect(
+      simulatedAppointments.find(
+        (candidate) => candidate.replacesAppointmentId === appointmentId,
+      )?.practitionerLineageKey,
+    ).toBe(fixture.preferredPractitionerId);
   });
 
   test("coverage preview and save use selected rule set practitioner references", async () => {

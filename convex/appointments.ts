@@ -26,6 +26,7 @@ import {
   resolvePractitionerIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
+  type StoredAppointmentReferences,
 } from "./appointmentReferences";
 import {
   appointmentSeriesArgsValidator,
@@ -1511,7 +1512,7 @@ async function updateAppointmentByMode(
     practitionerRecord?.ruleSetId ??
     locationRecord?.ruleSetId;
 
-  const resolvedStoredReferences =
+  const resolvedStoredReferences: StoredAppointmentReferences =
     filteredUpdateData.appointmentTypeId !== undefined ||
     filteredUpdateData.locationId !== undefined ||
     filteredUpdateData.practitionerId !== undefined
@@ -1557,20 +1558,25 @@ async function updateAppointmentByMode(
           });
         })()
       : {
-          appointmentTypeLineageKey:
+          appointmentTypeLineageKey: asAppointmentTypeLineageKey(
             existingAppointment.appointmentTypeLineageKey,
-          locationLineageKey: existingAppointment.locationLineageKey,
+          ),
+          locationLineageKey: asLocationLineageKey(
+            existingAppointment.locationLineageKey,
+          ),
           ...(existingAppointment.practitionerLineageKey
             ? {
-                practitionerLineageKey:
+                practitionerLineageKey: asPractitionerLineageKey(
                   existingAppointment.practitionerLineageKey,
+                ),
               }
             : {}),
         };
-  const resolvedAppointmentTypeId =
+  const resolvedAppointmentTypeLineageKey =
     resolvedStoredReferences.appointmentTypeLineageKey;
-  const resolvedLocationId = resolvedStoredReferences.locationLineageKey;
-  const resolvedPractitionerId =
+  const resolvedLocationLineageKey =
+    resolvedStoredReferences.locationLineageKey;
+  const resolvedPractitionerLineageKey =
     resolvedStoredReferences.practitionerLineageKey;
   const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
@@ -1630,8 +1636,9 @@ async function updateAppointmentByMode(
   }
 
   const hasSchedulingChange =
-    resolvedLocationId !== existingAppointment.locationLineageKey ||
-    resolvedPractitionerId !== existingAppointment.practitionerLineageKey ||
+    resolvedLocationLineageKey !== existingAppointment.locationLineageKey ||
+    resolvedPractitionerLineageKey !==
+      existingAppointment.practitionerLineageKey ||
     resolvedStart !== existingAppointment.start ||
     resolvedEnd !== existingAppointment.end;
 
@@ -1643,12 +1650,10 @@ async function updateAppointmentByMode(
       {
         candidate: {
           end: resolvedEnd,
-          locationLineageKey: asLocationLineageKey(resolvedLocationId),
-          ...(resolvedPractitionerId
+          locationLineageKey: resolvedLocationLineageKey,
+          ...(resolvedPractitionerLineageKey
             ? {
-                practitionerLineageKey: asPractitionerLineageKey(
-                  resolvedPractitionerId,
-                ),
+                practitionerLineageKey: resolvedPractitionerLineageKey,
               }
             : {}),
           start: resolvedStart,
@@ -1898,10 +1903,10 @@ async function updateAppointmentByMode(
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
     ...getPersistentSimulationFields(existingAppointment, BigInt(Date.now())),
-    appointmentTypeLineageKey: resolvedAppointmentTypeId,
-    locationLineageKey: resolvedLocationId,
-    ...(resolvedPractitionerId
-      ? { practitionerLineageKey: resolvedPractitionerId }
+    appointmentTypeLineageKey: resolvedAppointmentTypeLineageKey,
+    locationLineageKey: resolvedLocationLineageKey,
+    ...(resolvedPractitionerLineageKey
+      ? { practitionerLineageKey: resolvedPractitionerLineageKey }
       : filteredUpdateData.practitionerId === undefined
         ? {}
         : { practitionerLineageKey: undefined }),
