@@ -367,6 +367,16 @@ export const toSchedulePayloadFromAppliedSchedule = (
   };
 };
 
+export const getAbsentLineageKeysForReplacement = (
+  currentLineageKeys: Id<"baseSchedules">[],
+  replacementLineageKeys: Id<"baseSchedules">[],
+): Id<"baseSchedules">[] => {
+  const currentLineageKeySet = new Set(currentLineageKeys);
+  return replacementLineageKeys.filter(
+    (lineageKey) => !currentLineageKeySet.has(lineageKey),
+  );
+};
+
 export const removeSchedulesFromRef = (
   schedulesRef: SchedulesRef,
   lineageKeys: Id<"baseSchedules">[],

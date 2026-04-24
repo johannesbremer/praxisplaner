@@ -30,6 +30,7 @@ import {
   previewPractitionerCoverageForAppointment,
   resolveAppointmentTypeIdForRuleSet,
   resolveLocationIdForRuleSet,
+  resolvePractitionerIdForRuleSet,
 } from "./appointmentCoverage";
 import {
   resolveLocationLineageKey,
@@ -72,6 +73,7 @@ import {
   asLocationId,
   asLocationLineageKey,
   asPractitionerId,
+  asPractitionerLineageKey,
 } from "./identity";
 import { insertSelfLineageEntity } from "./lineage";
 import {
@@ -235,7 +237,7 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
       selectedPractitionerId: args.practitionerId,
     });
 
-    if (!suggestion.targetPractitionerId) {
+    if (!suggestion.targetPractitionerLineageKey) {
       continue;
     }
 
@@ -256,7 +258,13 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
       {
         appointmentTypeId,
         locationId,
-        practitionerId: asPractitionerId(suggestion.targetPractitionerId),
+        practitionerId: await resolvePractitionerIdForRuleSet(ctx.db, {
+          practiceId: args.practiceId,
+          practitionerLineageKey: asPractitionerLineageKey(
+            suggestion.targetPractitionerLineageKey,
+          ),
+          ruleSetId: args.ruleSetId,
+        }),
       },
     );
 

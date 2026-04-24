@@ -399,13 +399,13 @@ describe("vacations", () => {
     expect(
       preview.suggestions.find(
         (suggestion: (typeof preview.suggestions)[number]) =>
-          suggestion.targetPractitionerId !== undefined,
-      )?.targetPractitionerId,
+          suggestion.targetPractitionerLineageKey !== undefined,
+      )?.targetPractitionerLineageKey,
     ).toBe(fixture.preferredPractitionerId);
     expect(
       preview.suggestions.find(
         (suggestion: (typeof preview.suggestions)[number]) =>
-          suggestion.targetPractitionerId === undefined,
+          suggestion.targetPractitionerLineageKey === undefined,
       ),
     ).toBeDefined();
   });
@@ -607,20 +607,20 @@ describe("vacations", () => {
     const copiedPractitioners = await t.query(api.entities.getPractitioners, {
       ruleSetId: copiedRuleSetId,
     });
-    const copiedPreferredPractitionerId = copiedPractitioners.find(
+    const copiedPreferredPractitionerLineageKey = copiedPractitioners.find(
       (practitioner) =>
         practitioner.lineageKey === fixture.preferredPractitionerId,
-    )?._id;
-    assertDefined(copiedPreferredPractitionerId);
+    )?.lineageKey;
+    assertDefined(copiedPreferredPractitionerLineageKey);
 
     expect(preview.affectedCount).toBe(1);
     expect(preview.movableCount).toBe(1);
     expect(
       preview.suggestions.find(
         (suggestion: (typeof preview.suggestions)[number]) =>
-          suggestion.targetPractitionerId !== undefined,
-      )?.targetPractitionerId,
-    ).toBe(copiedPreferredPractitionerId);
+          suggestion.targetPractitionerLineageKey !== undefined,
+      )?.targetPractitionerLineageKey,
+    ).toBe(copiedPreferredPractitionerLineageKey);
   });
 
   test("coverage preview resolves copied rule set locations from stored lineage even when the source row is gone", async () => {
@@ -840,8 +840,8 @@ describe("vacations", () => {
       ruleSetId: draftPractitioner.ruleSetId,
     });
     expect(
-      draftPractitioners.map((practitioner) => practitioner._id),
-    ).toContain(preview.suggestions[0]?.targetPractitionerId);
+      draftPractitioners.map((practitioner) => practitioner.lineageKey),
+    ).toContain(preview.suggestions[0]?.targetPractitionerLineageKey);
   });
 
   test("coverage preview and save accept absent practitioners that only exist in the selected draft", async () => {
@@ -984,13 +984,13 @@ describe("vacations", () => {
           fixture.preferredPractitionerId,
         ].includes(practitioner.lineageKey),
       )
-      .map((practitioner) => practitioner._id);
+      .map((practitioner) => practitioner.lineageKey);
 
     expect(preview.affectedCount).toBe(1);
     expect(preview.movableCount).toBe(1);
     expect(preview.unmovedCount).toBe(0);
     expect(allowedDraftTargetIds).toContain(
-      preview.suggestions[0]?.targetPractitionerId,
+      preview.suggestions[0]?.targetPractitionerLineageKey,
     );
   });
 
@@ -1046,11 +1046,12 @@ describe("vacations", () => {
     const draftPractitioners = await t.query(api.entities.getPractitioners, {
       ruleSetId: draftVacation.ruleSetId,
     });
-    const draftTargetPractitionerId =
-      preview.suggestions[0]?.targetPractitionerId;
-    assertDefined(draftTargetPractitionerId);
+    const draftTargetPractitionerLineageKey =
+      preview.suggestions[0]?.targetPractitionerLineageKey;
+    assertDefined(draftTargetPractitionerLineageKey);
     const selectedTargetPractitioner = draftPractitioners.find(
-      (practitioner) => practitioner._id === draftTargetPractitionerId,
+      (practitioner) =>
+        practitioner.lineageKey === draftTargetPractitionerLineageKey,
     );
     assertDefined(selectedTargetPractitioner);
     expect(selectedTargetPractitioner.ruleSetId).toBe(draftVacation.ruleSetId);
@@ -1064,11 +1065,12 @@ describe("vacations", () => {
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
         reassignments: preview.suggestions.flatMap((suggestion) =>
-          suggestion.targetPractitionerId
+          suggestion.targetPractitionerLineageKey
             ? [
                 {
                   appointmentId: suggestion.appointmentId,
-                  targetPractitionerId: suggestion.targetPractitionerId,
+                  targetPractitionerLineageKey:
+                    suggestion.targetPractitionerLineageKey,
                 },
               ]
             : [],
@@ -1168,7 +1170,9 @@ describe("vacations", () => {
     expect(preview.movableCount).toBe(0);
     expect(preview.unmovedCount).toBe(1);
     expect(preview.suggestions[0]?.appointmentId).toBe(appointmentId);
-    expect(preview.suggestions[0]?.targetPractitionerId).toBeUndefined();
+    expect(
+      preview.suggestions[0]?.targetPractitionerLineageKey,
+    ).toBeUndefined();
   });
 
   test("creating a vacation with coverage adjustments stages simulation changes until activation", async () => {
@@ -1210,7 +1214,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1459,7 +1463,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1536,7 +1540,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1643,7 +1647,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1784,7 +1788,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId: firstAppointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1825,7 +1829,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId: secondAppointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: firstDraft.ruleSetId,
@@ -1872,7 +1876,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -1934,7 +1938,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId: staleAppointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -2039,7 +2043,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: draftVacation.ruleSetId,
@@ -2086,7 +2090,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -2148,7 +2152,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -2206,7 +2210,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -2301,7 +2305,7 @@ describe("vacations", () => {
         reassignments: [
           {
             appointmentId: morningAppointmentId,
-            targetPractitionerId: fixture.preferredPractitionerId,
+            targetPractitionerLineageKey: fixture.preferredPractitionerId,
           },
         ],
         selectedRuleSetId: fixture.ruleSetId,
@@ -2337,11 +2341,12 @@ describe("vacations", () => {
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
         reassignments: fullPreview.suggestions.flatMap((suggestion) =>
-          suggestion.targetPractitionerId
+          suggestion.targetPractitionerLineageKey
             ? [
                 {
                   appointmentId: suggestion.appointmentId,
-                  targetPractitionerId: suggestion.targetPractitionerId,
+                  targetPractitionerLineageKey:
+                    suggestion.targetPractitionerLineageKey,
                 },
               ]
             : [],

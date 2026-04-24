@@ -410,6 +410,90 @@ describe("appointments self-service cancellation", () => {
     ]);
   });
 
+  test("getBookedAppointmentsForCurrentUser remaps appointment type titles for the active display rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_display_ruleset";
+    const userId = await createUser(t, authId, "booked-display@example.com");
+
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(3),
+    });
+
+    const displayRuleSetId = await t.run(async (ctx) => {
+      const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Copied Display Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      const copiedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseData.locationId,
+          name: "Display Main Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const copiedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Dr. Display",
+          practiceId: baseData.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const copiedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [copiedPractitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Display Checkup",
+          practiceId: baseData.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+
+      expect(copiedLocationId).toBeDefined();
+      expect(copiedAppointmentTypeId).toBeDefined();
+      return copiedRuleSetId;
+    });
+
+    const authed = t.withIdentity({
+      email: "booked-display@example.com",
+      subject: authId,
+    });
+
+    const upcomingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: displayRuleSetId },
+    );
+
+    expect(upcomingAppointments).toHaveLength(1);
+    expect(upcomingAppointments[0]?._id).toBe(appointmentId);
+    expect(upcomingAppointments[0]?.appointmentTypeId).not.toBe(
+      baseData.appointmentTypeId,
+    );
+    expect(upcomingAppointments[0]?.appointmentTypeTitle).toBe(
+      "Display Checkup",
+    );
+  });
+
   test("getBookedAppointmentForCurrentUser ignores simulation appointments", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

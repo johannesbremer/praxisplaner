@@ -1670,13 +1670,13 @@ export function VacationScheduler({
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
-                                    suggestion.targetPractitionerId
+                                    suggestion.targetPractitionerLineageKey
                                       ? [
                                           {
                                             appointmentId:
                                               suggestion.appointmentId,
-                                            targetPractitionerId:
-                                              suggestion.targetPractitionerId,
+                                            targetPractitionerLineageKey:
+                                              suggestion.targetPractitionerLineageKey,
                                           },
                                         ]
                                       : [],
@@ -1744,13 +1744,13 @@ export function VacationScheduler({
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
-                                    suggestion.targetPractitionerId
+                                    suggestion.targetPractitionerLineageKey
                                       ? [
                                           {
                                             appointmentId:
                                               suggestion.appointmentId,
-                                            targetPractitionerId:
-                                              suggestion.targetPractitionerId,
+                                            targetPractitionerLineageKey:
+                                              suggestion.targetPractitionerLineageKey,
                                           },
                                         ]
                                       : [],

@@ -59,6 +59,7 @@ import {
   buildLocationLineageByIdMap,
   buildPractitionerLineageByIdMap,
   type ExtendedSchedule,
+  getAbsentLineageKeysForReplacement,
   isBaseScheduleMissingError,
   type LocationMatchEntity,
   matchesSchedulePayload,
@@ -1158,6 +1159,10 @@ function BaseScheduleDialog({
           const oldLineageKeys = oldSchedulePayloads.map(
             (payload) => payload.lineageKey,
           );
+          const redoExpectedAbsentLineageKeys =
+            getAbsentLineageKeysForReplacement(oldLineageKeys, newLineageKeys);
+          const undoExpectedAbsentLineageKeys =
+            getAbsentLineageKeysForReplacement(newLineageKeys, oldLineageKeys);
 
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten aktualisiert",
@@ -1178,7 +1183,7 @@ function BaseScheduleDialog({
                 };
               }
               const redoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: newLineageKeys,
+                expectedAbsentLineageKeys: redoExpectedAbsentLineageKeys,
                 expectedPresentLineageKeys: oldLineageKeys,
                 practiceId,
                 replacementSchedules,
@@ -1211,7 +1216,7 @@ function BaseScheduleDialog({
                 };
               }
               const undoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: oldLineageKeys,
+                expectedAbsentLineageKeys: undoExpectedAbsentLineageKeys,
                 expectedPresentLineageKeys: newLineageKeys,
                 practiceId,
                 replacementSchedules,

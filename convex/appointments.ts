@@ -396,6 +396,31 @@ function requireEntityUsableForNewAppointment<
   return params.entity;
 }
 
+async function resolveAppointmentTypeForDisplayRuleSet(
+  db: DatabaseReader,
+  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  targetRuleSetId: Id<"ruleSets">,
+): Promise<{
+  appointmentTypeId: Id<"appointmentTypes">;
+  appointmentTypeTitle: string;
+}> {
+  const appointmentTypeId = await resolveAppointmentTypeIdForDisplayRuleSet(
+    db,
+    appointmentTypeLineageKey,
+    targetRuleSetId,
+  );
+  const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
+  if (!appointmentType) {
+    throw new Error(
+      `Terminart ${appointmentTypeLineageKey} konnte im Regelset ${targetRuleSetId} nicht geladen werden.`,
+    );
+  }
+  return {
+    appointmentTypeId,
+    appointmentTypeTitle: appointmentType.name,
+  };
+}
+
 async function resolveAppointmentTypeIdForDisplayRuleSet(
   db: DatabaseReader,
   appointmentTypeLineageKey: Id<"appointmentTypes">,
@@ -665,13 +690,16 @@ async function remapAppointmentIds(
   const remappedAppointments = await Promise.all(
     appointments.map(async (appointment) => {
       try {
-        const remappedAppointment: AppointmentListItem = {
-          ...toAppointmentListItem(appointment),
-          appointmentTypeId: await resolveAppointmentTypeIdForDisplayRuleSet(
+        const displayAppointmentType =
+          await resolveAppointmentTypeForDisplayRuleSet(
             ctx.db,
             appointment.appointmentTypeLineageKey,
             targetRuleSetId,
-          ),
+          );
+        const remappedAppointment: AppointmentListItem = {
+          ...toAppointmentListItem(appointment),
+          appointmentTypeId: displayAppointmentType.appointmentTypeId,
+          appointmentTypeTitle: displayAppointmentType.appointmentTypeTitle,
           locationId: await resolveLocationIdForDisplayRuleSet(
             ctx.db,
             appointment.locationLineageKey,
@@ -2022,7 +2050,9 @@ export const cancelOwnAppointment = mutation({
 // Query to get the authenticated user's future booked appointments (future only)
 export const getBookedAppointmentsForCurrentUser = query({
   args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
     refreshNonce: v.optional(v.number()),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
     return await getBookedAppointmentsForUser(ctx, args);
@@ -2033,7 +2063,9 @@ export const getBookedAppointmentsForCurrentUser = query({
 // Query to get the authenticated user's next booked appointment (future only)
 export const getBookedAppointmentForCurrentUser = query({
   args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
     refreshNonce: v.optional(v.number()),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
   handler: async (ctx, args) => {
     const appointments = await getBookedAppointmentsForUser(ctx, args);
@@ -2044,7 +2076,11 @@ export const getBookedAppointmentForCurrentUser = query({
 
 async function getBookedAppointmentsForUser(
   ctx: QueryCtx,
-  args: { refreshNonce?: number },
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    refreshNonce?: number;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
 ): Promise<AppointmentListItem[]> {
   const userId = await getAuthenticatedUserIdForQuery(ctx);
   if (!userId) {
@@ -2064,18 +2100,23 @@ async function getBookedAppointmentsForUser(
       q.eq("userId", userId).gte("start", nowStartLowerBound),
     );
 
-  const appointments: AppointmentListItem[] = [];
+  const appointments: AppointmentDoc[] = [];
   for await (const appointment of appointmentQuery) {
     if (
       appointment.isSimulation !== true &&
       isVisibleAppointment(appointment) &&
       isAppointmentInFuture(appointment, nowEpochMilliseconds)
     ) {
-      appointments.push(toAppointmentListItem(appointment));
+      appointments.push(appointment);
     }
   }
 
-  return appointments;
+  const displayRuleSetId = getDisplayRuleSetId(args);
+  if (displayRuleSetId) {
+    return await remapAppointmentIds(ctx, appointments, displayRuleSetId);
+  }
+
+  return appointments.map((appointment) => toAppointmentListItem(appointment));
 }
 
 // Query to get all appointments for a patient (past, present, and future)

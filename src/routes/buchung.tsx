@@ -228,7 +228,12 @@ function AuthenticatedBookingFlow() {
   );
   const bookedAppointments = useQuery(
     api.appointments.getBookedAppointmentsForCurrentUser,
-    { refreshNonce: bookedAppointmentRefreshNonce },
+    {
+      refreshNonce: bookedAppointmentRefreshNonce,
+      ...(practiceActiveRuleSetId
+        ? { activeRuleSetId: practiceActiveRuleSetId }
+        : {}),
+    },
   );
   const practitioners = useQuery(
     api.entities.getPractitioners,

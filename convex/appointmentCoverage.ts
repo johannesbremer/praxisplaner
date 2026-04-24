@@ -50,7 +50,7 @@ const coverageSuggestionValidator = v.object({
   locationId: v.id("locations"),
   patientId: v.optional(v.id("patients")),
   start: v.string(),
-  targetPractitionerId: v.optional(v.id("practitioners")),
+  targetPractitionerLineageKey: v.optional(v.id("practitioners")),
   targetPractitionerName: v.optional(v.string()),
   title: v.string(),
   userId: v.optional(v.id("users")),
@@ -214,7 +214,7 @@ async function previewPractitionerCoverageForAppointment(
   locationId: Id<"locations">;
   patientId?: Id<"patients">;
   start: string;
-  targetPractitionerId?: Id<"practitioners">;
+  targetPractitionerLineageKey?: Id<"practitioners">;
   targetPractitionerName?: string;
   title: string;
   userId?: Id<"users">;
@@ -371,11 +371,7 @@ async function previewPractitionerCoverageForAppointment(
 
   return {
     ...suggestionBase,
-    targetPractitionerId: await resolvePractitionerIdInRuleSet(ctx.db, {
-      practiceId: args.practiceId,
-      practitionerLineageKey: bestCandidate.activePractitionerLineageKey,
-      targetRuleSetId: args.ruleSetId,
-    }),
+    targetPractitionerLineageKey: bestCandidate.activePractitionerLineageKey,
     targetPractitionerName: bestCandidate.name,
   };
 }
@@ -594,7 +590,7 @@ export const previewPractitionerAbsenceCoverage = query({
     );
 
     const movableCount = suggestions.filter(
-      (suggestion) => suggestion.targetPractitionerId !== undefined,
+      (suggestion) => suggestion.targetPractitionerLineageKey !== undefined,
     ).length;
 
     return {

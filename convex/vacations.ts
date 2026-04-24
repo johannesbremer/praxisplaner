@@ -54,7 +54,7 @@ const draftMutationResultValidator = v.object({
 
 const vacationCoverageReassignmentValidator = v.object({
   appointmentId: v.id("appointments"),
-  targetPractitionerId: v.id("practitioners"),
+  targetPractitionerLineageKey: v.id("practitioners"),
 });
 
 function appointmentOverlapsVacationRanges(
@@ -804,7 +804,7 @@ export const createVacationWithCoverageAdjustments = mutation({
         {
           practiceId: args.practiceId,
           practitionerLineageKey: asPractitionerLineageKey(
-            reassignment.targetPractitionerId,
+            reassignment.targetPractitionerLineageKey,
           ),
           ruleSetId,
         },
