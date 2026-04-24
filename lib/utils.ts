@@ -1,9 +1,17 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
-import type { Id } from "../convex/_generated/dataModel";
+import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+} from "../convex/identity";
 import type { SchedulingSimulatedContext } from "../src/types";
 import type { IsoDateString } from "./typed-regex";
+
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+} from "../convex/identity";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -20,9 +28,9 @@ export function cn(...inputs: ClassValue[]) {
  * @returns A properly typed SchedulingSimulatedContext
  */
 export function createSimulatedContext(options?: {
-  appointmentTypeLineageKey?: Id<"appointmentTypes">;
+  appointmentTypeLineageKey?: AppointmentTypeLineageKey;
   isNewPatient?: boolean;
-  locationLineageKey?: Id<"locations">;
+  locationLineageKey?: LocationLineageKey;
   patientDateOfBirth?: IsoDateString;
 }): SchedulingSimulatedContext {
   const context: SchedulingSimulatedContext = {
@@ -35,11 +43,15 @@ export function createSimulatedContext(options?: {
   };
 
   if (options?.appointmentTypeLineageKey) {
-    context.appointmentTypeLineageKey = options.appointmentTypeLineageKey;
+    context.appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      options.appointmentTypeLineageKey,
+    );
   }
 
   if (options?.locationLineageKey) {
-    context.locationLineageKey = options.locationLineageKey;
+    context.locationLineageKey = asLocationLineageKey(
+      options.locationLineageKey,
+    );
   }
 
   return context;

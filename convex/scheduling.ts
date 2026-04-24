@@ -90,8 +90,8 @@ export interface SchedulingResultSlot {
   blockedByBlockedSlotId?: Id<"blockedSlots">; // ID of manual blocked slot that caused this
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number; // minutes
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey: Id<"practitioners">;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey: PractitionerLineageKey;
   practitionerName: string;
   reason?: string; // Natural language explanation for blocked slots
   startTime: ZonedDateTimeString; // ISO string
@@ -187,10 +187,10 @@ function formatDateForIndex(date: Date): IsoDateString {
 function getCachedVacationRangesForPractitionerLocation(
   cache: Map<string, MinuteRange[]>,
   date: Temporal.PlainDate,
-  practitionerLineageKey: Id<"practitioners">,
+  practitionerLineageKey: PractitionerLineageKey,
   schedules: Doc<"baseSchedules">[],
   vacations: Doc<"vacations">[],
-  locationLineageKey?: Id<"locations">,
+  locationLineageKey?: LocationLineageKey,
 ): MinuteRange[] {
   const key = `${practitionerLineageKey}:${locationLineageKey ?? "all"}`;
   const cached = cache.get(key);
@@ -1343,9 +1343,9 @@ export const getBlockedSlotsWithoutAppointmentType = query({
           blockedByRuleId?: Id<"ruleConditions">;
           duration: number;
           locationId: Id<"locations">;
-          locationLineageKey: Id<"locations">;
+          locationLineageKey: LocationLineageKey;
           practitionerId: Id<"practitioners">;
-          practitionerLineageKey: Id<"practitioners">;
+          practitionerLineageKey: PractitionerLineageKey;
           reason?: string;
           startTime: string;
           status: "BLOCKED";

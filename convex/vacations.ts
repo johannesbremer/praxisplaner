@@ -4,7 +4,12 @@ import { Temporal } from "temporal-polyfill";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import type { MfaId, MfaLineageKey, PractitionerLineageKey } from "./identity";
+import type {
+  MfaId,
+  MfaLineageKey,
+  PractitionerLineageKey,
+  VacationLineageKey,
+} from "./identity";
 
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
@@ -28,6 +33,7 @@ import {
   asMfaLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  asVacationLineageKey,
 } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
@@ -144,7 +150,7 @@ async function deleteCoverageSimulationAppointmentsForVacation(
   ctx: MutationCtx,
   args: {
     ruleSetId: Id<"ruleSets">;
-    vacationLineageKey: Id<"vacations">;
+    vacationLineageKey: VacationLineageKey;
   },
 ) {
   const simulationAppointments = await ctx.db
@@ -191,7 +197,7 @@ async function replaceVacationsInDraft(
     mfaLineageKey?: MfaLineageKey;
     practiceId: Id<"practices">;
     practitionerLineageKey?: PractitionerLineageKey;
-    replacingVacationLineageKeys: Id<"vacations">[];
+    replacingVacationLineageKeys: VacationLineageKey[];
     ruleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
   },
@@ -354,13 +360,15 @@ async function findExistingVacationForDateAndStaff(
     .first();
 }
 
-function requireVacationLineageKey(vacation: Doc<"vacations">) {
+function requireVacationLineageKey(
+  vacation: Doc<"vacations">,
+): VacationLineageKey {
   if (!vacation.lineageKey) {
     throw new Error(
       `[INVARIANT:VACATION_LINEAGE_KEY_MISSING] Urlaub ${vacation._id} in Regelset ${vacation.ruleSetId} hat keinen lineageKey.`,
     );
   }
-  return vacation.lineageKey;
+  return asVacationLineageKey(vacation.lineageKey);
 }
 
 export const createVacation = mutation({
@@ -636,7 +644,9 @@ export const createVacationWithCoverageAdjustments = mutation({
       args.selectedRuleSetId,
     );
     const replacingVacationLineageKeys = [
-      ...(args.replacingVacationLineageKeys ?? []),
+      ...(args.replacingVacationLineageKeys ?? []).map((lineageKey) =>
+        asVacationLineageKey(lineageKey),
+      ),
     ];
     const retainedLineageKey =
       replacingVacationLineageKeys.length === 1

@@ -5,6 +5,7 @@ import { Temporal } from "temporal-polyfill";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
   AppointmentTypeLineageKey,
+  LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type { PatientInfo } from "../../types";
@@ -16,6 +17,7 @@ import type {
 import { api } from "../../../convex/_generated/api";
 import {
   asAppointmentTypeLineageKey,
+  asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
 import { createSimulatedContext } from "../../../lib/utils";
@@ -47,8 +49,8 @@ export function useCalendarData(args: {
   simulatedContext:
     | undefined
     | {
-        appointmentTypeLineageKey?: Id<"appointmentTypes">;
-        locationLineageKey?: Id<"locations">;
+        appointmentTypeLineageKey?: AppointmentTypeLineageKey;
+        locationLineageKey?: LocationLineageKey;
         patient: { dateOfBirth?: string; isNew: boolean };
       };
 }) {
@@ -308,10 +310,15 @@ export function useCalendarData(args: {
   );
   const appointmentTypeIdByLineageKey = useMemo(
     () =>
-      new Map(
+      new Map<AppointmentTypeLineageKey, Id<"appointmentTypes">>(
         (appointmentTypesData ?? []).flatMap((appointmentType) =>
           appointmentType.lineageKey
-            ? [[appointmentType.lineageKey, appointmentType._id] as const]
+            ? [
+                [
+                  asAppointmentTypeLineageKey(appointmentType.lineageKey),
+                  appointmentType._id,
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -319,10 +326,15 @@ export function useCalendarData(args: {
   );
   const locationLineageKeyById = useMemo(
     () =>
-      new Map(
+      new Map<Id<"locations">, LocationLineageKey>(
         (locationsData ?? []).flatMap((location) =>
           location.lineageKey
-            ? [[location._id, location.lineageKey] as const]
+            ? [
+                [
+                  location._id,
+                  asLocationLineageKey(location.lineageKey),
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -330,10 +342,15 @@ export function useCalendarData(args: {
   );
   const locationIdByLineageKey = useMemo(
     () =>
-      new Map(
+      new Map<LocationLineageKey, Id<"locations">>(
         (locationsData ?? []).flatMap((location) =>
           location.lineageKey
-            ? [[location.lineageKey, location._id] as const]
+            ? [
+                [
+                  asLocationLineageKey(location.lineageKey),
+                  location._id,
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -341,10 +358,15 @@ export function useCalendarData(args: {
   );
   const practitionerIdByLineageKey = useMemo(
     () =>
-      new Map(
+      new Map<PractitionerLineageKey, Id<"practitioners">>(
         (practitionersData ?? []).flatMap((practitioner) =>
           practitioner.lineageKey
-            ? [[practitioner.lineageKey, practitioner._id] as const]
+            ? [
+                [
+                  asPractitionerLineageKey(practitioner.lineageKey),
+                  practitioner._id,
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -352,10 +374,15 @@ export function useCalendarData(args: {
   );
   const practitionerLineageKeyById = useMemo(
     () =>
-      new Map(
+      new Map<Id<"practitioners">, PractitionerLineageKey>(
         (practitionersData ?? []).flatMap((practitioner) =>
           practitioner.lineageKey
-            ? [[practitioner._id, practitioner.lineageKey] as const]
+            ? [
+                [
+                  practitioner._id,
+                  asPractitionerLineageKey(practitioner.lineageKey),
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -363,17 +390,25 @@ export function useCalendarData(args: {
   );
   const appointmentTypeLineageKeyById = useMemo(
     () =>
-      new Map(
+      new Map<Id<"appointmentTypes">, AppointmentTypeLineageKey>(
         (appointmentTypesData ?? []).flatMap((appointmentType) =>
           appointmentType.lineageKey
-            ? [[appointmentType._id, appointmentType.lineageKey] as const]
+            ? [
+                [
+                  appointmentType._id,
+                  asAppointmentTypeLineageKey(appointmentType.lineageKey),
+                ] as const,
+              ]
             : [],
         ),
       ),
     [appointmentTypesData],
   );
   const appointmentTypeInfoByLineageKey = useMemo(() => {
-    const map = new Map<Id<"appointmentTypes">, CalendarAppointmentTypeInfo>();
+    const map = new Map<
+      AppointmentTypeLineageKey,
+      CalendarAppointmentTypeInfo
+    >();
     for (const appointmentType of appointmentTypesData ?? []) {
       if (!appointmentType.lineageKey) {
         continue;
@@ -384,7 +419,7 @@ export function useCalendarData(args: {
           asPractitionerLineageKey(lineageKey),
         );
 
-      map.set(appointmentType.lineageKey, {
+      map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
         duration: appointmentType.duration,
         hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
@@ -396,10 +431,15 @@ export function useCalendarData(args: {
   }, [appointmentTypesData]);
   const practitionerNameByLineageKey = useMemo(
     () =>
-      new Map(
+      new Map<PractitionerLineageKey, string>(
         (practitionersData ?? []).flatMap((practitioner) =>
           practitioner.lineageKey
-            ? [[practitioner.lineageKey, practitioner.name] as const]
+            ? [
+                [
+                  asPractitionerLineageKey(practitioner.lineageKey),
+                  practitioner.name,
+                ] as const,
+              ]
             : [],
         ),
       ),
@@ -468,11 +508,18 @@ export function useCalendarData(args: {
               simulatedContext: createSimulatedContext({
                 ...(appointmentTypeLineageKey === undefined
                   ? {}
-                  : { appointmentTypeLineageKey }),
+                  : {
+                      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                        appointmentTypeLineageKey,
+                      ),
+                    }),
                 isNewPatient: args.patient?.isNewPatient ?? false,
                 ...(locationLineageKey === undefined
                   ? {}
-                  : { locationLineageKey }),
+                  : {
+                      locationLineageKey:
+                        asLocationLineageKey(locationLineageKey),
+                    }),
                 ...(patientDateOfBirth !== undefined && {
                   patientDateOfBirth,
                 }),

@@ -5,7 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockedSlotResult } from "../../../convex/appointments";
 import type { CalendarAppointmentLayout } from "../../components/calendar/types";
 
-import { toTableId } from "../../../convex/identity";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+  toTableId,
+} from "../../../convex/identity";
+import { toCalendarBlockedSlotRecord } from "../../../src/components/calendar/calendar-view-models";
 import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
 
 const { captureErrorGlobal, toastError } = vi.hoisted(() => ({
@@ -23,10 +29,14 @@ vi.mock("../../utils/error-tracking", () => ({
   captureErrorGlobal,
 }));
 
-const location1 = toTableId<"locations">("location_1");
+const location1 = asLocationLineageKey(toTableId<"locations">("location_1"));
 const practice1 = toTableId<"practices">("practice_1");
-const practitioner1 = toTableId<"practitioners">("practitioner_1");
-const appointmentType1 = toTableId<"appointmentTypes">("appointment_type_1");
+const practitioner1 = asPractitionerLineageKey(
+  toTableId<"practitioners">("practitioner_1"),
+);
+const appointmentType1 = asAppointmentTypeLineageKey(
+  toTableId<"appointmentTypes">("appointment_type_1"),
+);
 
 const resolveBlockedSlotDisplayRefs = () => ({
   locationId: location1,
@@ -324,7 +334,7 @@ describe("calendar resize interactions", () => {
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
         showNonRootSeriesEditToast: vi.fn(),
         simulatedContext: {
-          locationLineageKey: location1,
+          locationLineageKey: asLocationLineageKey(location1),
           patient: { isNew: true },
         },
         slotToTime: (slot) =>
@@ -384,9 +394,11 @@ describe("calendar resize interactions", () => {
           current: new Map([
             [
               "blocked_slot_1",
-              buildBlockedSlotResult({
-                _id: toTableId<"blockedSlots">("blocked_slot_1"),
-              }),
+              toCalendarBlockedSlotRecord(
+                buildBlockedSlotResult({
+                  _id: toTableId<"blockedSlots">("blocked_slot_1"),
+                }),
+              ),
             ],
           ]),
         },
@@ -460,9 +472,11 @@ describe("calendar resize interactions", () => {
           current: new Map([
             [
               "blocked_slot_1",
-              buildBlockedSlotResult({
-                _id: toTableId<"blockedSlots">("blocked_slot_1"),
-              }),
+              toCalendarBlockedSlotRecord(
+                buildBlockedSlotResult({
+                  _id: toTableId<"blockedSlots">("blocked_slot_1"),
+                }),
+              ),
             ],
           ]),
         },
@@ -476,7 +490,7 @@ describe("calendar resize interactions", () => {
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
         showNonRootSeriesEditToast: vi.fn(),
         simulatedContext: {
-          locationLineageKey: location1,
+          locationLineageKey: asLocationLineageKey(location1),
           patient: { isNew: true },
         },
         slotToTime: (slot) =>
@@ -531,9 +545,11 @@ describe("calendar resize interactions", () => {
       return (Number(hours) - 8) * 12 + Math.floor(Number(minutes) / 5);
     };
 
-    const originalBlockedSlot = buildBlockedSlotResult({
-      _id: toTableId<"blockedSlots">("blocked_slot_1"),
-    });
+    const originalBlockedSlot = toCalendarBlockedSlotRecord(
+      buildBlockedSlotResult({
+        _id: toTableId<"blockedSlots">("blocked_slot_1"),
+      }),
+    );
     const blockedSlotDocMapRef = {
       current: new Map<string, typeof originalBlockedSlot>([
         ["blocked_slot_1", originalBlockedSlot],
@@ -568,7 +584,7 @@ describe("calendar resize interactions", () => {
           selectedDate: Temporal.PlainDate.from("2026-04-23"),
           showNonRootSeriesEditToast: vi.fn(),
           simulatedContext: {
-            locationLineageKey: location1,
+            locationLineageKey: asLocationLineageKey(location1),
             patient: { isNew: true },
           },
           slotToTime,
@@ -625,7 +641,7 @@ describe("calendar resize interactions", () => {
       selectedDate: Temporal.PlainDate.from("2026-04-23"),
       showNonRootSeriesEditToast: vi.fn(),
       simulatedContext: {
-        locationLineageKey: location1,
+        locationLineageKey: asLocationLineageKey(location1),
         patient: { isNew: true },
       },
       slotToTime,

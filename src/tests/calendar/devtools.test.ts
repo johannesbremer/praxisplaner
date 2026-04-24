@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { toTableId } from "../../../convex/identity";
+import { asPractitionerLineageKey, toTableId } from "../../../convex/identity";
 import { diffCalendarAppointments } from "../../components/calendar/use-calendar-devtools";
 
 describe("calendar devtools diffing", () => {
-  const practitioner1 = toTableId<"practitioners">("practitioner_1");
-  const practitioner2 = toTableId<"practitioners">("practitioner_2");
+  const practitioner1 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_1"),
+  );
+  const practitioner2 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_2"),
+  );
 
   it("emits added, removed, and updated ids only when snapshots differ", () => {
     expect(

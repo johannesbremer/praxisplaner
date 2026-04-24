@@ -9,6 +9,11 @@ import type {
   CalendarBlockedSlotRecord,
 } from "./types";
 
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS } from "./types";
 
@@ -99,12 +104,26 @@ export function toCalendarAppointmentRecord(
     appointmentTypeId: _appointmentTypeId,
     locationId: _locationId,
     practitionerId: _practitionerId,
+    practitionerLineageKey,
     ...record
   } = appointment;
   void _appointmentTypeId;
   void _locationId;
   void _practitionerId;
-  return record;
+  return {
+    ...record,
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      record.appointmentTypeLineageKey,
+    ),
+    locationLineageKey: asLocationLineageKey(record.locationLineageKey),
+    ...(practitionerLineageKey === undefined
+      ? {}
+      : {
+          practitionerLineageKey: asPractitionerLineageKey(
+            practitionerLineageKey,
+          ),
+        }),
+  };
 }
 
 export function toCalendarAppointmentResult(args: {
@@ -129,11 +148,22 @@ export function toCalendarBlockedSlotRecord(
   const {
     locationId: _locationId,
     practitionerId: _practitionerId,
+    practitionerLineageKey,
     ...record
   } = blockedSlot;
   void _locationId;
   void _practitionerId;
-  return record;
+  return {
+    ...record,
+    locationLineageKey: asLocationLineageKey(record.locationLineageKey),
+    ...(practitionerLineageKey === undefined
+      ? {}
+      : {
+          practitionerLineageKey: asPractitionerLineageKey(
+            practitionerLineageKey,
+          ),
+        }),
+  };
 }
 
 export function toCalendarBlockedSlotResult(args: {

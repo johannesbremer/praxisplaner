@@ -5,10 +5,19 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+  PractitionerLineageKey,
+} from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 
 import { api } from "../../../convex/_generated/api";
-import { asPractitionerLineageKey } from "../../../convex/identity";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   getPractitionerAvailabilityRangesForDate,
@@ -371,7 +380,7 @@ export function useCalendarLogic({
   );
 
   const getAppointmentTypeIdForLineageKey = useCallback(
-    (appointmentTypeLineageKey: Id<"appointmentTypes">) =>
+    (appointmentTypeLineageKey: AppointmentTypeLineageKey) =>
       appointmentTypeIdByLineageKey.get(appointmentTypeLineageKey),
     [appointmentTypeIdByLineageKey],
   );
@@ -382,7 +391,7 @@ export function useCalendarLogic({
   );
 
   const getLocationIdForLineageKey = useCallback(
-    (locationLineageKey: Id<"locations">) =>
+    (locationLineageKey: LocationLineageKey) =>
       locationIdByLineageKey.get(locationLineageKey),
     [locationIdByLineageKey],
   );
@@ -394,7 +403,7 @@ export function useCalendarLogic({
   );
 
   const getPractitionerIdForLineageKey = useCallback(
-    (practitionerLineageKey: Id<"practitioners">) =>
+    (practitionerLineageKey: PractitionerLineageKey) =>
       practitionerIdByLineageKey.get(practitionerLineageKey),
     [practitionerIdByLineageKey],
   );
@@ -410,9 +419,9 @@ export function useCalendarLogic({
 
   const resolveAppointmentReferenceDisplayIds = useCallback(
     (args: {
-      appointmentTypeLineageKey: Id<"appointmentTypes">;
-      locationLineageKey: Id<"locations">;
-      practitionerLineageKey?: Id<"practitioners">;
+      appointmentTypeLineageKey: AppointmentTypeLineageKey;
+      locationLineageKey: LocationLineageKey;
+      practitionerLineageKey?: PractitionerLineageKey;
     }) => resolveAppointmentDisplayRefs(args, referenceMaps),
     [referenceMaps],
   );
@@ -427,8 +436,8 @@ export function useCalendarLogic({
 
   const resolveBlockedSlotReferenceDisplayIds = useCallback(
     (args: {
-      locationLineageKey: Id<"locations">;
-      practitionerLineageKey?: Id<"practitioners">;
+      locationLineageKey: LocationLineageKey;
+      practitionerLineageKey?: PractitionerLineageKey;
     }) => resolveBlockedSlotDisplayRefs(args, referenceMaps),
     [referenceMaps],
   );
@@ -489,11 +498,11 @@ export function useCalendarLogic({
 
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
-      appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined,
-      practitionerLineageKeys: Iterable<Id<"practitioners">>,
+      appointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
+      practitionerLineageKeys: Iterable<PractitionerLineageKey>,
     ) => {
       if (!appointmentTypeLineageKey) {
-        return new Set<Id<"practitioners">>();
+        return new Set<PractitionerLineageKey>();
       }
 
       const allowedPractitionerLineageKeys = new Set(
@@ -544,16 +553,16 @@ export function useCalendarLogic({
 
   const buildCreatedAppointmentHistoryDoc = useCallback(
     (args: {
-      appointmentTypeLineageKey: Id<"appointmentTypes">;
+      appointmentTypeLineageKey: AppointmentTypeLineageKey;
       appointmentTypeTitle: string;
       createdId: Id<"appointments">;
       createEnd: string;
       createStart: string;
       isSimulation: boolean;
-      locationLineageKey: Id<"locations">;
+      locationLineageKey: LocationLineageKey;
       patientId?: Id<"patients">;
       practiceId: Id<"practices">;
-      practitionerLineageKey?: Id<"practitioners">;
+      practitionerLineageKey?: PractitionerLineageKey;
       replacesAppointmentId?: Id<"appointments">;
       title: string;
       userId?: Id<"users">;
@@ -616,8 +625,8 @@ export function useCalendarLogic({
       candidate: {
         end: string;
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
-        practitionerLineageKey?: Id<"practitioners">;
+        locationLineageKey: LocationLineageKey;
+        practitionerLineageKey?: PractitionerLineageKey;
         replacesAppointmentId?: Id<"appointments">;
         start: string;
       },
@@ -651,8 +660,8 @@ export function useCalendarLogic({
       candidate: {
         end: string;
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
-        practitionerLineageKey?: Id<"practitioners">;
+        locationLineageKey: LocationLineageKey;
+        practitionerLineageKey?: PractitionerLineageKey;
         start: string;
       },
       excludeId?: Id<"blockedSlots">,
@@ -1525,8 +1534,8 @@ export function useCalendarLogic({
       ): {
         end: CalendarAppointmentRecord["end"];
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
-        practitionerLineageKey?: Id<"practitioners">;
+        locationLineageKey: LocationLineageKey;
+        practitionerLineageKey?: PractitionerLineageKey;
         start: CalendarAppointmentRecord["start"];
       } => ({
         end: state.end,
@@ -1961,8 +1970,8 @@ export function useCalendarLogic({
       ): {
         end: string;
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
-        practitionerLineageKey?: Id<"practitioners">;
+        locationLineageKey: LocationLineageKey;
+        practitionerLineageKey?: PractitionerLineageKey;
         start: string;
       } => ({
         end: state.end,
@@ -2387,14 +2396,14 @@ export function useCalendarLogic({
               vacation.portion === "full" &&
               vacation.practitionerLineageKey &&
               !practitionersWithAppointments.has(
-                vacation.practitionerLineageKey,
+                asPractitionerLineageKey(vacation.practitionerLineageKey),
               ),
           )
           .flatMap((vacation) => {
             if (!vacation.practitionerLineageKey) {
               return [];
             }
-            return [vacation.practitionerLineageKey];
+            return [asPractitionerLineageKey(vacation.practitionerLineageKey)];
           }),
       );
 
@@ -2404,9 +2413,13 @@ export function useCalendarLogic({
           vacation.date === selectedDate.toString() &&
           vacation.portion === "full" &&
           vacation.practitionerLineageKey &&
-          practitionersWithAppointments.has(vacation.practitionerLineageKey)
+          practitionersWithAppointments.has(
+            asPractitionerLineageKey(vacation.practitionerLineageKey),
+          )
         ) {
-          mutedPractitionerIds.add(vacation.practitionerLineageKey);
+          mutedPractitionerIds.add(
+            asPractitionerLineageKey(vacation.practitionerLineageKey),
+          );
         }
       }
 
@@ -2466,24 +2479,27 @@ export function useCalendarLogic({
       practitionerLineageKey,
       startMinutes,
     } of deletedPractitionerCalendarRanges) {
-      mutedPractitionerIds.add(practitionerLineageKey);
-      if (workingPractitionerIds.has(practitionerLineageKey)) {
+      const brandedPractitionerLineageKey = asPractitionerLineageKey(
+        practitionerLineageKey,
+      );
+      mutedPractitionerIds.add(brandedPractitionerLineageKey);
+      if (workingPractitionerIds.has(brandedPractitionerLineageKey)) {
         continue;
       }
 
-      if (!practitionerIdByLineageKey.get(practitionerLineageKey)) {
+      if (!practitionerIdByLineageKey.get(brandedPractitionerLineageKey)) {
         continue;
       }
 
       working.push({
         endTime: formatMinutesAsTime(endMinutes),
-        lineageKey: practitionerLineageKey,
+        lineageKey: brandedPractitionerLineageKey,
         name:
-          practitionerNameByLineageKey.get(practitionerLineageKey) ??
+          practitionerNameByLineageKey.get(brandedPractitionerLineageKey) ??
           "Unbekannt",
         startTime: formatMinutesAsTime(startMinutes),
       });
-      workingPractitionerIds.add(practitionerLineageKey);
+      workingPractitionerIds.add(brandedPractitionerLineageKey);
     }
 
     const effectiveWorkingRanges = working.flatMap((practitioner) => {
@@ -4113,7 +4129,25 @@ export function useCalendarLogic({
 
     if (requestResult.kind === "missing-patient") {
       if (mode === "real" && onPatientRequired) {
-        onPatientRequired(requestResult.requestContext);
+        onPatientRequired({
+          appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+            requestResult.requestContext.appointmentTypeLineageKey,
+          ),
+          isSimulation: requestResult.requestContext.isSimulation,
+          locationLineageKey: asLocationLineageKey(
+            requestResult.requestContext.locationLineageKey,
+          ),
+          practiceId: requestResult.requestContext.practiceId,
+          ...(requestResult.requestContext.practitionerLineageKey === undefined
+            ? {}
+            : {
+                practitionerLineageKey: asPractitionerLineageKey(
+                  requestResult.requestContext.practitionerLineageKey,
+                ),
+              }),
+          start: requestResult.requestContext.start,
+          title: requestResult.requestContext.title,
+        });
         return;
       }
 
@@ -4214,8 +4248,9 @@ export function useCalendarLogic({
           patientDateOfBirth,
         }),
         ...(locationId && {
-          locationLineageKey:
+          locationLineageKey: asLocationLineageKey(
             getLocationLineageKeyForDisplayId(locationId) ?? locationId,
+          ),
         }),
       });
 

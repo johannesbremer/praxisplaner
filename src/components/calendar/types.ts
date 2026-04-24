@@ -6,6 +6,11 @@ import type {
   BlockedSlotResult,
 } from "../../../convex/appointments";
 import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+  PractitionerLineageKey,
+} from "../../../convex/identity";
+import type {
   PatientInfo,
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
@@ -21,8 +26,17 @@ export interface CalendarAppointmentLayout {
 
 export type CalendarAppointmentRecord = Omit<
   AppointmentResult,
-  "appointmentTypeId" | "locationId" | "practitionerId"
->;
+  | "appointmentTypeId"
+  | "appointmentTypeLineageKey"
+  | "locationId"
+  | "locationLineageKey"
+  | "practitionerId"
+  | "practitionerLineageKey"
+> & {
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+};
 
 export interface CalendarAppointmentView {
   color: string;
@@ -41,8 +55,14 @@ export interface CalendarBlockedSlotEditorRecord {
 
 export type CalendarBlockedSlotRecord = Omit<
   BlockedSlotResult,
-  "locationId" | "practitionerId"
->;
+  | "locationId"
+  | "locationLineageKey"
+  | "practitionerId"
+  | "practitionerLineageKey"
+> & {
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+};
 
 export interface CalendarColumn {
   id: CalendarColumnId;
@@ -53,11 +73,11 @@ export interface CalendarColumn {
   title: string;
 }
 
-export type CalendarColumnId = "ekg" | "labor" | Id<"practitioners">;
+export type CalendarColumnId = "ekg" | "labor" | PractitionerLineageKey;
 
 export interface WorkingPractitioner {
   endTime: string;
-  lineageKey: Id<"practitioners">;
+  lineageKey: PractitionerLineageKey;
   name: string;
   startTime: string;
 }
@@ -75,11 +95,11 @@ export interface NewCalendarProps {
     | undefined;
   onPatientRequired?:
     | ((params: {
-        appointmentTypeLineageKey: Id<"appointmentTypes">;
+        appointmentTypeLineageKey: AppointmentTypeLineageKey;
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
+        locationLineageKey: LocationLineageKey;
         practiceId: Id<"practices">;
-        practitionerLineageKey?: Id<"practitioners">;
+        practitionerLineageKey?: PractitionerLineageKey;
         start: string;
         title: string;
       }) => void)

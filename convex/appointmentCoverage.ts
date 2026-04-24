@@ -194,7 +194,7 @@ async function previewPractitionerCoverageForAppointment(
   locationId: Id<"locations">;
   patientId?: Id<"patients">;
   start: string;
-  targetPractitionerLineageKey?: Id<"practitioners">;
+  targetPractitionerLineageKey?: PractitionerLineageKey;
   targetPractitionerName?: string;
   title: string;
   userId?: Id<"users">;

@@ -38,9 +38,12 @@ import {
   type StepTablePatch,
 } from "./bookingSessions.shared";
 import {
+  type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerLineageKey,
+  type LocationLineageKey,
+  type PractitionerLineageKey,
 } from "./identity";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
@@ -150,14 +153,14 @@ async function materializeInternalState(
       await resolveAppointmentTypeNameForPublicState(
         ctx.db,
         session.ruleSetId,
-        state.appointmentTypeLineageKey,
+        asAppointmentTypeLineageKey(state.appointmentTypeLineageKey),
       );
   }
   if ("locationLineageKey" in state) {
     materialized["locationName"] = await resolveLocationNameForPublicState(
       ctx.db,
       session.ruleSetId,
-      state.locationLineageKey,
+      asLocationLineageKey(state.locationLineageKey),
     );
   }
   if ("practitionerLineageKey" in state) {
@@ -165,7 +168,7 @@ async function materializeInternalState(
       await resolvePractitionerNameForPublicState(
         ctx.db,
         session.ruleSetId,
-        state.practitionerLineageKey,
+        asPractitionerLineageKey(state.practitionerLineageKey),
       );
   }
 
@@ -229,7 +232,7 @@ function requireSelectableRuleSetEntity<
 async function resolveAppointmentTypeNameForPublicState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
-  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  appointmentTypeLineageKey: AppointmentTypeLineageKey,
 ): Promise<string> {
   const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
     db,
@@ -250,10 +253,10 @@ async function resolveAppointmentTypeNameForPublicState(
 async function resolveLocationIdForInternalState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
-  locationLineageKey: Id<"locations">,
+  locationLineageKey: LocationLineageKey,
 ) {
   return await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: asLocationLineageKey(locationLineageKey),
+    lineageKey: locationLineageKey,
     ruleSetId,
   });
 }
@@ -261,10 +264,10 @@ async function resolveLocationIdForInternalState(
 async function resolveLocationNameForPublicState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
-  locationLineageKey: Id<"locations">,
+  locationLineageKey: LocationLineageKey,
 ): Promise<string> {
   const locationId = await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: asLocationLineageKey(locationLineageKey),
+    lineageKey: locationLineageKey,
     ruleSetId,
   });
   const location = await db.get("locations", locationId);
@@ -279,10 +282,10 @@ async function resolveLocationNameForPublicState(
 async function resolvePractitionerIdForInternalState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
-  practitionerLineageKey: Id<"practitioners">,
+  practitionerLineageKey: PractitionerLineageKey,
 ) {
   return await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+    lineageKey: practitionerLineageKey,
     ruleSetId,
   });
 }
@@ -290,10 +293,10 @@ async function resolvePractitionerIdForInternalState(
 async function resolvePractitionerNameForPublicState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
-  practitionerLineageKey: Id<"practitioners">,
+  practitionerLineageKey: PractitionerLineageKey,
 ): Promise<string> {
   const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+    lineageKey: practitionerLineageKey,
     ruleSetId,
   });
   const practitioner = await db.get("practitioners", practitionerId);
@@ -307,23 +310,23 @@ async function resolvePractitionerNameForPublicState(
 
 function resolveStoredAppointmentTypeLineageKey(
   _db: MutationCtx["db"] | QueryCtx["db"],
-  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  appointmentTypeLineageKey: AppointmentTypeLineageKey,
 ) {
-  return asAppointmentTypeLineageKey(appointmentTypeLineageKey);
+  return appointmentTypeLineageKey;
 }
 
 function resolveStoredLocationLineageKey(
   _db: MutationCtx["db"] | QueryCtx["db"],
-  locationLineageKey: Id<"locations">,
+  locationLineageKey: LocationLineageKey,
 ) {
-  return asLocationLineageKey(locationLineageKey);
+  return locationLineageKey;
 }
 
 function resolveStoredPractitionerLineageKey(
   _db: MutationCtx["db"] | QueryCtx["db"],
-  practitionerLineageKey: Id<"practitioners">,
+  practitionerLineageKey: PractitionerLineageKey,
 ) {
-  return asPractitionerLineageKey(practitionerLineageKey);
+  return practitionerLineageKey;
 }
 
 function toStoredSelectedSlot(
@@ -333,7 +336,7 @@ function toStoredSelectedSlot(
   return {
     practitionerLineageKey: resolveStoredPractitionerLineageKey(
       db,
-      selectedSlot.practitionerLineageKey,
+      asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
     ),
     practitionerName: selectedSlot.practitionerName,
     startTime: selectedSlot.startTime,
@@ -1086,10 +1089,10 @@ async function assertSlotAllowedByRules(
   ctx: MutationCtx,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
-    locationLineageKey: Id<"locations">;
+    locationLineageKey: LocationLineageKey;
     patientDateOfBirth: PersonalDataInput["dateOfBirth"];
     practiceId: Id<"practices">;
-    practitionerLineageKey: Id<"practitioners">;
+    practitionerLineageKey: PractitionerLineageKey;
     ruleSetId: Id<"ruleSets">;
     startTime: ZonedDateTimeString;
   },
@@ -2205,7 +2208,7 @@ export const selectLocation = mutation({
     const base = getStepBase(session);
     const locationLineageKey = resolveStoredLocationLineageKey(
       ctx.db,
-      args.locationLineageKey,
+      asLocationLineageKey(args.locationLineageKey),
     );
     await upsertStep(ctx, "bookingLocationSteps", session, {
       ...base,
@@ -2573,12 +2576,12 @@ export const selectNewPatientSlot = mutation({
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
-      locationLineageKey: state.locationLineageKey,
+      locationLineageKey: asLocationLineageKey(state.locationLineageKey),
       patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
       practitionerLineageKey: resolveStoredPractitionerLineageKey(
         ctx.db,
-        selectedSlot.practitionerLineageKey,
+        asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
       ),
       ruleSetId: session.ruleSetId,
       startTime: selectedSlot.startTime,
@@ -2587,7 +2590,7 @@ export const selectNewPatientSlot = mutation({
     const base = getStepBase(session);
     const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
       ctx.db,
-      args.appointmentTypeLineageKey,
+      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
     );
     const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
@@ -2629,7 +2632,7 @@ export const selectNewPatientSlot = mutation({
     const locationId = await resolveLocationIdForInternalState(
       ctx.db,
       session.ruleSetId,
-      state.locationLineageKey,
+      asLocationLineageKey(state.locationLineageKey),
     );
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
@@ -2641,7 +2644,7 @@ export const selectNewPatientSlot = mutation({
       practitionerId: await resolvePractitionerIdForInternalState(
         ctx.db,
         session.ruleSetId,
-        selectedSlot.practitionerLineageKey,
+        asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
       ),
       start: selectedSlot.startTime,
       title: `Online-Termin: ${selectedAppointmentType.name}`,
@@ -2763,7 +2766,7 @@ export const selectDoctor = mutation({
     const base = getStepBase(session);
     const practitionerLineageKey = resolveStoredPractitionerLineageKey(
       ctx.db,
-      args.practitionerLineageKey,
+      asPractitionerLineageKey(args.practitionerLineageKey),
     );
     await upsertStep(ctx, "bookingExistingDoctorSelectionSteps", session, {
       ...base,
@@ -2908,10 +2911,12 @@ export const selectExistingPatientSlot = mutation({
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
-      locationLineageKey: state.locationLineageKey,
+      locationLineageKey: asLocationLineageKey(state.locationLineageKey),
       patientDateOfBirth: personalData.dateOfBirth,
       practiceId: session.practiceId,
-      practitionerLineageKey: state.practitionerLineageKey,
+      practitionerLineageKey: asPractitionerLineageKey(
+        state.practitionerLineageKey,
+      ),
       ruleSetId: session.ruleSetId,
       startTime: selectedSlot.startTime,
     });
@@ -2920,12 +2925,12 @@ export const selectExistingPatientSlot = mutation({
       resolveLocationIdForInternalState(
         ctx.db,
         session.ruleSetId,
-        state.locationLineageKey,
+        asLocationLineageKey(state.locationLineageKey),
       ),
       resolvePractitionerIdForInternalState(
         ctx.db,
         session.ruleSetId,
-        state.practitionerLineageKey,
+        asPractitionerLineageKey(state.practitionerLineageKey),
       ),
     ]);
 
@@ -2947,7 +2952,7 @@ export const selectExistingPatientSlot = mutation({
     const base = getStepBase(session);
     const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
       ctx.db,
-      args.appointmentTypeLineageKey,
+      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
     );
     const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {

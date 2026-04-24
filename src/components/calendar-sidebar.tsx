@@ -17,6 +17,7 @@ import {
   SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { asLocationLineageKey } from "@/convex/identity";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { captureFrontendError } from "../utils/frontend-errors";
@@ -200,7 +201,7 @@ export function CalendarSidebar() {
           patientDateOfBirth,
         }),
         ...(effectiveLocationLineageKey && {
-          locationLineageKey: effectiveLocationLineageKey,
+          locationLineageKey: asLocationLineageKey(effectiveLocationLineageKey),
         }),
       });
 

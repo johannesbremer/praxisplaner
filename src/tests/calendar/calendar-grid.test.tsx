@@ -5,17 +5,28 @@ import { regex } from "@/lib/arkregex";
 
 import type { CalendarAppointmentView } from "../../../src/components/calendar/types";
 
-import { toTableId } from "../../../convex/identity";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+  toTableId,
+} from "../../../convex/identity";
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
 import { assertElement } from "../test-utils";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
-  const appointmentType1 = toTableId<"appointmentTypes">("appointment_type_1");
-  const location1 = toTableId<"locations">("location_1");
+  const appointmentType1 = asAppointmentTypeLineageKey(
+    toTableId<"appointmentTypes">("appointment_type_1"),
+  );
+  const location1 = asLocationLineageKey(toTableId<"locations">("location_1"));
   const practice1 = toTableId<"practices">("practice_1");
-  const practitioner1 = toTableId<"practitioners">("practitioner_1");
-  const practitioner2 = toTableId<"practitioners">("practitioner_2");
+  const practitioner1 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_1"),
+  );
+  const practitioner2 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_2"),
+  );
 
   const createAppointment = (args: {
     color: string;
@@ -186,7 +197,9 @@ describe("CalendarGrid", () => {
 
     test("renders with many columns", () => {
       const manyColumns = Array.from({ length: 5 }, (_, i) => ({
-        id: toTableId<"practitioners">(`practitioner_${i}`),
+        id: asPractitionerLineageKey(
+          toTableId<"practitioners">(`practitioner_${i}`),
+        ),
         title: `Doctor ${i}`,
       }));
 

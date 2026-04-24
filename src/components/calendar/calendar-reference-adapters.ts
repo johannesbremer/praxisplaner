@@ -1,35 +1,40 @@
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+  PractitionerLineageKey,
+} from "../../../convex/identity";
+import type {
   CalendarBlockedSlotEditorRecord,
   CalendarBlockedSlotRecord,
 } from "./types";
 
 export interface CalendarReferenceMaps {
   appointmentTypeIdByLineageKey: ReadonlyMap<
-    Id<"appointmentTypes">,
+    AppointmentTypeLineageKey,
     Id<"appointmentTypes">
   >;
   appointmentTypeLineageKeyById: ReadonlyMap<
     Id<"appointmentTypes">,
-    Id<"appointmentTypes">
+    AppointmentTypeLineageKey
   >;
-  locationIdByLineageKey: ReadonlyMap<Id<"locations">, Id<"locations">>;
-  locationLineageKeyById: ReadonlyMap<Id<"locations">, Id<"locations">>;
+  locationIdByLineageKey: ReadonlyMap<LocationLineageKey, Id<"locations">>;
+  locationLineageKeyById: ReadonlyMap<Id<"locations">, LocationLineageKey>;
   practitionerIdByLineageKey: ReadonlyMap<
-    Id<"practitioners">,
+    PractitionerLineageKey,
     Id<"practitioners">
   >;
   practitionerLineageKeyById: ReadonlyMap<
     Id<"practitioners">,
-    Id<"practitioners">
+    PractitionerLineageKey
   >;
 }
 
 export function resolveAppointmentDisplayRefs(
   args: {
-    appointmentTypeLineageKey: Id<"appointmentTypes">;
-    locationLineageKey: Id<"locations">;
-    practitionerLineageKey?: Id<"practitioners">;
+    appointmentTypeLineageKey: AppointmentTypeLineageKey;
+    locationLineageKey: LocationLineageKey;
+    practitionerLineageKey?: PractitionerLineageKey;
   },
   maps: CalendarReferenceMaps,
 ): null | {
@@ -69,9 +74,9 @@ export function resolveAppointmentLineageRefs(
   },
   maps: CalendarReferenceMaps,
 ): null | {
-  appointmentTypeLineageKey: Id<"appointmentTypes">;
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
 } {
   const appointmentTypeLineageKey = maps.appointmentTypeLineageKeyById.get(
     args.appointmentTypeId,
@@ -99,8 +104,8 @@ export function resolveAppointmentLineageRefs(
 
 export function resolveBlockedSlotDisplayRefs(
   args: {
-    locationLineageKey: Id<"locations">;
-    practitionerLineageKey?: Id<"practitioners">;
+    locationLineageKey: LocationLineageKey;
+    practitionerLineageKey?: PractitionerLineageKey;
   },
   maps: CalendarReferenceMaps,
 ): null | {
@@ -133,8 +138,8 @@ export function resolveBlockedSlotLineageRefs(
   },
   maps: CalendarReferenceMaps,
 ): null | {
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
 } {
   const locationLineageKey = maps.locationLineageKeyById.get(args.locationId);
   const practitionerLineageKey =

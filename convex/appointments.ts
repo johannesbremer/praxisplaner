@@ -42,12 +42,15 @@ import {
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
 import {
+  type AppointmentTypeLineageKey,
   asAppointmentTypeId,
   asAppointmentTypeLineageKey,
   asLocationId,
   asLocationLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  type LocationLineageKey,
+  type PractitionerLineageKey,
 } from "./identity";
 import {
   ensurePracticeAccessForMutation,
@@ -329,7 +332,7 @@ async function mapBlockedSlotForDisplay(
           ? blockedSlot.locationLineageKey
           : await resolveLocationIdForDisplayRuleSet(
               db,
-              blockedSlot.locationLineageKey,
+              asLocationLineageKey(blockedSlot.locationLineageKey),
               targetRuleSetId,
             ),
       locationLineageKey: blockedSlot.locationLineageKey,
@@ -341,7 +344,9 @@ async function mapBlockedSlotForDisplay(
                 ? blockedSlot.practitionerLineageKey
                 : await resolvePractitionerIdForDisplayRuleSet(
                     db,
-                    blockedSlot.practitionerLineageKey,
+                    asPractitionerLineageKey(
+                      blockedSlot.practitionerLineageKey,
+                    ),
                     targetRuleSetId,
                   ),
             practitionerLineageKey: blockedSlot.practitionerLineageKey,
@@ -399,7 +404,7 @@ function requireEntityUsableForNewAppointment<
 
 async function resolveAppointmentTypeForDisplayRuleSet(
   db: DatabaseReader,
-  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  appointmentTypeLineageKey: AppointmentTypeLineageKey,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<{
   appointmentTypeId: Id<"appointmentTypes">;
@@ -424,33 +429,33 @@ async function resolveAppointmentTypeForDisplayRuleSet(
 
 async function resolveAppointmentTypeIdForDisplayRuleSet(
   db: DatabaseReader,
-  appointmentTypeLineageKey: Id<"appointmentTypes">,
+  appointmentTypeLineageKey: AppointmentTypeLineageKey,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"appointmentTypes">> {
   return await resolveAppointmentTypeIdForRuleSetByLineage(db, {
-    lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
+    lineageKey: appointmentTypeLineageKey,
     ruleSetId: targetRuleSetId,
   });
 }
 
 async function resolveLocationIdForDisplayRuleSet(
   db: DatabaseReader,
-  locationLineageKey: Id<"locations">,
+  locationLineageKey: LocationLineageKey,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"locations">> {
   return await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: asLocationLineageKey(locationLineageKey),
+    lineageKey: locationLineageKey,
     ruleSetId: targetRuleSetId,
   });
 }
 
 async function resolvePractitionerIdForDisplayRuleSet(
   db: DatabaseReader,
-  practitionerLineageKey: Id<"practitioners">,
+  practitionerLineageKey: PractitionerLineageKey,
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"practitioners">> {
   return await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+    lineageKey: practitionerLineageKey,
     ruleSetId: targetRuleSetId,
   });
 }
@@ -547,7 +552,7 @@ function filterBlockedSlotsForCalendarDay(
   args: {
     dayEnd: string;
     dayStart: string;
-    selectedLocationLineageKey: Id<"locations"> | undefined;
+    selectedLocationLineageKey: LocationLineageKey | undefined;
   },
 ): BlockedSlotDoc[] {
   return blockedSlots.filter(
@@ -568,7 +573,7 @@ function getDisplayRuleSetId(args: {
 async function getOptionalLocationLineageKey(
   db: DatabaseReader,
   locationId: Id<"locations"> | undefined,
-): Promise<Id<"locations"> | undefined> {
+): Promise<LocationLineageKey | undefined> {
   if (!locationId) {
     return;
   }
@@ -641,7 +646,7 @@ function getSimulationScopeRuleSetId(args: {
 function isAppointmentInCalendarDayQuery(
   appointment: AppointmentDoc,
   args: { dayEnd: string; dayStart: string },
-  selectedLocationLineageKey: Id<"locations"> | undefined,
+  selectedLocationLineageKey: LocationLineageKey | undefined,
 ): boolean {
   return (
     isCalendarDayRangeMatch(args, appointment.start) &&
@@ -694,7 +699,7 @@ async function remapAppointmentIds(
         const displayAppointmentType =
           await resolveAppointmentTypeForDisplayRuleSet(
             ctx.db,
-            appointment.appointmentTypeLineageKey,
+            asAppointmentTypeLineageKey(appointment.appointmentTypeLineageKey),
             targetRuleSetId,
           );
         const remappedAppointment: AppointmentListItem = {
@@ -703,7 +708,7 @@ async function remapAppointmentIds(
           appointmentTypeTitle: displayAppointmentType.appointmentTypeTitle,
           locationId: await resolveLocationIdForDisplayRuleSet(
             ctx.db,
-            appointment.locationLineageKey,
+            asLocationLineageKey(appointment.locationLineageKey),
             targetRuleSetId,
           ),
         };
@@ -711,7 +716,7 @@ async function remapAppointmentIds(
           remappedAppointment.practitionerId =
             await resolvePractitionerIdForDisplayRuleSet(
               ctx.db,
-              appointment.practitionerLineageKey,
+              asPractitionerLineageKey(appointment.practitionerLineageKey),
               targetRuleSetId,
             );
         }

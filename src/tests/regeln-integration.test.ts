@@ -4,7 +4,11 @@ import type { AppointmentResult } from "@/convex/appointments";
 
 import type { SchedulingSimulatedContext } from "../types";
 
-import { toTableId } from "../../convex/identity";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  toTableId,
+} from "../../convex/identity";
 
 const baseAppointment: AppointmentResult = {
   _creationTime: 0,
@@ -63,13 +67,15 @@ describe("Regeln Integration - Simulation Metadata", () => {
   it("allows updating simulated context dynamically", () => {
     const appointmentTypeId = toTableId<"appointmentTypes">("appointmentType3");
     const context: SchedulingSimulatedContext = {
-      appointmentTypeLineageKey: appointmentTypeId,
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(appointmentTypeId),
       patient: { isNew: true },
     };
 
     const updatedContext: SchedulingSimulatedContext = {
       ...context,
-      locationLineageKey: toTableId<"locations">("location2"),
+      locationLineageKey: asLocationLineageKey(
+        toTableId<"locations">("location2"),
+      ),
       patient: { isNew: false },
     };
 

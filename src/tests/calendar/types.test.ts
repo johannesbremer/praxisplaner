@@ -2,7 +2,12 @@ import { describe, expect, test } from "vitest";
 
 import { regex } from "@/lib/arkregex";
 
-import { toTableId } from "../../../convex/identity";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+  toTableId,
+} from "../../../convex/identity";
 import {
   APPOINTMENT_COLORS,
   type CalendarAppointmentLayout,
@@ -13,11 +18,17 @@ import {
 const TAILWIND_BG_COLOR_REGEX = regex.as(String.raw`^bg-\w+-\d{3}$`);
 
 describe("Calendar Types and Constants", () => {
-  const practitioner1 = toTableId<"practitioners">("practitioner_1");
-  const practitioner2 = toTableId<"practitioners">("practitioner_2");
-  const location1 = toTableId<"locations">("location_1");
+  const practitioner1 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_1"),
+  );
+  const practitioner2 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_2"),
+  );
+  const location1 = asLocationLineageKey(toTableId<"locations">("location_1"));
   const practice1 = toTableId<"practices">("practice_1");
-  const appointmentType1 = toTableId<"appointmentTypes">("appointment_type_1");
+  const appointmentType1 = asAppointmentTypeLineageKey(
+    toTableId<"appointmentTypes">("appointment_type_1"),
+  );
 
   const createLayout = (args: {
     column?: CalendarAppointmentLayout["column"];
