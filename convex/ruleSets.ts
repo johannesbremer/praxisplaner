@@ -621,12 +621,15 @@ async function buildRuleSetCanonicalSnapshot(
   );
 
   const practitionerNameByReference = createEntityNameLookup(
-    practitioners,
+    practitionersRaw,
     "practitioner",
   );
-  const locationNameByReference = createEntityNameLookup(locations, "location");
+  const locationNameByReference = createEntityNameLookup(
+    locationsRaw,
+    "location",
+  );
   const appointmentTypeNameByReference = createEntityNameLookup(
-    appointmentTypes,
+    appointmentTypesRaw,
     "appointment type",
   );
   const mfaNameByReference = createEntityNameLookup(mfas, "mfa");
@@ -676,7 +679,7 @@ async function buildRuleSetCanonicalSnapshot(
           "Terminart",
         ),
         allowedPractitioners: toSortedStrings(
-          appointmentType.allowedPractitionerIds.map(
+          appointmentType.allowedPractitionerLineageKeys.map(
             (id) => practitionerNameByReference.get(id) ?? id,
           ),
         ),
@@ -713,11 +716,12 @@ async function buildRuleSetCanonicalSnapshot(
         dayOfWeek: baseSchedule.dayOfWeek,
         endTime: baseSchedule.endTime,
         locationName:
-          locationNameByReference.get(baseSchedule.locationId) ??
-          baseSchedule.locationId,
+          locationNameByReference.get(baseSchedule.locationLineageKey) ??
+          baseSchedule.locationLineageKey,
         practitionerName:
-          practitionerNameByReference.get(baseSchedule.practitionerId) ??
-          baseSchedule.practitionerId,
+          practitionerNameByReference.get(
+            baseSchedule.practitionerLineageKey,
+          ) ?? baseSchedule.practitionerLineageKey,
         startTime: baseSchedule.startTime,
       }),
     )
@@ -767,11 +771,11 @@ async function buildRuleSetCanonicalSnapshot(
         portion: vacation.portion,
         staffName:
           vacation.staffType === "practitioner"
-            ? vacation.practitionerId
-              ? practitionerNameByReference.get(vacation.practitionerId)
+            ? vacation.practitionerLineageKey
+              ? practitionerNameByReference.get(vacation.practitionerLineageKey)
               : undefined
-            : vacation.mfaId
-              ? mfaNameByReference.get(vacation.mfaId)
+            : vacation.mfaLineageKey
+              ? mfaNameByReference.get(vacation.mfaLineageKey)
               : undefined,
         staffType: vacation.staffType,
       }),

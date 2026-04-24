@@ -165,7 +165,7 @@ describe("lineage invariants", () => {
         ruleSetId,
       });
       await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: BigInt(Date.now()),
         duration: 30,
         lastModified: BigInt(Date.now()),
@@ -176,16 +176,16 @@ describe("lineage invariants", () => {
       await insertSelfLineageEntity(ctx.db, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "17:00",
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         ruleSetId,
         startTime: "08:00",
       });
       await insertSelfLineageEntity(ctx.db, "vacations", {
         createdAt: BigInt(Date.now()),
         date: "2026-02-02",
-        mfaId,
+        mfaLineageKey: mfaId,
         portion: "morning",
         practiceId,
         ruleSetId,

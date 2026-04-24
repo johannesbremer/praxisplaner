@@ -52,7 +52,7 @@ export interface BaseScheduleMutationAppliedSchedule {
 }
 
 export interface ExtendedSchedule extends Omit<
-  Doc<"baseSchedules">,
+  MaterializedSchedule,
   "_creationTime"
 > {
   _creationTime?: number; // Optional for synthetic objects
@@ -185,24 +185,17 @@ export const matchesSchedulePayload = (
 
 export const toSchedulePayload = (
   schedule: MaterializedSchedule,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
-  return resolveLocationLineageId(schedule.locationId, locations).andThen(
-    (locationLineageId) =>
-      resolvePractitionerLineageId(schedule.practitionerId, practitioners).map(
-        (practitionerLineageId) => ({
-          ...(breakTimes && { breakTimes }),
-          dayOfWeek: schedule.dayOfWeek,
-          endTime: asTypedTime(schedule.endTime),
-          lineageKey: schedule.lineageKey,
-          locationLineageId,
-          practitionerLineageId,
-          startTime: asTypedTime(schedule.startTime),
-        }),
-      ),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: schedule.dayOfWeek,
+    endTime: asTypedTime(schedule.endTime),
+    lineageKey: schedule.lineageKey,
+    locationLineageId: schedule.locationLineageKey,
+    practitionerLineageId: schedule.practitionerLineageKey,
+    startTime: asTypedTime(schedule.startTime),
+  });
 };
 
 export const buildLocationLineageByIdMap = (
@@ -270,80 +263,57 @@ export const resolvePractitionerLineageIdFromSnapshot = (
 
 export const toSchedulePayloadFromLineageSnapshot = (
   schedule: MaterializedSchedule,
-  practitionerLineageById: ReadonlyMap<
-    Id<"practitioners">,
-    Id<"practitioners">
-  >,
-  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
-  return resolveLocationLineageIdFromSnapshot(
-    schedule.locationId,
-    locationLineageById,
-  ).andThen((locationLineageId) =>
-    resolvePractitionerLineageIdFromSnapshot(
-      schedule.practitionerId,
-      practitionerLineageById,
-    ).map((practitionerLineageId) => ({
-      ...(breakTimes && { breakTimes }),
-      dayOfWeek: schedule.dayOfWeek,
-      endTime: asTypedTime(schedule.endTime),
-      lineageKey: schedule.lineageKey,
-      locationLineageId,
-      practitionerLineageId,
-      startTime: asTypedTime(schedule.startTime),
-    })),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: schedule.dayOfWeek,
+    endTime: asTypedTime(schedule.endTime),
+    lineageKey: schedule.lineageKey,
+    locationLineageId: schedule.locationLineageKey,
+    practitionerLineageId: schedule.practitionerLineageKey,
+    startTime: asTypedTime(schedule.startTime),
+  });
 };
 
 export const toMutationSchedulePayload = (
   payload: SchedulePayload,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<
   {
     breakTimes?: { end: string; start: string }[];
     dayOfWeek: number;
     endTime: string;
     lineageKey: Id<"baseSchedules">;
-    locationId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
+    locationLineageId: Id<"locations">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   },
   ReturnType<typeof invalidStateError>
 > =>
-  resolveLocationIdByLineage(payload.locationLineageId, locations).andThen(
-    (locationId) =>
-      resolvePractitionerIdByLineage(
-        payload.practitionerLineageId,
-        practitioners,
-      ).map((practitionerId) => ({
-        ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
-        dayOfWeek: payload.dayOfWeek,
-        endTime: payload.endTime,
-        lineageKey: payload.lineageKey,
-        locationId,
-        practitionerId,
-        startTime: payload.startTime,
-      })),
-  );
+  ok({
+    ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
+    dayOfWeek: payload.dayOfWeek,
+    endTime: payload.endTime,
+    lineageKey: payload.lineageKey,
+    locationLineageId: payload.locationLineageId,
+    practitionerLineageId: payload.practitionerLineageId,
+    startTime: payload.startTime,
+  });
 
 export interface BatchCreateScheduleInput {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
   endTime: string;
   lineageKey?: Id<"baseSchedules">;
-  locationId: Id<"locations">;
-  practitionerId: Id<"practitioners">;
+  locationLineageId: Id<"locations">;
+  practitionerLineageId: Id<"practitioners">;
   startTime: string;
 }
 
 export const toBatchCreateScheduleInput = (
   payload: SchedulePayload,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<BatchCreateScheduleInput, ReturnType<typeof invalidStateError>> =>
-  toMutationSchedulePayload(payload, practitioners, locations).map((value) => ({
+  toMutationSchedulePayload(payload).map((value) => ({
     ...value,
     lineageKey: payload.lineageKey,
   }));
@@ -357,8 +327,8 @@ export const scheduleDocFromInput = (params: {
     dayOfWeek: number;
     endTime: string;
     lineageKey?: Id<"baseSchedules">;
-    locationId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
+    locationLineageId: Id<"locations">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   };
 }): MaterializedSchedule => {
@@ -374,9 +344,9 @@ export const scheduleDocFromInput = (params: {
     dayOfWeek: params.schedule.dayOfWeek,
     endTime: params.schedule.endTime,
     lineageKey,
-    locationId: params.schedule.locationId,
+    locationLineageKey: params.schedule.locationLineageId,
     practiceId: params.practiceId,
-    practitionerId: params.schedule.practitionerId,
+    practitionerLineageKey: params.schedule.practitionerLineageId,
     ruleSetId: params.ruleSetId,
     startTime: params.schedule.startTime,
   };
@@ -395,6 +365,16 @@ export const toSchedulePayloadFromAppliedSchedule = (
     practitionerLineageId: schedule.practitionerLineageKey,
     startTime: asTypedTime(schedule.startTime),
   };
+};
+
+export const getAbsentLineageKeysForReplacement = (
+  currentLineageKeys: Id<"baseSchedules">[],
+  replacementLineageKeys: Id<"baseSchedules">[],
+): Id<"baseSchedules">[] => {
+  const currentLineageKeySet = new Set(currentLineageKeys);
+  return replacementLineageKeys.filter(
+    (lineageKey) => !currentLineageKeySet.has(lineageKey),
+  );
 };
 
 export const removeSchedulesFromRef = (
@@ -472,7 +452,17 @@ export const applyReplaceResultToRef = (params: {
         entityId: appliedSchedule.entityId,
         practiceId: params.practiceId,
         ruleSetId: params.ruleSetId,
-        schedule: appliedSchedule,
+        schedule: {
+          ...(appliedSchedule.breakTimes
+            ? { breakTimes: appliedSchedule.breakTimes }
+            : {}),
+          dayOfWeek: appliedSchedule.dayOfWeek,
+          endTime: appliedSchedule.endTime,
+          lineageKey: appliedSchedule.lineageKey,
+          locationLineageId: appliedSchedule.locationLineageKey,
+          practitionerLineageId: appliedSchedule.practitionerLineageKey,
+          startTime: appliedSchedule.startTime,
+        },
       }),
     ),
   );
@@ -483,35 +473,22 @@ export const toCreatedSchedulePayload = (
     breakTimes?: { end: string; start: string }[];
     dayOfWeek: number;
     endTime: string;
-    locationId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
+    locationLineageId: Id<"locations">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   },
   lineageKey: Id<"baseSchedules">,
-  practitionerLineageById: ReadonlyMap<
-    Id<"practitioners">,
-    Id<"practitioners">
-  >,
-  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
   const breakTimes = asTypedBreakTimes(createData.breakTimes);
-  return resolveLocationLineageIdFromSnapshot(
-    createData.locationId,
-    locationLineageById,
-  ).andThen((locationLineageId) =>
-    resolvePractitionerLineageIdFromSnapshot(
-      createData.practitionerId,
-      practitionerLineageById,
-    ).map((practitionerLineageId) => ({
-      ...(breakTimes && { breakTimes }),
-      dayOfWeek: createData.dayOfWeek,
-      endTime: asTypedTime(createData.endTime),
-      lineageKey,
-      locationLineageId,
-      practitionerLineageId,
-      startTime: asTypedTime(createData.startTime),
-    })),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: createData.dayOfWeek,
+    endTime: asTypedTime(createData.endTime),
+    lineageKey,
+    locationLineageId: createData.locationLineageId,
+    practitionerLineageId: createData.practitionerLineageId,
+    startTime: asTypedTime(createData.startTime),
+  });
 };
 
 export const isBaseScheduleMissingError = (error: unknown) =>

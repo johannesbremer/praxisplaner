@@ -1,9 +1,11 @@
 import type React from "react";
 
+import type { CalendarColumnId } from "./types";
+
 import { CalendarItemContent } from "./calendar-item-content";
 
 interface BlockedSlot {
-  column: string;
+  column: CalendarColumnId;
   duration?: number;
   id?: string;
   isManual?: boolean;

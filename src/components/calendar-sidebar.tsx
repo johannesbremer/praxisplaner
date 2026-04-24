@@ -17,6 +17,7 @@ import {
   SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { asLocationLineageKey } from "@/convex/identity";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { captureFrontendError } from "../utils/frontend-errors";
@@ -183,20 +184,24 @@ export function CalendarSidebar() {
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {
       // Simulation mode: update simulated context
-      // Use the new locationId if provided, otherwise keep the existing one
-      const effectiveLocationId = locationId ?? simulatedContext.locationId;
+      // Use the new location lineage if provided, otherwise keep the existing one
+      const effectiveLocationLineageKey =
+        (locationId &&
+          locationsData?.find((location) => location._id === locationId)
+            ?.lineageKey) ??
+        simulatedContext.locationLineageKey;
       const patientDateOfBirth = simulatedContext.patient.dateOfBirth;
 
       const newContext = createSimulatedContext({
-        ...(simulatedContext.appointmentTypeId && {
-          appointmentTypeId: simulatedContext.appointmentTypeId,
+        ...(simulatedContext.appointmentTypeLineageKey && {
+          appointmentTypeLineageKey: simulatedContext.appointmentTypeLineageKey,
         }),
         isNewPatient: simulatedContext.patient.isNew,
         ...(patientDateOfBirth !== undefined && {
           patientDateOfBirth,
         }),
-        ...(effectiveLocationId && {
-          locationId: effectiveLocationId,
+        ...(effectiveLocationLineageKey && {
+          locationLineageKey: asLocationLineageKey(effectiveLocationLineageKey),
         }),
       });
 

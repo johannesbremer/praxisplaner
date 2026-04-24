@@ -137,9 +137,18 @@ export function StaffAppointmentCreationModal({
     api.entities.getAppointmentTypes,
     open ? { ruleSetId } : "skip",
   );
+  const locations = useQuery(
+    api.entities.getLocations,
+    open ? { ruleSetId } : "skip",
+  );
+  const practitioners = useQuery(
+    api.entities.getPractitioners,
+    open ? { ruleSetId } : "skip",
+  );
   const appointmentType = appointmentTypes?.find(
     (type) => type._id === appointmentTypeId,
   );
+  const location = locations?.find((entry) => entry._id === locationId);
   const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
   const effectiveSelectedPatientId =
@@ -152,15 +161,15 @@ export function StaffAppointmentCreationModal({
 
   const nextAvailableSlot = useQuery(
     api.scheduling.getNextAvailableSlot,
-    open && appointmentTypeId && locationId
+    open && appointmentType?.lineageKey && location?.lineageKey
       ? {
           date: selectedDate,
           practiceId,
           ruleSetId,
           scope: isSimulation ? "simulation" : "real",
           simulatedContext: {
-            appointmentTypeId,
-            locationId,
+            appointmentTypeLineageKey: appointmentType.lineageKey,
+            locationLineageKey: location.lineageKey,
             patient: {
               ...(effectivePatient?.dateOfBirth && {
                 dateOfBirth: effectivePatient.dateOfBirth,
@@ -172,6 +181,14 @@ export function StaffAppointmentCreationModal({
         }
       : "skip",
   );
+  const nextAvailablePractitionerId =
+    nextAvailableSlot === undefined || nextAvailableSlot === null
+      ? undefined
+      : practitioners?.find(
+          (practitioner) =>
+            practitioner.lineageKey ===
+            nextAvailableSlot.practitionerLineageKey,
+        )?._id;
 
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPersistedPatient = effectivePatient?.convexPatientId !== undefined;
@@ -185,7 +202,11 @@ export function StaffAppointmentCreationModal({
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
-    open && mode === "next" && hasFollowUpPlan && nextAvailableSlot
+    open &&
+      mode === "next" &&
+      hasFollowUpPlan &&
+      nextAvailableSlot &&
+      nextAvailablePractitionerId
       ? {
           locationId,
           ...(effectivePatient?.dateOfBirth && {
@@ -196,7 +217,7 @@ export function StaffAppointmentCreationModal({
           }),
           isNewPatient,
           practiceId,
-          practitionerId: nextAvailableSlot.practitionerId,
+          practitionerId: nextAvailablePractitionerId,
           rootAppointmentTypeId: appointmentTypeId,
           ruleSetId,
           scope: isSimulation ? "simulation" : "real",
@@ -311,6 +332,25 @@ export function StaffAppointmentCreationModal({
     if (!start) {
       return;
     }
+    const practitionerId = resultFromNullable(
+      practitioners?.find(
+        (practitioner) =>
+          practitioner.lineageKey === slot.practitionerLineageKey,
+      )?._id,
+      invalidStateError(
+        "Der Behandler für den gewählten Termin konnte nicht geladen werden.",
+        "StaffAppointmentCreationModal.practitionerId",
+      ),
+    ).match(
+      (loadedPractitionerId) => loadedPractitionerId,
+      (error) => {
+        toast.error(error.message);
+        return null;
+      },
+    );
+    if (!practitionerId) {
+      return;
+    }
 
     await ResultAsync.fromPromise(
       runCreateAppointment(
@@ -325,7 +365,7 @@ export function StaffAppointmentCreationModal({
               }),
               patientId: createTarget.patientId,
               practiceId,
-              practitionerId: slot.practitionerId,
+              practitionerId,
               start,
               title,
             }
@@ -339,7 +379,7 @@ export function StaffAppointmentCreationModal({
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
                 practiceId,
-                practitionerId: slot.practitionerId,
+                practitionerId,
                 start,
                 title,
                 userId: createTarget.userId,
@@ -353,7 +393,7 @@ export function StaffAppointmentCreationModal({
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
                 practiceId,
-                practitionerId: slot.practitionerId,
+                practitionerId,
                 start,
                 temporaryPatientName: createTarget.temporaryPatientName,
                 temporaryPatientPhoneNumber:

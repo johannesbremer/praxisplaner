@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { PatientInfo, PracticePatientSelection } from "@/src/types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,7 +15,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
 
-import type { Appointment, NewCalendarProps } from "./calendar/types";
+import type {
+  CalendarAppointmentView,
+  CalendarBlockedSlotEditorRecord,
+  CalendarColumnId,
+  NewCalendarProps,
+} from "./calendar/types";
 
 import { captureFrontendError } from "../utils/frontend-errors";
 import {
@@ -65,7 +70,9 @@ function CalendarGridWithSidebarOpening({
 
   return sidebarResult.match(
     ({ isMobile, setOpen, setOpenMobile }) => {
-      const handleSelectWithSidebar = (appointment: Appointment) => {
+      const handleSelectWithSidebar = (
+        appointment: CalendarAppointmentView,
+      ) => {
         onSelectAppointment?.(appointment);
         if (isMobile) {
           setOpenMobile(true);
@@ -138,9 +145,9 @@ export function NewCalendar({
     setPendingAppointmentTitle(undefined);
 
     if (simulatedContext && onUpdateSimulatedContext) {
-      const { locationId, patient, requestedAt } = simulatedContext;
+      const { locationLineageKey, patient, requestedAt } = simulatedContext;
       onUpdateSimulatedContext({
-        ...(locationId && { locationId }),
+        ...(locationLineageKey && { locationLineageKey }),
         patient,
         ...(requestedAt && { requestedAt }),
       });
@@ -156,6 +163,10 @@ export function NewCalendar({
   const selectedUserData = useQuery(
     api.users.getById,
     selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
+  );
+  const appointmentTypesData = useQuery(
+    api.entities.getAppointmentTypes,
+    ruleSetId ? { ruleSetId } : "skip",
   );
 
   const selectedPatientInfo: PatientInfo | undefined = (() => {
@@ -231,7 +242,7 @@ export function NewCalendar({
   const [blockedSlotEditData, setBlockedSlotEditData] = useState<null | {
     blockedSlotId: Id<"blockedSlots">;
     currentTitle: string;
-    slotData: Doc<"blockedSlots">;
+    slotData: CalendarBlockedSlotEditorRecord;
     slotIsSimulation: boolean;
   }>(null);
 
@@ -239,7 +250,6 @@ export function NewCalendar({
     addAppointment,
     appointments,
     blockedSlots,
-    blockedSlotsData,
     blockedSlotWarning,
     // businessEndHour,
     businessStartHour,
@@ -249,6 +259,8 @@ export function NewCalendar({
     draggedAppointment,
     draggedBlockedSlotId,
     dragPreview,
+    getBlockedSlotEditorData,
+    getPractitionerIdForColumn,
     handleBlockedSlotDragEnd,
     handleBlockedSlotDragStart,
     handleBlockedSlotResizeStart,
@@ -312,27 +324,33 @@ export function NewCalendar({
 
   const selectedSeriesId =
     appointments.find(
-      (appointment) => appointment.convexId === selectedAppointmentId,
-    )?.resource?.seriesId ??
+      (appointment) => appointment.layout.record._id === selectedAppointmentId,
+    )?.layout.record.seriesId ??
     patientAppointments?.find(
       (appointment) => appointment._id === selectedAppointmentId,
     )?.seriesId;
 
   // Handler for selecting an appointment
-  const handleSelectAppointment = useCallback((appointment: Appointment) => {
-    setSelectedAppointmentId(appointment.convexId);
-    if (appointment.resource?.patientId) {
-      setSelectedPatient({
-        id: appointment.resource.patientId,
-        type: "patient",
-      });
-      return;
-    }
+  const handleSelectAppointment = useCallback(
+    (appointment: CalendarAppointmentView) => {
+      setSelectedAppointmentId(appointment.layout.record._id);
+      if (appointment.layout.record.patientId) {
+        setSelectedPatient({
+          id: appointment.layout.record.patientId,
+          type: "patient",
+        });
+        return;
+      }
 
-    if (appointment.resource?.userId) {
-      setSelectedPatient({ id: appointment.resource.userId, type: "user" });
-    }
-  }, []);
+      if (appointment.layout.record.userId) {
+        setSelectedPatient({
+          id: appointment.layout.record.userId,
+          type: "user",
+        });
+      }
+    },
+    [],
+  );
 
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);
@@ -363,24 +381,16 @@ export function NewCalendar({
         return;
       }
 
-      // Find the blocked slot to get its current title
-      const blockedSlot = blockedSlotsData?.find(
-        (slot) => slot._id === blockedSlotId,
-      );
+      const blockedSlot = getBlockedSlotEditorData(blockedSlotId);
       if (!blockedSlot) {
         toast.error("Gesperrter Slot nicht gefunden");
         return;
       }
 
-      setBlockedSlotEditData({
-        blockedSlotId: blockedSlot._id,
-        currentTitle: blockedSlot.title,
-        slotData: blockedSlot,
-        slotIsSimulation: blockedSlot.isSimulation ?? false,
-      });
+      setBlockedSlotEditData(blockedSlot);
       setBlockedSlotEditModalOpen(true);
     },
-    [blockedSlotsData, handleEditBlockedSlotInternal],
+    [getBlockedSlotEditorData, handleEditBlockedSlotInternal],
   );
 
   const handleAppointmentTypeSelect = (
@@ -392,17 +402,23 @@ export function NewCalendar({
     // This will trigger blocked slots to show right away when the modal opens
     if (simulatedContext && onUpdateSimulatedContext) {
       if (appointmentTypeId) {
+        const appointmentTypeLineageKey = appointmentTypesData?.find(
+          (appointmentType) => appointmentType._id === appointmentTypeId,
+        )?.lineageKey;
+        if (!appointmentTypeLineageKey) {
+          return;
+        }
         // Add appointment type to context - this triggers blocked slots query
         const newContext = {
           ...simulatedContext,
-          appointmentTypeId,
+          appointmentTypeLineageKey,
         };
         onUpdateSimulatedContext(newContext);
-      } else if (simulatedContext.appointmentTypeId !== undefined) {
+      } else if (simulatedContext.appointmentTypeLineageKey !== undefined) {
         // Remove appointment type from context - this clears blocked slots
-        const { locationId, patient, requestedAt } = simulatedContext;
+        const { locationLineageKey, patient, requestedAt } = simulatedContext;
         onUpdateSimulatedContext({
-          ...(locationId && { locationId }),
+          ...(locationLineageKey && { locationLineageKey }),
           patient,
           ...(requestedAt && { requestedAt }),
         });
@@ -454,14 +470,12 @@ export function NewCalendar({
   );
 
   const handleBlockSlot = useCallback(
-    (column: string, slot: number) => {
+    (column: CalendarColumnId, slot: number) => {
       if (!isBlockingModeActive) {
         return;
       }
 
-      const practitionerId = workingPractitioners.find(
-        (practitioner) => practitioner.id === column,
-      )?.id;
+      const practitionerId = getPractitionerIdForColumn(column);
       if (practitionerId === undefined) {
         return;
       }
@@ -482,7 +496,12 @@ export function NewCalendar({
       setBlockedSlotModalOpen(true);
       setIsBlockingModeActive(false); // Deactivate blocking mode after click
     },
-    [isBlockingModeActive, selectedDate, slotToTime, workingPractitioners],
+    [
+      getPractitionerIdForColumn,
+      isBlockingModeActive,
+      selectedDate,
+      slotToTime,
+    ],
   );
 
   return (
@@ -506,7 +525,7 @@ export function NewCalendar({
         runCreateAppointment: handleCreateAppointment,
         selectedAppointmentTypeId,
         selectedDate,
-        selectedLocationId: simulatedContext?.locationId || selectedLocationId,
+        selectedLocationId,
         selectedPatientId: activeSelectedPatientId,
         showGdtAlert,
         simulatedContext,

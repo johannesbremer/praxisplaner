@@ -8,6 +8,11 @@ import type {
   IsoDateString,
   TimeString,
 } from "../lib/typed-regex";
+import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+  PractitionerLineageKey,
+} from "./identity";
 
 import {
   DE_DATE_REGEX,
@@ -20,6 +25,11 @@ import {
   baseScheduleCreatePayloadValidator,
   baseSchedulePayloadValidator,
 } from "./entities.validators";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "./identity";
 import {
   dataSharingContactInputValidator,
   medicalHistoryValidator,
@@ -82,12 +92,14 @@ export type PkvDetailsInput = Omit<
   "insuranceType" | "pvsConsent"
 >;
 
-export type SchedulingResultSlot = Omit<
+export interface SchedulingResultSlot extends Omit<
   Infer<typeof availableSlotsResultValidator>["slots"][number],
-  "startTime"
-> & {
+  "locationLineageKey" | "practitionerLineageKey" | "startTime"
+> {
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey: PractitionerLineageKey;
   startTime: ZonedDateTimeString;
-};
+}
 
 export type SelectedSlotInput = Omit<
   Infer<typeof selectedSlotValidator>,
@@ -96,10 +108,12 @@ export type SelectedSlotInput = Omit<
   startTime: ZonedDateTimeString;
 };
 
-export type SimulatedContextInput = Omit<
+export interface SimulatedContextInput extends Omit<
   Infer<typeof simulatedContextValidator>,
-  "patient" | "requestedAt"
-> & {
+  "appointmentTypeLineageKey" | "locationLineageKey" | "patient" | "requestedAt"
+> {
+  appointmentTypeLineageKey?: AppointmentTypeLineageKey;
+  locationLineageKey?: LocationLineageKey;
   patient: Omit<
     Infer<typeof simulatedContextValidator>["patient"],
     "dateOfBirth"
@@ -107,7 +121,7 @@ export type SimulatedContextInput = Omit<
     dateOfBirth?: IsoDateString;
   };
   requestedAt?: InstantString;
-};
+}
 
 export interface TypedBreakTime {
   end: TimeString;
@@ -229,6 +243,10 @@ export function asSchedulingResultSlot(
 ): SchedulingResultSlot {
   return {
     ...value,
+    locationLineageKey: asLocationLineageKey(value.locationLineageKey),
+    practitionerLineageKey: asPractitionerLineageKey(
+      value.practitionerLineageKey,
+    ),
     startTime: asZonedDateTimeString(value.startTime),
   };
 }
@@ -245,10 +263,22 @@ export function asSelectedSlotInput(
 export function asSimulatedContextInput(
   value: Infer<typeof simulatedContextValidator>,
 ): SimulatedContextInput {
-  const { patient, requestedAt, ...rest } = value;
+  const {
+    appointmentTypeLineageKey,
+    locationLineageKey,
+    patient,
+    requestedAt,
+  } = value;
   const { dateOfBirth, ...patientRest } = patient;
   return {
-    ...rest,
+    ...(appointmentTypeLineageKey !== undefined && {
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        appointmentTypeLineageKey,
+      ),
+    }),
+    ...(locationLineageKey !== undefined && {
+      locationLineageKey: asLocationLineageKey(locationLineageKey),
+    }),
     patient: {
       ...patientRest,
       ...(dateOfBirth !== undefined && {

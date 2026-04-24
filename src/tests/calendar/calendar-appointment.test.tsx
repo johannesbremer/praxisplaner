@@ -1,20 +1,51 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { Appointment } from "../../../src/components/calendar/types";
+import type {
+  CalendarAppointmentLayout,
+  CalendarAppointmentView,
+} from "../../../src/components/calendar/types";
 
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+  toTableId,
+} from "../../../convex/identity";
 import { CalendarAppointment } from "../../../src/components/calendar/calendar-appointment";
 import { assertElement } from "../test-utils";
 
 describe("CalendarAppointment", () => {
-  const mockAppointment: Appointment = {
-    color: "bg-blue-500",
-    column: "practitioner-1",
+  const practitioner1 = asPractitionerLineageKey(
+    toTableId<"practitioners">("practitioner_1"),
+  );
+  const mockLayout: CalendarAppointmentLayout = {
+    column: practitioner1,
     duration: 30,
     id: "apt-1",
-    isSimulation: false,
+    record: {
+      _creationTime: 0,
+      _id: toTableId<"appointments">("apt-1"),
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        toTableId<"appointmentTypes">("appointment_type_1"),
+      ),
+      appointmentTypeTitle: "Checkup",
+      createdAt: 0n,
+      end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+      lastModified: 0n,
+      locationLineageKey: asLocationLineageKey(
+        toTableId<"locations">("location_1"),
+      ),
+      practiceId: toTableId<"practices">("practice_1"),
+      practitionerLineageKey: practitioner1,
+      start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+      title: "Test Appointment",
+    },
     startTime: "09:00",
-    title: "Test Appointment",
+  };
+  const mockAppointment: CalendarAppointmentView = {
+    color: "bg-blue-500",
+    layout: mockLayout,
   };
 
   const mockTimeToSlot = vi.fn((time: string) => {
@@ -64,9 +95,7 @@ describe("CalendarAppointment", () => {
 
     assertElement(appointmentElement);
     fireEvent.click(appointmentElement);
-    expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(
-      mockAppointment,
-    );
+    expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(mockLayout.id);
   });
 
   test("calls onDelete on right-click", () => {
@@ -76,7 +105,7 @@ describe("CalendarAppointment", () => {
     assertElement(appointmentElement);
     fireEvent.contextMenu(appointmentElement);
     expect(mockHandlers.onDelete).toHaveBeenCalledExactlyOnceWith(
-      mockAppointment,
+      mockLayout.id,
     );
   });
 
@@ -161,8 +190,8 @@ describe("CalendarAppointment", () => {
     fireEvent.mouseDown(resizeHandle);
     expect(mockHandlers.onResizeStart).toHaveBeenCalledExactlyOnceWith(
       expect.any(Object),
-      mockAppointment.id,
-      mockAppointment.duration,
+      mockLayout.id,
+      mockLayout.duration,
     );
   });
 
@@ -191,7 +220,10 @@ describe("CalendarAppointment", () => {
   test("handles short appointments with minimum height", () => {
     const shortAppointment = {
       ...mockAppointment,
-      duration: 5, // 5 minutes
+      layout: {
+        ...mockAppointment.layout,
+        duration: 5,
+      },
     };
 
     const { container } = render(
@@ -205,7 +237,10 @@ describe("CalendarAppointment", () => {
   test("handles long appointments", () => {
     const longAppointment = {
       ...mockAppointment,
-      duration: 120, // 2 hours
+      layout: {
+        ...mockAppointment.layout,
+        duration: 120,
+      },
     };
 
     const { container } = render(

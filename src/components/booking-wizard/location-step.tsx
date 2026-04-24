@@ -23,9 +23,9 @@ export function LocationStep({ ruleSetId, sessionId }: StepComponentProps) {
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
   const selectLocation = useMutation(api.bookingSessions.selectLocation);
 
-  const handleSelectLocation = async (locationId: Id<"locations">) => {
+  const handleSelectLocation = async (locationLineageKey: Id<"locations">) => {
     try {
-      await selectLocation({ locationId, sessionId });
+      await selectLocation({ locationLineageKey, sessionId });
     } catch (error) {
       console.error("Failed to select location:", error);
       toast.error("Standort konnte nicht ausgewählt werden", {
@@ -66,7 +66,7 @@ export function LocationStep({ ruleSetId, sessionId }: StepComponentProps) {
             <Button
               className="h-auto p-4 justify-start"
               key={location._id}
-              onClick={() => void handleSelectLocation(location._id)}
+              onClick={() => void handleSelectLocation(location.lineageKey)}
               variant="outline"
             >
               <MapPin className="h-5 w-5 mr-3 shrink-0" />

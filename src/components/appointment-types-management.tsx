@@ -264,7 +264,7 @@ const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
   );
 
 interface PractitionerHistorySnapshot {
-  lineageId: Id<"practitioners">;
+  lineageId: PractitionerLineageKey;
   name: string;
 }
 
@@ -288,9 +288,9 @@ function createAppointmentTypeFormSchema(params: {
       .trim()
       .min(2, "Name muss mindestens 2 Zeichen lang sein")
       .max(50, "Name darf maximal 50 Zeichen lang sein"),
-    practitionerIds: z
-      .array(createPractitionerIdSchema(params.practitionerIds))
-      .min(1, "Mindestens ein Behandler muss ausgewählt werden"),
+    practitionerIds: z.array(
+      createPractitionerIdSchema(params.practitionerIds),
+    ),
   }) satisfies z.ZodType<AppointmentTypeFormValues>;
 }
 
@@ -384,31 +384,33 @@ const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
   snapshots.map((snapshot) => snapshot.lineageId).toSorted();
 
 const practitionerIdsFromSnapshots = (
+  practitioners: readonly Practitioner[],
   snapshots: PractitionerHistorySnapshot[],
 ): { ids: Id<"practitioners">[] } | { message: string; status: "conflict" } => {
+  const practitionerIdByLineageKey = new Map(
+    practitioners.map((practitioner) => [
+      practitioner.lineageKey,
+      practitioner._id,
+    ]),
+  );
   const seen = new Set<Id<"practitioners">>();
   const ids: Id<"practitioners">[] = [];
 
   for (const snapshot of snapshots) {
-    if (!seen.has(snapshot.lineageId)) {
-      seen.add(snapshot.lineageId);
-      ids.push(snapshot.lineageId);
+    const practitionerId = practitionerIdByLineageKey.get(snapshot.lineageId);
+    if (!practitionerId || seen.has(practitionerId)) {
+      continue;
     }
-  }
-
-  if (ids.length === 0) {
-    return {
-      message: "Mindestens ein Behandler muss ausgewählt werden.",
-      status: "conflict",
-    };
+    seen.add(practitionerId);
+    ids.push(practitionerId);
   }
 
   return { ids };
 };
 
 const samePractitionerLineageIds = (
-  left: Id<"practitioners">[],
-  right: Id<"practitioners">[],
+  left: PractitionerLineageKey[],
+  right: PractitionerLineageKey[],
 ) => {
   if (left.length !== right.length) {
     return false;
@@ -570,6 +572,13 @@ export function AppointmentTypesManagement({
       asPractitionerId(practitionerId),
     )?.lineageKey ?? asPractitionerLineageKey(practitionerId);
 
+  const resolvePractitionerIdForLineage = (
+    practitionerLineageKey: PractitionerLineageKey,
+  ): Id<"practitioners"> | undefined =>
+    practitionersRef.current.find(
+      (practitioner) => practitioner.lineageKey === practitionerLineageKey,
+    )?._id;
+
   const createPractitionerSnapshots = (
     practitionerIds: Id<"practitioners">[],
   ): PractitionerHistorySnapshot[] => {
@@ -585,13 +594,6 @@ export function AppointmentTypesManagement({
       name: nameById.get(asPractitionerId(id)) ?? id,
     }));
   };
-
-  const practitionerLineageIdsForCurrentIds = (
-    practitionerIds: Id<"practitioners">[],
-  ) =>
-    practitionerIds
-      .map((practitionerId) => resolvePractitionerLineageKey(practitionerId))
-      .toSorted();
 
   const form = useForm({
     defaultValues: defaultAppointmentTypeFormValues,
@@ -625,6 +627,7 @@ export function AppointmentTypesManagement({
           parsedValue.practitionerIds,
         );
         const resolvedFormPractitionerIds = practitionerIdsFromSnapshots(
+          practitionersRef.current,
           formPractitionerSnapshots,
         );
 
@@ -641,19 +644,28 @@ export function AppointmentTypesManagement({
             duration: editingAppointmentType.duration,
             followUpPlan: editingAppointmentType.followUpPlan,
             name: editingAppointmentType.name,
-            practitionerIds: editingAppointmentType.allowedPractitionerIds,
+            practitionerLineageKeys:
+              editingAppointmentType.allowedPractitionerLineageKeys.map(
+                (lineageKey) => asPractitionerLineageKey(lineageKey),
+              ),
           };
           const afterState = {
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan,
             name: parsedValue.name,
-            practitionerIds: resolvedFormPractitionerIds.ids,
+            practitionerLineageKeys: toSnapshotLineageIds(
+              formPractitionerSnapshots,
+            ),
           };
           const beforePractitionerSnapshots = createPractitionerSnapshots(
-            beforeState.practitionerIds,
+            beforeState.practitionerLineageKeys
+              .map((lineageKey) => resolvePractitionerIdForLineage(lineageKey))
+              .flatMap((practitionerId) =>
+                practitionerId === undefined ? [] : [practitionerId],
+              ),
           );
           const afterPractitionerSnapshots = createPractitionerSnapshots(
-            afterState.practitionerIds,
+            resolvedFormPractitionerIds.ids,
           );
 
           // Update existing appointment type
@@ -662,7 +674,7 @@ export function AppointmentTypesManagement({
             duration: parsedValue.duration,
             name: parsedValue.name,
             practiceId,
-            practitionerIds: afterState.practitionerIds,
+            practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
             ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
@@ -671,7 +683,8 @@ export function AppointmentTypesManagement({
             {
               ...editingAppointmentType,
               _id: asAppointmentTypeId(updateResult.entityId),
-              allowedPractitionerIds: afterState.practitionerIds,
+              allowedPractitionerLineageKeys:
+                afterState.practitionerLineageKeys,
               duration: afterState.duration,
               followUpPlan: afterState.followUpPlan ?? [],
               name: afterState.name,
@@ -689,6 +702,7 @@ export function AppointmentTypesManagement({
               "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
             runRedo: async (currentAppointmentTypeId) => {
               const resolvedRedoPractitionerIds = practitionerIdsFromSnapshots(
+                practitionersRef.current,
                 afterPractitionerSnapshots,
               );
               if ("status" in resolvedRedoPractitionerIds) {
@@ -709,6 +723,7 @@ export function AppointmentTypesManagement({
             },
             runUndo: async (currentAppointmentTypeId) => {
               const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
+                practitionersRef.current,
                 beforePractitionerSnapshots,
               );
               if ("status" in resolvedUndoPractitionerIds) {
@@ -736,9 +751,9 @@ export function AppointmentTypesManagement({
                 serializeFollowUpPlan(current.followUpPlan) !==
                   serializeFollowUpPlan(beforeState.followUpPlan) ||
                 !samePractitionerLineageIds(
-                  practitionerLineageIdsForCurrentIds(
-                    current.allowedPractitionerIds,
-                  ),
+                  current.allowedPractitionerLineageKeys
+                    .map((lineageKey) => asPractitionerLineageKey(lineageKey))
+                    .toSorted(),
                   toSnapshotLineageIds(beforePractitionerSnapshots),
                 )
               ) {
@@ -753,9 +768,9 @@ export function AppointmentTypesManagement({
                 serializeFollowUpPlan(current.followUpPlan) !==
                   serializeFollowUpPlan(afterState.followUpPlan) ||
                 !samePractitionerLineageIds(
-                  practitionerLineageIdsForCurrentIds(
-                    current.allowedPractitionerIds,
-                  ),
+                  current.allowedPractitionerLineageKeys
+                    .map((lineageKey) => asPractitionerLineageKey(lineageKey))
+                    .toSorted(),
                   toSnapshotLineageIds(afterPractitionerSnapshots),
                 )
               ) {
@@ -789,7 +804,9 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef({
             _creationTime: 0,
             _id: asAppointmentTypeId(createResult.entityId),
-            allowedPractitionerIds: resolvedFormPractitionerIds.ids,
+            allowedPractitionerLineageKeys: toSnapshotLineageIds(
+              formPractitionerSnapshots,
+            ),
             createdAt: 0n,
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
@@ -882,12 +899,13 @@ export function AppointmentTypesManagement({
   };
 
   const openEditDialog = (appointmentType: AppointmentType) => {
-    const availablePractitionerIds = new Set(
-      practitioners.map((practitioner) => String(practitioner._id)),
-    );
-    const validPractitionerIds = appointmentType.allowedPractitionerIds.filter(
-      (practitionerId) => availablePractitionerIds.has(String(practitionerId)),
-    );
+    const validPractitionerIds =
+      appointmentType.allowedPractitionerLineageKeys.flatMap((lineageKey) => {
+        const practitionerId = resolvePractitionerIdForLineage(
+          asPractitionerLineageKey(lineageKey),
+        );
+        return practitionerId === undefined ? [] : [practitionerId];
+      });
 
     setEditingAppointmentType(appointmentType);
     form.setFieldValue("name", appointmentType.name);
@@ -900,7 +918,7 @@ export function AppointmentTypesManagement({
 
     if (
       validPractitionerIds.length !==
-      appointmentType.allowedPractitionerIds.length
+      appointmentType.allowedPractitionerLineageKeys.length
     ) {
       toast.info(
         "Mindestens ein zuvor zugeordneter Behandler existiert nicht mehr und wurde entfernt.",
@@ -917,10 +935,17 @@ export function AppointmentTypesManagement({
         followUpPlan: appointmentType.followUpPlan,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
-        practitionerIds: appointmentType.allowedPractitionerIds,
+        practitionerLineageKeys:
+          appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
+            asPractitionerLineageKey(lineageKey),
+          ),
       };
       const deletedPractitionerSnapshots = createPractitionerSnapshots(
-        deletedSnapshot.practitionerIds,
+        deletedSnapshot.practitionerLineageKeys
+          .map((lineageKey) => resolvePractitionerIdForLineage(lineageKey))
+          .flatMap((practitionerId) =>
+            practitionerId === undefined ? [] : [practitionerId],
+          ),
       );
 
       const deleteResult = await deleteAppointmentTypeMutation({
@@ -971,9 +996,9 @@ export function AppointmentTypesManagement({
           );
           if (existingByLineage) {
             const existingPractitionerLineageIds =
-              practitionerLineageIdsForCurrentIds(
-                existingByLineage.allowedPractitionerIds,
-              );
+              existingByLineage.allowedPractitionerLineageKeys
+                .map((lineageKey) => asPractitionerLineageKey(lineageKey))
+                .toSorted();
             const deletedPractitionerLineageIds = toSnapshotLineageIds(
               deletedPractitionerSnapshots,
             );
@@ -998,6 +1023,7 @@ export function AppointmentTypesManagement({
           }
 
           const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
+            practitionersRef.current,
             deletedPractitionerSnapshots,
           );
           if ("status" in resolvedUndoPractitionerIds) {
@@ -1017,7 +1043,9 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef({
             _creationTime: 0,
             _id: asAppointmentTypeId(recreateResult.entityId),
-            allowedPractitionerIds: resolvedUndoPractitionerIds.ids,
+            allowedPractitionerLineageKeys: toSnapshotLineageIds(
+              deletedPractitionerSnapshots,
+            ),
             createdAt: 0n,
             duration: deletedSnapshot.duration,
             followUpPlan: deletedSnapshot.followUpPlan ?? [],
@@ -1448,8 +1476,8 @@ export function AppointmentTypesManagement({
                               Behandler auswählen
                             </FieldLegend>
                             <FieldDescription>
-                              Wählen Sie mindestens einen Behandler für diese
-                              Terminart aus.
+                              Wählen Sie die Behandler aus, die diese Terminart
+                              anbieten.
                             </FieldDescription>
                             <FieldGroup
                               className="gap-3"
@@ -1559,9 +1587,12 @@ export function AppointmentTypesManagement({
               {appointmentTypes.map((appointmentType) => {
                 // Get practitioner names for this appointment type
                 const appointmentTypePractitioners =
-                  appointmentType.allowedPractitionerIds
-                    .map((practId) =>
-                      practitioners.find((p) => p._id === practId),
+                  appointmentType.allowedPractitionerLineageKeys
+                    .map((practitionerLineageKey) =>
+                      practitioners.find(
+                        (practitioner) =>
+                          practitioner.lineageKey === practitionerLineageKey,
+                      ),
                     )
                     .filter((p): p is NonNullable<typeof p> => p !== undefined);
 

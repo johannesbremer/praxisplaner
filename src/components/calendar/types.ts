@@ -1,45 +1,85 @@
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
+import type {
+  AppointmentResult,
+  BlockedSlotResult,
+} from "../../../convex/appointments";
+import type {
+  AppointmentTypeLineageKey,
+  LocationLineageKey,
+  PractitionerLineageKey,
+} from "../../../convex/identity";
 import type {
   PatientInfo,
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
 } from "../../types";
 
-export interface Appointment {
-  appointmentTypeTitle?: string; // Appointment type title for display
-  color: string;
-  column: string; // Resource ID (practitioner ID or "ekg" / "labor")
-  convexId?: Id<"appointments">; // Original Convex ID for real appointments
-  duration: number; // in minutes
+export interface CalendarAppointmentLayout {
+  column: CalendarColumnId;
+  duration: number;
   id: string;
-  isSimulation: boolean;
-  patientName?: string; // Patient name for display
-  replacesAppointmentId?: Id<"appointments"> | null;
-  resource?: {
-    appointmentTypeId?: AppointmentResult["appointmentTypeId"];
-    appointmentTypeTitle?: string;
-    isSimulation?: boolean;
-    locationId?: AppointmentResult["locationId"];
-    patientId?: AppointmentResult["patientId"];
-    practitionerId?: AppointmentResult["practitionerId"];
-    seriesId?: AppointmentResult["seriesId"];
-    title?: string;
-    userId?: AppointmentResult["userId"];
-  };
+  record: CalendarAppointmentRecord;
   startTime: string;
+}
+
+export type CalendarAppointmentRecord = Omit<
+  AppointmentResult,
+  | "appointmentTypeId"
+  | "appointmentTypeLineageKey"
+  | "locationId"
+  | "locationLineageKey"
+  | "practitionerId"
+  | "practitionerLineageKey"
+> & {
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+};
+
+export interface CalendarAppointmentView {
+  color: string;
+  layout: CalendarAppointmentLayout;
+  patientName?: string;
+}
+
+export interface CalendarBlockedSlotEditorRecord {
+  end: CalendarBlockedSlotRecord["end"];
+  locationId: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerId?: Id<"practitioners">;
+  start: CalendarBlockedSlotRecord["start"];
   title: string;
 }
 
+export type CalendarBlockedSlotRecord = Omit<
+  BlockedSlotResult,
+  | "locationId"
+  | "locationLineageKey"
+  | "practitionerId"
+  | "practitionerLineageKey"
+> & {
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: PractitionerLineageKey;
+};
+
 export interface CalendarColumn {
-  id: string;
+  id: CalendarColumnId;
   isAppointmentTypeUnavailable?: boolean;
   isDragDisabled?: boolean;
   isMuted?: boolean;
   isUnavailable?: boolean;
   title: string;
+}
+
+export type CalendarColumnId = "ekg" | "labor" | PractitionerLineageKey;
+
+export interface WorkingPractitioner {
+  endTime: string;
+  lineageKey: PractitionerLineageKey;
+  name: string;
+  startTime: string;
 }
 
 /**
@@ -55,11 +95,11 @@ export interface NewCalendarProps {
     | undefined;
   onPatientRequired?:
     | ((params: {
-        appointmentTypeId: Id<"appointmentTypes">;
+        appointmentTypeLineageKey: AppointmentTypeLineageKey;
         isSimulation: boolean;
-        locationId: Id<"locations">;
+        locationLineageKey: LocationLineageKey;
         practiceId: Id<"practices">;
-        practitionerId?: Id<"practitioners">;
+        practitionerLineageKey?: PractitionerLineageKey;
         start: string;
         title: string;
       }) => void)

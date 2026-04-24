@@ -488,7 +488,9 @@ export function LocationsManagement({
                     endTime: schedule.endTime,
                     lineageKey: schedule.lineageKey,
                     locationId: currentLocationId,
+                    locationLineageId: deletedSnapshot.lineageKey,
                     practitionerId: practitionerByLineage._id,
+                    practitionerLineageId: schedule.practitionerLineageKey,
                     startTime: schedule.startTime,
                   });
                 }),

@@ -56,8 +56,8 @@ export const baseSchedulePayloadValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   lineageKey: v.id("baseSchedules"),
-  locationId: v.id("locations"),
-  practitionerId: v.id("practitioners"),
+  locationLineageId: v.id("locations"),
+  practitionerLineageId: v.id("practitioners"),
   startTime: v.string(),
 });
 
@@ -73,8 +73,8 @@ export const baseScheduleCreatePayloadValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   lineageKey: v.optional(v.id("baseSchedules")),
-  locationId: v.id("locations"),
-  practitionerId: v.id("practitioners"),
+  locationLineageId: v.id("locations"),
+  practitionerLineageId: v.id("practitioners"),
   startTime: v.string(),
 });
 
@@ -133,9 +133,9 @@ export const practitionerSnapshotValidator = v.object({
 
 export const practitionerAppointmentTypePatchValidator = v.object({
   action: v.union(v.literal("delete"), v.literal("patch")),
-  afterAllowedPractitionerIds: v.array(v.id("practitioners")),
+  afterAllowedPractitionerLineageKeys: v.array(v.id("practitioners")),
   appointmentTypeId: v.id("appointmentTypes"),
-  beforeAllowedPractitionerIds: v.array(v.id("practitioners")),
+  beforeAllowedPractitionerLineageKeys: v.array(v.id("practitioners")),
   duration: v.optional(v.number()),
   lineageKey: v.id("appointmentTypes"),
   name: v.optional(v.string()),
@@ -212,7 +212,7 @@ export const conditionTreeTransportValidator = v.object({
 });
 
 export const appointmentTypeArgsValidator = v.object({
-  allowedPractitionerIds: v.optional(v.array(v.id("practitioners"))),
+  allowedPractitionerLineageKeys: v.optional(v.array(v.id("practitioners"))),
   duration: v.number(),
   followUpPlan: v.optional(v.array(followUpStepValidator)),
   name: v.string(),

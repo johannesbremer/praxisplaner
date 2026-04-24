@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
 import type { DraftMutationResult } from "../utils/cow-history";
 
@@ -58,6 +59,7 @@ import {
   buildLocationLineageByIdMap,
   buildPractitionerLineageByIdMap,
   type ExtendedSchedule,
+  getAbsentLineageKeysForReplacement,
   isBaseScheduleMissingError,
   type LocationMatchEntity,
   matchesSchedulePayload,
@@ -203,9 +205,9 @@ export default function BaseScheduleManagement({
     breakTimes?: { end: string; start: string }[];
     daysOfWeek: number[];
     endTime: string;
-    locationId: Id<"locations">;
+    locationLineageKey: Id<"locations">;
     locationName?: string;
-    practitionerId: Id<"practitioners">;
+    practitionerLineageKey: Id<"practitioners">;
     scheduleIds: Id<"baseSchedules">[];
     startTime: string;
   }) => {
@@ -226,16 +228,16 @@ export default function BaseScheduleManagement({
       toast.error("Fehler: Ungültige Zeitplan-Daten");
       return;
     }
-
     // Create a representative schedule object for editing
     const representativeSchedule: ExtendedSchedule = {
-      _id: firstScheduleId, // Use first ID for form processing
+      _id: asBaseScheduleId(firstScheduleId), // Use first ID for form processing
       ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
-      locationId: scheduleGroup.locationId,
+      lineageKey: asBaseScheduleLineageKey(firstScheduleId),
+      locationLineageKey: scheduleGroup.locationLineageKey,
       practiceId,
-      practitionerId: scheduleGroup.practitionerId,
+      practitionerLineageKey: scheduleGroup.practitionerLineageKey,
       ruleSetId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
@@ -254,13 +256,7 @@ export default function BaseScheduleManagement({
         scheduleIds.includes(schedule._id),
       );
       const deletedSchedulePayloads = Result.combine(
-        deletedSchedules.map((schedule) =>
-          toSchedulePayload(
-            schedule,
-            practitionersRef.current,
-            locationsRef.current,
-          ),
-        ),
+        deletedSchedules.map((schedule) => toSchedulePayload(schedule)),
       ).match(
         (value) => value,
         (error) => {
@@ -347,11 +343,7 @@ export default function BaseScheduleManagement({
 
             const batchSchedules = Result.combine(
               missingPayloads.map((payload) =>
-                toBatchCreateScheduleInput(
-                  payload,
-                  practitionersRef.current,
-                  locationsRef.current,
-                ),
+                toBatchCreateScheduleInput(payload),
               ),
             ).match(
               (value) => value,
@@ -413,9 +405,9 @@ export default function BaseScheduleManagement({
         breakTimes?: { end: string; start: string }[];
         daysOfWeek: number[];
         endTime: string;
-        locationId: Id<"locations">;
+        locationLineageKey: Id<"locations">;
         locationName?: string;
-        practitionerId: Id<"practitioners">;
+        practitionerLineageKey: Id<"practitioners">;
         scheduleIds: Id<"baseSchedules">[];
         startTime: string;
       };
@@ -423,12 +415,13 @@ export default function BaseScheduleManagement({
   > = {};
 
   for (const schedule of schedules) {
-    // Look up practitioner name from ID
     const practitioner = practitioners.find(
-      (p) => p._id === schedule.practitionerId,
+      (p) => p.lineageKey === schedule.practitionerLineageKey,
     );
     const practitionerName = practitioner?.name ?? "Unknown";
-    const location = locations.find((l) => l._id === schedule.locationId);
+    const location = locations.find(
+      (l) => l.lineageKey === schedule.locationLineageKey,
+    );
     const locationName = location?.name;
 
     schedulesByPractitioner[practitionerName] ??= [];
@@ -438,7 +431,7 @@ export default function BaseScheduleManagement({
       (item) =>
         item.scheduleGroup.startTime === schedule.startTime &&
         item.scheduleGroup.endTime === schedule.endTime &&
-        item.scheduleGroup.locationId === schedule.locationId &&
+        item.scheduleGroup.locationLineageKey === schedule.locationLineageKey &&
         JSON.stringify(item.scheduleGroup.breakTimes ?? []) ===
           JSON.stringify(schedule.breakTimes ?? []),
     );
@@ -457,9 +450,9 @@ export default function BaseScheduleManagement({
           ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
           daysOfWeek: [schedule.dayOfWeek],
           endTime: schedule.endTime,
-          locationId: schedule.locationId,
+          locationLineageKey: schedule.locationLineageKey,
           ...(locationName && { locationName }),
-          practitionerId: schedule.practitionerId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
           scheduleIds: [schedule._id],
           startTime: schedule.startTime,
         },
@@ -612,12 +605,24 @@ function BaseScheduleDialog({
     currentLocations: readonly LocationMatchEntity[],
   ): Id<"locations"> | null =>
     currentLocations.find((location) => location._id === value)?._id ?? null;
+  const resolveSelectedLocationLineageId = (
+    value: string,
+    currentLocations: readonly LocationMatchEntity[],
+  ): Id<"locations"> | null =>
+    currentLocations.find((location) => location._id === value)?.lineageKey ??
+    null;
   const resolveSelectedPractitionerId = (
     value: string,
     currentPractitioners: readonly PractitionerMatchEntity[],
   ): Id<"practitioners"> | null =>
     currentPractitioners.find((practitioner) => practitioner._id === value)
       ?._id ?? null;
+  const resolveSelectedPractitionerLineageId = (
+    value: string,
+    currentPractitioners: readonly PractitionerMatchEntity[],
+  ): Id<"practitioners"> | null =>
+    currentPractitioners.find((practitioner) => practitioner._id === value)
+      ?.lineageKey ?? null;
 
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
@@ -728,8 +733,21 @@ function BaseScheduleDialog({
           : [schedule.dayOfWeek]
         : [],
       endTime: schedule?.endTime ?? "17:00",
-      locationId: schedule?.locationId ?? locations[0]?._id ?? "",
-      practitionerId: schedule?.practitionerId ?? "",
+      locationId:
+        (schedule
+          ? locations.find(
+              (location) => location.lineageKey === schedule.locationLineageKey,
+            )?._id
+          : undefined) ??
+        locations[0]?._id ??
+        "",
+      practitionerId:
+        (schedule
+          ? practitioners.find(
+              (practitioner) =>
+                practitioner.lineageKey === schedule.practitionerLineageKey,
+            )?._id
+          : undefined) ?? "",
       startTime: schedule?.startTime ?? "08:00",
     },
     onSubmit: async ({ value }) => {
@@ -774,6 +792,14 @@ function BaseScheduleDialog({
           value.locationId,
           locationsRef.current,
         );
+        const selectedLocationLineageId = resolveSelectedLocationLineageId(
+          value.locationId,
+          locationsRef.current,
+        );
+        const selectedPractitionerId = resolveSelectedPractitionerId(
+          value.practitionerId,
+          practitionersRef.current,
+        );
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -791,6 +817,16 @@ function BaseScheduleDialog({
           }
 
           const selectedDays = value.daysOfWeek;
+
+          if (!selectedLocationId || !selectedLocationLineageId) {
+            toast.error("Bitte wählen Sie einen Standort aus");
+            return;
+          }
+
+          if (!selectedPractitionerId) {
+            toast.error("Bitte wählen Sie einen Arzt aus");
+            return;
+          }
 
           if (selectedDays.length === 0) {
             const error = new Error(
@@ -810,11 +846,7 @@ function BaseScheduleDialog({
 
           const resolvedOldSchedulePayloads = Result.combine(
             deletedScheduleSnapshots.map((previous) =>
-              toSchedulePayloadFromLineageSnapshot(
-                previous,
-                practitionerLineageByIdAtSubmitStart,
-                locationLineageByIdAtSubmitStart,
-              ),
+              toSchedulePayloadFromLineageSnapshot(previous),
             ),
           ).match<null | SchedulePayload[]>(
             (value) => value,
@@ -835,6 +867,24 @@ function BaseScheduleDialog({
           const existingPayloadByDay = new Map(
             oldSchedulePayloads.map((payload) => [payload.dayOfWeek, payload]),
           );
+          const selectedPractitionerLineageId =
+            resolveSelectedPractitionerLineageId(
+              value.practitionerId,
+              practitionersRef.current,
+            );
+          if (!selectedPractitionerLineageId) {
+            const error = new Error("Bitte wählen Sie einen Arzt aus");
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: true,
+              practiceId,
+              scheduleId: schedule._id,
+              validationField: "practitionerId",
+            });
+            toast.error(error.message);
+            return;
+          }
           const nextSchedules: BatchCreateScheduleInput[] = selectedDays
             .toSorted()
             .map((dayOfWeek) => {
@@ -848,8 +898,8 @@ function BaseScheduleDialog({
                 ...(existingPayload
                   ? { lineageKey: existingPayload.lineageKey }
                   : {}),
-                locationId: selectedLocationId ?? schedule.locationId,
-                practitionerId: schedule.practitionerId,
+                locationLineageId: selectedLocationLineageId,
+                practitionerLineageId: selectedPractitionerLineageId,
                 startTime: value.startTime,
               };
             });
@@ -890,8 +940,13 @@ function BaseScheduleDialog({
             value.practitionerId,
             practitionersRef.current,
           );
+          const selectedPractitionerLineageId =
+            resolveSelectedPractitionerLineageId(
+              value.practitionerId,
+              practitionersRef.current,
+            );
 
-          if (!selectedPractitionerId) {
+          if (!selectedPractitionerId || !selectedPractitionerLineageId) {
             const error = new Error("Bitte wählen Sie einen Arzt aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -904,7 +959,7 @@ function BaseScheduleDialog({
             return;
           }
 
-          if (!selectedLocationId) {
+          if (!selectedLocationId || !selectedLocationLineageId) {
             const error = new Error("Bitte wählen Sie einen Standort aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -938,8 +993,8 @@ function BaseScheduleDialog({
               : {}),
             dayOfWeek,
             endTime: value.endTime,
-            locationId: selectedLocationId,
-            practitionerId: selectedPractitionerId,
+            locationLineageId: selectedLocationLineageId,
+            practitionerLineageId: selectedPractitionerLineageId,
             startTime: value.startTime,
           }));
           const batchResult = await createScheduleBatchMutation({
@@ -989,8 +1044,6 @@ function BaseScheduleDialog({
             const createdPayload = toCreatedSchedulePayload(
               createData,
               createdEntityId,
-              practitionerLineageByIdAtSubmitStart,
-              locationLineageByIdAtSubmitStart,
             ).match(
               (value) => value,
               (error) => {
@@ -1031,11 +1084,7 @@ function BaseScheduleDialog({
 
               const batchSchedules = Result.combine(
                 missingPayloads.map((payload) =>
-                  toBatchCreateScheduleInput(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toBatchCreateScheduleInput(payload),
                 ),
               ).match(
                 (value) => value,
@@ -1110,17 +1159,17 @@ function BaseScheduleDialog({
           const oldLineageKeys = oldSchedulePayloads.map(
             (payload) => payload.lineageKey,
           );
+          const redoExpectedAbsentLineageKeys =
+            getAbsentLineageKeysForReplacement(oldLineageKeys, newLineageKeys);
+          const undoExpectedAbsentLineageKeys =
+            getAbsentLineageKeysForReplacement(newLineageKeys, oldLineageKeys);
 
           onRegisterHistoryAction?.({
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
               const replacementSchedules = Result.combine(
                 createdSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toMutationSchedulePayload(payload),
                 ),
               ).match(
                 (value) => value,
@@ -1134,7 +1183,7 @@ function BaseScheduleDialog({
                 };
               }
               const redoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: newLineageKeys,
+                expectedAbsentLineageKeys: redoExpectedAbsentLineageKeys,
                 expectedPresentLineageKeys: oldLineageKeys,
                 practiceId,
                 replacementSchedules,
@@ -1153,11 +1202,7 @@ function BaseScheduleDialog({
             undo: async () => {
               const replacementSchedules = Result.combine(
                 oldSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toMutationSchedulePayload(payload),
                 ),
               ).match(
                 (value) => value,
@@ -1171,7 +1216,7 @@ function BaseScheduleDialog({
                 };
               }
               const undoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: oldLineageKeys,
+                expectedAbsentLineageKeys: undoExpectedAbsentLineageKeys,
                 expectedPresentLineageKeys: newLineageKeys,
                 practiceId,
                 replacementSchedules,
@@ -1233,17 +1278,27 @@ function BaseScheduleDialog({
     const practitionerExists =
       !!schedule &&
       practitioners.some(
-        (practitioner) => practitioner._id === schedule.practitionerId,
+        (practitioner) =>
+          practitioner.lineageKey === schedule.practitionerLineageKey,
       );
     const locationExists =
       !!schedule &&
-      locations.some((location) => location._id === schedule.locationId);
+      locations.some(
+        (location) => location.lineageKey === schedule.locationLineageKey,
+      );
 
     const selectedPractitionerId = practitionerExists
-      ? schedule.practitionerId
+      ? (practitioners.find(
+          (practitioner) =>
+            practitioner.lineageKey === schedule.practitionerLineageKey,
+        )?._id ?? "")
       : "";
     const selectedLocationId =
-      (locationExists ? schedule.locationId : undefined) ??
+      (locationExists
+        ? locations.find(
+            (location) => location.lineageKey === schedule.locationLineageKey,
+          )?._id
+        : undefined) ??
       locations[0]?._id ??
       "";
 

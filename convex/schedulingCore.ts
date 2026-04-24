@@ -6,11 +6,8 @@ import type { DatabaseReader } from "./_generated/server";
 import {
   asLocationId,
   asLocationLineageKey,
-  asPractitionerId,
   asPractitionerLineageKey,
-  type LocationId,
   type LocationLineageKey,
-  type PractitionerId,
   type PractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
@@ -21,11 +18,8 @@ export interface CandidateSlot {
   blockedByBlockedSlotId?: Id<"blockedSlots">;
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number;
-  locationId: LocationId;
   locationLineageKey: LocationLineageKey;
-  practitionerId: PractitionerId;
   practitionerLineageKey: PractitionerLineageKey;
-  practitionerName?: string;
   reason?: string;
   startTime: string;
   status: "AVAILABLE" | "BLOCKED";
@@ -62,15 +56,8 @@ export async function generateCandidateSlotsForDay(
   const practitionersForPractice = practitioners.filter(
     (practitioner) => practitioner.practiceId === practiceId,
   );
-  const practitionerNameById = new Map(
-    practitionersForPractice.map((practitioner) => [
-      practitioner._id,
-      practitioner.name,
-    ]),
-  );
-  const practitionerLineageKeyById = new Map(
-    practitionersForPractice.map((practitioner) => [
-      asPractitionerId(practitioner._id),
+  const practitionerLineageKeys = new Set(
+    practitionersForPractice.map((practitioner) =>
       asPractitionerLineageKey(
         requireLineageKey({
           entityId: practitioner._id,
@@ -79,13 +66,12 @@ export async function generateCandidateSlotsForDay(
           ruleSetId: practitioner.ruleSetId,
         }),
       ),
-    ]),
+    ),
   );
-  const locationLineageKeyById = new Map(
+  const locationIdByLineageKey = new Map(
     locations
       .filter((location) => location.practiceId === practiceId)
       .map((location) => [
-        asLocationId(location._id),
         asLocationLineageKey(
           requireLineageKey({
             entityId: location._id,
@@ -94,6 +80,7 @@ export async function generateCandidateSlotsForDay(
             ruleSetId: location.ruleSetId,
           }),
         ),
+        asLocationId(location._id),
       ]),
   );
 
@@ -109,7 +96,12 @@ export async function generateCandidateSlotsForDay(
       return false;
     }
 
-    if (locationId && schedule.locationId !== locationId) {
+    if (
+      locationId &&
+      locationIdByLineageKey.get(
+        asLocationLineageKey(schedule.locationLineageKey),
+      ) !== asLocationId(locationId)
+    ) {
       return false;
     }
 
@@ -150,20 +142,26 @@ export async function generateCandidateSlotsForDay(
         ) ?? false;
 
       if (!isBreakTime) {
+        const locationLineageKey = asLocationLineageKey(
+          schedule.locationLineageKey,
+        );
+        const practitionerLineageKey = asPractitionerLineageKey(
+          schedule.practitionerLineageKey,
+        );
+        if (!locationIdByLineageKey.has(locationLineageKey)) {
+          throw new Error(
+            `[INVARIANT:SCHEDULE_LOCATION_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Standort-Lineage ${locationLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
+          );
+        }
+        if (!practitionerLineageKeys.has(practitionerLineageKey)) {
+          throw new Error(
+            `[INVARIANT:SCHEDULE_PRACTITIONER_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Behandler-Lineage ${practitionerLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
+          );
+        }
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
-          locationId: asLocationId(schedule.locationId),
-          locationLineageKey:
-            locationLineageKeyById.get(asLocationId(schedule.locationId)) ??
-            asLocationLineageKey(schedule.locationId),
-          practitionerId: asPractitionerId(schedule.practitionerId),
-          practitionerLineageKey:
-            practitionerLineageKeyById.get(
-              asPractitionerId(schedule.practitionerId),
-            ) ?? asPractitionerLineageKey(schedule.practitionerId),
-          practitionerName:
-            practitionerNameById.get(schedule.practitionerId) ??
-            "Unknown Practitioner",
+          locationLineageKey,
+          practitionerLineageKey,
           startTime: slotZoned.toString(),
           status: "AVAILABLE",
         });
@@ -229,7 +227,10 @@ export function slotOverlapsAppointment(
 }
 
 export function slotOverlapsBlockedSlot(
-  slot: Pick<CandidateSlot, "duration" | "practitionerId" | "startTime">,
+  slot: Pick<
+    CandidateSlot,
+    "duration" | "practitionerLineageKey" | "startTime"
+  >,
   blockedSlot: Doc<"blockedSlots">,
 ): boolean {
   const slotZoned = Temporal.ZonedDateTime.from(slot.startTime);
@@ -242,8 +243,8 @@ export function slotOverlapsBlockedSlot(
   const blockedEnd = Temporal.ZonedDateTime.from(blockedSlot.end).toInstant();
 
   if (
-    blockedSlot.practitionerId &&
-    blockedSlot.practitionerId !== slot.practitionerId
+    blockedSlot.practitionerLineageKey &&
+    blockedSlot.practitionerLineageKey !== slot.practitionerLineageKey
   ) {
     return false;
   }

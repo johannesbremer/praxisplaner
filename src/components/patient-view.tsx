@@ -61,11 +61,6 @@ export function PatientView({
   ruleSetId,
   simulatedContext,
 }: PatientViewProps) {
-  // Track selected location in local state
-  const [selectedLocationId, setSelectedLocationId] = useState(
-    simulatedContext.locationId,
-  );
-
   // Track calendar navigation independently from simulation dateRange
   // Derive from dateRange.start to avoid setting state in effect
   const calendarStartDate = useMemo(
@@ -75,6 +70,19 @@ export function PatientView({
 
   // Fetch available locations
   const locationsQuery = useQuery(api.entities.getLocations, { ruleSetId });
+  const appointmentTypesQuery = useQuery(api.entities.getAppointmentTypes, {
+    ruleSetId,
+  });
+  const selectedLocationId = useMemo(
+    () =>
+      simulatedContext.locationLineageKey
+        ? locationsQuery?.find(
+            (location) =>
+              location.lineageKey === simulatedContext.locationLineageKey,
+          )?._id
+        : undefined,
+    [locationsQuery, simulatedContext.locationLineageKey],
+  );
 
   // Create expanded date range for calendar (half a year from calendar start)
   const calendarEndDate = useMemo(() => {
@@ -87,14 +95,20 @@ export function PatientView({
   // Create the simulated context with selected location
   const effectiveSimulatedContext: SchedulingSimulatedContext = (() => {
     if (selectedLocationId) {
+      const selectedLocationLineageKey = locationsQuery?.find(
+        (location) => location._id === selectedLocationId,
+      )?.lineageKey;
+
       return {
         ...simulatedContext,
-        locationId: selectedLocationId,
+        ...(selectedLocationLineageKey === undefined
+          ? {}
+          : { locationLineageKey: selectedLocationLineageKey }),
       };
     }
 
     const contextWithoutLocation = { ...simulatedContext };
-    delete contextWithoutLocation.locationId;
+    delete contextWithoutLocation.locationLineageKey;
     return contextWithoutLocation;
   })();
 
@@ -123,7 +137,7 @@ export function PatientView({
   const availableDatesResult = useQuery(
     api.scheduling.getAvailableDates,
     selectedLocationId &&
-      effectiveSimulatedContext.appointmentTypeId &&
+      effectiveSimulatedContext.appointmentTypeLineageKey &&
       calendarDateRange
       ? {
           dateRange: calendarDateRange,
@@ -254,7 +268,7 @@ export function PatientView({
     selectedLocationId &&
       ruleSetId &&
       effectiveUserSelectedDate &&
-      effectiveSimulatedContext.appointmentTypeId
+      effectiveSimulatedContext.appointmentTypeLineageKey
       ? {
           date: formatDateISO(dateToTemporal(effectiveUserSelectedDate)),
           practiceId,
@@ -313,13 +327,17 @@ export function PatientView({
         <LocationSelector
           locations={safeLocations}
           onLocationSelect={(locationId: Id<"locations">) => {
-            setSelectedLocationId(locationId);
             // Notify parent about location change (for URL updates)
             onLocationChange?.(locationId);
+            const locationLineageKey = safeLocations.find(
+              (location) => location._id === locationId,
+            )?.lineageKey;
             // Update simulated context with the selected location
             const updatedContext: SchedulingSimulatedContext = {
               ...simulatedContext,
-              locationId,
+              ...(locationLineageKey === undefined
+                ? {}
+                : { locationLineageKey }),
             };
             onUpdateSimulatedContext?.(updatedContext);
           }}
@@ -330,29 +348,42 @@ export function PatientView({
         <AppointmentTypeSelector
           onTypeDeselect={() => {
             const updated = { ...simulatedContext };
-            delete updated.appointmentTypeId;
+            delete updated.appointmentTypeLineageKey;
             onUpdateSimulatedContext?.(updated);
           }}
           onTypeSelect={(type) => {
+            const appointmentTypeLineageKey = appointmentTypesQuery?.find(
+              (appointmentType) => appointmentType._id === type,
+            )?.lineageKey;
+            if (!appointmentTypeLineageKey) {
+              return;
+            }
             onUpdateSimulatedContext?.({
               ...simulatedContext,
-              appointmentTypeId: type,
+              appointmentTypeLineageKey,
             });
           }}
           ruleSetId={ruleSetId}
-          selectedType={simulatedContext.appointmentTypeId}
+          selectedType={
+            appointmentTypesQuery?.find(
+              (appointmentType) =>
+                appointmentType.lineageKey ===
+                simulatedContext.appointmentTypeLineageKey,
+            )?._id
+          }
         />
 
         {/* Show message when location is selected but no appointment type chosen */}
-        {selectedLocationId && !effectiveSimulatedContext.appointmentTypeId && (
-          <Card>
-            <CardContent className="py-6">
-              <div className="text-center text-muted-foreground">
-                Bitte wählen Sie eine Terminart aus.
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {selectedLocationId &&
+          !effectiveSimulatedContext.appointmentTypeLineageKey && (
+            <Card>
+              <CardContent className="py-6">
+                <div className="text-center text-muted-foreground">
+                  Bitte wählen Sie eine Terminart aus.
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Show no appointments message when location is selected and no dates available */}
         {selectedLocationId &&
@@ -449,7 +480,7 @@ export function PatientView({
                               const time = zonedDateTime
                                 ? formatTime(zonedDateTime.toPlainTime())
                                 : "??:??";
-                              const key = `${slot.practitionerId}-${slot.startTime}`;
+                              const key = `${slot.practitionerLineageKey}-${slot.startTime}`;
                               const isSelected = selectedSlotKey === key;
                               return (
                                 <Button

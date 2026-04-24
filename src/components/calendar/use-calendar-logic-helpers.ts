@@ -4,7 +4,7 @@ import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
+import type { CalendarAppointmentRecord, CalendarColumnId } from "./types";
 
 import { invalidStateError } from "../../utils/frontend-errors";
 
@@ -20,19 +20,24 @@ export interface BlockedSlotConversionOptions {
 
 export interface CalendarBlockedSlotRecord {
   end: string;
-  locationId: Id<"locations">;
-  practitionerId?: Id<"practitioners">;
+  locationLineageKey: Id<"locations">;
+  practitionerLineageKey?: Id<"practitioners">;
   start: string;
 }
 
 export interface DeletedPractitionerCalendarRange {
   endMinutes: number;
-  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
   startMinutes: number;
 }
 
+export interface SimulatedBlockedSlotConversionResult {
+  id: Id<"blockedSlots">;
+  startISO: string;
+}
+
 export interface SimulationConversionOptions {
-  columnOverride?: string;
+  columnOverride?: CalendarColumnId;
   durationMinutes?: number;
   endISO?: string;
   locationId?: Id<"locations">;
@@ -40,11 +45,36 @@ export interface SimulationConversionOptions {
   startISO?: string;
 }
 
+interface ConflictAppointmentCandidate {
+  end: string;
+  isSimulation?: boolean;
+  locationLineageKey: Id<"locations">;
+  practitionerLineageKey?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  start: string;
+}
+
+interface ConflictAppointmentRecord extends ConflictAppointmentCandidate {
+  _id: Id<"appointments">;
+}
+
+interface ConflictBlockedSlotCandidate {
+  end: string;
+  isSimulation?: boolean;
+  locationLineageKey: Id<"locations">;
+  practitionerLineageKey?: Id<"practitioners">;
+  start: string;
+}
+
+interface ConflictBlockedSlotRecord extends ConflictBlockedSlotCandidate {
+  _id: Id<"blockedSlots">;
+}
+
 export function collectDeletedPractitionerCalendarRanges(args: {
-  appointments: AppointmentResult[];
+  appointments: CalendarAppointmentRecord[];
   blockedSlots: readonly CalendarBlockedSlotRecord[];
-  deletedPractitionerIds: ReadonlySet<Id<"practitioners">>;
-  effectiveLocationId: Id<"locations"> | undefined;
+  deletedPractitionerLineageKeys: ReadonlySet<Id<"practitioners">>;
+  effectiveLocationLineageKey: Id<"locations"> | undefined;
   selectedDate: Temporal.PlainDate;
 }): DeletedPractitionerCalendarRange[] {
   const rangesByPractitioner = new Map<
@@ -53,17 +83,20 @@ export function collectDeletedPractitionerCalendarRanges(args: {
   >();
 
   const addRange = (
-    practitionerId: Id<"practitioners">,
+    practitionerLineageKey: Id<"practitioners">,
     startMinutes: number,
     endMinutes: number,
   ) => {
-    const existing = rangesByPractitioner.get(practitionerId);
+    const existing = rangesByPractitioner.get(practitionerLineageKey);
     if (!existing) {
-      rangesByPractitioner.set(practitionerId, { endMinutes, startMinutes });
+      rangesByPractitioner.set(practitionerLineageKey, {
+        endMinutes,
+        startMinutes,
+      });
       return;
     }
 
-    rangesByPractitioner.set(practitionerId, {
+    rangesByPractitioner.set(practitionerLineageKey, {
       endMinutes: Math.max(existing.endMinutes, endMinutes),
       startMinutes: Math.min(existing.startMinutes, startMinutes),
     });
@@ -71,15 +104,17 @@ export function collectDeletedPractitionerCalendarRanges(args: {
 
   for (const appointment of args.appointments) {
     if (
-      !appointment.practitionerId ||
-      !args.deletedPractitionerIds.has(appointment.practitionerId)
+      !appointment.practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(
+        appointment.practitionerLineageKey,
+      )
     ) {
       continue;
     }
 
     if (
-      args.effectiveLocationId !== undefined &&
-      appointment.locationId !== args.effectiveLocationId
+      args.effectiveLocationLineageKey !== undefined &&
+      appointment.locationLineageKey !== args.effectiveLocationLineageKey
     ) {
       continue;
     }
@@ -93,7 +128,7 @@ export function collectDeletedPractitionerCalendarRanges(args: {
 
     const end = Temporal.ZonedDateTime.from(appointment.end);
     addRange(
-      appointment.practitionerId,
+      appointment.practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
@@ -102,11 +137,13 @@ export function collectDeletedPractitionerCalendarRanges(args: {
   for (const blockedSlot of filterBlockedSlotsForDateAndLocation(
     args.blockedSlots,
     args.selectedDate,
-    args.effectiveLocationId,
+    args.effectiveLocationLineageKey,
   )) {
     if (
-      !blockedSlot.practitionerId ||
-      !args.deletedPractitionerIds.has(blockedSlot.practitionerId)
+      !blockedSlot.practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(
+        blockedSlot.practitionerLineageKey,
+      )
     ) {
       continue;
     }
@@ -114,17 +151,19 @@ export function collectDeletedPractitionerCalendarRanges(args: {
     const start = Temporal.ZonedDateTime.from(blockedSlot.start).toPlainTime();
     const end = Temporal.ZonedDateTime.from(blockedSlot.end).toPlainTime();
     addRange(
-      blockedSlot.practitionerId,
+      blockedSlot.practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
   }
 
-  return [...rangesByPractitioner.entries()].map(([practitionerId, range]) => ({
-    endMinutes: range.endMinutes,
-    practitionerId,
-    startMinutes: range.startMinutes,
-  }));
+  return [...rangesByPractitioner.entries()].map(
+    ([practitionerLineageKey, range]) => ({
+      endMinutes: range.endMinutes,
+      practitionerLineageKey,
+      startMinutes: range.startMinutes,
+    }),
+  );
 }
 
 export function filterBlockedSlotsForDateAndLocation<
@@ -132,7 +171,7 @@ export function filterBlockedSlotsForDateAndLocation<
 >(
   blockedSlotsData: null | readonly T[] | undefined,
   selectedDate: Temporal.PlainDate,
-  effectiveLocationId?: Id<"locations">,
+  effectiveLocationLineageKey?: Id<"locations">,
 ): T[] {
   if (!blockedSlotsData) {
     return [];
@@ -147,14 +186,32 @@ export function filterBlockedSlotsForDateAndLocation<
     }
 
     if (
-      effectiveLocationId !== undefined &&
-      blockedSlot.locationId !== effectiveLocationId
+      effectiveLocationLineageKey !== undefined &&
+      blockedSlot.locationLineageKey !== effectiveLocationLineageKey
     ) {
       return false;
     }
 
     return true;
   });
+}
+
+export function getCurrentCalendarRecordById<T extends { _id: string }>(args: {
+  activeDayMap?: ReadonlyMap<string, T>;
+  allPracticeMap: ReadonlyMap<string, T>;
+  deletedIds?: ReadonlySet<string>;
+  historyMap: ReadonlyMap<string, T>;
+  id: string;
+}): T | undefined {
+  if (args.deletedIds?.has(args.id)) {
+    return undefined;
+  }
+
+  return (
+    args.allPracticeMap.get(args.id) ??
+    args.activeDayMap?.get(args.id) ??
+    args.historyMap.get(args.id)
+  );
 }
 
 export function handleEditBlockedSlot(
@@ -165,6 +222,84 @@ export function handleEditBlockedSlot(
     return false;
   }
   return true;
+}
+
+export function hasCalendarOccupancyConflictInRecords(args: {
+  appointments: Iterable<ConflictAppointmentRecord>;
+  blockedSlots: Iterable<ConflictBlockedSlotRecord>;
+  candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
+  excludeId?: string;
+  toEpochMilliseconds: (iso: string) => number;
+}): boolean {
+  for (const existing of args.blockedSlots) {
+    if (
+      isCalendarOccupancyConflict({
+        candidate: args.candidate,
+        ...(args.excludeId === undefined ? {} : { excludeId: args.excludeId }),
+        existing,
+        toEpochMilliseconds: args.toEpochMilliseconds,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  for (const existing of args.appointments) {
+    if (
+      isCalendarOccupancyConflict({
+        candidate: args.candidate,
+        ...(args.excludeId === undefined ? {} : { excludeId: args.excludeId }),
+        existing,
+        toEpochMilliseconds: args.toEpochMilliseconds,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function mergeConflictRecordsById<T extends { _id: string }>(
+  ...maps: readonly ReadonlyMap<string, T>[]
+): T[] {
+  return mergeConflictRecordsByIdExcluding({ maps });
+}
+
+export function mergeConflictRecordsByIdExcluding<
+  T extends { _id: string },
+>(args: {
+  excludedIds?: ReadonlySet<string>;
+  maps: readonly ReadonlyMap<string, T>[];
+}): T[] {
+  const merged = new Map<string, T>();
+
+  for (const map of args.maps) {
+    for (const [id, record] of map) {
+      if (args.excludedIds?.has(id)) {
+        continue;
+      }
+
+      merged.set(id, record);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+export function mergeCurrentConflictRecordsByIdExcluding<
+  T extends { _id: string },
+>(args: {
+  allPracticeMap: ReadonlyMap<string, T>;
+  excludedIds?: ReadonlySet<string>;
+  historyMap: ReadonlyMap<string, T>;
+}): T[] {
+  return mergeConflictRecordsByIdExcluding({
+    maps: [args.historyMap, args.allPracticeMap],
+    ...(args.excludedIds === undefined
+      ? {}
+      : { excludedIds: args.excludedIds }),
+  });
 }
 
 export function parsePlainTimeResult(
@@ -178,4 +313,55 @@ export function parsePlainTimeResult(
       invalidStateError(`Invalid time format: ${value}`, source, error),
     );
   }
+}
+
+function isCalendarOccupancyConflict(args: {
+  candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
+  excludeId?: string;
+  existing: {
+    _id: string;
+    end: string;
+    isSimulation?: boolean;
+    locationLineageKey: Id<"locations">;
+    practitionerLineageKey?: Id<"practitioners">;
+    start: string;
+  };
+  toEpochMilliseconds: (iso: string) => number;
+}): boolean {
+  const candidateStart = args.toEpochMilliseconds(args.candidate.start);
+  const candidateEnd = args.toEpochMilliseconds(args.candidate.end);
+
+  if (args.excludeId && args.existing._id === args.excludeId) {
+    return false;
+  }
+
+  if (
+    "replacesAppointmentId" in args.candidate &&
+    args.candidate.replacesAppointmentId &&
+    args.existing._id === args.candidate.replacesAppointmentId
+  ) {
+    return false;
+  }
+
+  if (args.existing.locationLineageKey !== args.candidate.locationLineageKey) {
+    return false;
+  }
+
+  if (
+    (args.existing.isSimulation === true) !==
+    (args.candidate.isSimulation === true)
+  ) {
+    return false;
+  }
+
+  if (
+    args.existing.practitionerLineageKey !==
+    args.candidate.practitionerLineageKey
+  ) {
+    return false;
+  }
+
+  const existingStart = args.toEpochMilliseconds(args.existing.start);
+  const existingEnd = args.toEpochMilliseconds(args.existing.end);
+  return candidateStart < existingEnd && existingStart < candidateEnd;
 }

@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
+  resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
@@ -49,7 +50,7 @@ const coverageSuggestionValidator = v.object({
   locationId: v.id("locations"),
   patientId: v.optional(v.id("patients")),
   start: v.string(),
-  targetPractitionerId: v.optional(v.id("practitioners")),
+  targetPractitionerLineageKey: v.optional(v.id("practitioners")),
   targetPractitionerName: v.optional(v.string()),
   title: v.string(),
   userId: v.optional(v.id("users")),
@@ -65,38 +66,18 @@ export async function resolveAppointmentTypeIdForRuleSet(
     targetRuleSetId: Id<"ruleSets">;
   },
 ): Promise<AppointmentTypeId> {
-  const appointmentType = await db.get(
-    "appointmentTypes",
-    args.appointmentTypeLineageKey,
+  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+    db,
+    {
+      lineageKey: args.appointmentTypeLineageKey,
+      ruleSetId: args.targetRuleSetId,
+    },
   );
-  if (!appointmentType) {
-    throw new Error(
-      `Terminart ${args.appointmentTypeLineageKey} nicht gefunden.`,
-    );
-  }
-  if (appointmentType.practiceId !== args.practiceId) {
+  const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
+  if (appointmentType?.practiceId !== args.practiceId) {
     throw new Error("Terminart gehört nicht zu dieser Praxis.");
   }
-  if (appointmentType.ruleSetId === args.targetRuleSetId) {
-    return asAppointmentTypeId(appointmentType._id);
-  }
-
-  const mappedAppointmentType = await db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q
-        .eq("ruleSetId", args.targetRuleSetId)
-        .eq("lineageKey", args.appointmentTypeLineageKey),
-    )
-    .first();
-
-  if (mappedAppointmentType?.practiceId !== args.practiceId) {
-    throw new Error(
-      "Terminart konnte im Ziel-Regelset nicht aufgelöst werden.",
-    );
-  }
-
-  return asAppointmentTypeId(mappedAppointmentType._id);
+  return asAppointmentTypeId(appointmentTypeId);
 }
 
 export async function resolveLocationIdForRuleSet(
@@ -213,7 +194,7 @@ async function previewPractitionerCoverageForAppointment(
   locationId: Id<"locations">;
   patientId?: Id<"patients">;
   start: string;
-  targetPractitionerId?: Id<"practitioners">;
+  targetPractitionerLineageKey?: PractitionerLineageKey;
   targetPractitionerName?: string;
   title: string;
   userId?: Id<"users">;
@@ -246,27 +227,48 @@ async function previewPractitionerCoverageForAppointment(
     return suggestionBase;
   }
 
-  const selectedAppointmentType = await ctx.db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q
-        .eq("ruleSetId", args.ruleSetId)
-        .eq(
-          "lineageKey",
-          asAppointmentTypeLineageKey(
-            args.appointment.appointmentTypeLineageKey,
-          ),
-        ),
-    )
-    .first();
+  const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+    args.appointment.appointmentTypeLineageKey,
+  );
+  const [selectedAppointmentType, activeAppointmentType] = await Promise.all([
+    ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("lineageKey", appointmentTypeLineageKey),
+      )
+      .first(),
+    ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.activeRuleSetId)
+          .eq("lineageKey", appointmentTypeLineageKey),
+      )
+      .first(),
+  ]);
   if (
     selectedAppointmentType?.practiceId !== args.practiceId ||
-    isRuleSetEntityDeleted(selectedAppointmentType)
+    isRuleSetEntityDeleted(selectedAppointmentType) ||
+    activeAppointmentType?.practiceId !== args.practiceId ||
+    isRuleSetEntityDeleted(activeAppointmentType)
   ) {
     return suggestionBase;
   }
-  const selectedAppointmentTypeId = asAppointmentTypeId(
-    selectedAppointmentType._id,
+  const selectedLocationLineageKey = asLocationLineageKey(
+    args.appointment.locationLineageKey,
+  );
+  const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
+    ctx.db,
+    asPractitionerId(args.selectedPractitionerId),
+    { allowDeleted: true },
+  ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
+  const allowedPractitionerLineageKeys = new Set(
+    selectedAppointmentType.allowedPractitionerLineageKeys.map(
+      (practitionerLineageKey) =>
+        asPractitionerLineageKey(practitionerLineageKey),
+    ),
   );
   const day = Temporal.ZonedDateTime.from(args.appointment.start)
     .withTimeZone("Europe/Berlin")
@@ -284,8 +286,8 @@ async function previewPractitionerCoverageForAppointment(
       practiceId: args.practiceId,
       ruleSetId: args.ruleSetId,
       simulatedContext: {
-        appointmentTypeId: selectedAppointmentTypeId,
-        locationId: selectedLocationId,
+        appointmentTypeLineageKey,
+        locationLineageKey: selectedLocationLineageKey,
         patient: {
           ...(patientDateOfBirth ? { dateOfBirth: patientDateOfBirth } : {}),
           isNew: false,
@@ -298,7 +300,7 @@ async function previewPractitionerCoverageForAppointment(
     (slot) =>
       slot.status === "AVAILABLE" &&
       slot.startTime === args.appointment.start &&
-      slot.practitionerId !== args.selectedPractitionerId,
+      slot.practitionerLineageKey !== selectedPractitionerLineageKey,
   );
 
   if (matchingSlots.length === 0) {
@@ -312,14 +314,12 @@ async function previewPractitionerCoverageForAppointment(
 
   const candidates = matchingSlots.map((slot) => ({
     activePractitionerLineageKey: slot.practitionerLineageKey,
-    isAllowedInSelectedRuleSet:
-      selectedAppointmentType.allowedPractitionerIds.includes(
-        slot.practitionerId,
-      ),
+    isAllowedInSelectedRuleSet: allowedPractitionerLineageKeys.has(
+      slot.practitionerLineageKey,
+    ),
     lastSeenAt:
       latestSeenByPractitioner.get(slot.practitionerLineageKey) ?? null,
     name: slot.practitionerName,
-    selectedPractitionerId: slot.practitionerId,
   }));
 
   const bestCandidate = candidates
@@ -328,7 +328,6 @@ async function previewPractitionerCoverageForAppointment(
         candidate,
       ): candidate is typeof candidate & {
         isAllowedInSelectedRuleSet: true;
-        selectedPractitionerId: Id<"practitioners">;
       } => candidate.isAllowedInSelectedRuleSet,
     )
     .toSorted((left, right) => {
@@ -350,7 +349,7 @@ async function previewPractitionerCoverageForAppointment(
 
   return {
     ...suggestionBase,
-    targetPractitionerId: bestCandidate.selectedPractitionerId,
+    targetPractitionerLineageKey: bestCandidate.activePractitionerLineageKey,
     targetPractitionerName: bestCandidate.name,
   };
 }
@@ -436,18 +435,15 @@ export const previewPractitionerAbsenceCoverage = query({
     }
 
     const activeRuleSetId = practice.currentActiveRuleSetId;
-    const selectedPractitionerId = await resolvePractitionerIdForRuleSet(
-      ctx.db,
-      {
-        practiceId: args.practiceId,
-        practitionerLineageKey: asPractitionerLineageKey(args.practitionerId),
-        ruleSetId: args.ruleSetId,
-      },
-    );
     const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
-      selectedPractitionerId,
-    );
+      asPractitionerId(args.practitionerId),
+    ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
+    await resolvePractitionerIdForRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerLineageKey: selectedPractitionerLineageKey,
+      ruleSetId: args.ruleSetId,
+    });
 
     const baseSchedules = await ctx.db
       .query("baseSchedules")
@@ -465,7 +461,7 @@ export const previewPractitionerAbsenceCoverage = query({
 
     const vacationRanges = getPractitionerVacationRangesForDate(
       Temporal.PlainDate.from(args.date),
-      selectedPractitionerId,
+      selectedPractitionerLineageKey,
       baseSchedules,
       [
         ...vacations.filter(
@@ -482,7 +478,7 @@ export const previewPractitionerAbsenceCoverage = query({
         {
           date: args.date,
           portion: args.portion,
-          practitionerId: selectedPractitionerId,
+          practitionerLineageKey: selectedPractitionerLineageKey,
           staffType: "practitioner" as const,
         },
       ],
@@ -563,13 +559,13 @@ export const previewPractitionerAbsenceCoverage = query({
           appointment,
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,
-          selectedPractitionerId,
+          selectedPractitionerId: args.practitionerId,
         }),
       ),
     );
 
     const movableCount = suggestions.filter(
-      (suggestion) => suggestion.targetPractitionerId !== undefined,
+      (suggestion) => suggestion.targetPractitionerLineageKey !== undefined,
     ).length;
 
     return {

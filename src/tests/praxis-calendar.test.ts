@@ -1,93 +1,196 @@
-import { describe, expect, it, vi } from "vitest";
+import { Temporal } from "temporal-polyfill";
+import { describe, expect, it } from "vitest";
 
-// Mock react-big-calendar
-vi.mock("react-big-calendar", () => ({
-  Calendar: vi.fn(() => null),
-  momentLocalizer: vi.fn(() => ({})),
-}));
+import { toTableId } from "../../convex/identity";
+import { buildCalendarDayQueryArgs } from "../components/calendar/calendar-query-args";
+import { buildCalendarAppointmentRequest } from "../components/calendar/use-calendar-booking";
 
-// Mock moment
-vi.mock("moment", () => ({
-  default: vi.fn(() => ({
-    format: vi.fn(() => "08:00"),
-  })),
-}));
+describe("calendar day query args", () => {
+  it("builds stable day-scoped args for the selected date", () => {
+    const selectedDate = Temporal.PlainDate.from("2026-04-23");
 
-// Mock convex
-vi.mock("@convex-dev/react-query", () => ({
-  useConvexMutation: vi.fn(() => vi.fn()),
-  useConvexQuery: vi.fn(() => []),
-}));
-
-// Mock lucide-react
-vi.mock("lucide-react", () => ({
-  AlertCircle: vi.fn(() => null),
-  CalendarIcon: vi.fn(() => null),
-}));
-
-// Mock UI components
-vi.mock("@/components/ui/alert", () => ({
-  Alert: vi.fn(() => null),
-  AlertDescription: vi.fn(() => null),
-  AlertTitle: vi.fn(() => null),
-}));
-
-describe("PraxisCalendar Component", () => {
-  it("should have proper calendar configuration", () => {
-    // Calendar should be configured with 5-minute intervals
-    const step = 5;
-    const timeslots = 12; // 12 slots per hour (5-minute intervals)
-
-    expect(step).toBe(5);
-    expect(timeslots).toBe(12);
-    expect(step * timeslots).toBe(60); // Should equal 60 minutes per hour
+    expect(
+      buildCalendarDayQueryArgs({
+        activeRuleSetId: toTableId<"ruleSets">("rules_active"),
+        locationId: toTableId<"locations">("location_main"),
+        practiceId: toTableId<"practices">("practice_main"),
+        ruleSetId: toTableId<"ruleSets">("rules_display"),
+        scope: "real",
+        selectedDate,
+      }),
+    ).toEqual({
+      activeRuleSetId: "rules_active",
+      dayEnd: "2026-04-24T00:00:00+02:00[Europe/Berlin]",
+      dayStart: "2026-04-23T00:00:00+02:00[Europe/Berlin]",
+      locationId: "location_main",
+      practiceId: "practice_main",
+      scope: "real",
+      selectedRuleSetId: "rules_display",
+    });
   });
 
-  it("should show GDT alert when connection has issues", () => {
-    const hasGdtConnectionIssue = true;
+  it("omits optional ids when they are not provided", () => {
+    const selectedDate = Temporal.PlainDate.from("2026-12-01");
 
-    expect(hasGdtConnectionIssue).toBe(true);
+    expect(
+      buildCalendarDayQueryArgs({
+        activeRuleSetId: undefined,
+        locationId: undefined,
+        practiceId: toTableId<"practices">("practice_main"),
+        ruleSetId: undefined,
+        scope: "simulation",
+        selectedDate,
+      }),
+    ).toEqual({
+      dayEnd: "2026-12-02T00:00:00+01:00[Europe/Berlin]",
+      dayStart: "2026-12-01T00:00:00+01:00[Europe/Berlin]",
+      practiceId: "practice_main",
+      scope: "simulation",
+    });
   });
 
-  it("should use German localization", () => {
-    const messages = {
-      agenda: "Agenda",
-      date: "Datum",
-      day: "Tag",
-      event: "Termin",
-      month: "Monat",
-      next: "Weiter",
-      noEventsInRange: "Keine Termine in diesem Bereich.",
-      previous: "Zurück",
-      time: "Zeit",
-      today: "Heute",
-      week: "Woche",
-    };
+  it("returns null when the practice id is missing", () => {
+    expect(
+      buildCalendarDayQueryArgs({
+        activeRuleSetId: undefined,
+        locationId: undefined,
+        practiceId: undefined,
+        ruleSetId: undefined,
+        scope: "real",
+        selectedDate: Temporal.PlainDate.from("2026-04-23"),
+      }),
+    ).toBeNull();
+  });
+});
 
-    expect(messages.next).toBe("Weiter");
-    expect(messages.event).toBe("Termin");
-    expect(messages.today).toBe("Heute");
+describe("calendar appointment request builder", () => {
+  const selectedDate = Temporal.PlainDate.from("2026-04-23");
+  const sharedArgs = {
+    appointmentTypeId: toTableId<"appointmentTypes">(
+      "appointment_type_checkup",
+    ),
+    appointmentTypeLineageKey: toTableId<"appointmentTypes">(
+      "appointment_type_lineage_checkup",
+    ),
+    appointmentTypeName: "Checkup",
+    businessStartHour: 8,
+    isNewPatient: false,
+    locationId: toTableId<"locations">("location_main"),
+    locationLineageKey: toTableId<"locations">("location_lineage_main"),
+    patient: undefined,
+    pendingAppointmentTitle: undefined,
+    practiceId: toTableId<"practices">("practice_main"),
+    practitionerId: undefined,
+    practitionerLineageKey: undefined,
+    selectedDate,
+    slot: 12,
+    slotDurationMinutes: 5,
+  } as const;
+
+  it("builds the same payload shape for real and simulation modes", () => {
+    const patient = {
+      dateOfBirth: "1980-01-01",
+      userId: toTableId<"users">("user_1"),
+    } as const;
+
+    const realResult = buildCalendarAppointmentRequest({
+      ...sharedArgs,
+      mode: "real",
+      patient,
+      practitionerId: toTableId<"practitioners">("practitioner_1"),
+      practitionerLineageKey: toTableId<"practitioners">(
+        "practitioner_lineage_1",
+      ),
+    });
+    const simulationResult = buildCalendarAppointmentRequest({
+      ...sharedArgs,
+      mode: "simulation",
+      patient,
+      practitionerId: toTableId<"practitioners">("practitioner_1"),
+      practitionerLineageKey: toTableId<"practitioners">(
+        "practitioner_lineage_1",
+      ),
+    });
+
+    expect(realResult).toMatchObject({
+      kind: "ok",
+      request: {
+        appointmentTypeId: "appointment_type_checkup",
+        isNewPatient: false,
+        isSimulation: false,
+        locationId: "location_main",
+        patientDateOfBirth: "1980-01-01",
+        practiceId: "practice_main",
+        practitionerId: "practitioner_1",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
+        userId: "user_1",
+      },
+    });
+    expect(simulationResult).toMatchObject({
+      kind: "ok",
+      request: {
+        appointmentTypeId: "appointment_type_checkup",
+        isNewPatient: false,
+        isSimulation: true,
+        locationId: "location_main",
+        patientDateOfBirth: "1980-01-01",
+        practiceId: "practice_main",
+        practitionerId: "practitioner_1",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
+        userId: "user_1",
+      },
+    });
   });
 
-  it("should have proper working hours", () => {
-    const min = new Date(0, 0, 0, 8, 0, 0); // 8:00 AM
-    const max = new Date(0, 0, 0, 18, 0, 0); // 6:00 PM
-
-    expect(min.getHours()).toBe(8);
-    expect(max.getHours()).toBe(18);
+  it("returns a missing-patient branch with the request context", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        mode: "real",
+        patient: undefined,
+        pendingAppointmentTitle: "EKG Follow-up",
+      }),
+    ).toEqual({
+      kind: "missing-patient",
+      requestContext: {
+        appointmentTypeLineageKey: "appointment_type_lineage_checkup",
+        isSimulation: false,
+        locationLineageKey: "location_lineage_main",
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "EKG Follow-up",
+      },
+    });
   });
 
-  it("should support appointment CRUD operations", () => {
-    const appointmentOperations = {
-      create: "createAppointment",
-      delete: "deleteAppointment",
-      read: "getAppointments",
-      update: "updateAppointment",
-    };
-
-    expect(appointmentOperations.create).toBe("createAppointment");
-    expect(appointmentOperations.read).toBe("getAppointments");
-    expect(appointmentOperations.update).toBe("updateAppointment");
-    expect(appointmentOperations.delete).toBe("deleteAppointment");
+  it("uses temporary-patient fields when no persisted patient exists yet", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        isNewPatient: true,
+        mode: "simulation",
+        patient: {
+          isNewPatient: true,
+          name: "Grace Hopper",
+          phoneNumber: "+491709999999",
+          recordType: "temporary",
+        },
+      }),
+    ).toEqual({
+      kind: "ok",
+      request: {
+        appointmentTypeId: "appointment_type_checkup",
+        isNewPatient: true,
+        isSimulation: true,
+        locationId: "location_main",
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        temporaryPatientName: "Grace Hopper",
+        temporaryPatientPhoneNumber: "+491709999999",
+        title: "Checkup",
+      },
+    });
   });
 });

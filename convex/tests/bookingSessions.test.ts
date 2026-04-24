@@ -7,6 +7,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { assertValidSanitizedBookingSessionState } from "../bookingSessions";
 import { insertSelfLineageEntity } from "../lineage";
 import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
@@ -91,7 +92,7 @@ async function bootstrapToExistingCalendarSelection(
     sessionId,
   });
   await authed.mutation(api.bookingSessions.selectDoctor, {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     sessionId,
   });
   await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -120,7 +121,7 @@ async function bootstrapToExistingDataSharing(
     sessionId,
   });
   await authed.mutation(api.bookingSessions.selectDoctor, {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     sessionId,
   });
   await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -224,7 +225,7 @@ async function bootstrapToPatientStatus(
 ) {
   await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
   await authed.mutation(api.bookingSessions.selectLocation, {
-    locationId,
+    locationLineageKey: locationId,
     sessionId,
   });
 }
@@ -246,7 +247,7 @@ async function createAppointmentTypeInOtherRuleSet(
 
     const now = BigInt(Date.now());
     return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-      allowedPractitionerIds: [practitionerId],
+      allowedPractitionerLineageKeys: [practitionerId],
       createdAt: now,
       duration: 20,
       lastModified: now,
@@ -297,7 +298,7 @@ async function createBookingEntities(t: TestContext) {
       ctx.db,
       "appointmentTypes",
       {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -392,7 +393,7 @@ function makePastSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
       .subtract({ minutes: 5 })
@@ -405,7 +406,7 @@ function makeSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.zonedDateTimeISO("Europe/Berlin")
       .add({ days: 1 })
@@ -424,7 +425,7 @@ function makeSoonSelectedSlot(
   practitionerId: Id<"practitioners">,
 ): SelectedSlotInput {
   return {
-    practitionerId,
+    practitionerLineageKey: practitionerId,
     practitionerName: "Dr. Test",
     startTime: Temporal.Now.instant()
       .add({ minutes: 30 })
@@ -601,7 +602,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -635,7 +636,7 @@ describe("bookingSessions user identity handling", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -736,7 +737,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -758,6 +759,109 @@ describe("bookingSessions user identity handling", () => {
       },
     );
     expect(activeSession).toBeNull();
+  });
+
+  test("get returns null when public session remapping can no longer resolve the selected location", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_get");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const session = await authed.query(api.bookingSessions.get, { sessionId });
+    expect(session).toBeNull();
+  });
+
+  test("getActiveForUser skips sessions whose public remapping can no longer resolve", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_active");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const activeSession = await authed.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId,
+        ruleSetId,
+      },
+    );
+    expect(activeSession).toBeNull();
+  });
+
+  test("create deletes stale sessions whose public remapping can no longer resolve", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "stale_public_location_create");
+
+    const staleSessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+
+    await authed.mutation(api.bookingSessions.acceptPrivacy, {
+      sessionId: staleSessionId,
+    });
+    await authed.mutation(api.bookingSessions.selectLocation, {
+      locationLineageKey: locationId,
+      sessionId: staleSessionId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", locationId, { deleted: true });
+    });
+
+    const replacementSessionId = await authed.mutation(
+      api.bookingSessions.create,
+      {
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(replacementSessionId).not.toBe(staleSessionId);
+
+    const state = await t.run(async (ctx) => {
+      const staleSession = await ctx.db.get("bookingSessions", staleSessionId);
+      const replacementSession = await ctx.db.get(
+        "bookingSessions",
+        replacementSessionId,
+      );
+      return { replacementSession, staleSession };
+    });
+
+    expect(state.staleSession).toBeNull();
+    expect(state.replacementSession?._id).toBe(replacementSessionId);
+    expect(state.replacementSession?.state.step).toBe("privacy");
   });
 
   test("submitNewDataSharing stores owner userId on each contact", async () => {
@@ -877,7 +981,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -1192,7 +1296,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     const pending = await authed.query(api.bookingSessions.get, { sessionId });
@@ -1286,7 +1390,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
     await authed.mutation(api.bookingSessions.selectDoctor, {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       sessionId,
     });
     await authed.mutation(api.bookingSessions.submitExistingPatientData, {
@@ -1395,7 +1499,7 @@ describe("bookingSessions slot selection validation", () => {
     );
 
     await authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-      appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeId,
       reasonDescription: "Kontrolle",
       selectedSlot: makeSelectedSlot(practitionerId),
       sessionId,
@@ -1447,7 +1551,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "   ",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
@@ -1471,12 +1575,12 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        appointmentTypeLineageKey: otherRuleSetAppointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Ungültige terminart.");
+    ).rejects.toThrow("Lineage-Key");
   });
 
   test("selectNewPatientSlot rejects slots in the past", async () => {
@@ -1497,7 +1601,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makePastSelectedSlot(practitionerId),
         sessionId,
@@ -1528,7 +1632,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
@@ -1559,7 +1663,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: " ",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
@@ -1588,12 +1692,12 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId: otherRuleSetAppointmentTypeId,
+        appointmentTypeLineageKey: otherRuleSetAppointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSelectedSlot(practitionerId),
         sessionId,
       }),
-    ).rejects.toThrow("Ungültige terminart.");
+    ).rejects.toThrow("Lineage-Key");
   });
 
   test("selectExistingPatientSlot rejects slots in the past", async () => {
@@ -1622,7 +1726,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makePastSelectedSlot(practitionerId),
         sessionId,
@@ -1661,7 +1765,7 @@ describe("bookingSessions slot selection validation", () => {
 
     await expect(
       authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-        appointmentTypeId,
+        appointmentTypeLineageKey: appointmentTypeId,
         reasonDescription: "Kontrolle",
         selectedSlot: makeSoonSelectedSlot(practitionerId),
         sessionId,
@@ -1690,7 +1794,7 @@ describe("bookingSessions slot selection validation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -1719,9 +1823,9 @@ describe("bookingSessions slot selection validation", () => {
         await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId,
+          practitionerLineageKey: practitionerId,
           ruleSetId,
           startTime: "08:00",
         });
@@ -1735,13 +1839,13 @@ describe("bookingSessions slot selection validation", () => {
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
     const selectedSlot: SelectedSlotInput = {
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       practitionerName: "Dr. Test",
       startTime: nextWeekdayAt(1, 9, 0),
     };
 
     await authed.mutation(api.bookingSessions.selectNewPatientSlot, {
-      appointmentTypeId,
+      appointmentTypeLineageKey: appointmentTypeId,
       reasonDescription: "Kontrolle",
       selectedSlot,
       sessionId,
@@ -1769,8 +1873,11 @@ describe("bookingSessions slot selection validation", () => {
 });
 
 describe("bookingSessions slot selection argument contracts", () => {
-  test("new patient slot args require appointmentTypeId", () => {
-    type MissingAppointmentType = Omit<NewPatientSlotArgs, "appointmentTypeId">;
+  test("new patient slot args require appointmentTypeLineageKey", () => {
+    type MissingAppointmentType = Omit<
+      NewPatientSlotArgs,
+      "appointmentTypeLineageKey"
+    >;
     type IsMissingTypeAccepted = IsAssignable<
       MissingAppointmentType,
       NewPatientSlotArgs
@@ -1790,10 +1897,10 @@ describe("bookingSessions slot selection argument contracts", () => {
     expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
   });
 
-  test("existing patient slot args require appointmentTypeId", () => {
+  test("existing patient slot args require appointmentTypeLineageKey", () => {
     type MissingAppointmentType = Omit<
       ExistingPatientSlotArgs,
-      "appointmentTypeId"
+      "appointmentTypeLineageKey"
     >;
     type IsMissingTypeAccepted = IsAssignable<
       MissingAppointmentType,
@@ -1812,5 +1919,109 @@ describe("bookingSessions slot selection argument contracts", () => {
       ExistingPatientSlotArgs
     >;
     expectTypeOf<IsMissingReasonAccepted>().toEqualTypeOf<false>();
+  });
+});
+
+describe("booking session snapshot sanitization", () => {
+  test("accepts representative valid sanitized state", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [
+          {
+            city: "Berlin",
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            gender: "female",
+            lastName: "Lovelace",
+            phoneNumber: "+491701234567",
+            postalCode: "10115",
+            street: "Example Street 1",
+            userId: "user_1",
+          },
+        ],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        step: "new-calendar-selection",
+      });
+    }).not.toThrow();
+  });
+
+  test("rejects missing required fields for representative steps", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
+        step: "new-calendar-selection",
+      });
+    }).toThrow("Invalid booking session snapshot");
+
+    expect(() => {
+      assertValidSanitizedBookingSessionState("existing-confirmation", {
+        appointmentId: "appointment_1",
+        appointmentTypeLineageKey: "appointment_type_1",
+        bookedDurationMinutes: 30,
+        dataSharingContacts: [],
+        isNewPatient: false,
+        locationLineageKey: "location_1",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Grace",
+          lastName: "Hopper",
+          phoneNumber: "+491709999999",
+        },
+        practitionerLineageKey: "practitioner_1",
+        reasonDescription: "Follow-up",
+        selectedSlot: {
+          practitionerLineageKey: "practitioner_1",
+          practitionerName: "Dr. Grace Hopper",
+          startTime: "not-a-zoned-date-time",
+        },
+        step: "existing-confirmation",
+      });
+    }).toThrow("Invalid booking session snapshot");
+  });
+
+  test("rejects data sharing contacts without the schema-required userId", () => {
+    expect(() => {
+      assertValidSanitizedBookingSessionState("new-calendar-selection", {
+        dataSharingContacts: [
+          {
+            city: "Berlin",
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            gender: "female",
+            lastName: "Lovelace",
+            phoneNumber: "+491701234567",
+            postalCode: "10115",
+            street: "Example Street 1",
+          },
+        ],
+        hzvStatus: "has-contract",
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationLineageKey: "location_1",
+        locationName: "Praxis Mitte",
+        personalData: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        step: "new-calendar-selection",
+      });
+    }).toThrow("Invalid booking session snapshot");
   });
 });

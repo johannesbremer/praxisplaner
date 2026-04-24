@@ -6,7 +6,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import * as z from "zod";
 
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { CalendarBlockedSlotEditorRecord } from "@/src/components/calendar/types";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -59,7 +60,7 @@ interface BlockedSlotEditModalProps {
     isSimulation?: boolean;
     title: string;
   }) => Promise<null | undefined>;
-  slotData: Doc<"blockedSlots">;
+  slotData: CalendarBlockedSlotEditorRecord;
   slotIsSimulation?: boolean;
 }
 

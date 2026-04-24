@@ -28,7 +28,12 @@ export type BookingSessionState = BookingSessionStep;
 export type DataSharingContact =
   Doc<"bookingNewDataSharingSteps">["dataSharingContacts"][number];
 export type DataSharingContactInput = TypedDataSharingContactInput;
-
+export type InternalBookingSelectedSlot = SelectedSlotInput;
+export type InternalBookingSessionState = RewriteBookingReferences<
+  StripTopLevelPublicBookingLabels<BookingSessionStep>
+>;
+export type InternalStateAtStep<S extends InternalBookingSessionState["step"]> =
+  Extract<InternalBookingSessionState, { step: S }>;
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
   BookingSessionState,
   { step: S }
@@ -40,7 +45,6 @@ export type StepInsertMap = {
     data: StepTableInsertData<K>,
   ) => Promise<Id<K>>;
 };
-
 export type StepPatchMap = {
   [K in StepTableName]: (
     ctx: MutationCtx,
@@ -123,3 +127,38 @@ export type StepTableName = keyof Pick<
 export type StepTablePatch<T extends StepTableName> = StepTableInput<T> & {
   lastModified: bigint;
 };
+
+type PublicBookingLabelKey =
+  | "appointmentTypeName"
+  | "locationName"
+  | "practitionerName";
+
+type RewriteBookingReferenceKey<Key extends string> =
+  Key extends "appointmentTypeId"
+    ? "appointmentTypeLineageKey"
+    : Key extends "locationId"
+      ? "locationLineageKey"
+      : Key extends "practitionerId"
+        ? "practitionerLineageKey"
+        : Key;
+
+type RewriteBookingReferences<Value> =
+  Value extends Id<infer TableName>
+    ? Id<TableName>
+    : Value extends readonly (infer Item)[]
+      ? RewriteBookingReferences<Item>[]
+      : Value extends object
+        ? {
+            [Key in keyof Value as Key extends string
+              ? RewriteBookingReferenceKey<Key>
+              : Key]: RewriteBookingReferences<Value[Key]>;
+          }
+        : Value;
+
+type StripTopLevelPublicBookingLabels<Value> = Value extends object
+  ? {
+      [Key in keyof Value as Key extends PublicBookingLabelKey
+        ? never
+        : Key]: Value[Key];
+    }
+  : Value;

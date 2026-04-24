@@ -56,7 +56,7 @@ async function createAppointmentBaseData(t: TestContext) {
       ctx.db,
       "appointmentTypes",
       {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -145,6 +145,151 @@ async function insertAppointment(
       userId: args.userId,
     });
   });
+}
+
+async function insertAppointmentRecord(
+  t: TestContext,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    cancelledAt?: bigint;
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    practiceId: Id<"practices">;
+    practitionerId: Id<"practitioners">;
+    replacesAppointmentId?: Id<"appointments">;
+    simulationRuleSetId?: Id<"ruleSets">;
+    userId: Id<"users">;
+    window: SlotWindow;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    const location = await ctx.db.get("locations", args.locationId);
+    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+
+    if (!appointmentType || !location || !practitioner) {
+      throw new Error(
+        "Appointment test fixture is missing referenced entities",
+      );
+    }
+
+    return await ctx.db.insert("appointments", {
+      appointmentTypeLineageKey: requireLineageKey({
+        entityId: appointmentType._id,
+        entityType: "appointment type",
+        lineageKey: appointmentType.lineageKey,
+        ruleSetId: appointmentType.ruleSetId,
+      }),
+      appointmentTypeTitle: "Checkup",
+      ...(args.cancelledAt === undefined
+        ? {}
+        : {
+            cancelledAt: args.cancelledAt,
+          }),
+      createdAt: now,
+      end: args.window.end,
+      ...(args.isSimulation === true ? { isSimulation: true } : {}),
+      lastModified: now,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
+      practiceId: args.practiceId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: practitioner.ruleSetId,
+      }),
+      ...(args.replacesAppointmentId === undefined
+        ? {}
+        : { replacesAppointmentId: args.replacesAppointmentId }),
+      ...(args.simulationRuleSetId === undefined
+        ? {}
+        : { simulationRuleSetId: args.simulationRuleSetId }),
+      start: args.window.start,
+      title: "Online-Termin: Checkup",
+      userId: args.userId,
+    });
+  });
+}
+
+async function insertBlockedSlotRecord(
+  t: TestContext,
+  args: {
+    isSimulation?: boolean;
+    locationId: Id<"locations">;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    replacesBlockedSlotId?: Id<"blockedSlots">;
+    title: string;
+    window: SlotWindow;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    const location = await ctx.db.get("locations", args.locationId);
+    const practitioner = args.practitionerId
+      ? await ctx.db.get("practitioners", args.practitionerId)
+      : null;
+
+    if (!location || (args.practitionerId && !practitioner)) {
+      throw new Error(
+        "Blocked slot test fixture is missing referenced entities",
+      );
+    }
+
+    return await ctx.db.insert("blockedSlots", {
+      createdAt: now,
+      end: args.window.end,
+      ...(args.isSimulation === true ? { isSimulation: true } : {}),
+      lastModified: now,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: location.ruleSetId,
+      }),
+      practiceId: args.practiceId,
+      ...(practitioner
+        ? {
+            practitionerLineageKey: requireLineageKey({
+              entityId: practitioner._id,
+              entityType: "practitioner",
+              lineageKey: practitioner.lineageKey,
+              ruleSetId: practitioner.ruleSetId,
+            }),
+          }
+        : {}),
+      ...(args.replacesBlockedSlotId === undefined
+        ? {}
+        : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
+      start: args.window.start,
+      title: args.title,
+    });
+  });
+}
+
+function makeDayRange(daysOffset: number) {
+  const date = Temporal.Now.plainDateISO("Europe/Berlin").add({
+    days: daysOffset,
+  });
+  const dayStart = date.toZonedDateTime({
+    plainTime: { hour: 0, minute: 0 },
+    timeZone: "Europe/Berlin",
+  });
+
+  return {
+    date,
+    dayEnd: dayStart.add({ days: 1 }).toString(),
+    dayStart: dayStart.toString(),
+  };
 }
 
 function makeSlotWindow(daysOffset: number): SlotWindow {
@@ -263,6 +408,86 @@ describe("appointments self-service cancellation", () => {
     expect(afterCancellation.map((appointment) => appointment._id)).toEqual([
       secondFutureAppointmentId,
     ]);
+  });
+
+  test("getBookedAppointmentsForCurrentUser remaps appointment type titles for the active display rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_display_ruleset";
+    const userId = await createUser(t, authId, "booked-display@example.com");
+
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(3),
+    });
+
+    const displayRuleSetId = await t.run(async (ctx) => {
+      const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Copied Display Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      const copiedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseData.locationId,
+          name: "Display Main Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+      await insertSelfLineageEntity(ctx.db, "practitioners", {
+        lineageKey: baseData.practitionerId,
+        name: "Dr. Display",
+        practiceId: baseData.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      const now = BigInt(Date.now());
+      const copiedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Display Checkup",
+          practiceId: baseData.practiceId,
+          ruleSetId: copiedRuleSetId,
+        },
+      );
+
+      expect(copiedLocationId).toBeDefined();
+      expect(copiedAppointmentTypeId).toBeDefined();
+      return copiedRuleSetId;
+    });
+
+    const authed = t.withIdentity({
+      email: "booked-display@example.com",
+      subject: authId,
+    });
+
+    const upcomingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: displayRuleSetId },
+    );
+
+    expect(upcomingAppointments).toHaveLength(1);
+    expect(upcomingAppointments[0]?._id).toBe(appointmentId);
+    expect(upcomingAppointments[0]?.appointmentTypeId).not.toBe(
+      baseData.appointmentTypeId,
+    );
+    expect(upcomingAppointments[0]?.appointmentTypeTitle).toBe(
+      "Display Checkup",
+    );
   });
 
   test("getBookedAppointmentForCurrentUser ignores simulation appointments", async () => {
@@ -458,9 +683,9 @@ describe("appointments self-service cancellation", () => {
         await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId,
+          practitionerLineageKey: practitionerId,
           ruleSetId,
           startTime: "08:00",
         });
@@ -471,7 +696,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -485,7 +710,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           followUpPlan: [
@@ -600,7 +825,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -681,7 +906,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -829,8 +1054,8 @@ describe("appointments update safety", () => {
         baseData.appointmentTypeId,
       );
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
-        allowedPractitionerIds: [
-          ...(appointmentType?.allowedPractitionerIds ?? []),
+        allowedPractitionerLineageKeys: [
+          ...(appointmentType?.allowedPractitionerLineageKeys ?? []),
           otherPractitionerId,
         ],
       });
@@ -855,6 +1080,246 @@ describe("appointments update safety", () => {
         practitionerId: otherPractitionerId,
       }),
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_create_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "create-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "create-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(5);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Termin kollidiert mit Sperrung",
+        userId,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("createAppointment rejects creating an appointment on a location-wide blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_create_location_wide_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "create-location-wide-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "create-location-wide-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(5);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      title: "Standortweite Sperrung",
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Termin kollidiert mit standortweiter Sperrung",
+        userId,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("updateAppointment rejects moving an appointment onto an occupied blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(6),
+    });
+    const blockedWindow = makeSlotWindow(7);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window: blockedWindow,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: blockedWindow.end,
+        id: appointmentToMove,
+        start: blockedWindow.start,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("updateAppointment rejects moving an appointment onto a location-wide blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_location_wide_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-location-wide-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-location-wide-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(6),
+    });
+    const blockedWindow = makeSlotWindow(7);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      title: "Standortweite Sperrung",
+      window: blockedWindow,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: blockedWindow.end,
+        id: appointmentToMove,
+        start: blockedWindow.start,
+      }),
+    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("updateBlockedSlot keeps stored lineage references for time-only updates", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_blocked_slot_time_only";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-blocked-slot-time-only@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-blocked-slot-time-only@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const blockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Sperrung",
+      window: makeSlotWindow(8),
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("locations", baseData.locationId, {
+        deleted: true,
+      });
+      await ctx.db.patch("practitioners", baseData.practitionerId, {
+        deleted: true,
+      });
+    });
+
+    const movedWindow = makeSlotWindow(9);
+
+    await expect(
+      authed.mutation(api.appointments.updateBlockedSlot, {
+        end: movedWindow.end,
+        id: blockedSlotId,
+        start: movedWindow.start,
+      }),
+    ).resolves.toBeNull();
+
+    await t.run(async (ctx) => {
+      const updated = await ctx.db.get("blockedSlots", blockedSlotId);
+      expect(updated).not.toBeNull();
+      expect(updated?.start).toBe(movedWindow.start);
+      expect(updated?.end).toBe(movedWindow.end);
+      expect(updated?.locationLineageKey).toBe(baseData.locationId);
+      expect(updated?.practitionerLineageKey).toBe(baseData.practitionerId);
+    });
   });
 
   test("simulation conflicts are scoped to the current draft rule set", async () => {
@@ -1193,7 +1658,7 @@ describe("appointments update safety", () => {
         date: "2026-01-05",
         portion: "morning",
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         ruleSetId: unsavedRuleSetId,
         staffType: "practitioner",
       });
@@ -1386,7 +1851,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -1504,7 +1969,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [foreignPractitionerId],
+          allowedPractitionerLineageKeys: [foreignPractitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -1593,7 +2058,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [deletedPractitionerId],
+          allowedPractitionerLineageKeys: [deletedPractitionerId],
           createdAt: now,
           deleted: true,
           duration: 30,
@@ -1749,9 +2214,9 @@ describe("appointments update safety", () => {
         createdAt: now,
         end: realWindow.end,
         lastModified: now,
-        locationId: baseData.locationId,
+        locationLineageKey: baseData.locationId,
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Real blocked slot",
       });
@@ -1760,9 +2225,9 @@ describe("appointments update safety", () => {
         end: simulationWindow.end,
         isSimulation: true,
         lastModified: now,
-        locationId: foreignLocationId,
+        locationLineageKey: foreignLocationId,
         practiceId: baseData.practiceId,
-        practitionerId: foreignPractitionerId,
+        practitionerLineageKey: foreignPractitionerId,
         start: simulationWindow.start,
         title: "Foreign simulation blocked slot",
       });
@@ -1780,5 +2245,935 @@ describe("appointments update safety", () => {
         title: "Real blocked slot",
       },
     ]);
+  });
+});
+
+describe("calendar day appointment queries", () => {
+  test("getCalendarDayAppointments enforces practice access", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const range = makeDayRange(2);
+    await createUser(t, "workos_day_query_no_access", "no-access@example.com");
+    const authed = t.withIdentity({
+      email: "no-access@example.com",
+      subject: "workos_day_query_no_access",
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        dayEnd: range.dayEnd,
+        dayStart: range.dayStart,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("getCalendarDayAppointments returns only same-day records for the requested location and scope", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_scope",
+      "day-query-scope@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-scope@example.com",
+      subject: "workos_day_query_scope",
+    });
+    const targetRange = makeDayRange(3);
+
+    const otherLocationId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      return await insertSelfLineageEntity(ctx.db, "locations", {
+        name: "Secondary Location",
+        practiceId: baseData.practiceId,
+        ruleSetId: baseData.ruleSetId,
+      });
+    });
+
+    const expectedRealAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      locationId: otherLocationId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      cancelledAt: BigInt(Date.now()),
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: expectedRealAppointmentId,
+        locationId: baseData.locationId,
+        practitionerId: baseData.practitionerId,
+      },
+    ]);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: expectedRealAppointmentId,
+        locationId: baseData.locationId,
+      },
+      {
+        isSimulation: true,
+        locationId: baseData.locationId,
+      },
+    ]);
+  });
+
+  test("getCalendarDayAppointments hides an in-range real appointment when its simulation replacement moved to another day", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_simulation_replacement",
+      "day-query-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-simulation-replacement@example.com",
+      subject: "workos_day_query_simulation_replacement",
+    });
+    const targetRange = makeDayRange(6);
+    const movedRange = makeDayRange(7);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 15, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 15, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).resolves.toHaveLength(1);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toHaveLength(0);
+  });
+
+  test("getCalendarDayAppointments ignores simulation replacements from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignPracticeData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_cross_practice_simulation_replacement",
+      "day-query-cross-practice-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-cross-practice-simulation-replacement@example.com",
+      subject: "workos_day_query_cross_practice_simulation_replacement",
+    });
+    const targetRange = makeDayRange(10);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...foreignPracticeData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: realAppointmentId,
+        locationId: baseData.locationId,
+      },
+    ]);
+  });
+
+  test("getCalendarDayAppointments accepts a deleted selected location when resolving day-query lineage", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_deleted_selected_location",
+      "day-query-deleted-selected-location@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-deleted-selected-location@example.com",
+      subject: "workos_day_query_deleted_selected_location",
+    });
+    const targetRange = makeDayRange(12);
+
+    const displayRuleSet = await t.run(async (ctx) => {
+      const savedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Deleted Display Location Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const deletedDisplayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Display Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Displayed Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          lastModified: BigInt(Date.now()),
+          lineageKey: baseData.appointmentTypeId,
+          name: "Displayed Checkup",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      return {
+        deletedDisplayedLocationId,
+        displayedAppointmentTypeId,
+        displayedPractitionerId,
+        savedRuleSetId,
+      };
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: displayRuleSet.savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        appointmentTypeId: displayRuleSet.displayedAppointmentTypeId,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practitionerId: displayRuleSet.displayedPractitionerId,
+      },
+    ]);
+  });
+
+  test("getCalendarDayBlockedSlots filters by location lineage and remaps ids after filtering", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slots",
+      "day-blocked-slots@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slots@example.com",
+      subject: "workos_day_blocked_slots",
+    });
+    const targetRange = makeDayRange(5);
+
+    const displayRuleSet = await t.run(async (ctx) => {
+      const savedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Displayed Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const displayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseData.locationId,
+          name: "Displayed Main Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Displayed Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const otherLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          name: "Other Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+
+      const now = BigInt(Date.now());
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        title: "Main location block",
+      });
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        lastModified: now,
+        locationLineageKey: otherLocationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 12, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        title: "Other location block",
+      });
+
+      return {
+        displayedLocationId,
+        displayedPractitionerId,
+        savedRuleSetId,
+      };
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayRuleSet.displayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: displayRuleSet.savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: displayRuleSet.displayedLocationId,
+        practitionerId: displayRuleSet.displayedPractitionerId,
+        title: "Main location block",
+      },
+    ]);
+  });
+
+  test("getCalendarDayBlockedSlots hides an in-range real block when its simulation replacement moved to another day", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slot_simulation_replacement",
+      "day-blocked-slot-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slot-simulation-replacement@example.com",
+      subject: "workos_day_blocked_slot_simulation_replacement",
+    });
+    const targetRange = makeDayRange(8);
+    const movedRange = makeDayRange(9);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realBlockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Real blocked slot",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertBlockedSlotRecord(t, {
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      replacesBlockedSlotId: realBlockedSlotId,
+      title: "Moved blocked slot",
+      window: {
+        end: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 16, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: movedRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 16, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).resolves.toHaveLength(1);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toHaveLength(0);
+  });
+
+  test("getCalendarDayBlockedSlots ignores simulation replacements from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignPracticeData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slot_cross_practice_replacement",
+      "day-blocked-slot-cross-practice-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slot-cross-practice-replacement@example.com",
+      subject: "workos_day_blocked_slot_cross_practice_replacement",
+    });
+    const targetRange = makeDayRange(11);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realBlockedSlotId = await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Real blocked slot",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 13, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertBlockedSlotRecord(t, {
+      isSimulation: true,
+      locationId: foreignPracticeData.locationId,
+      practiceId: foreignPracticeData.practiceId,
+      practitionerId: foreignPracticeData.practitionerId,
+      replacesBlockedSlotId: realBlockedSlotId,
+      title: "Foreign blocked slot replacement",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 14, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 14, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: baseData.locationId,
+        title: "Real blocked slot",
+      },
+    ]);
+  });
+
+  test("getCalendarDayBlockedSlots accepts a deleted selected location when resolving day-query lineage", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slots_deleted_selected_location",
+      "day-blocked-slots-deleted-selected-location@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slots-deleted-selected-location@example.com",
+      subject: "workos_day_blocked_slots_deleted_selected_location",
+    });
+    const targetRange = makeDayRange(13);
+
+    const displayRuleSet = await t.run(async (ctx) => {
+      const savedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Deleted Display Blocked Slot Location Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const deletedDisplayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Display Blocked Slot Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Displayed Blocked Slot Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      return {
+        deletedDisplayedLocationId,
+        displayedPractitionerId,
+        savedRuleSetId,
+      };
+    });
+
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Main location block",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: displayRuleSet.savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practitionerId: displayRuleSet.displayedPractitionerId,
+        title: "Main location block",
+      },
+    ]);
+  });
+
+  test("getNextAvailableSlot ignores deleted practitioners left in appointment-type allowlists", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_next_slot_deleted_allowlist",
+      "next-slot-deleted-allowlist@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "next-slot-deleted-allowlist@example.com",
+      subject: "workos_next_slot_deleted_allowlist",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "12:00",
+        locationLineageKey: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerLineageKey: baseData.practitionerId,
+        ruleSetId: baseData.ruleSetId,
+        startTime: "08:00",
+      });
+
+      const deletedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          deleted: true,
+          name: "Dr. Deleted",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        allowedPractitionerLineageKeys: [
+          baseData.practitionerId,
+          deletedPractitionerId,
+        ],
+      });
+    });
+
+    await expect(
+      authed.query(api.scheduling.getNextAvailableSlot, {
+        date: "2026-04-27",
+        practiceId: baseData.practiceId,
+        ruleSetId: baseData.ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          locationLineageKey: baseData.locationId,
+          patient: { isNew: false },
+        },
+      }),
+    ).resolves.toMatchObject({
+      locationLineageKey: baseData.locationId,
+      practitionerLineageKey: baseData.practitionerId,
+      startTime: "2026-04-27T08:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
   });
 });

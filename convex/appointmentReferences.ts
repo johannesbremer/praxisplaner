@@ -30,6 +30,33 @@ export interface StoredAppointmentReferences extends OccupancyReferenceLineageKe
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
+export async function resolveActivePractitionerLineageKeys(
+  db: DatabaseReader,
+  practitionerIds: readonly PractitionerId[],
+): Promise<PractitionerLineageKey[]> {
+  const lineageKeys: PractitionerLineageKey[] = [];
+
+  for (const practitionerId of practitionerIds) {
+    const practitioner = await db.get("practitioners", practitionerId);
+    if (!practitioner || isRuleSetEntityDeleted(practitioner)) {
+      continue;
+    }
+
+    lineageKeys.push(
+      asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+    );
+  }
+
+  return lineageKeys;
+}
+
 export async function resolveAppointmentTypeIdForRuleSetByLineage(
   db: DatabaseReader,
   args: {
@@ -124,8 +151,9 @@ export async function resolveLocationIdForRuleSetByLineage(
 export async function resolveLocationLineageKey(
   db: DatabaseReader,
   locationId: LocationId,
+  options?: { allowDeleted?: boolean },
 ): Promise<LocationLineageKey> {
-  const location = await requireLocation(db, locationId);
+  const location = await requireLocation(db, locationId, options);
   return asLocationLineageKey(
     requireLineageKey({
       entityId: location._id,
@@ -197,8 +225,9 @@ export async function resolvePractitionerIdForRuleSetByLineage(
 export async function resolvePractitionerLineageKey(
   db: DatabaseReader,
   practitionerId: PractitionerId,
+  options?: { allowDeleted?: boolean },
 ): Promise<PractitionerLineageKey> {
-  const practitioner = await requirePractitioner(db, practitionerId);
+  const practitioner = await requirePractitioner(db, practitionerId, options);
   return asPractitionerLineageKey(
     requireLineageKey({
       entityId: practitioner._id,
@@ -248,12 +277,13 @@ async function requireAppointmentType(
 async function requireLocation(
   db: DatabaseReader,
   locationId: Id<"locations">,
+  options?: { allowDeleted?: boolean },
 ) {
   const location = await db.get("locations", locationId);
   if (!location) {
     throw new Error(`Standort ${locationId} nicht gefunden.`);
   }
-  if (isRuleSetEntityDeleted(location)) {
+  if (options?.allowDeleted !== true && isRuleSetEntityDeleted(location)) {
     throw new Error(
       `Standort ${locationId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
     );
@@ -264,12 +294,13 @@ async function requireLocation(
 async function requirePractitioner(
   db: DatabaseReader,
   practitionerId: Id<"practitioners">,
+  options?: { allowDeleted?: boolean },
 ) {
   const practitioner = await db.get("practitioners", practitionerId);
   if (!practitioner) {
     throw new Error(`Behandler ${practitionerId} nicht gefunden.`);
   }
-  if (isRuleSetEntityDeleted(practitioner)) {
+  if (options?.allowDeleted !== true && isRuleSetEntityDeleted(practitioner)) {
     throw new Error(
       `Behandler ${practitionerId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
     );

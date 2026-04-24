@@ -57,9 +57,9 @@ async function createBasePractice(
       await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek,
         endTime: "17:00",
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         ruleSetId,
         startTime: "08:00",
       });
@@ -157,7 +157,7 @@ describe("appointment series", () => {
     const missingLineageKey = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const missingTargetId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 15,
         lastModified: now,
@@ -204,7 +204,7 @@ describe("appointment series", () => {
     const targetAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 20,
         lastModified: now,
@@ -322,7 +322,7 @@ describe("appointment series", () => {
         const targetAppointmentTypeId = await ctx.db.insert(
           "appointmentTypes",
           {
-            allowedPractitionerIds: [practitionerId],
+            allowedPractitionerLineageKeys: [practitionerId],
             createdAt: now,
             duration: 20,
             lastModified: now,
@@ -336,7 +336,7 @@ describe("appointment series", () => {
         });
 
         const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           followUpPlan: [
@@ -432,7 +432,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 20,
         lastModified: now,
@@ -445,7 +445,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -512,7 +512,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 20,
         lastModified: now,
@@ -525,7 +525,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -584,7 +584,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 20,
         lastModified: now,
@@ -597,7 +597,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -661,7 +661,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -674,7 +674,7 @@ describe("appointment series", () => {
       });
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -766,16 +766,16 @@ describe("appointment series", () => {
         await insertWithLineage(ctx, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId: otherPractitionerId,
+          practitionerLineageKey: otherPractitionerId,
           ruleSetId,
           startTime: "08:00",
         });
       }
 
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [otherPractitionerId],
+        allowedPractitionerLineageKeys: [otherPractitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -788,7 +788,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -861,7 +861,7 @@ describe("appointment series", () => {
     } = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [activePractitionerId],
+        allowedPractitionerLineageKeys: [activePractitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -874,7 +874,7 @@ describe("appointment series", () => {
       });
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [activePractitionerId],
+        allowedPractitionerLineageKeys: [activePractitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -925,16 +925,16 @@ describe("appointment series", () => {
         await insertWithLineage(ctx, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId: draftLocationId,
+          locationLineageKey: draftLocationId,
           practiceId,
-          practitionerId: draftPractitionerId,
+          practitionerLineageKey: draftPractitionerId,
           ruleSetId: draftRuleSetId,
           startTime: "08:00",
         });
       }
 
       await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [draftPractitionerId],
+        allowedPractitionerLineageKeys: [activePractitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -947,7 +947,7 @@ describe("appointment series", () => {
       const draftRootAppointmentTypeId = await ctx.db.insert(
         "appointmentTypes",
         {
-          allowedPractitionerIds: [draftPractitionerId],
+          allowedPractitionerLineageKeys: [activePractitionerId],
           createdAt: now,
           duration: 30,
           followUpPlan: [
@@ -1046,7 +1046,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1059,7 +1059,7 @@ describe("appointment series", () => {
       });
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -1158,7 +1158,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1171,7 +1171,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -1241,7 +1241,7 @@ describe("appointment series", () => {
     const targetAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 20,
         lastModified: now,
@@ -1291,6 +1291,55 @@ describe("appointment series", () => {
     expect(updatedAppointmentType?.followUpPlan).toEqual([]);
   });
 
+  test("createAppointmentType allows an empty practitioner allowlist", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, ruleSetId } = await createBasePractice(t);
+
+    const created = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Ohne Behandler",
+      practiceId,
+      practitionerIds: [],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    const createdAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", created.entityId);
+    });
+
+    expect(createdAppointmentType?.allowedPractitionerLineageKeys).toEqual([]);
+  });
+
+  test("updateAppointmentType allows clearing the practitioner allowlist", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const created = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Mit Behandler",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    await t.mutation(api.entities.updateAppointmentType, {
+      appointmentTypeId: created.entityId,
+      expectedDraftRevision: created.draftRevision,
+      practiceId,
+      practitionerIds: [],
+      selectedRuleSetId: created.ruleSetId,
+    });
+
+    const updatedAppointmentType = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypes", created.entityId);
+    });
+
+    expect(updatedAppointmentType?.allowedPractitionerLineageKeys).toEqual([]);
+  });
+
   test("updating or deleting the root appointment applies to the whole series", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -1304,7 +1353,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1317,7 +1366,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -1457,7 +1506,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1470,7 +1519,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -1559,7 +1608,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1572,7 +1621,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [
@@ -1652,7 +1701,7 @@ describe("appointment series", () => {
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1665,7 +1714,7 @@ describe("appointment series", () => {
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         followUpPlan: [

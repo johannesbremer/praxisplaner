@@ -59,7 +59,7 @@ type CalendarSelectionState = Extract<
 >;
 
 interface SlotInfo {
-  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
   practitionerName: string;
   startTime: string;
 }
@@ -72,10 +72,12 @@ export function CalendarSelectionStep({
 }: StepComponentProps) {
   const isCalendarState = isCalendarSelectionState(state);
   const isNewPatient = state.step === "new-calendar-selection";
-  const locationId = isCalendarState ? state.locationId : undefined;
-  const existingPractitionerId =
+  const locationLineageKey = isCalendarState
+    ? state.locationLineageKey
+    : undefined;
+  const existingPractitionerLineageKey =
     state.step === "existing-calendar-selection"
-      ? state.practitionerId
+      ? state.practitionerLineageKey
       : undefined;
   const personalData = isCalendarState ? state.personalData : undefined;
   const patientDateOfBirth = personalData?.dateOfBirth;
@@ -84,9 +86,10 @@ export function CalendarSelectionStep({
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date(),
   );
-  const [selectedAppointmentTypeId, setSelectedAppointmentTypeId] = useState<
-    Id<"appointmentTypes"> | undefined
-  >();
+  const [
+    selectedAppointmentTypeLineageKey,
+    setSelectedAppointmentTypeLineageKey,
+  ] = useState<Id<"appointmentTypes"> | undefined>();
   const [reasonDescription, setReasonDescription] = useState("");
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [hasTouchedAppointmentType, setHasTouchedAppointmentType] =
@@ -101,36 +104,31 @@ export function CalendarSelectionStep({
   const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
   });
-  const locations = useQuery(api.entities.getLocations, { ruleSetId });
-  const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const appointmentType = appointmentTypes?.find(
-    (t) => t._id === selectedAppointmentTypeId,
+    (t) => t.lineageKey === selectedAppointmentTypeLineageKey,
   );
-  const locationName = locations?.find(
-    (location) => location._id === locationId,
-  )?.name;
-  const practitionerName = existingPractitionerId
-    ? practitioners?.find(
-        (practitioner) => practitioner._id === existingPractitionerId,
-      )?.name
-    : undefined;
+  const locationName = isCalendarState ? state.locationName : undefined;
+  const practitionerName =
+    state.step === "existing-calendar-selection"
+      ? state.practitionerName
+      : undefined;
 
-  // Build simulated context for slot query - only include locationId if defined
+  // Build simulated context for slot query - only include lineage references.
   const simulatedContext = {
     patient: {
       isNew: isNewPatient,
       ...(patientDateOfBirth && { dateOfBirth: patientDateOfBirth }),
     },
-    ...(selectedAppointmentTypeId && {
-      appointmentTypeId: selectedAppointmentTypeId,
+    ...(selectedAppointmentTypeLineageKey && {
+      appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
     }),
-    ...(locationId && { locationId }),
+    ...(locationLineageKey && { locationLineageKey }),
   };
 
   // Query slots for the selected day
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedDate && selectedAppointmentTypeId
+    selectedDate && selectedAppointmentTypeLineageKey
       ? {
           date: formatDateISO(dateToTemporal(selectedDate)),
           enforceFutureOnly: true,
@@ -160,7 +158,7 @@ export function CalendarSelectionStep({
   const handleConfirmSlot = async () => {
     setHasAttemptedSubmit(true);
     const trimmedReason = reasonDescription.trim();
-    const hasMissingAppointmentType = !selectedAppointmentTypeId;
+    const hasMissingAppointmentType = !selectedAppointmentTypeLineageKey;
     const hasMissingReason = trimmedReason.length === 0;
     if (
       !selectedSlot ||
@@ -178,7 +176,7 @@ export function CalendarSelectionStep({
     }
 
     const slotData = {
-      practitionerId: selectedSlot.practitionerId,
+      practitionerLineageKey: selectedSlot.practitionerLineageKey,
       practitionerName: selectedSlot.practitionerName,
       startTime: selectedSlot.startTime,
     };
@@ -186,13 +184,13 @@ export function CalendarSelectionStep({
     await ResultAsync.fromPromise(
       isNewPatient
         ? selectNewPatientSlot({
-            appointmentTypeId: selectedAppointmentTypeId,
+            appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
             reasonDescription: trimmedReason,
             selectedSlot: slotData,
             sessionId,
           })
         : selectExistingPatientSlot({
-            appointmentTypeId: selectedAppointmentTypeId,
+            appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
             reasonDescription: trimmedReason,
             selectedSlot: slotData,
             sessionId,
@@ -207,7 +205,7 @@ export function CalendarSelectionStep({
       () => void 0,
       (error) => {
         captureFrontendError(error, {
-          appointmentTypeId: appointmentType._id,
+          appointmentTypeLineageKey: appointmentType.lineageKey,
           isNewPatient,
           sessionId,
           slotStart: selectedSlot.startTime,
@@ -229,9 +227,10 @@ export function CalendarSelectionStep({
     ) ?? [];
 
   // For existing patients, filter by practitioner
-  const filteredSlots = existingPractitionerId
+  const filteredSlots = existingPractitionerLineageKey
     ? availableSlots.filter(
-        (slot) => slot.practitionerId === existingPractitionerId,
+        (slot) =>
+          slot.practitionerLineageKey === existingPractitionerLineageKey,
       )
     : availableSlots;
 
@@ -253,7 +252,7 @@ export function CalendarSelectionStep({
     today.add({ days: 28 }).day,
   );
 
-  if (!locationId) {
+  if (!locationLineageKey) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>
@@ -311,7 +310,7 @@ export function CalendarSelectionStep({
               <Field
                 data-invalid={
                   (hasAttemptedSubmit || hasTouchedAppointmentType) &&
-                  !selectedAppointmentTypeId
+                  !selectedAppointmentTypeLineageKey
                 }
               >
                 <FieldLabel>Terminart *</FieldLabel>
@@ -319,13 +318,15 @@ export function CalendarSelectionStep({
                   onValueChange={(value) => {
                     setHasTouchedAppointmentType(true);
                     const selectedType = appointmentTypes?.find(
-                      (type) => type._id === value,
+                      (type) => type.lineageKey === value,
                     );
-                    setSelectedAppointmentTypeId(selectedType?._id);
+                    setSelectedAppointmentTypeLineageKey(
+                      selectedType?.lineageKey,
+                    );
                     setSelectedSlot(null);
                   }}
-                  {...(selectedAppointmentTypeId
-                    ? { value: selectedAppointmentTypeId }
+                  {...(selectedAppointmentTypeLineageKey
+                    ? { value: selectedAppointmentTypeLineageKey }
                     : {})}
                 >
                   <SelectTrigger>
@@ -333,14 +334,14 @@ export function CalendarSelectionStep({
                   </SelectTrigger>
                   <SelectContent>
                     {appointmentTypes?.map((type) => (
-                      <SelectItem key={type._id} value={type._id}>
+                      <SelectItem key={type._id} value={type.lineageKey}>
                         {type.name} (ca. {type.duration} Min.)
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {(hasAttemptedSubmit || hasTouchedAppointmentType) &&
-                  !selectedAppointmentTypeId && (
+                  !selectedAppointmentTypeLineageKey && (
                     <FieldError
                       errors={[{ message: "Bitte wählen Sie eine Terminart." }]}
                     />
@@ -389,7 +390,7 @@ export function CalendarSelectionStep({
             </h4>
 
             {selectedDate ? (
-              selectedAppointmentTypeId ? (
+              selectedAppointmentTypeLineageKey ? (
                 slotsResult === undefined ? (
                   <div className="space-y-2">
                     <Skeleton className="h-10 w-full" />
@@ -406,15 +407,17 @@ export function CalendarSelectionStep({
                     {displayedSlots.map((slot) => {
                       const isSelected =
                         selectedSlot?.startTime === slot.startTime &&
-                        selectedSlot.practitionerId === slot.practitionerId;
+                        selectedSlot.practitionerLineageKey ===
+                          slot.practitionerLineageKey;
 
                       return (
                         <Button
                           className="justify-between"
-                          key={`${slot.practitionerId}-${slot.startTime}`}
+                          key={`${slot.practitionerLineageKey}-${slot.startTime}`}
                           onClick={() => {
                             handleSelectSlot({
-                              practitionerId: slot.practitionerId,
+                              practitionerLineageKey:
+                                slot.practitionerLineageKey,
                               practitionerName: slot.practitionerName,
                               startTime: slot.startTime,
                             });
@@ -422,7 +425,7 @@ export function CalendarSelectionStep({
                           variant={isSelected ? "default" : "outline"}
                         >
                           <span>{formatTime(slot.startTime)} Uhr</span>
-                          {!existingPractitionerId && (
+                          {!existingPractitionerLineageKey && (
                             <span className="text-xs opacity-70">
                               {slot.practitionerName}
                             </span>
@@ -484,10 +487,10 @@ export function CalendarSelectionStep({
               label="Patiententyp"
               value={isNewPatient ? "Neu" : "Bestand"}
             />
-            {existingPractitionerId && (
+            {existingPractitionerLineageKey && (
               <ReadOnlyItem
                 label="Behandler/in"
-                value={practitionerName ?? existingPractitionerId}
+                value={practitionerName ?? existingPractitionerLineageKey}
               />
             )}
             {"insuranceType" in state && (

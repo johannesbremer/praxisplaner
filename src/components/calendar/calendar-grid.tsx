@@ -3,7 +3,11 @@ import type React from "react";
 import { Plus } from "lucide-react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { Appointment, CalendarColumn } from "./types";
+import type {
+  CalendarAppointmentView,
+  CalendarColumn,
+  CalendarColumnId,
+} from "./types";
 
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
@@ -11,7 +15,7 @@ import { CalendarBlockedSlot } from "./calendar-blocked-slot";
 import { CalendarTimeSlots } from "./calendar-time-slots";
 
 interface BlockedSlot {
-  column: string;
+  column: CalendarColumnId;
   duration?: number;
   id?: string;
   isManual?: boolean;
@@ -22,29 +26,29 @@ interface BlockedSlot {
 }
 
 interface CalendarGridProps {
-  appointments: Appointment[];
+  appointments: CalendarAppointmentView[];
   blockedSlots?: BlockedSlot[];
   columns: CalendarColumn[];
   currentTimeSlot: number;
-  draggedAppointment: Appointment | null;
+  draggedAppointment: CalendarAppointmentView | null;
   draggedBlockedSlotId?: null | string;
   dragPreview: {
-    column: string;
+    column: CalendarColumnId | null;
     slot: number;
     visible: boolean;
   };
   isBlockingModeActive?: boolean;
-  onAddAppointment: (column: string, slot: number) => void;
+  onAddAppointment: (column: CalendarColumnId, slot: number) => void;
   onBlockedSlotDragEnd?: () => void;
-  onBlockSlot?: (column: string, slot: number) => void;
-  onDeleteAppointment: (appointment: Appointment) => void;
+  onBlockSlot?: (column: CalendarColumnId, slot: number) => void;
+  onDeleteAppointment: (appointmentId: string) => void;
   onDeleteBlockedSlot?: (id: string) => void;
   onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent, column: string) => void;
-  onDragStart: (e: React.DragEvent, appointment: Appointment) => void;
+  onDragOver: (e: React.DragEvent, column: CalendarColumnId) => void;
+  onDragStart: (e: React.DragEvent, appointmentId: string) => void;
   onDragStartBlockedSlot?: (e: React.DragEvent, id: string) => void;
-  onDrop: (e: React.DragEvent, column: string) => Promise<void>;
-  onEditAppointment: (appointment: Appointment) => void;
+  onDrop: (e: React.DragEvent, column: CalendarColumnId) => Promise<void>;
+  onEditAppointment: (appointmentId: string) => void;
   onEditBlockedSlot?: (id: string) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -56,7 +60,7 @@ interface CalendarGridProps {
     id: string,
     currentDuration: number,
   ) => void;
-  onSelectAppointment?: (appointment: Appointment) => void;
+  onSelectAppointment?: (appointment: CalendarAppointmentView) => void;
   selectedAppointmentId?: Id<"appointments"> | null;
   selectedPatientId?: Id<"patients"> | null;
   selectedSeriesId?: null | string;
@@ -105,24 +109,25 @@ export function CalendarGrid({
     column.isAppointmentTypeUnavailable === true ||
     (draggedAppointment !== null && column.isDragDisabled === true);
 
-  const renderAppointments = (column: string) => {
+  const renderAppointments = (column: CalendarColumnId) => {
     return appointments
-      .filter((apt) => apt.column === column)
+      .filter((apt) => apt.layout.column === column)
       .map((appointment) => {
-        const isDragging = draggedAppointment?.id === appointment.id;
+        const isDragging =
+          draggedAppointment?.layout.id === appointment.layout.id;
         const isSelected =
-          selectedAppointmentId === appointment.convexId ||
+          selectedAppointmentId === appointment.layout.record._id ||
           (selectedSeriesId !== null &&
             selectedSeriesId !== undefined &&
-            appointment.resource?.seriesId === selectedSeriesId);
+            appointment.layout.record.seriesId === selectedSeriesId);
         // Check if this appointment belongs to the selected patient
         const isRelatedToSelectedPatient =
           (selectedPatientId !== null &&
             selectedPatientId !== undefined &&
-            appointment.resource?.patientId === selectedPatientId) ||
+            appointment.layout.record.patientId === selectedPatientId) ||
           (selectedUserId !== null &&
             selectedUserId !== undefined &&
-            appointment.resource?.userId === selectedUserId);
+            appointment.layout.record.userId === selectedUserId);
 
         return (
           <CalendarAppointment
@@ -130,7 +135,7 @@ export function CalendarGrid({
             isDragging={isDragging}
             isRelatedToSelectedPatient={isRelatedToSelectedPatient}
             isSelected={isSelected}
-            key={appointment.id}
+            key={appointment.layout.id}
             onDelete={onDeleteAppointment}
             onDragEnd={onDragEnd}
             onDragStart={onDragStart}
@@ -144,14 +149,14 @@ export function CalendarGrid({
       });
   };
 
-  const renderDragPreview = (column: string) => {
+  const renderDragPreview = (column: CalendarColumnId) => {
     if (!dragPreview.visible || dragPreview.column !== column) {
       return null;
     }
 
     // Handle appointment drag preview
     if (draggedAppointment) {
-      const height = (draggedAppointment.duration / slotDuration) * 16;
+      const height = (draggedAppointment.layout.duration / slotDuration) * 16;
       const top = dragPreview.slot * 16;
 
       return (
@@ -208,7 +213,7 @@ export function CalendarGrid({
     return null;
   };
 
-  const renderBlockedSlots = (column: string) => {
+  const renderBlockedSlots = (column: CalendarColumnId) => {
     // Separate manual blocked slots (from database) from rule-based blocked slots
     const manualBlocked = blockedSlots.filter(
       (slot) => slot.column === column && slot.isManual,
