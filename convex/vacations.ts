@@ -99,17 +99,19 @@ async function assertStaffExists(
     if (!args.practitionerId || args.mfaId) {
       throw new Error("Ungültige Urlaubszuordnung für Arzt.");
     }
-    const practitionerId = await resolvePractitionerIdInRuleSet(
-      ctx,
-      args.practitionerId,
-      args.practiceId,
-      args.ruleSetId,
-    );
-    return {
-      practitionerLineageKey: await resolvePractitionerLineageKey(
+    const practitionerLineageKey = asPractitionerLineageKey(
+      await resolvePractitionerLineageKey(
         ctx.db,
-        asPractitionerId(practitionerId),
+        asPractitionerId(args.practitionerId),
       ),
+    );
+    await resolvePractitionerIdForRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerLineageKey,
+      ruleSetId: args.ruleSetId,
+    });
+    return {
+      practitionerLineageKey,
     };
   }
 
@@ -278,54 +280,6 @@ async function resolveMfaIdInRuleSet(
   }
 
   return asMfaId(mapped._id);
-}
-
-async function resolvePractitionerIdInRuleSet(
-  ctx: MutationCtx,
-  practitionerId: Id<"practitioners">,
-  practiceId: Id<"practices">,
-  ruleSetId: Id<"ruleSets">,
-): Promise<Id<"practitioners">> {
-  const practitioner = await ctx.db.get("practitioners", practitionerId);
-  if (!practitioner) {
-    const mapped = await ctx.db
-      .query("practitioners")
-      .withIndex("by_ruleSetId_lineageKey", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("lineageKey", practitionerId),
-      )
-      .first();
-    if (mapped?.practiceId !== practiceId) {
-      throw new Error("Arzt nicht gefunden.");
-    }
-    return mapped._id;
-  }
-  if (practitioner.practiceId !== practiceId) {
-    throw new Error("Arzt gehört nicht zu dieser Praxis.");
-  }
-  if (practitioner.ruleSetId === ruleSetId) {
-    return practitioner._id;
-  }
-
-  const lineageKey = requireLineageKey({
-    entityId: practitioner._id,
-    entityType: "practitioner",
-    lineageKey: practitioner.lineageKey,
-    ruleSetId: practitioner.ruleSetId,
-  });
-  const mapped = await ctx.db
-    .query("practitioners")
-    .withIndex("by_ruleSetId_lineageKey", (q) =>
-      q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
-    )
-    .first();
-
-  if (mapped?.practiceId !== practiceId) {
-    throw new Error(
-      "Arzt konnte im aktuellen Regelset nicht aufgelöst werden.",
-    );
-  }
-
-  return mapped._id;
 }
 
 export const getVacationsInRange = query({
@@ -689,16 +643,17 @@ export const createVacationWithCoverageAdjustments = mutation({
         ? replacingVacationLineageKeys[0]
         : undefined;
 
-    const draftPractitionerId = await resolvePractitionerIdInRuleSet(
-      ctx,
-      args.practitionerId,
-      args.practiceId,
+    const absentPractitionerLineageKey = asPractitionerLineageKey(
+      await resolvePractitionerLineageKey(
+        ctx.db,
+        asPractitionerId(args.practitionerId),
+      ),
+    );
+    await resolvePractitionerIdForRuleSet(ctx.db, {
+      practiceId: args.practiceId,
+      practitionerLineageKey: absentPractitionerLineageKey,
       ruleSetId,
-    );
-    const absentPractitionerLineageKey = await resolvePractitionerLineageKey(
-      ctx.db,
-      asPractitionerId(draftPractitionerId),
-    );
+    });
     await replaceVacationsInDraft(ctx, {
       date: args.date,
       practiceId: args.practiceId,

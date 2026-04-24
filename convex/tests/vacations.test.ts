@@ -23,6 +23,89 @@ function createAuthedTestContext() {
   });
 }
 
+async function createCopiedCoverageRuleSet(
+  t: ReturnType<typeof createAuthedTestContext>,
+  fixture: Awaited<ReturnType<typeof createCoverageFixture>>,
+) {
+  const now = BigInt(Date.now());
+  return await t.run(async (ctx) => {
+    const copiedRuleSetId = await ctx.db.insert("ruleSets", {
+      createdAt: Date.now(),
+      description: "Coverage Rule Set Copy",
+      draftRevision: 0,
+      parentVersion: fixture.ruleSetId,
+      practiceId: fixture.practiceId,
+      saved: true,
+      version: 2,
+    });
+
+    const copiedLocationId = await ctx.db.insert("locations", {
+      lineageKey: fixture.locationId,
+      name: "Praxis Kopie",
+      practiceId: fixture.practiceId,
+      ruleSetId: copiedRuleSetId,
+    });
+    const copiedAbsentPractitionerId = await ctx.db.insert("practitioners", {
+      lineageKey: fixture.absentPractitionerId,
+      name: "Dr. Urlaub",
+      practiceId: fixture.practiceId,
+      ruleSetId: copiedRuleSetId,
+    });
+    const copiedPreferredPractitionerId = await ctx.db.insert("practitioners", {
+      lineageKey: fixture.preferredPractitionerId,
+      name: "Dr. Zuletzt Gesehen",
+      practiceId: fixture.practiceId,
+      ruleSetId: copiedRuleSetId,
+    });
+    const copiedFallbackPractitionerId = await ctx.db.insert("practitioners", {
+      lineageKey: fixture.fallbackPractitionerId,
+      name: "Dr. Frei",
+      practiceId: fixture.practiceId,
+      ruleSetId: copiedRuleSetId,
+    });
+
+    for (const practitionerLineageKey of [
+      fixture.absentPractitionerId,
+      fixture.preferredPractitionerId,
+      fixture.fallbackPractitionerId,
+    ]) {
+      await insertWithLineage(ctx, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey,
+        ruleSetId: copiedRuleSetId,
+        startTime: "08:00",
+      });
+    }
+
+    await ctx.db.insert("appointmentTypes", {
+      allowedPractitionerIds: [
+        copiedAbsentPractitionerId,
+        copiedPreferredPractitionerId,
+        copiedFallbackPractitionerId,
+      ],
+      createdAt: now,
+      duration: 30,
+      followUpPlan: [],
+      lastModified: now,
+      lineageKey: fixture.appointmentTypeId,
+      name: "Kontrolle",
+      practiceId: fixture.practiceId,
+      ruleSetId: copiedRuleSetId,
+    });
+
+    return {
+      copiedAbsentPractitionerId,
+      copiedFallbackPractitionerId,
+      copiedLocationId,
+      copiedPreferredPractitionerId,
+      copiedRuleSetId,
+    };
+  });
+}
+
 async function createCoverageFixture(
   t: ReturnType<typeof createAuthedTestContext>,
 ) {
@@ -997,6 +1080,122 @@ describe("vacations", () => {
     expect(allowedDraftTargetIds).toContain(
       preview.suggestions[0]?.targetPractitionerLineageKey,
     );
+  });
+
+  test("createVacation accepts practitioner ids from a saved copied rule set", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const { copiedAbsentPractitionerId, copiedRuleSetId } =
+      await createCopiedCoverageRuleSet(t, fixture);
+
+    const result = await t.mutation(api.vacations.createVacation, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: copiedAbsentPractitionerId,
+      selectedRuleSetId: copiedRuleSetId,
+      staffType: "practitioner",
+    });
+
+    assertDefined(result.entityId);
+    const createdVacationId = result.entityId;
+    expect(result.ruleSetId).not.toBe(copiedRuleSetId);
+    const createdVacation = await t.run(async (ctx) => {
+      return await ctx.db.get("vacations", createdVacationId);
+    });
+    assertDefined(createdVacation);
+    expect(createdVacation.practitionerLineageKey).toBe(
+      fixture.absentPractitionerId,
+    );
+  });
+
+  test("coverage-adjusted vacation creation accepts practitioner ids from a saved copied rule set", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+    const { copiedAbsentPractitionerId, copiedRuleSetId } =
+      await createCopiedCoverageRuleSet(t, fixture);
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    const preview = await t.query(
+      api.appointmentCoverage.previewPractitionerAbsenceCoverage,
+      {
+        date: monday.toString(),
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: copiedAbsentPractitionerId,
+        ruleSetId: copiedRuleSetId,
+      },
+    );
+    const targetPractitionerLineageKey =
+      preview.suggestions[0]?.targetPractitionerLineageKey;
+    assertDefined(targetPractitionerLineageKey);
+
+    const result = await t.mutation(
+      api.vacations.createVacationWithCoverageAdjustments,
+      {
+        date: monday.toString(),
+        expectedDraftRevision: null,
+        portion: "morning",
+        practiceId: fixture.practiceId,
+        practitionerId: copiedAbsentPractitionerId,
+        reassignments: [
+          {
+            appointmentId,
+            targetPractitionerLineageKey,
+          },
+        ],
+        selectedRuleSetId: copiedRuleSetId,
+      },
+    );
+
+    assertDefined(result.entityId);
+    const createdVacationId = result.entityId;
+    const createdVacation = await t.run(async (ctx) => {
+      return await ctx.db.get("vacations", createdVacationId);
+    });
+    assertDefined(createdVacation);
+    expect(createdVacation.practitionerLineageKey).toBe(
+      fixture.absentPractitionerId,
+    );
+
+    const simulatedAppointments = await t.query(
+      api.appointments.getAppointments,
+      {
+        activeRuleSetId: fixture.ruleSetId,
+        scope: "simulation",
+        selectedRuleSetId: result.ruleSetId,
+      },
+    );
+    expect(
+      simulatedAppointments.find(
+        (candidate) => candidate.replacesAppointmentId === appointmentId,
+      )?.practitionerLineageKey,
+    ).toBe(targetPractitionerLineageKey);
   });
 
   test("coverage preview and save use selected rule set practitioner references", async () => {
