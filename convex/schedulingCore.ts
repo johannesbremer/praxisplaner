@@ -6,11 +6,8 @@ import type { DatabaseReader } from "./_generated/server";
 import {
   asLocationId,
   asLocationLineageKey,
-  asPractitionerId,
   asPractitionerLineageKey,
-  type LocationId,
   type LocationLineageKey,
-  type PractitionerId,
   type PractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
@@ -21,11 +18,8 @@ export interface CandidateSlot {
   blockedByBlockedSlotId?: Id<"blockedSlots">;
   blockedByRuleId?: Id<"ruleConditions">;
   duration: number;
-  locationId: LocationId;
   locationLineageKey: LocationLineageKey;
-  practitionerId: PractitionerId;
   practitionerLineageKey: PractitionerLineageKey;
-  practitionerName: string;
   reason?: string;
   startTime: string;
   status: "AVAILABLE" | "BLOCKED";
@@ -62,8 +56,8 @@ export async function generateCandidateSlotsForDay(
   const practitionersForPractice = practitioners.filter(
     (practitioner) => practitioner.practiceId === practiceId,
   );
-  const practitionerNameByLineageKey = new Map(
-    practitionersForPractice.map((practitioner) => [
+  const practitionerLineageKeys = new Set(
+    practitionersForPractice.map((practitioner) =>
       asPractitionerLineageKey(
         requireLineageKey({
           entityId: practitioner._id,
@@ -72,21 +66,7 @@ export async function generateCandidateSlotsForDay(
           ruleSetId: practitioner.ruleSetId,
         }),
       ),
-      practitioner.name,
-    ]),
-  );
-  const practitionerIdByLineageKey = new Map(
-    practitionersForPractice.map((practitioner) => [
-      asPractitionerLineageKey(
-        requireLineageKey({
-          entityId: practitioner._id,
-          entityType: "practitioner",
-          lineageKey: practitioner.lineageKey,
-          ruleSetId: practitioner.ruleSetId,
-        }),
-      ),
-      asPractitionerId(practitioner._id),
-    ]),
+    ),
   );
   const locationIdByLineageKey = new Map(
     locations
@@ -168,36 +148,20 @@ export async function generateCandidateSlotsForDay(
         const practitionerLineageKey = asPractitionerLineageKey(
           schedule.practitionerLineageKey,
         );
-        const resolvedLocationId =
-          locationIdByLineageKey.get(locationLineageKey);
-        if (!resolvedLocationId) {
+        if (!locationIdByLineageKey.has(locationLineageKey)) {
           throw new Error(
             `[INVARIANT:SCHEDULE_LOCATION_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Standort-Lineage ${locationLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
           );
         }
-        const resolvedPractitionerId = practitionerIdByLineageKey.get(
-          practitionerLineageKey,
-        );
-        if (!resolvedPractitionerId) {
+        if (!practitionerLineageKeys.has(practitionerLineageKey)) {
           throw new Error(
             `[INVARIANT:SCHEDULE_PRACTITIONER_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Behandler-Lineage ${practitionerLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
           );
         }
-        const practitionerName = practitionerNameByLineageKey.get(
-          practitionerLineageKey,
-        );
-        if (!practitionerName) {
-          throw new Error(
-            `[INVARIANT:SCHEDULE_PRACTITIONER_NAME_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Behandler-Lineage ${practitionerLineageKey}, deren Anzeigename in Regelset ${ruleSetId} fehlt.`,
-          );
-        }
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
-          locationId: resolvedLocationId,
           locationLineageKey,
-          practitionerId: resolvedPractitionerId,
           practitionerLineageKey,
-          practitionerName,
           startTime: slotZoned.toString(),
           status: "AVAILABLE",
         });
