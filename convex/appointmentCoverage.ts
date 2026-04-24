@@ -14,7 +14,6 @@ import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
-  resolveActivePractitionerLineageKeys,
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
@@ -266,11 +265,9 @@ async function previewPractitionerCoverageForAppointment(
     { allowDeleted: true },
   ).then((lineageKey) => asPractitionerLineageKey(lineageKey));
   const allowedPractitionerLineageKeys = new Set(
-    await resolveActivePractitionerLineageKeys(
-      ctx.db,
-      selectedAppointmentType.allowedPractitionerIds.map((practitionerId) =>
-        asPractitionerId(practitionerId),
-      ),
+    selectedAppointmentType.allowedPractitionerLineageKeys.map(
+      (practitionerLineageKey) =>
+        asPractitionerLineageKey(practitionerLineageKey),
     ),
   );
   const day = Temporal.ZonedDateTime.from(args.appointment.start)

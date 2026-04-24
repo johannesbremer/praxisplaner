@@ -791,8 +791,11 @@ export const createVacationWithCoverageAdjustments = mutation({
         throw new Error("Terminart des Termins konnte nicht geladen werden.");
       }
       if (
-        !selectedAppointmentType.allowedPractitionerIds.includes(
-          targetPractitionerIdInDraft,
+        !selectedAppointmentType.allowedPractitionerLineageKeys.includes(
+          await resolvePractitionerLineageKey(
+            ctx.db,
+            asPractitionerId(targetPractitionerIdInDraft),
+          ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
         )
       ) {
         throw new Error(

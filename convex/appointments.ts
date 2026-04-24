@@ -1625,8 +1625,11 @@ async function updateAppointmentByMode(
 
     if (
       practitionerIdForValidation &&
-      !activeAppointmentType.allowedPractitionerIds.includes(
-        practitionerIdForValidation,
+      !activeAppointmentType.allowedPractitionerLineageKeys.includes(
+        await resolvePractitionerLineageKey(
+          ctx.db,
+          asPractitionerId(practitionerIdForValidation),
+        ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
       )
     ) {
       throw new Error(

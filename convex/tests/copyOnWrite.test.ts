@@ -545,7 +545,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const sourceAppointmentTypeId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "appointmentTypes", {
-        allowedPractitionerIds: [practitioner],
+        allowedPractitionerLineageKeys: [practitioner],
         createdAt: BigInt(Date.now()),
         duration: 30,
         lastModified: BigInt(Date.now()),
@@ -789,7 +789,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     const sourceAppointmentTypeId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: BigInt(Date.now()),
         duration: 25,
         lastModified: BigInt(Date.now()),

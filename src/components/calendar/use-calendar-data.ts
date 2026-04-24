@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type {
+  AppointmentTypeLineageKey,
+  PractitionerLineageKey,
+} from "../../../convex/identity";
 import type { PatientInfo } from "../../types";
 import type {
   CalendarAppointmentRecord,
@@ -10,6 +14,10 @@ import type {
 } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import {
+  asAppointmentTypeLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   captureFrontendError,
@@ -22,10 +30,10 @@ import {
 } from "./calendar-view-models";
 
 interface CalendarAppointmentTypeInfo {
-  allowedPractitionerLineageKeys: Id<"practitioners">[];
+  allowedPractitionerLineageKeys: PractitionerLineageKey[];
   duration: number;
   hasFollowUpPlan: boolean;
-  lineageKey: Id<"appointmentTypes">;
+  lineageKey: AppointmentTypeLineageKey;
   name: string;
 }
 
@@ -372,22 +380,20 @@ export function useCalendarData(args: {
       }
 
       const allowedPractitionerLineageKeys =
-        appointmentType.allowedPractitionerIds.flatMap((practitionerId) => {
-          const practitionerLineageKey =
-            practitionerLineageKeyById.get(practitionerId);
-          return practitionerLineageKey ? [practitionerLineageKey] : [];
-        });
+        appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
+          asPractitionerLineageKey(lineageKey),
+        );
 
       map.set(appointmentType.lineageKey, {
         allowedPractitionerLineageKeys,
         duration: appointmentType.duration,
         hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
-        lineageKey: appointmentType.lineageKey,
+        lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });
     }
     return map;
-  }, [appointmentTypesData, practitionerLineageKeyById]);
+  }, [appointmentTypesData]);
   const practitionerNameByLineageKey = useMemo(
     () =>
       new Map(

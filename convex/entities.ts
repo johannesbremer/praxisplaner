@@ -74,6 +74,7 @@ import {
   asLocationLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  type PractitionerLineageKey,
 } from "./identity";
 import { insertSelfLineageEntity } from "./lineage";
 import {
@@ -671,33 +672,29 @@ async function resolvePractitionerEntityInRuleSet(
 }
 
 /**
- * Resolve practitioner IDs to their unsaved rule set versions.
- * Validates that practitioners exist, belong to the practice, and resolves them
- * to their copies in the unsaved rule set.
+ * Resolve selected practitioner entity IDs to lineage keys and validate they
+ * exist in the target rule set.
  * @throws Error if practitionerIds is undefined, empty, or contains invalid practitioners
- * @returns Array of resolved practitioner IDs (never undefined when practitioners are required)
+ * @returns Array of resolved practitioner lineage keys (never undefined when practitioners are required)
  */
-async function resolvePractitionerIds(
+async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
-  practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   required: true,
-): Promise<Id<"practitioners">[]>;
-async function resolvePractitionerIds(
+): Promise<PractitionerLineageKey[]>;
+async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
-  practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   required?: false,
-): Promise<Id<"practitioners">[] | undefined>;
-async function resolvePractitionerIds(
+): Promise<PractitionerLineageKey[] | undefined>;
+async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
-  practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   required = false,
-): Promise<Id<"practitioners">[] | undefined> {
+): Promise<PractitionerLineageKey[] | undefined> {
   if (!practitionerIds) {
     if (required) {
       throw new Error("At least one practitioner must be selected");
@@ -710,23 +707,20 @@ async function resolvePractitionerIds(
     throw new Error("At least one practitioner must be selected");
   }
 
-  const seen = new Set<Id<"practitioners">>();
-  const resolved: Id<"practitioners">[] = [];
+  const seen = new Set<PractitionerLineageKey>();
+  const resolved: PractitionerLineageKey[] = [];
 
   for (const practitionerId of practitionerIds) {
-    const resolvedPractitionerId = await resolvePractitionerIdInRuleSet(
-      db,
-      practitionerId,
-      practiceId,
-      ruleSetId,
+    const practitionerLineageKey = asPractitionerLineageKey(
+      await resolvePractitionerLineageKey(db, asPractitionerId(practitionerId)),
     );
-
-    if (!seen.has(resolvedPractitionerId)) {
-      seen.add(resolvedPractitionerId);
-      resolved.push(resolvedPractitionerId);
+    if (!seen.has(practitionerLineageKey)) {
+      seen.add(practitionerLineageKey);
+      resolved.push(practitionerLineageKey);
     }
   }
 
+  await validatePractitionerLineageKeysInRuleSet(db, resolved, ruleSetId);
   return resolved;
 }
 
@@ -759,10 +753,9 @@ export const createAppointmentType = mutation({
       args.selectedRuleSetId,
     );
 
-    const allowedPractitionerIds = await resolvePractitionerIds(
+    const allowedPractitionerLineageKeys = await resolvePractitionerLineageKeys(
       ctx.db,
       args.practitionerIds,
-      args.practiceId,
       ruleSetId,
       true, // Required: at least one practitioner
     );
@@ -813,7 +806,7 @@ export const createAppointmentType = mutation({
           "appointment type",
         );
         await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-          allowedPractitionerIds,
+          allowedPractitionerLineageKeys,
           deleted: false,
           duration: args.duration,
           followUpPlan: followUpPlan ?? [],
@@ -832,7 +825,7 @@ export const createAppointmentType = mutation({
 
     // Create the appointment type
     const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-      allowedPractitionerIds,
+      allowedPractitionerLineageKeys,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
       ...(followUpPlan && { followUpPlan }),
@@ -905,7 +898,7 @@ export const updateAppointmentType = mutation({
 
     // Build updates object
     const updates: Partial<{
-      allowedPractitionerIds: Id<"practitioners">[];
+      allowedPractitionerLineageKeys: PractitionerLineageKey[];
       duration: number;
       followUpPlan: FollowUpPlan;
       lastModified: bigint;
@@ -922,14 +915,13 @@ export const updateAppointmentType = mutation({
     }
     if (args.practitionerIds !== undefined) {
       // Use the shared helper with required=true to validate at least one practitioner
-      const resolved = await resolvePractitionerIds(
+      const resolved = await resolvePractitionerLineageKeys(
         ctx.db,
         args.practitionerIds,
-        args.practiceId,
         ruleSetId,
         true, // Required: at least one practitioner
       );
-      updates.allowedPractitionerIds = resolved;
+      updates.allowedPractitionerLineageKeys = resolved;
     }
     if (args.followUpPlan !== undefined) {
       const validatedFollowUpPlan = await validateFollowUpPlan(
@@ -1422,28 +1414,36 @@ export const deletePractitionerWithDependencies = mutation({
 
     const appointmentTypePatches: {
       action: "delete" | "patch";
-      afterAllowedPractitionerIds: Id<"practitioners">[];
+      afterAllowedPractitionerLineageKeys: PractitionerLineageKey[];
       appointmentTypeId: Id<"appointmentTypes">;
-      beforeAllowedPractitionerIds: Id<"practitioners">[];
+      beforeAllowedPractitionerLineageKeys: PractitionerLineageKey[];
       duration?: number;
       lineageKey: Id<"appointmentTypes">;
       name?: string;
     }[] = appointmentTypes
       .filter((appointmentType) =>
-        appointmentType.allowedPractitionerIds.includes(practitioner._id),
+        appointmentType.allowedPractitionerLineageKeys.includes(
+          requirePractitionerLineageKey(practitioner),
+        ),
       )
       .map((appointmentType) => {
-        const afterAllowedPractitionerIds =
-          appointmentType.allowedPractitionerIds.filter(
-            (id) => id !== practitioner._id,
-          );
+        const afterAllowedPractitionerLineageKeys =
+          appointmentType.allowedPractitionerLineageKeys
+            .filter(
+              (lineageKey) =>
+                lineageKey !== requirePractitionerLineageKey(practitioner),
+            )
+            .map((lineageKey) => asPractitionerLineageKey(lineageKey));
         const action: "delete" | "patch" = "patch";
 
         return {
           action,
-          afterAllowedPractitionerIds,
+          afterAllowedPractitionerLineageKeys,
           appointmentTypeId: appointmentType._id,
-          beforeAllowedPractitionerIds: appointmentType.allowedPractitionerIds,
+          beforeAllowedPractitionerLineageKeys:
+            appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
+              asPractitionerLineageKey(lineageKey),
+            ),
           duration: appointmentType.duration,
           lineageKey: requireAppointmentTypeLineageKey(appointmentType),
           name: appointmentType.name,
@@ -1462,7 +1462,8 @@ export const deletePractitionerWithDependencies = mutation({
       }
 
       await ctx.db.patch("appointmentTypes", appointmentType._id, {
-        allowedPractitionerIds: patch.afterAllowedPractitionerIds,
+        allowedPractitionerLineageKeys:
+          patch.afterAllowedPractitionerLineageKeys,
         lastModified: now,
       });
     }
@@ -1569,7 +1570,6 @@ export const restorePractitionerWithDependencies = mutation({
       args.selectedRuleSetId,
     );
     const now = BigInt(Date.now());
-    const previousPractitionerId = args.snapshot.practitioner.id;
 
     const existingByLineage = await ctx.db
       .query("practitioners")
@@ -1648,43 +1648,30 @@ export const restorePractitionerWithDependencies = mutation({
     }
 
     for (const patch of args.snapshot.appointmentTypePatches) {
-      const resolvedAllowedPractitionerIds = new Set<Id<"practitioners">>([
-        restoredPractitionerId,
-      ]);
+      const resolvedAllowedPractitionerLineageKeys =
+        new Set<PractitionerLineageKey>([
+          asPractitionerLineageKey(args.snapshot.practitioner.lineageKey),
+        ]);
 
-      for (const practitionerId of patch.beforeAllowedPractitionerIds) {
-        if (practitionerId === previousPractitionerId) {
-          continue;
-        }
-
-        const existingPractitioner = await ctx.db.get(
-          "practitioners",
-          practitionerId,
+      for (const rawPractitionerLineageKey of patch.beforeAllowedPractitionerLineageKeys) {
+        const practitionerLineageKey = asPractitionerLineageKey(
+          rawPractitionerLineageKey,
         );
-        if (
-          existingPractitioner?.practiceId === args.practiceId &&
-          existingPractitioner.ruleSetId === ruleSetId
-        ) {
-          resolvedAllowedPractitionerIds.add(existingPractitioner._id);
-          continue;
-        }
-
         try {
-          const remappedPractitionerId = await resolvePractitionerIdInRuleSet(
+          await validatePractitionerLineageKeysInRuleSet(
             ctx.db,
-            practitionerId,
-            args.practiceId,
+            [practitionerLineageKey],
             ruleSetId,
           );
-          resolvedAllowedPractitionerIds.add(remappedPractitionerId);
+          resolvedAllowedPractitionerLineageKeys.add(practitionerLineageKey);
         } catch {
           // Another practitioner reference may have been deleted in a later action.
           // Keep restoring what is still resolvable.
         }
       }
 
-      const restoredAllowedPractitionerIds = [
-        ...resolvedAllowedPractitionerIds,
+      const restoredAllowedPractitionerLineageKeys = [
+        ...resolvedAllowedPractitionerLineageKeys,
       ];
 
       const existingByLineage = await ctx.db
@@ -1709,14 +1696,17 @@ export const restorePractitionerWithDependencies = mutation({
         }
 
         if (existingByLineage) {
-          const mergedAllowedPractitionerIds = [
-            ...new Set<Id<"practitioners">>([
-              ...existingByLineage.allowedPractitionerIds,
-              ...restoredAllowedPractitionerIds,
+          const mergedAllowedPractitionerLineageKeys = [
+            ...new Set<PractitionerLineageKey>([
+              ...existingByLineage.allowedPractitionerLineageKeys.map(
+                (lineageKey) => asPractitionerLineageKey(lineageKey),
+              ),
+              ...restoredAllowedPractitionerLineageKeys,
             ]),
           ];
           await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-            allowedPractitionerIds: mergedAllowedPractitionerIds,
+            allowedPractitionerLineageKeys:
+              mergedAllowedPractitionerLineageKeys,
             duration: patchDuration,
             lastModified: now,
             name: patchName,
@@ -1725,7 +1715,8 @@ export const restorePractitionerWithDependencies = mutation({
         }
 
         await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-          allowedPractitionerIds: restoredAllowedPractitionerIds,
+          allowedPractitionerLineageKeys:
+            restoredAllowedPractitionerLineageKeys,
           createdAt: now,
           duration: patchDuration,
           lastModified: now,
@@ -1743,15 +1734,17 @@ export const restorePractitionerWithDependencies = mutation({
         );
       }
 
-      const mergedAllowedPractitionerIds = [
-        ...new Set<Id<"practitioners">>([
-          ...existingByLineage.allowedPractitionerIds,
-          ...restoredAllowedPractitionerIds,
+      const mergedAllowedPractitionerLineageKeys = [
+        ...new Set<PractitionerLineageKey>([
+          ...existingByLineage.allowedPractitionerLineageKeys.map(
+            (lineageKey) => asPractitionerLineageKey(lineageKey),
+          ),
+          ...restoredAllowedPractitionerLineageKeys,
         ]),
       ];
 
       await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-        allowedPractitionerIds: mergedAllowedPractitionerIds,
+        allowedPractitionerLineageKeys: mergedAllowedPractitionerLineageKeys,
         lastModified: now,
       });
     }

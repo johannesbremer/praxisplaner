@@ -81,10 +81,10 @@ async function createCopiedCoverageRuleSet(
     }
 
     await ctx.db.insert("appointmentTypes", {
-      allowedPractitionerIds: [
-        copiedAbsentPractitionerId,
-        copiedPreferredPractitionerId,
-        copiedFallbackPractitionerId,
+      allowedPractitionerLineageKeys: [
+        fixture.absentPractitionerId,
+        fixture.preferredPractitionerId,
+        fixture.fallbackPractitionerId,
       ],
       createdAt: now,
       duration: 30,
@@ -186,7 +186,7 @@ async function createCoverageFixture(
     }
 
     const appointmentTypeId = await insertWithLineage(ctx, "appointmentTypes", {
-      allowedPractitionerIds: [
+      allowedPractitionerLineageKeys: [
         absentPractitionerId,
         preferredPractitionerId,
         fallbackPractitionerId,
@@ -262,7 +262,7 @@ async function createSchedulingFixture(
     });
 
     const appointmentTypeId = await insertWithLineage(ctx, "appointmentTypes", {
-      allowedPractitionerIds: [practitionerId],
+      allowedPractitionerLineageKeys: [practitionerId],
       createdAt: BigInt(Date.now()),
       duration: 30,
       followUpPlan: [],
@@ -626,24 +626,18 @@ describe("vacations", () => {
             ruleSetId: copiedRuleSetId,
           },
         );
-        const copiedPreferredPractitionerId = await ctx.db.insert(
-          "practitioners",
-          {
-            lineageKey: fixture.preferredPractitionerId,
-            name: "Dr. Zuletzt Gesehen",
-            practiceId: fixture.practiceId,
-            ruleSetId: copiedRuleSetId,
-          },
-        );
-        const copiedFallbackPractitionerId = await ctx.db.insert(
-          "practitioners",
-          {
-            lineageKey: fixture.fallbackPractitionerId,
-            name: "Dr. Frei",
-            practiceId: fixture.practiceId,
-            ruleSetId: copiedRuleSetId,
-          },
-        );
+        await ctx.db.insert("practitioners", {
+          lineageKey: fixture.preferredPractitionerId,
+          name: "Dr. Zuletzt Gesehen",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        });
+        await ctx.db.insert("practitioners", {
+          lineageKey: fixture.fallbackPractitionerId,
+          name: "Dr. Frei",
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
+        });
 
         for (const practitionerLineageKey of [
           fixture.absentPractitionerId,
@@ -662,10 +656,10 @@ describe("vacations", () => {
         }
 
         await ctx.db.insert("appointmentTypes", {
-          allowedPractitionerIds: [
-            copiedAbsentPractitionerId,
-            copiedPreferredPractitionerId,
-            copiedFallbackPractitionerId,
+          allowedPractitionerLineageKeys: [
+            fixture.absentPractitionerId,
+            fixture.preferredPractitionerId,
+            fixture.fallbackPractitionerId,
           ],
           createdAt: now,
           duration: 30,
@@ -757,30 +751,24 @@ describe("vacations", () => {
         practiceId: fixture.practiceId,
         ruleSetId: copiedRuleSetId,
       });
-      const copiedAbsentPractitionerId = await ctx.db.insert("practitioners", {
+      await ctx.db.insert("practitioners", {
         lineageKey: fixture.absentPractitionerId,
         name: "Dr. Urlaub",
         practiceId: fixture.practiceId,
         ruleSetId: copiedRuleSetId,
       });
-      const copiedPreferredPractitionerId = await ctx.db.insert(
-        "practitioners",
-        {
-          lineageKey: fixture.preferredPractitionerId,
-          name: "Dr. Zuletzt Gesehen",
-          practiceId: fixture.practiceId,
-          ruleSetId: copiedRuleSetId,
-        },
-      );
-      const copiedFallbackPractitionerId = await ctx.db.insert(
-        "practitioners",
-        {
-          lineageKey: fixture.fallbackPractitionerId,
-          name: "Dr. Frei",
-          practiceId: fixture.practiceId,
-          ruleSetId: copiedRuleSetId,
-        },
-      );
+      await ctx.db.insert("practitioners", {
+        lineageKey: fixture.preferredPractitionerId,
+        name: "Dr. Zuletzt Gesehen",
+        practiceId: fixture.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
+      await ctx.db.insert("practitioners", {
+        lineageKey: fixture.fallbackPractitionerId,
+        name: "Dr. Frei",
+        practiceId: fixture.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
 
       for (const practitionerLineageKey of [
         fixture.absentPractitionerId,
@@ -799,10 +787,10 @@ describe("vacations", () => {
       }
 
       await ctx.db.insert("appointmentTypes", {
-        allowedPractitionerIds: [
-          copiedAbsentPractitionerId,
-          copiedPreferredPractitionerId,
-          copiedFallbackPractitionerId,
+        allowedPractitionerLineageKeys: [
+          fixture.absentPractitionerId,
+          fixture.preferredPractitionerId,
+          fixture.fallbackPractitionerId,
         ],
         createdAt: now,
         duration: 30,
@@ -873,8 +861,8 @@ describe("vacations", () => {
       assertDefined(draftLocation);
 
       await ctx.db.patch("appointmentTypes", draftAppointmentType._id, {
-        allowedPractitionerIds: [
-          ...draftAppointmentType.allowedPractitionerIds,
+        allowedPractitionerLineageKeys: [
+          ...draftAppointmentType.allowedPractitionerLineageKeys,
           draftPractitioner.entityId,
         ],
       });
@@ -998,7 +986,7 @@ describe("vacations", () => {
 
     await t.run(async (ctx) => {
       await ctx.db.patch("appointmentTypes", fixture.appointmentTypeId, {
-        allowedPractitionerIds: [fixture.absentPractitionerId],
+        allowedPractitionerLineageKeys: [fixture.absentPractitionerId],
       });
     });
 
@@ -1024,7 +1012,7 @@ describe("vacations", () => {
       assertDefined(draftAppointmentType);
 
       await ctx.db.patch("appointmentTypes", draftAppointmentType._id, {
-        allowedPractitionerIds: [
+        allowedPractitionerLineageKeys: [
           fixture.absentPractitionerId,
           fixture.preferredPractitionerId,
           fixture.fallbackPractitionerId,
@@ -1985,8 +1973,8 @@ describe("vacations", () => {
         );
         assertDefined(appointmentType);
         await ctx.db.patch("appointmentTypes", fixture.appointmentTypeId, {
-          allowedPractitionerIds: [
-            ...appointmentType.allowedPractitionerIds,
+          allowedPractitionerLineageKeys: [
+            ...appointmentType.allowedPractitionerLineageKeys,
             secondAbsentPractitionerId,
           ],
         });

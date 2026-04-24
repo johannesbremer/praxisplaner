@@ -14,7 +14,6 @@ import {
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
-  resolveActivePractitionerLineageKeys,
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
   resolveOccupancyReferenceLineageKeys,
@@ -729,9 +728,14 @@ async function findSlotForFollowUpStep(
 ) {
   if (
     args.practitionerId &&
-    !args.targetAppointmentType.allowedPractitionerIds.includes(
-      args.practitionerId,
-    )
+    !(await resolvePractitionerLineageKey(
+      ctx.db,
+      asPractitionerId(args.practitionerId),
+    ).then((lineageKey) =>
+      args.targetAppointmentType.allowedPractitionerLineageKeys.includes(
+        asPractitionerLineageKey(lineageKey),
+      ),
+    ))
   ) {
     return null;
   }
@@ -1107,12 +1111,14 @@ async function queryAvailableSlotsForDay(
     selectedLocationLineageKey,
     selectedPractitionerLineageKey,
   ] = await Promise.all([
-    resolveActivePractitionerLineageKeys(
-      ctx.db,
-      args.appointmentType.allowedPractitionerIds.map((practitionerId) =>
-        asPractitionerId(practitionerId),
+    Promise.resolve(
+      new Set(
+        args.appointmentType.allowedPractitionerLineageKeys.map(
+          (practitionerLineageKey) =>
+            asPractitionerLineageKey(practitionerLineageKey),
+        ),
       ),
-    ).then((lineageKeys) => new Set(lineageKeys)),
+    ),
     args.locationId === undefined
       ? Promise.resolve()
       : resolveLocationLineageKey(ctx.db, asLocationId(args.locationId)).then(
@@ -1242,7 +1248,12 @@ async function validateRootCandidate(
   validateDurationMinutes(args.rootDurationMinutes);
 
   if (
-    !args.appointmentType.allowedPractitionerIds.includes(args.practitionerId)
+    !args.appointmentType.allowedPractitionerLineageKeys.includes(
+      await resolvePractitionerLineageKey(
+        ctx.db,
+        asPractitionerId(args.practitionerId),
+      ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+    )
   ) {
     return {
       blockedStepId: "root",

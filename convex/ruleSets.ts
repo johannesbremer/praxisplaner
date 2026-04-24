@@ -676,7 +676,7 @@ async function buildRuleSetCanonicalSnapshot(
           "Terminart",
         ),
         allowedPractitioners: toSortedStrings(
-          appointmentType.allowedPractitionerIds.map(
+          appointmentType.allowedPractitionerLineageKeys.map(
             (id) => practitionerNameByReference.get(id) ?? id,
           ),
         ),

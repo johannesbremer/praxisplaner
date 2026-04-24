@@ -46,7 +46,7 @@ describe("ruleEngine preloaded day data", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -198,7 +198,7 @@ describe("ruleEngine preloaded day data", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [basePractitionerId],
+          allowedPractitionerLineageKeys: [basePractitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -211,7 +211,7 @@ describe("ruleEngine preloaded day data", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [copiedPractitionerId],
+          allowedPractitionerLineageKeys: [basePractitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,

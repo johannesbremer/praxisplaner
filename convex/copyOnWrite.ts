@@ -306,7 +306,6 @@ export async function copyAppointmentTypes(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
 ): Promise<Map<Id<"appointmentTypes">, Id<"appointmentTypes">>> {
   const sourceTypes = await db
     .query("appointmentTypes")
@@ -316,23 +315,8 @@ export async function copyAppointmentTypes(
   const idMap = new Map<Id<"appointmentTypes">, Id<"appointmentTypes">>();
 
   for (const sourceType of sourceTypes) {
-    // Map practitioner IDs to their new versions in the target rule set
-    const allowedPractitionerIds: Id<"practitioners">[] = [];
-
-    for (const practitionerId of sourceType.allowedPractitionerIds) {
-      const newId = practitionerIdMap.get(practitionerId);
-      if (!newId) {
-        throw new Error(
-          `Failed to copy appointment type "${sourceType.name}": ` +
-            `Practitioner ID ${practitionerId} not found in mapping. ` +
-            `This indicates data corruption - all practitioners should have been copied.`,
-        );
-      }
-      allowedPractitionerIds.push(newId);
-    }
-
     const newId = await insertSelfLineageEntity(db, "appointmentTypes", {
-      allowedPractitionerIds,
+      allowedPractitionerLineageKeys: sourceType.allowedPractitionerLineageKeys,
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
       ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
@@ -685,19 +669,8 @@ export async function copyAllEntities(
   practiceId: Id<"practices">,
 ): Promise<void> {
   // Copy entities and get ID mappings
-  const practitionerIdMap = await copyPractitioners(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-  );
-  await copyAppointmentTypes(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-    practitionerIdMap,
-  );
+  await copyPractitioners(db, sourceRuleSetId, targetRuleSetId, practiceId);
+  await copyAppointmentTypes(db, sourceRuleSetId, targetRuleSetId, practiceId);
   await copyLocations(db, sourceRuleSetId, targetRuleSetId, practiceId);
   await copyMfas(db, sourceRuleSetId, targetRuleSetId, practiceId);
 

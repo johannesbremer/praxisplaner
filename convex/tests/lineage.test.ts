@@ -165,7 +165,7 @@ describe("lineage invariants", () => {
         ruleSetId,
       });
       await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: BigInt(Date.now()),
         duration: 30,
         lastModified: BigInt(Date.now()),

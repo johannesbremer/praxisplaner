@@ -56,7 +56,7 @@ async function createAppointmentBaseData(t: TestContext) {
       ctx.db,
       "appointmentTypes",
       {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -443,22 +443,18 @@ describe("appointments self-service cancellation", () => {
           ruleSetId: copiedRuleSetId,
         },
       );
-      const copiedPractitionerId = await insertSelfLineageEntity(
-        ctx.db,
-        "practitioners",
-        {
-          lineageKey: baseData.practitionerId,
-          name: "Dr. Display",
-          practiceId: baseData.practiceId,
-          ruleSetId: copiedRuleSetId,
-        },
-      );
+      await insertSelfLineageEntity(ctx.db, "practitioners", {
+        lineageKey: baseData.practitionerId,
+        name: "Dr. Display",
+        practiceId: baseData.practiceId,
+        ruleSetId: copiedRuleSetId,
+      });
       const now = BigInt(Date.now());
       const copiedAppointmentTypeId = await insertSelfLineageEntity(
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [copiedPractitionerId],
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -700,7 +696,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -714,7 +710,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           followUpPlan: [
@@ -829,7 +825,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -910,7 +906,7 @@ describe("appointments self-service cancellation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -1058,8 +1054,8 @@ describe("appointments update safety", () => {
         baseData.appointmentTypeId,
       );
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
-        allowedPractitionerIds: [
-          ...(appointmentType?.allowedPractitionerIds ?? []),
+        allowedPractitionerLineageKeys: [
+          ...(appointmentType?.allowedPractitionerLineageKeys ?? []),
           otherPractitionerId,
         ],
       });
@@ -1855,7 +1851,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -1973,7 +1969,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [foreignPractitionerId],
+          allowedPractitionerLineageKeys: [foreignPractitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,
@@ -2062,7 +2058,7 @@ describe("appointments update safety", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [deletedPractitionerId],
+          allowedPractitionerLineageKeys: [deletedPractitionerId],
           createdAt: now,
           deleted: true,
           duration: 30,
@@ -2651,7 +2647,7 @@ describe("calendar day appointment queries", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [displayedPractitionerId],
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
           createdAt: BigInt(Date.now()),
           duration: 30,
           lastModified: BigInt(Date.now()),
@@ -3155,7 +3151,7 @@ describe("calendar day appointment queries", () => {
       );
 
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
-        allowedPractitionerIds: [
+        allowedPractitionerLineageKeys: [
           baseData.practitionerId,
           deletedPractitionerId,
         ],

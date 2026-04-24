@@ -141,7 +141,7 @@ async function createAppointmentType(
       ctx.db,
       "appointmentTypes",
       {
-        allowedPractitionerIds: practitionerIds,
+        allowedPractitionerLineageKeys: practitionerIds,
         createdAt: BigInt(Date.now()),
         duration,
         lastModified: BigInt(Date.now()),
@@ -3360,7 +3360,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [copiedPractitionerId],
+          allowedPractitionerLineageKeys: [basePractitionerId],
           createdAt: BigInt(Date.now()),
           duration: 30,
           lastModified: BigInt(Date.now()),

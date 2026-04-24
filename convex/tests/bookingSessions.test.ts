@@ -247,7 +247,7 @@ async function createAppointmentTypeInOtherRuleSet(
 
     const now = BigInt(Date.now());
     return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-      allowedPractitionerIds: [practitionerId],
+      allowedPractitionerLineageKeys: [practitionerId],
       createdAt: now,
       duration: 20,
       lastModified: now,
@@ -298,7 +298,7 @@ async function createBookingEntities(t: TestContext) {
       ctx.db,
       "appointmentTypes",
       {
-        allowedPractitionerIds: [practitionerId],
+        allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
         lastModified: now,
@@ -1691,7 +1691,7 @@ describe("bookingSessions slot selection validation", () => {
         ctx.db,
         "appointmentTypes",
         {
-          allowedPractitionerIds: [practitionerId],
+          allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
           lastModified: now,

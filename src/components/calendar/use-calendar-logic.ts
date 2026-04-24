@@ -8,6 +8,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 
 import { api } from "../../../convex/_generated/api";
+import { asPractitionerLineageKey } from "../../../convex/identity";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   getPractitionerAvailabilityRangesForDate,
@@ -495,14 +496,17 @@ export function useCalendarLogic({
         return new Set<Id<"practitioners">>();
       }
 
-      const allowedPractitionerIds = new Set(
+      const allowedPractitionerLineageKeys = new Set(
         appointmentTypeInfoByLineageKey.get(appointmentTypeLineageKey)
           ?.allowedPractitionerLineageKeys,
       );
 
       return new Set(
         [...practitionerLineageKeys].filter(
-          (practitionerId) => !allowedPractitionerIds.has(practitionerId),
+          (practitionerId) =>
+            !allowedPractitionerLineageKeys.has(
+              asPractitionerLineageKey(practitionerId),
+            ),
         ),
       );
     },

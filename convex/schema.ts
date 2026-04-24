@@ -467,7 +467,7 @@ export default defineSchema({
   // ================================================================
 
   appointmentTypes: defineTable({
-    allowedPractitionerIds: v.array(v.id("practitioners")), // Required: at least one practitioner
+    allowedPractitionerLineageKeys: v.array(v.id("practitioners")), // Required: at least one practitioner
     createdAt: v.int64(),
     deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
