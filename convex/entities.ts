@@ -2030,10 +2030,14 @@ export const deleteLocation = mutation({
     // Delete associated base schedules (using the location ID from unsaved rule set)
     const schedules = await ctx.db
       .query("baseSchedules")
-      .withIndex("by_locationLineageKey", (q) =>
-        q.eq("locationLineageKey", requireLocationLineageKey(location)),
-      )
-      .collect();
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", location.ruleSetId))
+      .collect()
+      .then((records) =>
+        records.filter(
+          (schedule) =>
+            schedule.locationLineageKey === requireLocationLineageKey(location),
+        ),
+      );
 
     // SAFETY: Verify all schedules belong to unsaved rule set before deleting
     for (const schedule of schedules) {

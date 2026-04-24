@@ -1240,21 +1240,13 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       practiceId: args.practiceId,
       ruleSetId,
     });
-    const practitioners = await ctx.db
-      .query("practitioners")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
-    const ruleSetLocations = await ctx.db
-      .query("locations")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-    const displayReferenceMaps = buildSchedulingDisplayReferences({
-      locations: ruleSetLocations.filter(
-        (location) => location.practiceId === args.practiceId,
-      ),
-      practiceId: args.practiceId,
-      practitioners,
-    });
+    const displayReferenceMaps = await loadSchedulingDisplayReferenceMaps(
+      ctx.db,
+      {
+        practiceId: args.practiceId,
+        ruleSetId,
+      },
+    );
 
     // NOTE: We intentionally do NOT mark manually blocked slots here.
     // Manual blocks are handled separately by the frontend's manualBlockedSlots useMemo
@@ -1289,7 +1281,10 @@ export const getBlockedSlotsWithoutAppointmentType = query({
       args.practiceId,
       dayStr,
       ruleSetId,
-      practitioners,
+      await ctx.db
+        .query("practitioners")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect(),
     );
 
     for (const slot of candidateSlots) {

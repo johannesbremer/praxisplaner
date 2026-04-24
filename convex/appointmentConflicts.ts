@@ -257,7 +257,11 @@ function overlapsCalendarOccupancyCandidate(
     return false;
   }
 
-  if (existing.practitionerKey !== candidate.practitionerLineageKey) {
+  if (
+    existing.practitionerKey !== undefined &&
+    candidate.practitionerLineageKey !== undefined &&
+    existing.practitionerKey !== candidate.practitionerLineageKey
+  ) {
     return false;
   }
 

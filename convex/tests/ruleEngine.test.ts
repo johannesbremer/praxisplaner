@@ -3490,6 +3490,100 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(result.dates).toEqual(["2025-10-20"]);
   });
 
+  test("appointment-type-independent blocked slots use practitioners from the requested rule set", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const baseRuleSetId = await createRuleSet(t, practiceId, true);
+    const targetRuleSetId = await createRuleSet(t, practiceId, true);
+    const foreignRuleSetId = await createRuleSet(t, practiceId, true);
+
+    const basePractitionerId = await createPractitioner(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Dr. Base",
+    );
+    const baseLocationId = await createLocation(
+      t,
+      practiceId,
+      baseRuleSetId,
+      "Base Office",
+    );
+
+    const targetIds = await t.run(async (ctx) => {
+      const targetPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: basePractitionerId,
+          name: "Dr. Target",
+          practiceId,
+          ruleSetId: targetRuleSetId,
+          tags: ["tagged"],
+        },
+      );
+      const targetLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseLocationId,
+          name: "Target Office",
+          practiceId,
+          ruleSetId: targetRuleSetId,
+        },
+      );
+
+      return { targetLocationId, targetPractitionerId };
+    });
+
+    await t.run(async (ctx) => {
+      await insertSelfLineageEntity(ctx.db, "practitioners", {
+        lineageKey: basePractitionerId,
+        name: "Dr. Foreign",
+        practiceId,
+        ruleSetId: foreignRuleSetId,
+      });
+    });
+
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      targetRuleSetId,
+      targetIds.targetPractitionerId,
+      targetIds.targetLocationId,
+      1,
+      "09:00",
+      "12:00",
+    );
+
+    await createRule(t, practiceId, targetRuleSetId, {
+      conditionType: "PRACTITIONER_TAG" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
+      valueIds: ["tagged"],
+    });
+
+    const blockedSlots = await t.query(
+      api.scheduling.getBlockedSlotsWithoutAppointmentType,
+      {
+        date: "2025-10-27",
+        locationId: targetIds.targetLocationId,
+        practiceId,
+        ruleSetId: targetRuleSetId,
+      },
+    );
+
+    expect(blockedSlots.slots.length).toBeGreaterThan(0);
+    expect(
+      blockedSlots.slots.some(
+        (slot) =>
+          slot.practitionerId === targetIds.targetPractitionerId &&
+          slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+      ),
+    ).toBe(true);
+  });
+
   test("Compound AND rule blocks slots only when both conditions match", async () => {
     const t = createTestContext();
 

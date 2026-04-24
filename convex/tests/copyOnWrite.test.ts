@@ -1782,6 +1782,97 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     );
   });
 
+  test("deleteLocation ignores schedules from saved rule sets with the same lineage", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Delete Location Schedule Scope Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const seeded = await t.run(async (ctx) => {
+      const practitionerId = await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Location Delete",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+      const locationId = await insertWithLineage(ctx, "locations", {
+        name: "Delete Me",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+
+      await insertWithLineage(ctx, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "17:00",
+        locationLineageKey: locationId,
+        practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: initialRuleSetId,
+        startTime: "08:00",
+      });
+
+      const savedRuleSet = await ctx.db.get("ruleSets", initialRuleSetId);
+      if (!savedRuleSet) {
+        throw new Error("Initial rule set not found");
+      }
+
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft for location deletion",
+        draftRevision: 0,
+        parentVersion: initialRuleSetId,
+        practiceId,
+        saved: false,
+        version: savedRuleSet.version + 1,
+      });
+
+      await insertWithLineage(
+        ctx,
+        "locations",
+        {
+          name: "Delete Me",
+          parentId: locationId,
+          practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+        locationId,
+      );
+
+      return { draftRuleSetId, locationId };
+    });
+
+    const deleteResult = await t.mutation(api.entities.deleteLocation, {
+      expectedDraftRevision: 0,
+      locationId: seeded.locationId,
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const state = await t.run(async (ctx) => {
+      const draftLocation = await ctx.db.get(
+        "locations",
+        deleteResult.entityId,
+      );
+      const savedSchedules = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", initialRuleSetId))
+        .collect();
+      const draftSchedules = await ctx.db
+        .query("baseSchedules")
+        .withIndex("by_ruleSetId", (q) =>
+          q.eq("ruleSetId", seeded.draftRuleSetId),
+        )
+        .collect();
+
+      return { draftLocation, draftSchedules, savedSchedules };
+    });
+
+    expect(state.draftLocation?.deleted).toBe(true);
+    expect(state.savedSchedules).toHaveLength(1);
+    expect(state.draftSchedules).toHaveLength(0);
+  });
+
   test("should expose stable practitioner lineageKey across deep rule-set lineage", async () => {
     const t = createAuthedTestContext();
 
