@@ -17,6 +17,8 @@ import { TIMEZONE } from "./use-calendar-logic-helpers";
 
 export type ActiveResizeDraft =
   | {
+      column: CalendarColumnId;
+      commitAppointmentId: Id<"appointments">;
       entityId: string;
       kind: "appointment";
       originalDuration: number;
@@ -25,6 +27,8 @@ export type ActiveResizeDraft =
       startSlot: number;
     }
   | {
+      column: CalendarColumnId;
+      commitBlockedSlotId: Id<"blockedSlots">;
       entityId: string;
       kind: "blockedSlot";
       originalDuration: number;
@@ -280,22 +284,23 @@ export function useCalendarInteractions({
     }
 
     if (resizeDraft.kind === "appointment") {
-      const appointment = appointmentsRef.current.find(
-        (entry) => entry.id === resizeDraft.entityId,
-      );
+      const appointmentVisibleId = String(resizeDraft.commitAppointmentId);
+      const collisionExcludeId = appointmentsRef.current.some(
+        (entry) => entry.id === appointmentVisibleId,
+      )
+        ? appointmentVisibleId
+        : resizeDraft.entityId;
       if (
-        !appointment ||
         checkCollisionRef.current(
-          appointment.column,
+          resizeDraft.column,
           resizeDraft.startSlot,
           resizeDraft.previewDuration,
-          resizeDraft.entityId,
-        ) ||
-        !appointment.convexId
+          collisionExcludeId,
+        )
       ) {
         return;
       }
-      const appointmentId = appointment.convexId;
+      const appointmentId = resizeDraft.commitAppointmentId;
 
       void (async () => {
         try {
@@ -323,26 +328,20 @@ export function useCalendarInteractions({
       return;
     }
 
-    const blockedSlot = manualBlockedSlotsRef.current.find(
-      (entry) => entry.id === resizeDraft.entityId,
-    );
+    const blockedSlotVisibleId = String(resizeDraft.commitBlockedSlotId);
+    const collisionExcludeId = manualBlockedSlotsRef.current.some(
+      (entry) => entry.id === blockedSlotVisibleId,
+    )
+      ? blockedSlotVisibleId
+      : resizeDraft.entityId;
     if (
-      !blockedSlot ||
       checkCollisionRef.current(
-        blockedSlot.column,
+        resizeDraft.column,
         resizeDraft.startSlot,
         resizeDraft.previewDuration,
-        resizeDraft.entityId,
+        collisionExcludeId,
       )
     ) {
-      return;
-    }
-
-    const blockedSlotDoc =
-      blockedSlot.id === undefined
-        ? undefined
-        : blockedSlotDocMapRef.current.get(blockedSlot.id);
-    if (!blockedSlotDoc) {
       return;
     }
 
@@ -359,7 +358,7 @@ export function useCalendarInteractions({
         });
         await runUpdateBlockedSlotRef.current({
           end: endZoned.toString(),
-          id: blockedSlotDoc._id,
+          id: resizeDraft.commitBlockedSlotId,
           ...(simulatedContextRef.current ? { isSimulation: true } : {}),
         });
       } catch (error) {
@@ -372,7 +371,7 @@ export function useCalendarInteractions({
         );
       }
     })();
-  }, [blockedSlotDocMapRef, clearResizeListeners, setResizeDraft]);
+  }, [clearResizeListeners, setResizeDraft]);
 
   const ensureResizeListeners = useCallback(() => {
     if (detachResizeListenersRef.current) {
@@ -410,10 +409,16 @@ export function useCalendarInteractions({
         return;
       }
 
-      const startResizing = (entityId: string) => {
+      const startResizing = (args: {
+        column: CalendarColumnId;
+        commitAppointmentId: Id<"appointments">;
+        entityId: string;
+      }) => {
         ensureResizeListeners();
         setResizeDraft({
-          entityId,
+          column: args.column,
+          commitAppointmentId: args.commitAppointmentId,
+          entityId: args.entityId,
           kind: "appointment",
           originalDuration: currentDuration,
           previewDuration: currentDuration,
@@ -448,8 +453,12 @@ export function useCalendarInteractions({
                   startISO: startZoned.toString(),
                 },
               );
-            if (converted) {
-              startResizing(converted.id);
+            if (converted?.convexId) {
+              startResizing({
+                column: targetAppointment.column,
+                commitAppointmentId: converted.convexId,
+                entityId: targetAppointment.id,
+              });
             }
           } catch (error) {
             captureErrorGlobal(error, {
@@ -462,7 +471,15 @@ export function useCalendarInteractions({
         return;
       }
 
-      startResizing(appointmentId);
+      if (!targetAppointment.convexId) {
+        return;
+      }
+
+      startResizing({
+        column: targetAppointment.column,
+        commitAppointmentId: targetAppointment.convexId,
+        entityId: appointmentId,
+      });
     },
     [ensureResizeListeners, setResizeDraft],
   );
@@ -476,10 +493,15 @@ export function useCalendarInteractions({
       event.preventDefault();
       event.stopPropagation();
 
-      const startResizing = (entityId: string, fallbackStartISO?: string) => {
+      const startResizing = (args: {
+        column: CalendarColumnId;
+        commitBlockedSlotId: Id<"blockedSlots">;
+        entityId: string;
+        fallbackStartISO?: string;
+      }) => {
         const startSlot = resolveBlockedSlotStartSlot(
-          entityId,
-          fallbackStartISO,
+          args.entityId,
+          args.fallbackStartISO,
         );
         if (startSlot === null) {
           toast.error(
@@ -490,7 +512,9 @@ export function useCalendarInteractions({
 
         ensureResizeListeners();
         setResizeDraft({
-          entityId,
+          column: args.column,
+          commitBlockedSlotId: args.commitBlockedSlotId,
+          entityId: args.entityId,
           kind: "blockedSlot",
           originalDuration: currentDuration,
           previewDuration: currentDuration,
@@ -533,7 +557,19 @@ export function useCalendarInteractions({
                 },
               );
             if (convertedId) {
-              startResizing(convertedId, blockedSlotDoc.start);
+              const manualBlockedSlot = manualBlockedSlotsRef.current.find(
+                (slot) => slot.id === blockedSlotId,
+              );
+              const column =
+                manualBlockedSlot?.column ??
+                blockedSlotDoc.practitionerLineageKey ??
+                "ekg";
+              startResizing({
+                column,
+                commitBlockedSlotId: convertedId,
+                entityId: blockedSlotId,
+                fallbackStartISO: blockedSlotDoc.start,
+              });
             }
           } catch (error) {
             captureErrorGlobal(error, {
@@ -548,7 +584,18 @@ export function useCalendarInteractions({
         return;
       }
 
-      startResizing(blockedSlotId);
+      const manualBlockedSlot = manualBlockedSlotsRef.current.find(
+        (slot) => slot.id === blockedSlotId,
+      );
+      if (!manualBlockedSlot || !blockedSlotDoc) {
+        return;
+      }
+
+      startResizing({
+        column: manualBlockedSlot.column,
+        commitBlockedSlotId: blockedSlotDoc._id,
+        entityId: blockedSlotId,
+      });
     },
     [
       blockedSlotDocMapRef,
@@ -565,7 +612,8 @@ export function useCalendarInteractions({
     }
 
     return baseAppointments.map((appointment) =>
-      appointment.id === activeResizeDraft.entityId
+      appointment.id === activeResizeDraft.entityId ||
+      appointment.id === String(activeResizeDraft.commitAppointmentId)
         ? {
             ...appointment,
             duration: activeResizeDraft.previewDuration,
@@ -580,7 +628,8 @@ export function useCalendarInteractions({
     }
 
     return baseManualBlockedSlots.map((blockedSlot) =>
-      blockedSlot.id === activeResizeDraft.entityId
+      blockedSlot.id === activeResizeDraft.entityId ||
+      blockedSlot.id === String(activeResizeDraft.commitBlockedSlotId)
         ? {
             ...blockedSlot,
             duration: activeResizeDraft.previewDuration,

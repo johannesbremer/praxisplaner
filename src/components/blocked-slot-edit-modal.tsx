@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import * as z from "zod";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { BlockedSlotResult } from "@/convex/appointments";
+import type { CalendarBlockedSlotEditorRecord } from "@/src/components/calendar/types";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +60,7 @@ interface BlockedSlotEditModalProps {
     isSimulation?: boolean;
     title: string;
   }) => Promise<null | undefined>;
-  slotData: BlockedSlotResult;
+  slotData: CalendarBlockedSlotEditorRecord;
   slotIsSimulation?: boolean;
 }
 

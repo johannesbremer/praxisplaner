@@ -1,4 +1,8 @@
 import type { Id } from "../../../convex/_generated/dataModel";
+import type {
+  CalendarBlockedSlotEditorRecord,
+  CalendarBlockedSlotRecord,
+} from "./types";
 
 export interface CalendarReferenceMaps {
   appointmentTypeIdByLineageKey: ReadonlyMap<
@@ -148,5 +152,34 @@ export function resolveBlockedSlotLineageRefs(
   return {
     locationLineageKey,
     ...(practitionerLineageKey === undefined ? {} : { practitionerLineageKey }),
+  };
+}
+
+export function toBlockedSlotEditorRecord(
+  blockedSlot: CalendarBlockedSlotRecord,
+  maps: CalendarReferenceMaps,
+): CalendarBlockedSlotEditorRecord | null {
+  const displayRefs = resolveBlockedSlotDisplayRefs(
+    {
+      locationLineageKey: blockedSlot.locationLineageKey,
+      ...(blockedSlot.practitionerLineageKey === undefined
+        ? {}
+        : { practitionerLineageKey: blockedSlot.practitionerLineageKey }),
+    },
+    maps,
+  );
+  if (!displayRefs) {
+    return null;
+  }
+
+  return {
+    end: blockedSlot.end,
+    locationId: displayRefs.locationId,
+    practiceId: blockedSlot.practiceId,
+    ...(displayRefs.practitionerId === undefined
+      ? {}
+      : { practitionerId: displayRefs.practitionerId }),
+    start: blockedSlot.start,
+    title: blockedSlot.title,
   };
 }

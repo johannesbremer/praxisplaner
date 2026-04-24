@@ -103,6 +103,22 @@ export function toCalendarAppointmentRecord(
   return record;
 }
 
+export function toCalendarAppointmentResult(args: {
+  appointmentTypeId: AppointmentResult["appointmentTypeId"];
+  locationId: AppointmentResult["locationId"];
+  practitionerId?: AppointmentResult["practitionerId"];
+  record: CalendarAppointmentRecord;
+}): AppointmentResult {
+  return {
+    ...args.record,
+    appointmentTypeId: args.appointmentTypeId,
+    locationId: args.locationId,
+    ...(args.practitionerId === undefined
+      ? {}
+      : { practitionerId: args.practitionerId }),
+  };
+}
+
 export function toCalendarBlockedSlotRecord(
   blockedSlot: BlockedSlotResult,
 ): CalendarBlockedSlotRecord {
@@ -114,4 +130,18 @@ export function toCalendarBlockedSlotRecord(
   void _locationId;
   void _practitionerId;
   return record;
+}
+
+export function toCalendarBlockedSlotResult(args: {
+  locationId: BlockedSlotResult["locationId"];
+  practitionerId?: BlockedSlotResult["practitionerId"];
+  record: CalendarBlockedSlotRecord;
+}): BlockedSlotResult {
+  return {
+    ...args.record,
+    locationId: args.locationId,
+    ...(args.practitionerId === undefined
+      ? {}
+      : { practitionerId: args.practitionerId }),
+  };
 }

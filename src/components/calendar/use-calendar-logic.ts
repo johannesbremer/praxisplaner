@@ -5,20 +5,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
-import type {
-  AppointmentResult,
-  BlockedSlotResult,
-} from "../../../convex/appointments";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
-import type {
-  Appointment,
-  CalendarAppointmentRecord,
-  CalendarBlockedSlotRecord,
-  CalendarColumn,
-  CalendarColumnId,
-  NewCalendarProps,
-  WorkingPractitioner,
-} from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
@@ -55,8 +42,23 @@ import {
   resolveAppointmentLineageRefs,
   resolveBlockedSlotDisplayRefs,
   resolveBlockedSlotLineageRefs,
+  toBlockedSlotEditorRecord,
 } from "./calendar-reference-adapters";
-import { SLOT_DURATION } from "./types";
+import {
+  toCalendarAppointmentResult,
+  toCalendarBlockedSlotResult,
+} from "./calendar-view-models";
+import {
+  type Appointment,
+  type CalendarAppointmentRecord,
+  type CalendarBlockedSlotEditorRecord,
+  type CalendarBlockedSlotRecord,
+  type CalendarColumn,
+  type CalendarColumnId,
+  type NewCalendarProps,
+  SLOT_DURATION,
+  type WorkingPractitioner,
+} from "./types";
 import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
 import { useCalendarData } from "./use-calendar-data";
 import { useCalendarDevtools } from "./use-calendar-devtools";
@@ -154,7 +156,6 @@ export function useCalendarLogic({
     appointmentTypeMap,
     baseSchedulesData,
     blockedSlotDocMapRef,
-    blockedSlotResultsData,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
@@ -337,12 +338,6 @@ export function useCalendarLogic({
     ],
   );
 
-  const getAppointmentTypeLineageKeyForDisplayId = useCallback(
-    (appointmentTypeId: Id<"appointmentTypes">) =>
-      appointmentTypeLineageKeyById.get(appointmentTypeId),
-    [appointmentTypeLineageKeyById],
-  );
-
   const getAppointmentTypeIdForLineageKey = useCallback(
     (appointmentTypeLineageKey: Id<"appointmentTypes">) =>
       appointmentTypeIdByLineageKey.get(appointmentTypeLineageKey),
@@ -404,6 +399,52 @@ export function useCalendarLogic({
       practitionerLineageKey?: Id<"practitioners">;
     }) => resolveBlockedSlotDisplayRefs(args, referenceMaps),
     [referenceMaps],
+  );
+
+  const getBlockedSlotEditorData = useCallback(
+    (
+      blockedSlotId: string,
+    ): null | {
+      blockedSlotId: Id<"blockedSlots">;
+      currentTitle: string;
+      slotData: CalendarBlockedSlotEditorRecord;
+      slotIsSimulation: boolean;
+    } => {
+      const resolvedBlockedSlotId = findIdInList(
+        [
+          ...blockedSlotHistoryDocMapRef.current.keys(),
+          ...blockedSlotDocMapRef.current.keys(),
+          ...allPracticeBlockedSlotDocMapRef.current.keys(),
+        ],
+        blockedSlotId,
+      );
+      if (!resolvedBlockedSlotId) {
+        return null;
+      }
+
+      const blockedSlot = getBlockedSlotHistoryDoc(resolvedBlockedSlotId);
+      if (!blockedSlot) {
+        return null;
+      }
+
+      const slotData = toBlockedSlotEditorRecord(blockedSlot, referenceMaps);
+      if (!slotData) {
+        return null;
+      }
+
+      return {
+        blockedSlotId: resolvedBlockedSlotId,
+        currentTitle: blockedSlot.title,
+        slotData,
+        slotIsSimulation: blockedSlot.isSimulation ?? false,
+      };
+    },
+    [
+      allPracticeBlockedSlotDocMapRef,
+      blockedSlotDocMapRef,
+      getBlockedSlotHistoryDoc,
+      referenceMaps,
+    ],
   );
 
   const placementAppointmentTypeId =
@@ -708,25 +749,14 @@ export function useCalendarLogic({
           if (!appointmentTypeInfo) {
             return;
           }
-          const appointmentTypeLineageKey =
-            getAppointmentTypeLineageKeyForDisplayId(
-              optimisticArgs.appointmentTypeId,
-            );
-          const locationLineageKey = getLocationLineageKeyForDisplayId(
-            optimisticArgs.locationId,
-          );
-          const practitionerLineageKey =
-            optimisticArgs.practitionerId === undefined
-              ? undefined
-              : getPractitionerLineageKeyForDisplayId(
-                  optimisticArgs.practitionerId,
-                );
-          if (
-            appointmentTypeLineageKey === undefined ||
-            locationLineageKey === undefined ||
-            (optimisticArgs.practitionerId !== undefined &&
-              practitionerLineageKey === undefined)
-          ) {
+          const lineageRefs = resolveAppointmentReferenceLineageKeys({
+            appointmentTypeId: optimisticArgs.appointmentTypeId,
+            locationId: optimisticArgs.locationId,
+            ...(optimisticArgs.practitionerId === undefined
+              ? {}
+              : { practitionerId: optimisticArgs.practitionerId }),
+          });
+          if (!lineageRefs) {
             return;
           }
           const optimisticEnd = getAppointmentCreationEnd({
@@ -745,18 +775,16 @@ export function useCalendarLogic({
             return;
           }
 
-          const newAppointment: AppointmentResult = {
+          const newAppointmentRecord: CalendarAppointmentRecord = {
             _creationTime: now,
             _id: tempId,
-            appointmentTypeId: optimisticArgs.appointmentTypeId,
-            appointmentTypeLineageKey,
+            appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
-            locationId: optimisticArgs.locationId,
-            locationLineageKey,
+            locationLineageKey: lineageRefs.locationLineageKey,
             practiceId: optimisticArgs.practiceId,
             start: typedStart,
             title: optimisticArgs.title,
@@ -764,24 +792,32 @@ export function useCalendarLogic({
 
           if (
             optimisticArgs.practitionerId !== undefined &&
-            practitionerLineageKey !== undefined
+            lineageRefs.practitionerLineageKey !== undefined
           ) {
-            newAppointment.practitionerId = optimisticArgs.practitionerId;
-            newAppointment.practitionerLineageKey = practitionerLineageKey;
+            newAppointmentRecord.practitionerLineageKey =
+              lineageRefs.practitionerLineageKey;
           }
 
           if (optimisticArgs.patientId !== undefined) {
-            newAppointment.patientId = optimisticArgs.patientId;
+            newAppointmentRecord.patientId = optimisticArgs.patientId;
           }
 
           if (optimisticArgs.userId !== undefined) {
-            newAppointment.userId = optimisticArgs.userId;
+            newAppointmentRecord.userId = optimisticArgs.userId;
           }
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
-            newAppointment.replacesAppointmentId =
+            newAppointmentRecord.replacesAppointmentId =
               optimisticArgs.replacesAppointmentId;
           }
+          const newAppointment = toCalendarAppointmentResult({
+            appointmentTypeId: optimisticArgs.appointmentTypeId,
+            locationId: optimisticArgs.locationId,
+            ...(optimisticArgs.practitionerId === undefined
+              ? {}
+              : { practitionerId: optimisticArgs.practitionerId }),
+            record: newAppointmentRecord,
+          });
 
           const shouldCollapseReplacement =
             optimisticArgs.replacesAppointmentId !== undefined &&
@@ -814,12 +850,10 @@ export function useCalendarLogic({
       appointmentQueryRef,
       calendarDayQueryArgs,
       createAppointmentMutation,
-      getAppointmentTypeLineageKeyForDisplayId,
       getAppointmentCreationEnd,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
       getRequiredAppointmentTypeInfo,
       parseZonedDateTime,
+      resolveAppointmentReferenceLineageKeys,
     ],
   );
 
@@ -868,8 +902,9 @@ export function useCalendarLogic({
           return appointment;
         }
 
-        const timeUpdates: Partial<Pick<AppointmentResult, "end" | "start">> =
-          {};
+        const timeUpdates: Partial<
+          Pick<CalendarAppointmentRecord, "end" | "start">
+        > = {};
         if (nextStart !== undefined && nextStart !== null) {
           timeUpdates.start = nextStart;
         }
@@ -1012,32 +1047,24 @@ export function useCalendarLogic({
 
           const now = Date.now();
           const tempId = createOptimisticId<"blockedSlots">();
-          const locationLineageKey = getLocationLineageKeyForDisplayId(
-            optimisticArgs.locationId,
-          );
-          const practitionerLineageKey =
-            optimisticArgs.practitionerId === undefined
-              ? undefined
-              : getPractitionerLineageKeyForDisplayId(
-                  optimisticArgs.practitionerId,
-                );
-          if (
-            locationLineageKey === undefined ||
-            (optimisticArgs.practitionerId !== undefined &&
-              practitionerLineageKey === undefined)
-          ) {
+          const lineageRefs = resolveBlockedSlotReferenceLineageKeys({
+            locationId: optimisticArgs.locationId,
+            ...(optimisticArgs.practitionerId === undefined
+              ? {}
+              : { practitionerId: optimisticArgs.practitionerId }),
+          });
+          if (!lineageRefs) {
             return;
           }
 
-          const newBlockedSlot: BlockedSlotResult = {
+          const newBlockedSlotRecord: CalendarBlockedSlotRecord = {
             _creationTime: now,
             _id: tempId,
             createdAt: BigInt(now),
             end: optimisticArgs.end,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
-            locationId: optimisticArgs.locationId,
-            locationLineageKey,
+            locationLineageKey: lineageRefs.locationLineageKey,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
             title: optimisticArgs.title,
@@ -1045,16 +1072,23 @@ export function useCalendarLogic({
 
           if (
             optimisticArgs.practitionerId !== undefined &&
-            practitionerLineageKey !== undefined
+            lineageRefs.practitionerLineageKey !== undefined
           ) {
-            newBlockedSlot.practitionerId = optimisticArgs.practitionerId;
-            newBlockedSlot.practitionerLineageKey = practitionerLineageKey;
+            newBlockedSlotRecord.practitionerLineageKey =
+              lineageRefs.practitionerLineageKey;
           }
 
           if (optimisticArgs.replacesBlockedSlotId !== undefined) {
-            newBlockedSlot.replacesBlockedSlotId =
+            newBlockedSlotRecord.replacesBlockedSlotId =
               optimisticArgs.replacesBlockedSlotId;
           }
+          const newBlockedSlot = toCalendarBlockedSlotResult({
+            locationId: optimisticArgs.locationId,
+            ...(optimisticArgs.practitionerId === undefined
+              ? {}
+              : { practitionerId: optimisticArgs.practitionerId }),
+            record: newBlockedSlotRecord,
+          });
 
           const shouldCollapseReplacement =
             optimisticArgs.replacesBlockedSlotId !== undefined &&
@@ -1087,8 +1121,7 @@ export function useCalendarLogic({
       blockedSlotQueryRef,
       createBlockedSlotMutation,
       blockedSlotsQueryArgs,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
+      resolveBlockedSlotReferenceLineageKeys,
     ],
   );
 
@@ -1427,11 +1460,11 @@ export function useCalendarLogic({
       const candidatePayload = (
         state: typeof beforeState,
       ): {
-        end: AppointmentResult["end"];
+        end: CalendarAppointmentRecord["end"];
         isSimulation: boolean;
         locationLineageKey: Id<"locations">;
         practitionerLineageKey?: Id<"practitioners">;
-        start: AppointmentResult["start"];
+        start: CalendarAppointmentRecord["start"];
       } => ({
         end: state.end,
         isSimulation: before.isSimulation ?? false,
@@ -4098,7 +4131,6 @@ export function useCalendarLogic({
   return {
     addAppointment,
     appointments,
-    blockedSlotResultsData,
     blockedSlots: allBlockedSlots,
     blockedSlotWarning,
     businessEndHour,
@@ -4109,6 +4141,7 @@ export function useCalendarLogic({
     draggedAppointment,
     draggedBlockedSlotId,
     dragPreview,
+    getBlockedSlotEditorData,
     getPractitionerIdForColumn,
     handleBlockedSlotDragEnd,
     handleBlockedSlotDragStart,

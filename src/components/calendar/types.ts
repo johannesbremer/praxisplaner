@@ -43,6 +43,15 @@ export interface CalendarAppointmentResource {
   userId?: AppointmentResult["userId"];
 }
 
+export interface CalendarBlockedSlotEditorRecord {
+  end: CalendarBlockedSlotRecord["end"];
+  locationId: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerId?: Id<"practitioners">;
+  start: CalendarBlockedSlotRecord["start"];
+  title: string;
+}
+
 export type CalendarBlockedSlotRecord = Omit<
   BlockedSlotResult,
   "locationId" | "practitionerId"

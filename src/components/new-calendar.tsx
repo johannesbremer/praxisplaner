@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { BlockedSlotResult } from "@/convex/appointments";
 import type { PatientInfo, PracticePatientSelection } from "@/src/types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -18,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 
 import type {
   Appointment,
+  CalendarBlockedSlotEditorRecord,
   CalendarColumnId,
   NewCalendarProps,
 } from "./calendar/types";
@@ -236,14 +236,13 @@ export function NewCalendar({
   const [blockedSlotEditData, setBlockedSlotEditData] = useState<null | {
     blockedSlotId: Id<"blockedSlots">;
     currentTitle: string;
-    slotData: BlockedSlotResult;
+    slotData: CalendarBlockedSlotEditorRecord;
     slotIsSimulation: boolean;
   }>(null);
 
   const {
     addAppointment,
     appointments,
-    blockedSlotResultsData,
     blockedSlots,
     blockedSlotWarning,
     // businessEndHour,
@@ -254,6 +253,7 @@ export function NewCalendar({
     draggedAppointment,
     draggedBlockedSlotId,
     dragPreview,
+    getBlockedSlotEditorData,
     getPractitionerIdForColumn,
     handleBlockedSlotDragEnd,
     handleBlockedSlotDragStart,
@@ -369,24 +369,16 @@ export function NewCalendar({
         return;
       }
 
-      // Find the blocked slot to get its current title
-      const blockedSlot = blockedSlotResultsData?.find(
-        (slot) => slot._id === blockedSlotId,
-      );
+      const blockedSlot = getBlockedSlotEditorData(blockedSlotId);
       if (!blockedSlot) {
         toast.error("Gesperrter Slot nicht gefunden");
         return;
       }
 
-      setBlockedSlotEditData({
-        blockedSlotId: blockedSlot._id,
-        currentTitle: blockedSlot.title,
-        slotData: blockedSlot,
-        slotIsSimulation: blockedSlot.isSimulation ?? false,
-      });
+      setBlockedSlotEditData(blockedSlot);
       setBlockedSlotEditModalOpen(true);
     },
-    [blockedSlotResultsData, handleEditBlockedSlotInternal],
+    [getBlockedSlotEditorData, handleEditBlockedSlotInternal],
   );
 
   const handleAppointmentTypeSelect = (
