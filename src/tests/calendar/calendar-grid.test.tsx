@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { regex } from "@/lib/arkregex";
 
-import type { Appointment } from "../../../src/components/calendar/types";
+import type { CalendarAppointmentView } from "../../../src/components/calendar/types";
 
 import { toTableId } from "../../../convex/identity";
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
@@ -14,7 +14,7 @@ describe("CalendarGrid", () => {
   const practitioner1 = toTableId<"practitioners">("practitioner_1");
   const practitioner2 = toTableId<"practitioners">("practitioner_2");
 
-  const mockAppointments: Appointment[] = [
+  const mockAppointments: CalendarAppointmentView[] = [
     {
       color: "bg-blue-500",
       column: practitioner1,
@@ -450,7 +450,7 @@ describe("CalendarGrid", () => {
 
   describe("Filtering and Display", () => {
     test("only shows appointments in correct columns", () => {
-      const mixedAppointments: Appointment[] = [
+      const mixedAppointments: CalendarAppointmentView[] = [
         {
           color: "bg-blue-500",
           column: practitioner1,
@@ -490,7 +490,7 @@ describe("CalendarGrid", () => {
     });
 
     test("handles appointments with overlapping times", () => {
-      const overlappingAppointments: Appointment[] = [
+      const overlappingAppointments: CalendarAppointmentView[] = [
         {
           color: "bg-blue-500",
           column: practitioner1,

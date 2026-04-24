@@ -3,7 +3,11 @@ import type React from "react";
 import { Plus } from "lucide-react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { Appointment, CalendarColumn, CalendarColumnId } from "./types";
+import type {
+  CalendarAppointmentView,
+  CalendarColumn,
+  CalendarColumnId,
+} from "./types";
 
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
@@ -22,11 +26,11 @@ interface BlockedSlot {
 }
 
 interface CalendarGridProps {
-  appointments: Appointment[];
+  appointments: CalendarAppointmentView[];
   blockedSlots?: BlockedSlot[];
   columns: CalendarColumn[];
   currentTimeSlot: number;
-  draggedAppointment: Appointment | null;
+  draggedAppointment: CalendarAppointmentView | null;
   draggedBlockedSlotId?: null | string;
   dragPreview: {
     column: CalendarColumnId | null;
@@ -37,14 +41,17 @@ interface CalendarGridProps {
   onAddAppointment: (column: CalendarColumnId, slot: number) => void;
   onBlockedSlotDragEnd?: () => void;
   onBlockSlot?: (column: CalendarColumnId, slot: number) => void;
-  onDeleteAppointment: (appointment: Appointment) => void;
+  onDeleteAppointment: (appointment: CalendarAppointmentView) => void;
   onDeleteBlockedSlot?: (id: string) => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent, column: CalendarColumnId) => void;
-  onDragStart: (e: React.DragEvent, appointment: Appointment) => void;
+  onDragStart: (
+    e: React.DragEvent,
+    appointment: CalendarAppointmentView,
+  ) => void;
   onDragStartBlockedSlot?: (e: React.DragEvent, id: string) => void;
   onDrop: (e: React.DragEvent, column: CalendarColumnId) => Promise<void>;
-  onEditAppointment: (appointment: Appointment) => void;
+  onEditAppointment: (appointment: CalendarAppointmentView) => void;
   onEditBlockedSlot?: (id: string) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -56,7 +63,7 @@ interface CalendarGridProps {
     id: string,
     currentDuration: number,
   ) => void;
-  onSelectAppointment?: (appointment: Appointment) => void;
+  onSelectAppointment?: (appointment: CalendarAppointmentView) => void;
   selectedAppointmentId?: Id<"appointments"> | null;
   selectedPatientId?: Id<"patients"> | null;
   selectedSeriesId?: null | string;

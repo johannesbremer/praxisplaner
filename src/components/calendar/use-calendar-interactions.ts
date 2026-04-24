@@ -6,7 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
-  Appointment,
+  CalendarAppointmentView,
   CalendarBlockedSlotRecord,
   CalendarColumnId,
 } from "./types";
@@ -73,7 +73,7 @@ export function useCalendarInteractions({
   slotToTime,
   timeToSlot,
 }: {
-  baseAppointments: Appointment[];
+  baseAppointments: CalendarAppointmentView[];
   baseManualBlockedSlots: CalendarManualBlockedSlot[];
   blockedSlotDocMapRef: RefObject<Map<string, BlockedSlotRecord>>;
   checkCollision: (
@@ -83,13 +83,13 @@ export function useCalendarInteractions({
     excludeId?: string,
   ) => boolean;
   convertRealAppointmentToSimulation: (
-    appointment: Appointment,
+    appointment: CalendarAppointmentView,
     options: {
       durationMinutes?: number;
       endISO?: string;
       startISO?: string;
     },
-  ) => Promise<Appointment | null>;
+  ) => Promise<CalendarAppointmentView | null>;
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
     options: {

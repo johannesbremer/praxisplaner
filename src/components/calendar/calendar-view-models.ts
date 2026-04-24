@@ -3,8 +3,8 @@ import type {
   BlockedSlotResult,
 } from "../../../convex/appointments";
 import type {
-  Appointment,
   CalendarAppointmentRecord,
+  CalendarAppointmentView,
   CalendarBlockedSlotRecord,
 } from "./types";
 
@@ -21,9 +21,9 @@ export function buildCalendarAppointments(args: {
     | null
     | Record<string, { email: string; firstName?: string; lastName?: string }>
     | undefined;
-}): Appointment[] {
+}): CalendarAppointmentView[] {
   return args.appointments
-    .map((appointment, index): Appointment | null => {
+    .map((appointment, index): CalendarAppointmentView | null => {
       const startZoned = safeParseISOToZoned(appointment.start);
       const endZoned = safeParseISOToZoned(appointment.end);
 
@@ -85,7 +85,10 @@ export function buildCalendarAppointments(args: {
         title: appointment.title,
       };
     })
-    .filter((appointment): appointment is Appointment => appointment !== null);
+    .filter(
+      (appointment): appointment is CalendarAppointmentView =>
+        appointment !== null,
+    );
 }
 
 export function toCalendarAppointmentRecord(

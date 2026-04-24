@@ -1,24 +1,27 @@
 import type React from "react";
 
-import type { Appointment } from "./types";
+import type { CalendarAppointmentView } from "./types";
 
 import { CalendarItemContent } from "./calendar-item-content";
 
 interface CalendarAppointmentProps {
-  appointment: Appointment;
+  appointment: CalendarAppointmentView;
   isDragging: boolean;
   isRelatedToSelectedPatient?: boolean | undefined;
   isSelected?: boolean | undefined;
-  onDelete: (appointment: Appointment) => void;
+  onDelete: (appointment: CalendarAppointmentView) => void;
   onDragEnd: () => void;
-  onDragStart: (e: React.DragEvent, appointment: Appointment) => void;
-  onEdit: (appointment: Appointment) => void;
+  onDragStart: (
+    e: React.DragEvent,
+    appointment: CalendarAppointmentView,
+  ) => void;
+  onEdit: (appointment: CalendarAppointmentView) => void;
   onResizeStart: (
     e: React.MouseEvent,
     appointmentId: string,
     currentDuration: number,
   ) => void;
-  onSelect?: ((appointment: Appointment) => void) | undefined;
+  onSelect?: ((appointment: CalendarAppointmentView) => void) | undefined;
   slotDuration: number;
   timeToSlot: (time: string) => number;
 }

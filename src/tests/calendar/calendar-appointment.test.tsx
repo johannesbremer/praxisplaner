@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { Appointment } from "../../../src/components/calendar/types";
+import type { CalendarAppointmentView } from "../../../src/components/calendar/types";
 
 import { toTableId } from "../../../convex/identity";
 import { CalendarAppointment } from "../../../src/components/calendar/calendar-appointment";
@@ -9,7 +9,7 @@ import { assertElement } from "../test-utils";
 
 describe("CalendarAppointment", () => {
   const practitioner1 = toTableId<"practitioners">("practitioner_1");
-  const mockAppointment: Appointment = {
+  const mockAppointment: CalendarAppointmentView = {
     color: "bg-blue-500",
     column: practitioner1,
     duration: 30,

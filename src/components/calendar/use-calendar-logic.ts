@@ -45,12 +45,14 @@ import {
   toBlockedSlotEditorRecord,
 } from "./calendar-reference-adapters";
 import {
+  toCalendarAppointmentRecord,
   toCalendarAppointmentResult,
+  toCalendarBlockedSlotRecord,
   toCalendarBlockedSlotResult,
 } from "./calendar-view-models";
 import {
-  type Appointment,
   type CalendarAppointmentRecord,
+  type CalendarAppointmentView,
   type CalendarBlockedSlotEditorRecord,
   type CalendarBlockedSlotRecord,
   type CalendarColumn,
@@ -107,7 +109,7 @@ export function useCalendarLogic({
   const practiceId = propPracticeId;
 
   const [draggedAppointment, setDraggedAppointment] =
-    useState<Appointment | null>(null);
+    useState<CalendarAppointmentView | null>(null);
   const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
     null | string
   >(null);
@@ -881,6 +883,8 @@ export function useCalendarLogic({
           return appointment;
         }
 
+        const currentRecord = toCalendarAppointmentRecord(appointment);
+
         const nextStart =
           optimisticArgs.start === undefined
             ? undefined
@@ -912,35 +916,49 @@ export function useCalendarLogic({
           timeUpdates.end = nextEnd;
         }
 
-        const practitionerLineageKey =
+        const lineageRefs =
+          optimisticArgs.locationId === undefined &&
           optimisticArgs.practitionerId === undefined
-            ? undefined
-            : getPractitionerLineageKeyForDisplayId(
-                optimisticArgs.practitionerId,
-              );
-        const locationLineageKey =
-          optimisticArgs.locationId === undefined
-            ? undefined
-            : getLocationLineageKeyForDisplayId(optimisticArgs.locationId);
+            ? null
+            : resolveBlockedSlotReferenceLineageKeys({
+                locationId: optimisticArgs.locationId ?? appointment.locationId,
+                ...(optimisticArgs.practitionerId === undefined
+                  ? appointment.practitionerId === undefined
+                    ? {}
+                    : { practitionerId: appointment.practitionerId }
+                  : { practitionerId: optimisticArgs.practitionerId }),
+              });
 
-        return {
-          ...appointment,
+        const nextRecord: CalendarAppointmentRecord = {
+          ...currentRecord,
           ...timeUpdates,
-          ...(optimisticArgs.practitionerId !== undefined &&
-            practitionerLineageKey !== undefined && {
-              practitionerId: optimisticArgs.practitionerId,
-              practitionerLineageKey,
-            }),
-          ...(optimisticArgs.locationId !== undefined &&
-            locationLineageKey !== undefined && {
-              locationId: optimisticArgs.locationId,
-              locationLineageKey,
-            }),
+          ...(lineageRefs === null
+            ? {}
+            : {
+                locationLineageKey: lineageRefs.locationLineageKey,
+                ...(lineageRefs.practitionerLineageKey === undefined
+                  ? {}
+                  : {
+                      practitionerLineageKey:
+                        lineageRefs.practitionerLineageKey,
+                    }),
+              }),
           ...(optimisticArgs.title !== undefined && {
             title: optimisticArgs.title,
           }),
           lastModified: BigInt(now),
         };
+
+        return toCalendarAppointmentResult({
+          appointmentTypeId: appointment.appointmentTypeId,
+          locationId: optimisticArgs.locationId ?? appointment.locationId,
+          ...(optimisticArgs.practitionerId === undefined
+            ? appointment.practitionerId === undefined
+              ? {}
+              : { practitionerId: appointment.practitionerId }
+            : { practitionerId: optimisticArgs.practitionerId }),
+          record: nextRecord,
+        });
       });
 
       localStore.setQuery(
@@ -952,9 +970,8 @@ export function useCalendarLogic({
     [
       appointmentQueryRef,
       calendarDayQueryArgs,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
       parseZonedDateTime,
+      resolveBlockedSlotReferenceLineageKeys,
       updateAppointmentMutation,
     ],
   );
@@ -1148,19 +1165,22 @@ export function useCalendarLogic({
               return slot;
             }
 
-            const practitionerLineageKey =
+            const currentRecord = toCalendarBlockedSlotRecord(slot);
+            const lineageRefs =
+              optimisticArgs.locationId === undefined &&
               optimisticArgs.practitionerId === undefined
-                ? undefined
-                : getPractitionerLineageKeyForDisplayId(
-                    optimisticArgs.practitionerId,
-                  );
-            const locationLineageKey =
-              optimisticArgs.locationId === undefined
-                ? undefined
-                : getLocationLineageKeyForDisplayId(optimisticArgs.locationId);
+                ? null
+                : resolveBlockedSlotReferenceLineageKeys({
+                    locationId: optimisticArgs.locationId ?? slot.locationId,
+                    ...(optimisticArgs.practitionerId === undefined
+                      ? slot.practitionerId === undefined
+                        ? {}
+                        : { practitionerId: slot.practitionerId }
+                      : { practitionerId: optimisticArgs.practitionerId }),
+                  });
 
-            return {
-              ...slot,
+            const nextRecord: CalendarBlockedSlotRecord = {
+              ...currentRecord,
               ...(optimisticArgs.title !== undefined && {
                 title: optimisticArgs.title,
               }),
@@ -1170,16 +1190,17 @@ export function useCalendarLogic({
               ...(optimisticArgs.end !== undefined && {
                 end: optimisticArgs.end,
               }),
-              ...(optimisticArgs.locationId !== undefined &&
-                locationLineageKey !== undefined && {
-                  locationId: optimisticArgs.locationId,
-                  locationLineageKey,
-                }),
-              ...(optimisticArgs.practitionerId !== undefined &&
-                practitionerLineageKey !== undefined && {
-                  practitionerId: optimisticArgs.practitionerId,
-                  practitionerLineageKey,
-                }),
+              ...(lineageRefs === null
+                ? {}
+                : {
+                    locationLineageKey: lineageRefs.locationLineageKey,
+                    ...(lineageRefs.practitionerLineageKey === undefined
+                      ? {}
+                      : {
+                          practitionerLineageKey:
+                            lineageRefs.practitionerLineageKey,
+                        }),
+                  }),
               ...(optimisticArgs.replacesBlockedSlotId !== undefined && {
                 replacesBlockedSlotId: optimisticArgs.replacesBlockedSlotId,
               }),
@@ -1188,6 +1209,16 @@ export function useCalendarLogic({
               }),
               lastModified: BigInt(now),
             };
+
+            return toCalendarBlockedSlotResult({
+              locationId: optimisticArgs.locationId ?? slot.locationId,
+              ...(optimisticArgs.practitionerId === undefined
+                ? slot.practitionerId === undefined
+                  ? {}
+                  : { practitionerId: slot.practitionerId }
+                : { practitionerId: optimisticArgs.practitionerId }),
+              record: nextRecord,
+            });
           });
 
           localStore.setQuery(
@@ -1202,8 +1233,7 @@ export function useCalendarLogic({
       blockedSlotQueryRef,
       updateBlockedSlotMutation,
       blockedSlotsQueryArgs,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
+      resolveBlockedSlotReferenceLineageKeys,
     ],
   );
 
@@ -1422,19 +1452,38 @@ export function useCalendarLogic({
       ) {
         return;
       }
+      const currentDisplayRefs = resolveBlockedSlotReferenceDisplayIds({
+        locationLineageKey: before.locationLineageKey,
+        ...(before.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: before.practitionerLineageKey }),
+      });
+      const nextReferenceLineage =
+        args.locationId === undefined && args.practitionerId === undefined
+          ? null
+          : currentDisplayRefs === null &&
+              (args.locationId === undefined ||
+                args.practitionerId === undefined)
+            ? null
+            : resolveBlockedSlotReferenceLineageKeys({
+                locationId:
+                  args.locationId ??
+                  currentDisplayRefs?.locationId ??
+                  before.locationLineageKey,
+                ...(args.practitionerId === undefined
+                  ? currentDisplayRefs?.practitionerId === undefined
+                    ? {}
+                    : { practitionerId: currentDisplayRefs.practitionerId }
+                  : { practitionerId: args.practitionerId }),
+              });
 
       const afterState = {
         end: typedEnd ?? before.end,
         locationLineageKey:
-          args.locationId === undefined
-            ? before.locationLineageKey
-            : (getLocationLineageKeyForDisplayId(args.locationId) ??
-              before.locationLineageKey),
+          nextReferenceLineage?.locationLineageKey ?? before.locationLineageKey,
         practitionerLineageKey:
-          args.practitionerId === undefined
-            ? before.practitionerLineageKey
-            : (getPractitionerLineageKeyForDisplayId(args.practitionerId) ??
-              before.practitionerLineageKey),
+          nextReferenceLineage?.practitionerLineageKey ??
+          before.practitionerLineageKey,
         start: typedStart ?? before.start,
       };
       const afterSnapshot: CalendarAppointmentRecord = {
@@ -1574,12 +1623,11 @@ export function useCalendarLogic({
       getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
       parseZonedDateTime,
       pushHistoryAction,
       rememberAppointmentHistoryDoc,
       resolveBlockedSlotReferenceDisplayIds,
+      resolveBlockedSlotReferenceLineageKeys,
       runUpdateAppointmentInternal,
     ],
   );
@@ -1842,19 +1890,40 @@ export function useCalendarLogic({
 
       const afterState = {
         end: args.end ?? before.end,
-        locationLineageKey:
-          args.locationId === undefined
-            ? before.locationLineageKey
-            : (getLocationLineageKeyForDisplayId(args.locationId) ??
-              before.locationLineageKey),
-        practitionerLineageKey:
-          args.practitionerId === undefined
-            ? before.practitionerLineageKey
-            : (getPractitionerLineageKeyForDisplayId(args.practitionerId) ??
-              before.practitionerLineageKey),
+        locationLineageKey: before.locationLineageKey,
+        practitionerLineageKey: before.practitionerLineageKey,
         start: args.start ?? before.start,
         title: args.title ?? before.title,
       };
+      const currentDisplayRefs = resolveBlockedSlotReferenceDisplayIds({
+        locationLineageKey: before.locationLineageKey,
+        ...(before.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: before.practitionerLineageKey }),
+      });
+      const nextReferenceLineage =
+        args.locationId === undefined && args.practitionerId === undefined
+          ? null
+          : currentDisplayRefs === null &&
+              (args.locationId === undefined ||
+                args.practitionerId === undefined)
+            ? null
+            : resolveBlockedSlotReferenceLineageKeys({
+                locationId:
+                  args.locationId ??
+                  currentDisplayRefs?.locationId ??
+                  before.locationLineageKey,
+                ...(args.practitionerId === undefined
+                  ? currentDisplayRefs?.practitionerId === undefined
+                    ? {}
+                    : { practitionerId: currentDisplayRefs.practitionerId }
+                  : { practitionerId: args.practitionerId }),
+              });
+      if (nextReferenceLineage) {
+        afterState.locationLineageKey = nextReferenceLineage.locationLineageKey;
+        afterState.practitionerLineageKey =
+          nextReferenceLineage.practitionerLineageKey;
+      }
       const afterSnapshot: CalendarBlockedSlotRecord = {
         ...before,
         end: afterState.end,
@@ -1996,11 +2065,10 @@ export function useCalendarLogic({
       ensureLatestConflictData,
       getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
       pushHistoryAction,
       rememberBlockedSlotHistoryDoc,
       resolveBlockedSlotReferenceDisplayIds,
+      resolveBlockedSlotReferenceLineageKeys,
       runUpdateBlockedSlotInternal,
     ],
   );
@@ -3139,9 +3207,9 @@ export function useCalendarLogic({
   const patientIsNewPatient = patient?.isNewPatient;
   const convertRealAppointmentToSimulation = useCallback(
     async (
-      appointment: Appointment,
+      appointment: CalendarAppointmentView,
       options: SimulationConversionOptions,
-    ): Promise<Appointment | null> => {
+    ): Promise<CalendarAppointmentView | null> => {
       // Early validation checks with specific error messages
       if (appointment.isSimulation) {
         return appointment;
@@ -3596,7 +3664,10 @@ export function useCalendarLogic({
   });
 
   // Drag and drop handlers
-  const handleDragStart = (e: React.DragEvent, appointment: Appointment) => {
+  const handleDragStart = (
+    e: React.DragEvent,
+    appointment: CalendarAppointmentView,
+  ) => {
     setDraggedAppointment(appointment);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setDragImage(new Image(), 0, 0);
@@ -4042,7 +4113,7 @@ export function useCalendarLogic({
     );
   };
 
-  const handleEditAppointment = (appointment: Appointment) => {
+  const handleEditAppointment = (appointment: CalendarAppointmentView) => {
     // Prevent opening edit dialog if we just finished resizing this appointment
     if (justFinishedResizingRef.current === appointment.id) {
       return;
@@ -4057,7 +4128,7 @@ export function useCalendarLogic({
     toast.info("Bearbeiten von Terminen ist über den neuen Dialog möglich.");
   };
 
-  const handleDeleteAppointment = (appointment: Appointment) => {
+  const handleDeleteAppointment = (appointment: CalendarAppointmentView) => {
     const confirmMessage =
       appointment.convexId &&
       appointmentDocMapRef.current.get(appointment.convexId)?.seriesId

@@ -11,21 +11,6 @@ import type {
   SchedulingSimulatedContext,
 } from "../../types";
 
-export interface Appointment {
-  appointmentTypeTitle?: string; // Appointment type title for display
-  color: string;
-  column: CalendarColumnId;
-  convexId?: Id<"appointments">; // Original Convex ID for real appointments
-  duration: number; // in minutes
-  id: string;
-  isSimulation: boolean;
-  patientName?: string; // Patient name for display
-  replacesAppointmentId?: Id<"appointments"> | null;
-  resource?: CalendarAppointmentResource;
-  startTime: string;
-  title: string;
-}
-
 export type CalendarAppointmentRecord = Omit<
   AppointmentResult,
   "appointmentTypeId" | "locationId" | "practitionerId"
@@ -41,6 +26,21 @@ export interface CalendarAppointmentResource {
   seriesId?: AppointmentResult["seriesId"];
   title?: string;
   userId?: AppointmentResult["userId"];
+}
+
+export interface CalendarAppointmentView {
+  appointmentTypeTitle?: string; // Appointment type title for display
+  color: string;
+  column: CalendarColumnId;
+  convexId?: Id<"appointments">; // Original Convex ID for real appointments
+  duration: number; // in minutes
+  id: string;
+  isSimulation: boolean;
+  patientName?: string; // Patient name for display
+  replacesAppointmentId?: Id<"appointments"> | null;
+  resource?: CalendarAppointmentResource;
+  startTime: string;
+  title: string;
 }
 
 export interface CalendarBlockedSlotEditorRecord {

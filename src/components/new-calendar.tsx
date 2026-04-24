@@ -16,7 +16,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
 
 import type {
-  Appointment,
+  CalendarAppointmentView,
   CalendarBlockedSlotEditorRecord,
   CalendarColumnId,
   NewCalendarProps,
@@ -70,7 +70,9 @@ function CalendarGridWithSidebarOpening({
 
   return sidebarResult.match(
     ({ isMobile, setOpen, setOpenMobile }) => {
-      const handleSelectWithSidebar = (appointment: Appointment) => {
+      const handleSelectWithSidebar = (
+        appointment: CalendarAppointmentView,
+      ) => {
         onSelectAppointment?.(appointment);
         if (isMobile) {
           setOpenMobile(true);
@@ -325,20 +327,23 @@ export function NewCalendar({
     )?.seriesId;
 
   // Handler for selecting an appointment
-  const handleSelectAppointment = useCallback((appointment: Appointment) => {
-    setSelectedAppointmentId(appointment.convexId);
-    if (appointment.resource?.patientId) {
-      setSelectedPatient({
-        id: appointment.resource.patientId,
-        type: "patient",
-      });
-      return;
-    }
+  const handleSelectAppointment = useCallback(
+    (appointment: CalendarAppointmentView) => {
+      setSelectedAppointmentId(appointment.convexId);
+      if (appointment.resource?.patientId) {
+        setSelectedPatient({
+          id: appointment.resource.patientId,
+          type: "patient",
+        });
+        return;
+      }
 
-    if (appointment.resource?.userId) {
-      setSelectedPatient({ id: appointment.resource.userId, type: "user" });
-    }
-  }, []);
+      if (appointment.resource?.userId) {
+        setSelectedPatient({ id: appointment.resource.userId, type: "user" });
+      }
+    },
+    [],
+  );
 
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
   const currentDayOfWeek = temporalDayToLegacy(selectedDate);

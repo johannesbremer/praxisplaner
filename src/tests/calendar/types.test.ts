@@ -4,8 +4,8 @@ import { regex } from "@/lib/arkregex";
 
 import { toTableId } from "../../../convex/identity";
 import {
-  type Appointment,
   APPOINTMENT_COLORS,
+  type CalendarAppointmentView,
   SLOT_DURATION,
 } from "../../../src/components/calendar/types";
 
@@ -54,7 +54,7 @@ describe("Calendar Types and Constants", () => {
 
   describe("Appointment Type", () => {
     test("should accept valid appointment object", () => {
-      const appointment: Appointment = {
+      const appointment: CalendarAppointmentView = {
         color: "bg-blue-500",
         column: practitioner1,
         duration: 30,
@@ -73,7 +73,7 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept appointment with optional convexId", () => {
-      const appointment: Appointment = {
+      const appointment: CalendarAppointmentView = {
         color: "bg-blue-500",
         column: practitioner1,
         convexId: "convex-id-123" as never,
@@ -88,7 +88,7 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept appointment with resource metadata", () => {
-      const appointment: Appointment = {
+      const appointment: CalendarAppointmentView = {
         color: "bg-blue-500",
         column: practitioner1,
         duration: 30,
@@ -111,7 +111,7 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept simulated appointment", () => {
-      const appointment: Appointment = {
+      const appointment: CalendarAppointmentView = {
         color: "bg-blue-500",
         column: practitioner1,
         duration: 30,
@@ -130,7 +130,7 @@ describe("Calendar Types and Constants", () => {
       const durations = [5, 15, 30, 45, 60, 90, 120];
 
       for (const duration of durations) {
-        const appointment: Appointment = {
+        const appointment: CalendarAppointmentView = {
           color: "bg-blue-500",
           column: practitioner1,
           duration,
@@ -148,7 +148,7 @@ describe("Calendar Types and Constants", () => {
       const times = ["08:00", "09:30", "12:45", "15:00", "17:30"];
 
       for (const startTime of times) {
-        const appointment: Appointment = {
+        const appointment: CalendarAppointmentView = {
           color: "bg-blue-500",
           column: practitioner1,
           duration: 30,
@@ -166,7 +166,7 @@ describe("Calendar Types and Constants", () => {
       const columns = [practitioner1, practitioner2, "ekg", "labor"] as const;
 
       for (const column of columns) {
-        const appointment: Appointment = {
+        const appointment: CalendarAppointmentView = {
           color: "bg-blue-500",
           column,
           duration: 30,
@@ -183,7 +183,7 @@ describe("Calendar Types and Constants", () => {
 
   describe("Color Assignment Logic", () => {
     test("should be able to cycle through all colors", () => {
-      const appointments: Appointment[] = APPOINTMENT_COLORS.map(
+      const appointments: CalendarAppointmentView[] = APPOINTMENT_COLORS.map(
         (color, index) => ({
           color,
           column: index % 2 === 0 ? practitioner1 : practitioner2,
