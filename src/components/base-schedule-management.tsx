@@ -342,11 +342,7 @@ export default function BaseScheduleManagement({
 
             const batchSchedules = Result.combine(
               missingPayloads.map((payload) =>
-                toBatchCreateScheduleInput(
-                  payload,
-                  practitionersRef.current,
-                  locationsRef.current,
-                ),
+                toBatchCreateScheduleInput(payload),
               ),
             ).match(
               (value) => value,
@@ -870,6 +866,24 @@ function BaseScheduleDialog({
           const existingPayloadByDay = new Map(
             oldSchedulePayloads.map((payload) => [payload.dayOfWeek, payload]),
           );
+          const selectedPractitionerLineageId =
+            resolveSelectedPractitionerLineageId(
+              value.practitionerId,
+              practitionersRef.current,
+            );
+          if (!selectedPractitionerLineageId) {
+            const error = new Error("Bitte wählen Sie einen Arzt aus");
+            captureError(error, {
+              context: "base_schedule_validation",
+              formData: value,
+              isUpdate: true,
+              practiceId,
+              scheduleId: schedule._id,
+              validationField: "practitionerId",
+            });
+            toast.error(error.message);
+            return;
+          }
           const nextSchedules: BatchCreateScheduleInput[] = selectedDays
             .toSorted()
             .map((dayOfWeek) => {
@@ -883,10 +897,8 @@ function BaseScheduleDialog({
                 ...(existingPayload
                   ? { lineageKey: existingPayload.lineageKey }
                   : {}),
-                locationId: selectedLocationId,
                 locationLineageId: selectedLocationLineageId,
-                practitionerId: selectedPractitionerId,
-                practitionerLineageId: schedule.practitionerLineageKey,
+                practitionerLineageId: selectedPractitionerLineageId,
                 startTime: value.startTime,
               };
             });
@@ -980,9 +992,7 @@ function BaseScheduleDialog({
               : {}),
             dayOfWeek,
             endTime: value.endTime,
-            locationId: selectedLocationId,
             locationLineageId: selectedLocationLineageId,
-            practitionerId: selectedPractitionerId,
             practitionerLineageId: selectedPractitionerLineageId,
             startTime: value.startTime,
           }));
@@ -1033,8 +1043,6 @@ function BaseScheduleDialog({
             const createdPayload = toCreatedSchedulePayload(
               createData,
               createdEntityId,
-              practitionerLineageByIdAtSubmitStart,
-              locationLineageByIdAtSubmitStart,
             ).match(
               (value) => value,
               (error) => {
@@ -1075,11 +1083,7 @@ function BaseScheduleDialog({
 
               const batchSchedules = Result.combine(
                 missingPayloads.map((payload) =>
-                  toBatchCreateScheduleInput(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toBatchCreateScheduleInput(payload),
                 ),
               ).match(
                 (value) => value,
@@ -1160,11 +1164,7 @@ function BaseScheduleDialog({
             redo: async () => {
               const replacementSchedules = Result.combine(
                 createdSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toMutationSchedulePayload(payload),
                 ),
               ).match(
                 (value) => value,
@@ -1197,11 +1197,7 @@ function BaseScheduleDialog({
             undo: async () => {
               const replacementSchedules = Result.combine(
                 oldSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(
-                    payload,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  ),
+                  toMutationSchedulePayload(payload),
                 ),
               ).match(
                 (value) => value,

@@ -278,58 +278,42 @@ export const toSchedulePayloadFromLineageSnapshot = (
 
 export const toMutationSchedulePayload = (
   payload: SchedulePayload,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<
   {
     breakTimes?: { end: string; start: string }[];
     dayOfWeek: number;
     endTime: string;
     lineageKey: Id<"baseSchedules">;
-    locationId: Id<"locations">;
     locationLineageId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
     practitionerLineageId: Id<"practitioners">;
     startTime: string;
   },
   ReturnType<typeof invalidStateError>
 > =>
-  resolveLocationIdByLineage(payload.locationLineageId, locations).andThen(
-    (locationId) =>
-      resolvePractitionerIdByLineage(
-        payload.practitionerLineageId,
-        practitioners,
-      ).map((practitionerId) => ({
-        ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
-        dayOfWeek: payload.dayOfWeek,
-        endTime: payload.endTime,
-        lineageKey: payload.lineageKey,
-        locationId,
-        locationLineageId: payload.locationLineageId,
-        practitionerId,
-        practitionerLineageId: payload.practitionerLineageId,
-        startTime: payload.startTime,
-      })),
-  );
+  ok({
+    ...(payload.breakTimes && { breakTimes: payload.breakTimes }),
+    dayOfWeek: payload.dayOfWeek,
+    endTime: payload.endTime,
+    lineageKey: payload.lineageKey,
+    locationLineageId: payload.locationLineageId,
+    practitionerLineageId: payload.practitionerLineageId,
+    startTime: payload.startTime,
+  });
 
 export interface BatchCreateScheduleInput {
   breakTimes?: { end: string; start: string }[];
   dayOfWeek: number;
   endTime: string;
   lineageKey?: Id<"baseSchedules">;
-  locationId: Id<"locations">;
   locationLineageId: Id<"locations">;
-  practitionerId: Id<"practitioners">;
   practitionerLineageId: Id<"practitioners">;
   startTime: string;
 }
 
 export const toBatchCreateScheduleInput = (
   payload: SchedulePayload,
-  practitioners: PractitionerMatchEntity[] | undefined,
-  locations: LocationMatchEntity[] | undefined,
 ): Result<BatchCreateScheduleInput, ReturnType<typeof invalidStateError>> =>
-  toMutationSchedulePayload(payload, practitioners, locations).map((value) => ({
+  toMutationSchedulePayload(payload).map((value) => ({
     ...value,
     lineageKey: payload.lineageKey,
   }));
@@ -479,35 +463,22 @@ export const toCreatedSchedulePayload = (
     breakTimes?: { end: string; start: string }[];
     dayOfWeek: number;
     endTime: string;
-    locationId: Id<"locations">;
-    practitionerId: Id<"practitioners">;
+    locationLineageId: Id<"locations">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   },
   lineageKey: Id<"baseSchedules">,
-  practitionerLineageById: ReadonlyMap<
-    Id<"practitioners">,
-    Id<"practitioners">
-  >,
-  locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
   const breakTimes = asTypedBreakTimes(createData.breakTimes);
-  return resolveLocationLineageIdFromSnapshot(
-    createData.locationId,
-    locationLineageById,
-  ).andThen((locationLineageId) =>
-    resolvePractitionerLineageIdFromSnapshot(
-      createData.practitionerId,
-      practitionerLineageById,
-    ).map((practitionerLineageId) => ({
-      ...(breakTimes && { breakTimes }),
-      dayOfWeek: createData.dayOfWeek,
-      endTime: asTypedTime(createData.endTime),
-      lineageKey,
-      locationLineageId,
-      practitionerLineageId,
-      startTime: asTypedTime(createData.startTime),
-    })),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: createData.dayOfWeek,
+    endTime: asTypedTime(createData.endTime),
+    lineageKey,
+    locationLineageId: createData.locationLineageId,
+    practitionerLineageId: createData.practitionerLineageId,
+    startTime: asTypedTime(createData.startTime),
+  });
 };
 
 export const isBaseScheduleMissingError = (error: unknown) =>
