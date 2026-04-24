@@ -1594,6 +1594,85 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     void createdRule;
   });
 
+  test("unsaved rule diff renders deleted practitioner names inside appointment type allowlists", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Test Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const seeded = await t.run(async (ctx) => {
+      const initialRuleSet = await ctx.db.get("ruleSets", initialRuleSetId);
+      assertDefined(initialRuleSet, "Expected initial rule set");
+
+      const practitionerLineageKey = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Geloescht",
+          practiceId,
+          ruleSetId: initialRuleSetId,
+        },
+      );
+
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion: initialRuleSetId,
+        practiceId,
+        saved: false,
+        version: initialRuleSet.version + 1,
+      });
+
+      await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          deleted: true,
+          name: "Dr. Geloescht",
+          practiceId,
+          ruleSetId: draftRuleSetId,
+          tags: [],
+        },
+        practitionerLineageKey,
+      );
+
+      await insertWithLineage(ctx, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerLineageKey],
+        createdAt: BigInt(Date.now()),
+        duration: 30,
+        followUpPlan: [],
+        lastModified: BigInt(Date.now()),
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+
+      return { draftRuleSetId, practitionerLineageKey };
+    });
+
+    const diff = await t.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId,
+      ruleSetId: seeded.draftRuleSetId,
+    });
+
+    const appointmentTypesSection = diff?.sections.find(
+      (section) => section.key === "appointmentTypes",
+    );
+    assertDefined(
+      appointmentTypesSection,
+      "Expected appointment types section in diff",
+    );
+
+    expect(appointmentTypesSection.added).toHaveLength(1);
+    expect(appointmentTypesSection.added[0]).toContain("Dr. Geloescht");
+    expect(appointmentTypesSection.added[0]).not.toContain(
+      seeded.practitionerLineageKey,
+    );
+  });
+
   test("should restore practitioner schedules by resolving location through deep lineage", async () => {
     const t = createAuthedTestContext();
 

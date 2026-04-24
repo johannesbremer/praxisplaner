@@ -621,12 +621,15 @@ async function buildRuleSetCanonicalSnapshot(
   );
 
   const practitionerNameByReference = createEntityNameLookup(
-    practitioners,
+    practitionersRaw,
     "practitioner",
   );
-  const locationNameByReference = createEntityNameLookup(locations, "location");
+  const locationNameByReference = createEntityNameLookup(
+    locationsRaw,
+    "location",
+  );
   const appointmentTypeNameByReference = createEntityNameLookup(
-    appointmentTypes,
+    appointmentTypesRaw,
     "appointment type",
   );
   const mfaNameByReference = createEntityNameLookup(mfas, "mfa");
