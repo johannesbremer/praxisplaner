@@ -6,7 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
-  CalendarAppointmentView,
+  CalendarAppointmentLayout,
   CalendarBlockedSlotRecord,
   CalendarColumnId,
 } from "./types";
@@ -73,7 +73,7 @@ export function useCalendarInteractions({
   slotToTime,
   timeToSlot,
 }: {
-  baseAppointments: CalendarAppointmentView[];
+  baseAppointments: CalendarAppointmentLayout[];
   baseManualBlockedSlots: CalendarManualBlockedSlot[];
   blockedSlotDocMapRef: RefObject<Map<string, BlockedSlotRecord>>;
   checkCollision: (
@@ -83,13 +83,13 @@ export function useCalendarInteractions({
     excludeId?: string,
   ) => boolean;
   convertRealAppointmentToSimulation: (
-    appointment: CalendarAppointmentView,
+    appointment: CalendarAppointmentLayout,
     options: {
       durationMinutes?: number;
       endISO?: string;
       startISO?: string;
     },
-  ) => Promise<CalendarAppointmentView | null>;
+  ) => Promise<CalendarAppointmentLayout | null>;
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
     options: {
@@ -429,8 +429,7 @@ export function useCalendarInteractions({
 
       if (
         simulatedContextRef.current &&
-        !targetAppointment.isSimulation &&
-        targetAppointment.convexId
+        targetAppointment.record.isSimulation !== true
       ) {
         void (async () => {
           try {
@@ -453,10 +452,10 @@ export function useCalendarInteractions({
                   startISO: startZoned.toString(),
                 },
               );
-            if (converted?.convexId) {
+            if (converted) {
               startResizing({
                 column: targetAppointment.column,
-                commitAppointmentId: converted.convexId,
+                commitAppointmentId: converted.record._id,
                 entityId: targetAppointment.id,
               });
             }
@@ -471,13 +470,9 @@ export function useCalendarInteractions({
         return;
       }
 
-      if (!targetAppointment.convexId) {
-        return;
-      }
-
       startResizing({
         column: targetAppointment.column,
-        commitAppointmentId: targetAppointment.convexId,
+        commitAppointmentId: targetAppointment.record._id,
         entityId: appointmentId,
       });
     },

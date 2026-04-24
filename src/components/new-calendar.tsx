@@ -320,8 +320,8 @@ export function NewCalendar({
 
   const selectedSeriesId =
     appointments.find(
-      (appointment) => appointment.convexId === selectedAppointmentId,
-    )?.resource?.seriesId ??
+      (appointment) => appointment.layout.record._id === selectedAppointmentId,
+    )?.layout.record.seriesId ??
     patientAppointments?.find(
       (appointment) => appointment._id === selectedAppointmentId,
     )?.seriesId;
@@ -329,17 +329,20 @@ export function NewCalendar({
   // Handler for selecting an appointment
   const handleSelectAppointment = useCallback(
     (appointment: CalendarAppointmentView) => {
-      setSelectedAppointmentId(appointment.convexId);
-      if (appointment.resource?.patientId) {
+      setSelectedAppointmentId(appointment.layout.record._id);
+      if (appointment.layout.record.patientId) {
         setSelectedPatient({
-          id: appointment.resource.patientId,
+          id: appointment.layout.record.patientId,
           type: "patient",
         });
         return;
       }
 
-      if (appointment.resource?.userId) {
-        setSelectedPatient({ id: appointment.resource.userId, type: "user" });
+      if (appointment.layout.record.userId) {
+        setSelectedPatient({
+          id: appointment.layout.record.userId,
+          type: "user",
+        });
       }
     },
     [],

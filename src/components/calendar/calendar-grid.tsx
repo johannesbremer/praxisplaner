@@ -41,17 +41,14 @@ interface CalendarGridProps {
   onAddAppointment: (column: CalendarColumnId, slot: number) => void;
   onBlockedSlotDragEnd?: () => void;
   onBlockSlot?: (column: CalendarColumnId, slot: number) => void;
-  onDeleteAppointment: (appointment: CalendarAppointmentView) => void;
+  onDeleteAppointment: (appointmentId: string) => void;
   onDeleteBlockedSlot?: (id: string) => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent, column: CalendarColumnId) => void;
-  onDragStart: (
-    e: React.DragEvent,
-    appointment: CalendarAppointmentView,
-  ) => void;
+  onDragStart: (e: React.DragEvent, appointmentId: string) => void;
   onDragStartBlockedSlot?: (e: React.DragEvent, id: string) => void;
   onDrop: (e: React.DragEvent, column: CalendarColumnId) => Promise<void>;
-  onEditAppointment: (appointment: CalendarAppointmentView) => void;
+  onEditAppointment: (appointmentId: string) => void;
   onEditBlockedSlot?: (id: string) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -114,22 +111,23 @@ export function CalendarGrid({
 
   const renderAppointments = (column: CalendarColumnId) => {
     return appointments
-      .filter((apt) => apt.column === column)
+      .filter((apt) => apt.layout.column === column)
       .map((appointment) => {
-        const isDragging = draggedAppointment?.id === appointment.id;
+        const isDragging =
+          draggedAppointment?.layout.id === appointment.layout.id;
         const isSelected =
-          selectedAppointmentId === appointment.convexId ||
+          selectedAppointmentId === appointment.layout.record._id ||
           (selectedSeriesId !== null &&
             selectedSeriesId !== undefined &&
-            appointment.resource?.seriesId === selectedSeriesId);
+            appointment.layout.record.seriesId === selectedSeriesId);
         // Check if this appointment belongs to the selected patient
         const isRelatedToSelectedPatient =
           (selectedPatientId !== null &&
             selectedPatientId !== undefined &&
-            appointment.resource?.patientId === selectedPatientId) ||
+            appointment.layout.record.patientId === selectedPatientId) ||
           (selectedUserId !== null &&
             selectedUserId !== undefined &&
-            appointment.resource?.userId === selectedUserId);
+            appointment.layout.record.userId === selectedUserId);
 
         return (
           <CalendarAppointment
@@ -137,7 +135,7 @@ export function CalendarGrid({
             isDragging={isDragging}
             isRelatedToSelectedPatient={isRelatedToSelectedPatient}
             isSelected={isSelected}
-            key={appointment.id}
+            key={appointment.layout.id}
             onDelete={onDeleteAppointment}
             onDragEnd={onDragEnd}
             onDragStart={onDragStart}
@@ -158,7 +156,7 @@ export function CalendarGrid({
 
     // Handle appointment drag preview
     if (draggedAppointment) {
-      const height = (draggedAppointment.duration / slotDuration) * 16;
+      const height = (draggedAppointment.layout.duration / slotDuration) * 16;
       const top = dragPreview.slot * 16;
 
       return (

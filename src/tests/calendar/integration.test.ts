@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BlockedSlotResult } from "../../../convex/appointments";
+import type { CalendarAppointmentLayout } from "../../components/calendar/types";
 
 import { toTableId } from "../../../convex/identity";
 import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
@@ -25,11 +26,44 @@ vi.mock("../../utils/error-tracking", () => ({
 const location1 = toTableId<"locations">("location_1");
 const practice1 = toTableId<"practices">("practice_1");
 const practitioner1 = toTableId<"practitioners">("practitioner_1");
+const appointmentType1 = toTableId<"appointmentTypes">("appointment_type_1");
 
 const resolveBlockedSlotDisplayRefs = () => ({
   locationId: location1,
   practitionerId: practitioner1,
 });
+
+function buildAppointmentLayout(args: {
+  _id: CalendarAppointmentLayout["record"]["_id"];
+  duration?: number;
+  id?: string;
+  isSimulation?: boolean;
+  start?: CalendarAppointmentLayout["record"]["start"];
+  startTime?: string;
+  title?: string;
+}): CalendarAppointmentLayout {
+  return {
+    column: practitioner1,
+    duration: args.duration ?? 30,
+    id: args.id ?? args._id,
+    record: {
+      _creationTime: 0,
+      _id: args._id,
+      appointmentTypeLineageKey: appointmentType1,
+      appointmentTypeTitle: "Checkup",
+      createdAt: 0n,
+      end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+      ...(args.isSimulation ? { isSimulation: true } : {}),
+      lastModified: 0n,
+      locationLineageKey: location1,
+      practiceId: practice1,
+      practitionerLineageKey: practitioner1,
+      start: args.start ?? "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+      title: args.title ?? "Checkup",
+    },
+    startTime: args.startTime ?? "09:00",
+  };
+}
 
 function buildBlockedSlotResult(
   overrides: Partial<BlockedSlotResult> & Pick<BlockedSlotResult, "_id">,
@@ -72,16 +106,10 @@ describe("calendar resize interactions", () => {
     const { result } = renderHook(() =>
       useCalendarInteractions({
         baseAppointments: [
-          {
-            color: "bg-blue-500",
-            column: practitioner1,
-            convexId: toTableId<"appointments">("appointment_1"),
-            duration: 30,
+          buildAppointmentLayout({
+            _id: toTableId<"appointments">("appointment_1"),
             id: "appointment_1",
-            isSimulation: false,
-            startTime: "09:00",
-            title: "Checkup",
-          },
+          }),
         ],
         baseManualBlockedSlots: [],
         blockedSlotDocMapRef: { current: new Map() },
@@ -138,16 +166,10 @@ describe("calendar resize interactions", () => {
     const { result } = renderHook(() =>
       useCalendarInteractions({
         baseAppointments: [
-          {
-            color: "bg-blue-500",
-            column: practitioner1,
-            convexId: toTableId<"appointments">("appointment_1"),
-            duration: 30,
+          buildAppointmentLayout({
+            _id: toTableId<"appointments">("appointment_1"),
             id: "appointment_1",
-            isSimulation: false,
-            startTime: "09:00",
-            title: "Checkup",
-          },
+          }),
         ],
         baseManualBlockedSlots: [],
         blockedSlotDocMapRef: { current: new Map() },
@@ -191,16 +213,10 @@ describe("calendar resize interactions", () => {
     const { result } = renderHook(() =>
       useCalendarInteractions({
         baseAppointments: [
-          {
-            color: "bg-blue-500",
-            column: practitioner1,
-            convexId: toTableId<"appointments">("appointment_1"),
-            duration: 30,
+          buildAppointmentLayout({
+            _id: toTableId<"appointments">("appointment_1"),
             id: "appointment_1",
-            isSimulation: false,
-            startTime: "09:00",
-            title: "Checkup",
-          },
+          }),
         ],
         baseManualBlockedSlots: [],
         blockedSlotDocMapRef: { current: new Map() },
@@ -239,16 +255,10 @@ describe("calendar resize interactions", () => {
     const { result } = renderHook(() =>
       useCalendarInteractions({
         baseAppointments: [
-          {
-            color: "bg-blue-500",
-            column: practitioner1,
-            convexId: toTableId<"appointments">("appointment_1"),
-            duration: 30,
+          buildAppointmentLayout({
+            _id: toTableId<"appointments">("appointment_1"),
             id: "appointment_1",
-            isSimulation: false,
-            startTime: "09:00",
-            title: "Checkup",
-          },
+          }),
         ],
         baseManualBlockedSlots: [],
         blockedSlotDocMapRef: { current: new Map() },
@@ -285,31 +295,22 @@ describe("calendar resize interactions", () => {
   it("commits a resized simulation copy even before the appointment list refreshes", async () => {
     const runUpdateAppointment = vi.fn(() => Promise.resolve());
     const convertRealAppointmentToSimulation = vi.fn(() =>
-      Promise.resolve({
-        color: "bg-blue-500",
-        column: practitioner1,
-        convexId: toTableId<"appointments">("appointment_sim"),
-        duration: 30,
-        id: "appointment_sim",
-        isSimulation: true,
-        startTime: "09:00",
-        title: "Checkup",
-      }),
+      Promise.resolve(
+        buildAppointmentLayout({
+          _id: toTableId<"appointments">("appointment_sim"),
+          id: "appointment_sim",
+          isSimulation: true,
+        }),
+      ),
     );
 
     const { result } = renderHook(() =>
       useCalendarInteractions({
         baseAppointments: [
-          {
-            color: "bg-blue-500",
-            column: practitioner1,
-            convexId: toTableId<"appointments">("appointment_1"),
-            duration: 30,
+          buildAppointmentLayout({
+            _id: toTableId<"appointments">("appointment_1"),
             id: "appointment_1",
-            isSimulation: false,
-            startTime: "09:00",
-            title: "Checkup",
-          },
+          }),
         ],
         baseManualBlockedSlots: [],
         blockedSlotDocMapRef: { current: new Map() },

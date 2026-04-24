@@ -17,7 +17,6 @@ import {
 } from "../../utils/frontend-errors";
 import { buildCalendarDayQueryArgs } from "./calendar-query-args";
 import {
-  buildCalendarAppointments,
   toCalendarAppointmentRecord,
   toCalendarBlockedSlotRecord,
 } from "./calendar-view-models";
@@ -502,16 +501,6 @@ export function useCalendarData(args: {
     appointmentUserIds.length > 0 ? { userIds: appointmentUserIds } : "skip",
   );
 
-  const appointments = useMemo(
-    () =>
-      buildCalendarAppointments({
-        appointments: appointmentsData,
-        patientData,
-        userData,
-      }),
-    [appointmentsData, patientData, userData],
-  );
-
   return {
     activeRuleSetId,
     allPracticeAppointmentDocMap,
@@ -522,7 +511,6 @@ export function useCalendarData(args: {
     allPracticeBlockedSlotsLoaded: allBlockedSlotsData !== undefined,
     appointmentDocMap,
     appointmentDocMapRef,
-    appointments,
     appointmentsData,
     appointmentTypeIdByLineageKey,
     appointmentTypeInfoByLineageKey,
@@ -537,12 +525,14 @@ export function useCalendarData(args: {
     locationIdByLineageKey,
     locationLineageKeyById,
     locationsData,
+    patientData,
     practitionerIdByLineageKey,
     practitionerLineageKeyById,
     practitionerNameByLineageKey,
     practitionersData,
     refreshAllPracticeConflictData,
     slotsResult,
+    userData,
     vacationsData,
   };
 }

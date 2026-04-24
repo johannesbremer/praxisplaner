@@ -11,28 +11,60 @@ import { assertElement } from "../test-utils";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
+  const appointmentType1 = toTableId<"appointmentTypes">("appointment_type_1");
+  const location1 = toTableId<"locations">("location_1");
+  const practice1 = toTableId<"practices">("practice_1");
   const practitioner1 = toTableId<"practitioners">("practitioner_1");
   const practitioner2 = toTableId<"practitioners">("practitioner_2");
 
+  const createAppointment = (args: {
+    color: string;
+    column: typeof practitioner1;
+    duration: number;
+    id: string;
+    startTime: string;
+    title: string;
+  }): CalendarAppointmentView => ({
+    color: args.color,
+    layout: {
+      column: args.column,
+      duration: args.duration,
+      id: args.id,
+      record: {
+        _creationTime: 0,
+        _id: toTableId<"appointments">(args.id),
+        appointmentTypeLineageKey: appointmentType1,
+        appointmentTypeTitle: "Checkup",
+        createdAt: 0n,
+        end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+        lastModified: 0n,
+        locationLineageKey: location1,
+        practiceId: practice1,
+        practitionerLineageKey: args.column,
+        start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+        title: args.title,
+      },
+      startTime: args.startTime,
+    },
+  });
+
   const mockAppointments: CalendarAppointmentView[] = [
-    {
+    createAppointment({
       color: "bg-blue-500",
       column: practitioner1,
       duration: 30,
       id: "apt-1",
-      isSimulation: false,
       startTime: "09:00",
       title: "Test Appointment 1",
-    },
-    {
+    }),
+    createAppointment({
       color: "bg-green-500",
       column: practitioner2,
       duration: 45,
       id: "apt-2",
-      isSimulation: false,
       startTime: "14:00",
       title: "Test Appointment 2",
-    },
+    }),
   ];
 
   const mockColumns = [
@@ -219,7 +251,7 @@ describe("CalendarGrid", () => {
       assertElement(appointment);
       fireEvent.click(appointment);
       expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
-        mockAppointments[0],
+        mockAppointments[0]?.layout.id,
       );
     });
 
@@ -230,7 +262,7 @@ describe("CalendarGrid", () => {
       assertElement(appointment);
       fireEvent.contextMenu(appointment);
       expect(mockHandlers.onDeleteAppointment).toHaveBeenCalledExactlyOnceWith(
-        mockAppointments[0],
+        mockAppointments[0]?.layout.id,
       );
     });
   });
@@ -451,33 +483,30 @@ describe("CalendarGrid", () => {
   describe("Filtering and Display", () => {
     test("only shows appointments in correct columns", () => {
       const mixedAppointments: CalendarAppointmentView[] = [
-        {
+        createAppointment({
           color: "bg-blue-500",
           column: practitioner1,
           duration: 30,
           id: "apt-1",
-          isSimulation: false,
           startTime: "09:00",
           title: "Mixed Appointment 1",
-        },
-        {
+        }),
+        createAppointment({
           color: "bg-green-500",
           column: practitioner2,
           duration: 30,
           id: "apt-2",
-          isSimulation: false,
           startTime: "10:00",
           title: "Mixed Appointment 2",
-        },
-        {
+        }),
+        createAppointment({
           color: "bg-red-500",
           column: practitioner1,
           duration: 30,
           id: "apt-3",
-          isSimulation: false,
           startTime: "11:00",
           title: "Mixed Appointment 3",
-        },
+        }),
       ];
 
       const { container } = render(
@@ -491,24 +520,22 @@ describe("CalendarGrid", () => {
 
     test("handles appointments with overlapping times", () => {
       const overlappingAppointments: CalendarAppointmentView[] = [
-        {
+        createAppointment({
           color: "bg-blue-500",
           column: practitioner1,
           duration: 60,
           id: "apt-1",
-          isSimulation: false,
           startTime: "09:00",
           title: "Overlapping Appointment 1",
-        },
-        {
+        }),
+        createAppointment({
           color: "bg-green-500",
           column: practitioner1,
           duration: 30,
           id: "apt-2",
-          isSimulation: false,
           startTime: "09:30",
           title: "Overlapping Appointment 2",
-        },
+        }),
       ];
 
       const { container } = render(

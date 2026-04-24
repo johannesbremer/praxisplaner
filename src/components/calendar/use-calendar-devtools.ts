@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { CalendarAppointmentView, CalendarColumnId } from "./types";
+import type { CalendarAppointmentLayout, CalendarColumnId } from "./types";
 
 import { emitCalendarEvent } from "../../devtools/event-client";
 
@@ -48,8 +48,8 @@ export function diffCalendarAppointments(
 }
 
 export function useCalendarDevtools(args: {
-  appointments: readonly CalendarAppointmentView[];
-  draggedAppointment: CalendarAppointmentView | null;
+  appointments: readonly CalendarAppointmentLayout[];
+  draggedAppointment: CalendarAppointmentLayout | null;
   dragPreview: {
     column: CalendarColumnId | null;
     slot: number;
@@ -133,7 +133,7 @@ export function useCalendarDevtools(args: {
 }
 
 function toAppointmentSnapshot(
-  appointment: CalendarAppointmentView,
+  appointment: CalendarAppointmentLayout,
 ): CalendarAppointmentSnapshot {
   return {
     column: appointment.column,

@@ -3,6 +3,7 @@ import type {
   BlockedSlotResult,
 } from "../../../convex/appointments";
 import type {
+  CalendarAppointmentLayout,
   CalendarAppointmentRecord,
   CalendarAppointmentView,
   CalendarBlockedSlotRecord,
@@ -11,19 +12,11 @@ import type {
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS } from "./types";
 
-export function buildCalendarAppointments(args: {
+export function buildCalendarAppointmentLayouts(args: {
   appointments: readonly CalendarAppointmentRecord[];
-  patientData:
-    | null
-    | Record<string, { firstName?: string; lastName?: string; name?: string }>
-    | undefined;
-  userData:
-    | null
-    | Record<string, { email: string; firstName?: string; lastName?: string }>
-    | undefined;
-}): CalendarAppointmentView[] {
+}): CalendarAppointmentLayout[] {
   return args.appointments
-    .map((appointment, index): CalendarAppointmentView | null => {
+    .map((appointment): CalendarAppointmentLayout | null => {
       const startZoned = safeParseISOToZoned(appointment.start);
       const endZoned = safeParseISOToZoned(appointment.end);
 
@@ -38,9 +31,36 @@ export function buildCalendarAppointments(args: {
         startZoned.until(endZoned, { largestUnit: "minutes" }).minutes,
       );
 
+      return {
+        column: appointment.practitionerLineageKey || "ekg",
+        duration,
+        id: appointment._id,
+        record: appointment,
+        startTime: formatTime(startZoned.toPlainTime()),
+      };
+    })
+    .filter(
+      (appointment): appointment is CalendarAppointmentLayout =>
+        appointment !== null,
+    );
+}
+
+export function buildCalendarAppointmentViews(args: {
+  appointments: readonly CalendarAppointmentLayout[];
+  patientData:
+    | null
+    | Record<string, { firstName?: string; lastName?: string; name?: string }>
+    | undefined;
+  userData:
+    | null
+    | Record<string, { email: string; firstName?: string; lastName?: string }>
+    | undefined;
+}): CalendarAppointmentView[] {
+  return args.appointments
+    .map((appointment, index): CalendarAppointmentView | null => {
       let patientName: string | undefined;
-      if (appointment.patientId && args.patientData) {
-        const patientInfo = args.patientData[appointment.patientId];
+      if (appointment.record.patientId && args.patientData) {
+        const patientInfo = args.patientData[appointment.record.patientId];
         if (patientInfo) {
           patientName =
             patientInfo.name ??
@@ -50,8 +70,8 @@ export function buildCalendarAppointments(args: {
         }
       }
 
-      if (!patientName && appointment.userId && args.userData) {
-        const userInfo = args.userData[appointment.userId];
+      if (!patientName && appointment.record.userId && args.userData) {
+        const userInfo = args.userData[appointment.record.userId];
         if (userInfo) {
           const parts = [userInfo.lastName, userInfo.firstName].filter(Boolean);
           patientName = parts.length > 0 ? parts.join(", ") : userInfo.email;
@@ -59,30 +79,11 @@ export function buildCalendarAppointments(args: {
       }
 
       return {
-        appointmentTypeTitle: appointment.appointmentTypeTitle,
         color:
           APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
           "bg-gray-500",
-        column: appointment.practitionerLineageKey || "ekg",
-        convexId: appointment._id,
-        duration,
-        id: appointment._id,
-        isSimulation: appointment.isSimulation === true,
+        layout: appointment,
         ...(patientName && { patientName }),
-        replacesAppointmentId: appointment.replacesAppointmentId ?? null,
-        resource: {
-          appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-          appointmentTypeTitle: appointment.appointmentTypeTitle,
-          isSimulation: appointment.isSimulation === true,
-          locationLineageKey: appointment.locationLineageKey,
-          patientId: appointment.patientId,
-          practitionerLineageKey: appointment.practitionerLineageKey,
-          seriesId: appointment.seriesId,
-          title: appointment.title,
-          userId: appointment.userId,
-        },
-        startTime: formatTime(startZoned.toPlainTime()),
-        title: appointment.title,
       };
     })
     .filter(
