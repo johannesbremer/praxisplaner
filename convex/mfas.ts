@@ -167,8 +167,18 @@ export const remove = mutation({
 
     const vacations = await ctx.db
       .query("vacations")
-      .withIndex("by_ruleSetId_mfaId", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("mfaId", mfa._id),
+      .withIndex("by_ruleSetId_mfaLineageKey", (q) =>
+        q.eq("ruleSetId", ruleSetId).eq(
+          "mfaLineageKey",
+          asMfaLineageKey(
+            requireLineageKey({
+              entityId: mfa._id,
+              entityType: "mfa",
+              lineageKey: mfa.lineageKey,
+              ruleSetId: mfa.ruleSetId,
+            }),
+          ),
+        ),
       )
       .collect();
 

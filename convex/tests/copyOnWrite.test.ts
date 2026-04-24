@@ -1058,9 +1058,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       return await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "12:00",
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         ruleSetId: initialRuleSetId,
         startTime: "08:00",
       });
@@ -1081,8 +1081,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         {
           dayOfWeek: 1,
           endTime: "12:00",
-          locationId,
-          practitionerId,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
           startTime: "08:00",
         },
       ],
@@ -1158,15 +1158,15 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         {
           dayOfWeek: 1,
           endTime: "12:00",
-          locationId,
-          practitionerId,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
           startTime: "08:00",
         },
         {
           dayOfWeek: 3,
           endTime: "16:00",
-          locationId,
-          practitionerId,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
           startTime: "10:00",
         },
       ],
@@ -1217,8 +1217,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         {
           dayOfWeek: 5,
           endTime: "17:00",
-          locationId,
-          practitionerId,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
           startTime: "09:00",
         },
       ],
@@ -1245,16 +1245,16 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             dayOfWeek: 1,
             endTime: "12:00",
             lineageKey: firstCreatedScheduleId,
-            locationId,
-            practitionerId,
+            locationLineageId: locationId,
+            practitionerLineageId: practitionerId,
             startTime: "08:00",
           },
           {
             dayOfWeek: 2,
             endTime: "13:00",
             lineageKey: firstCreatedScheduleId,
-            locationId,
-            practitionerId,
+            locationLineageId: locationId,
+            practitionerLineageId: practitionerId,
             startTime: "09:00",
           },
         ],
@@ -1275,8 +1275,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         {
           dayOfWeek: 1,
           endTime: "12:00",
-          locationId,
-          practitionerId,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
           startTime: "08:00",
         },
       ],
@@ -1297,8 +1297,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             dayOfWeek: 3,
             endTime: "14:00",
             lineageKey: firstCreatedScheduleId,
-            locationId,
-            practitionerId,
+            locationLineageId: locationId,
+            practitionerLineageId: practitionerId,
             startTime: "11:00",
           },
         ],
@@ -1667,7 +1667,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         version: ruleSet1.version + 2,
       });
 
-      const location3Id = await insertWithLineage(
+      await insertWithLineage(
         ctx,
         "locations",
         {
@@ -1693,9 +1693,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "17:00",
-        locationId: location3Id,
+        locationLineageKey: location1Id,
         practiceId,
-        practitionerId: practitioner3Id,
+        practitionerLineageKey: practitioner1Id,
         ruleSetId: ruleSet3Id,
         startTime: "08:00",
       });
@@ -1749,13 +1749,20 @@ describe("Copy-on-Write Entity Reference Validation", () => {
             .eq("lineageKey", seeded.location1Id),
         )
         .first();
+      const targetPractitioner = await ctx.db.get(
+        "practitioners",
+        restoreResult.restoredPractitionerId,
+      );
+      assertDefined(targetPractitioner);
+      const targetPractitionerLineageKey = targetPractitioner.lineageKey;
+      assertDefined(targetPractitionerLineageKey);
 
       const restoredSchedules = await ctx.db
         .query("baseSchedules")
-        .withIndex("by_ruleSetId_practitionerId", (q) =>
+        .withIndex("by_ruleSetId_practitionerLineageKey", (q) =>
           q
             .eq("ruleSetId", restoreResult.ruleSetId)
-            .eq("practitionerId", restoreResult.restoredPractitionerId),
+            .eq("practitionerLineageKey", targetPractitionerLineageKey),
         )
         .collect();
 
@@ -1770,8 +1777,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       "Expected copied location in recreated draft",
     );
     expect(restoredState.restoredSchedules).toHaveLength(1);
-    expect(restoredState.restoredSchedules[0]?.locationId).toEqual(
-      restoredState.targetLocation._id,
+    expect(restoredState.restoredSchedules[0]?.locationLineageKey).toEqual(
+      restoredState.targetLocation.lineageKey,
     );
   });
 

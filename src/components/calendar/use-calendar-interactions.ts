@@ -10,6 +10,7 @@ import type {
   CalendarBlockedSlotRecord,
   CalendarColumnId,
 } from "./types";
+import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
 
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
@@ -99,7 +100,7 @@ export function useCalendarInteractions({
       startISO?: string;
       title?: string;
     },
-  ) => Promise<Id<"blockedSlots"> | null>;
+  ) => Promise<null | SimulatedBlockedSlotConversionResult>;
   isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
   resolveBlockedSlotDisplayRefs: (blockedSlot: BlockedSlotRecord) => null | {
     locationId: Id<"locations">;
@@ -197,41 +198,6 @@ export function useCalendarInteractions({
   useEffect(() => {
     showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
   }, [showNonRootSeriesEditToast]);
-
-  const resolveBlockedSlotStartSlot = useCallback(
-    (entityId: string, fallbackStartISO?: string): null | number => {
-      const blockedSlot = manualBlockedSlotsRef.current.find(
-        (slot) => slot.id === entityId,
-      );
-      if (blockedSlot?.startSlot !== undefined) {
-        return blockedSlot.startSlot;
-      }
-      if (blockedSlot?.slot !== undefined) {
-        return blockedSlot.slot;
-      }
-
-      const startISO =
-        blockedSlotDocMapRef.current.get(entityId)?.start ?? fallbackStartISO;
-      if (!startISO) {
-        return null;
-      }
-
-      try {
-        const startTime = Temporal.ZonedDateTime.from(startISO)
-          .toPlainTime()
-          .toString({ smallestUnit: "minute" });
-        return timeToSlotRef.current(startTime);
-      } catch (error) {
-        captureErrorGlobal(error, {
-          context: "Failed to resolve blocked slot start slot",
-          entityId,
-          startISO,
-        });
-        return null;
-      }
-    },
-    [blockedSlotDocMapRef],
-  );
 
   const setResizeDraft = useCallback((draft: ActiveResizeDraft | null) => {
     activeResizeDraftRef.current = draft;
@@ -492,18 +458,12 @@ export function useCalendarInteractions({
         column: CalendarColumnId;
         commitBlockedSlotId: Id<"blockedSlots">;
         entityId: string;
-        fallbackStartISO?: string;
+        startISO: string;
       }) => {
-        const startSlot = resolveBlockedSlotStartSlot(
-          args.entityId,
-          args.fallbackStartISO,
-        );
-        if (startSlot === null) {
-          toast.error(
-            "Startzeit des gesperrten Zeitraums konnte nicht ermittelt werden",
-          );
-          return;
-        }
+        const startTime = Temporal.ZonedDateTime.from(args.startISO)
+          .toPlainTime()
+          .toString({ smallestUnit: "minute" });
+        const startSlot = timeToSlotRef.current(startTime);
 
         ensureResizeListeners();
         setResizeDraft({
@@ -561,9 +521,9 @@ export function useCalendarInteractions({
                 "ekg";
               startResizing({
                 column,
-                commitBlockedSlotId: convertedId,
+                commitBlockedSlotId: convertedId.id,
                 entityId: blockedSlotId,
-                fallbackStartISO: blockedSlotDoc.start,
+                startISO: convertedId.startISO,
               });
             }
           } catch (error) {
@@ -590,12 +550,12 @@ export function useCalendarInteractions({
         column: manualBlockedSlot.column,
         commitBlockedSlotId: blockedSlotDoc._id,
         entityId: blockedSlotId,
+        startISO: blockedSlotDoc.start,
       });
     },
     [
       blockedSlotDocMapRef,
       ensureResizeListeners,
-      resolveBlockedSlotStartSlot,
       resolveBlockedSlotDisplayRefs,
       setResizeDraft,
     ],

@@ -477,8 +477,6 @@ export async function copyBaseSchedules(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  locationIdMap: Map<Id<"locations">, Id<"locations">>,
 ): Promise<void> {
   const sourceSchedules = await db
     .query("baseSchedules")
@@ -486,24 +484,6 @@ export async function copyBaseSchedules(
     .collect();
 
   for (const source of sourceSchedules) {
-    const newPractitionerId = practitionerIdMap.get(source.practitionerId);
-    if (!newPractitionerId) {
-      throw new Error(
-        `Failed to copy base schedule: ` +
-          `Practitioner ID ${source.practitionerId} not found in mapping. ` +
-          `This indicates data corruption - all practitioners should have been copied.`,
-      );
-    }
-
-    const newLocationId = locationIdMap.get(source.locationId);
-    if (!newLocationId) {
-      throw new Error(
-        `Failed to copy base schedule: ` +
-          `Location ID ${source.locationId} not found in mapping. ` +
-          `This indicates data corruption - all locations should have been copied.`,
-      );
-    }
-
     await insertSelfLineageEntity(db, "baseSchedules", {
       dayOfWeek: source.dayOfWeek,
       endTime: source.endTime,
@@ -513,10 +493,10 @@ export async function copyBaseSchedules(
         lineageKey: source.lineageKey,
         ruleSetId: source.ruleSetId,
       }),
-      locationId: newLocationId,
+      locationLineageKey: source.locationLineageKey,
       parentId: source._id, // Track which entity this was copied from
       practiceId,
-      practitionerId: newPractitionerId,
+      practitionerLineageKey: source.practitionerLineageKey,
       ruleSetId: targetRuleSetId,
       startTime: source.startTime,
       ...(source.breakTimes && { breakTimes: source.breakTimes }),
@@ -532,8 +512,6 @@ export async function copyVacations(
   sourceRuleSetId: Id<"ruleSets">,
   targetRuleSetId: Id<"ruleSets">,
   practiceId: Id<"practices">,
-  practitionerIdMap: Map<Id<"practitioners">, Id<"practitioners">>,
-  mfaIdMap: Map<MfaId, MfaId>,
 ): Promise<void> {
   const sourceVacations = await db
     .query("vacations")
@@ -541,35 +519,6 @@ export async function copyVacations(
     .collect();
 
   for (const source of sourceVacations) {
-    let practitionerId: Id<"practitioners"> | undefined;
-    let mfaId: MfaId | undefined;
-
-    if (source.staffType === "practitioner") {
-      if (!source.practitionerId) {
-        throw new Error(
-          `Failed to copy vacation ${source._id}: missing practitionerId.`,
-        );
-      }
-      practitionerId = practitionerIdMap.get(source.practitionerId);
-      if (!practitionerId) {
-        throw new Error(
-          `Failed to copy vacation ${source._id}: practitioner ${source.practitionerId} not found in mapping.`,
-        );
-      }
-    } else {
-      if (!source.mfaId) {
-        throw new Error(
-          `Failed to copy vacation ${source._id}: missing mfaId.`,
-        );
-      }
-      mfaId = mfaIdMap.get(asMfaId(source.mfaId));
-      if (!mfaId) {
-        throw new Error(
-          `Failed to copy vacation ${source._id}: MFA ${source.mfaId} not found in mapping.`,
-        );
-      }
-    }
-
     await insertSelfLineageEntity(db, "vacations", {
       createdAt: source.createdAt,
       date: source.date,
@@ -579,10 +528,12 @@ export async function copyVacations(
         lineageKey: source.lineageKey,
         ruleSetId: source.ruleSetId,
       }),
-      ...(mfaId ? { mfaId } : {}),
+      ...(source.mfaLineageKey ? { mfaLineageKey: source.mfaLineageKey } : {}),
       portion: source.portion,
       practiceId,
-      ...(practitionerId ? { practitionerId } : {}),
+      ...(source.practitionerLineageKey
+        ? { practitionerLineageKey: source.practitionerLineageKey }
+        : {}),
       ruleSetId: targetRuleSetId,
       staffType: source.staffType,
     });
@@ -747,36 +698,11 @@ export async function copyAllEntities(
     practiceId,
     practitionerIdMap,
   );
-  const locationIdMap = await copyLocations(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-  );
-  const mfaIdMap = await copyMfas(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-  );
+  await copyLocations(db, sourceRuleSetId, targetRuleSetId, practiceId);
+  await copyMfas(db, sourceRuleSetId, targetRuleSetId, practiceId);
 
-  // Copy base schedules with mapped IDs
-  await copyBaseSchedules(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-    practitionerIdMap,
-    locationIdMap,
-  );
-  await copyVacations(
-    db,
-    sourceRuleSetId,
-    targetRuleSetId,
-    practiceId,
-    practitionerIdMap,
-    mfaIdMap,
-  );
+  await copyBaseSchedules(db, sourceRuleSetId, targetRuleSetId, practiceId);
+  await copyVacations(db, sourceRuleSetId, targetRuleSetId, practiceId);
 
   // Copy rule conditions with mapped IDs
   await copyRuleConditions(db, sourceRuleSetId, targetRuleSetId, practiceId);

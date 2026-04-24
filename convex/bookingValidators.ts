@@ -112,6 +112,12 @@ export const selectedSlotValidator = v.object({
   startTime: v.string(),
 });
 
+export const selectedSlotStorageValidator = v.object({
+  practitionerLineageKey: v.id("practitioners"),
+  practitionerName: v.string(),
+  startTime: v.string(),
+});
+
 export const gkvDetailsValidator = v.object({
   hzvStatus: hzvStatusValidator,
   insuranceType: v.literal("gkv"),

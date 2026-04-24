@@ -465,7 +465,7 @@ export const previewPractitionerAbsenceCoverage = query({
 
     const vacationRanges = getPractitionerVacationRangesForDate(
       Temporal.PlainDate.from(args.date),
-      selectedPractitionerId,
+      selectedPractitionerLineageKey,
       baseSchedules,
       [
         ...vacations.filter(
@@ -482,7 +482,7 @@ export const previewPractitionerAbsenceCoverage = query({
         {
           date: args.date,
           portion: args.portion,
-          practitionerId: selectedPractitionerId,
+          practitionerLineageKey: selectedPractitionerLineageKey,
           staffType: "practitioner" as const,
         },
       ],

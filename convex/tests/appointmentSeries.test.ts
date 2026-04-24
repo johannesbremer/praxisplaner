@@ -57,9 +57,9 @@ async function createBasePractice(
       await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek,
         endTime: "17:00",
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         ruleSetId,
         startTime: "08:00",
       });
@@ -766,9 +766,9 @@ describe("appointment series", () => {
         await insertWithLineage(ctx, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId: otherPractitionerId,
+          practitionerLineageKey: otherPractitionerId,
           ruleSetId,
           startTime: "08:00",
         });
@@ -925,9 +925,9 @@ describe("appointment series", () => {
         await insertWithLineage(ctx, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId: draftLocationId,
+          locationLineageKey: draftLocationId,
           practiceId,
-          practitionerId: draftPractitionerId,
+          practitionerLineageKey: draftPractitionerId,
           ruleSetId: draftRuleSetId,
           startTime: "08:00",
         });

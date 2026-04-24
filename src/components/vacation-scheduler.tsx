@@ -346,8 +346,8 @@ export function VacationScheduler({
     for (const vacation of vacations ?? []) {
       const staffId =
         vacation.staffType === "practitioner"
-          ? vacation.practitionerId
-          : vacation.mfaId;
+          ? vacation.practitionerLineageKey
+          : vacation.mfaLineageKey;
       if (!staffId) {
         continue;
       }
@@ -436,11 +436,11 @@ export function VacationScheduler({
       const vacation = vacationRows.find((candidate) => {
         const staffId =
           candidate.staffType === "practitioner"
-            ? candidate.practitionerId
-            : candidate.mfaId;
+            ? candidate.practitionerLineageKey
+            : candidate.mfaLineageKey;
         return (
           candidate.staffType === staff.kind &&
-          staffId === staff.id &&
+          staffId === staff.lineageKey &&
           candidate.date === date.toString() &&
           candidate.portion === portion
         );
@@ -478,13 +478,13 @@ export function VacationScheduler({
 
       const vacationRanges = getPractitionerVacationRangesForDate(
         date,
-        staff.id,
+        staff.lineageKey,
         baseSchedules,
         [
           {
             date: date.toString(),
             portion,
-            practitionerId: staff.id,
+            practitionerLineageKey: staff.lineageKey,
             staffType: "practitioner",
           },
         ],
@@ -546,7 +546,7 @@ export function VacationScheduler({
       let totalScheduledMinutes = 0;
       for (const schedule of baseSchedules) {
         if (
-          schedule.practitionerId !== staff.id ||
+          schedule.practitionerLineageKey !== staff.lineageKey ||
           schedule.dayOfWeek !== (date.dayOfWeek === 7 ? 0 : date.dayOfWeek)
         ) {
           continue;
@@ -595,7 +595,7 @@ export function VacationScheduler({
       const result = (await deleteVacation({
         date: date.toString(),
         lineageKey: snapshot.lineageKey,
-        ...vacationStaffLineageMutationArgs(staff),
+        ...vacationStaffMutationArgs(staff),
         portion: snapshot.portion,
         practiceId,
         staffType: staff.kind,
@@ -626,7 +626,7 @@ export function VacationScheduler({
         ...(existingSnapshot
           ? { lineageKey: existingSnapshot.lineageKey }
           : {}),
-        ...vacationStaffLineageMutationArgs(staff),
+        ...vacationStaffMutationArgs(staff),
         portion,
         practiceId,
         staffType: staff.kind,
@@ -943,7 +943,7 @@ export function VacationScheduler({
           date: conflictDialog.date.toString(),
           portion: conflictDialog.portion,
           practiceId,
-          practitionerId: conflictDialog.staff.lineageKey,
+          practitionerId: conflictDialog.staff.id,
           ruleSetId,
           ...(replacingVacationLineageKeys.length > 0
             ? { replacingVacationLineageKeys }
@@ -1666,7 +1666,7 @@ export function VacationScheduler({
                                   : null,
                               portion: conflictDialog.portion,
                               practiceId,
-                              practitionerId: conflictDialog.staff.lineageKey,
+                              practitionerId: conflictDialog.staff.id,
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
@@ -1740,7 +1740,7 @@ export function VacationScheduler({
                                   : null,
                               portion: conflictDialog.portion,
                               practiceId,
-                              practitionerId: conflictDialog.staff.lineageKey,
+                              practitionerId: conflictDialog.staff.id,
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
@@ -1855,8 +1855,8 @@ function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {
   return date.with({ day: 1 });
 }
 
-function vacationStaffLineageMutationArgs(staff: StaffRow) {
+function vacationStaffMutationArgs(staff: StaffRow) {
   return staff.kind === "mfa"
-    ? { mfaId: staff.lineageKey }
-    : { practitionerId: staff.lineageKey };
+    ? { mfaId: staff.id }
+    : { practitionerId: staff.id };
 }

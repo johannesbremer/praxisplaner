@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 
 import { api } from "../../../convex/_generated/api";
@@ -79,6 +79,7 @@ import {
   hasCalendarOccupancyConflictInRecords,
   mergeCurrentConflictRecordsByIdExcluding,
   parsePlainTimeResult,
+  type SimulatedBlockedSlotConversionResult,
   type SimulationConversionOptions,
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
@@ -2267,8 +2268,7 @@ export function useCalendarLogic({
     );
 
     let daySchedules = baseSchedulesData.filter(
-      (schedule: Doc<"baseSchedules">) =>
-        schedule.dayOfWeek === currentDayOfWeek,
+      (schedule) => schedule.dayOfWeek === currentDayOfWeek,
     );
     const effectiveLocationId =
       simulatedContext?.locationId ?? selectedLocationId ?? undefined;
@@ -2279,15 +2279,13 @@ export function useCalendarLogic({
 
     if (simulatedContext?.locationId && effectiveLocationLineageKey) {
       daySchedules = daySchedules.filter(
-        (schedule: Doc<"baseSchedules">) =>
-          locationLineageKeyById.get(schedule.locationId) ===
-          effectiveLocationLineageKey,
+        (schedule) =>
+          schedule.locationLineageKey === effectiveLocationLineageKey,
       );
     } else if (selectedLocationId && effectiveLocationLineageKey) {
       daySchedules = daySchedules.filter(
-        (schedule: Doc<"baseSchedules">) =>
-          locationLineageKeyById.get(schedule.locationId) ===
-          effectiveLocationLineageKey,
+        (schedule) =>
+          schedule.locationLineageKey === effectiveLocationLineageKey,
       );
     }
 
@@ -2385,25 +2383,16 @@ export function useCalendarLogic({
               vacation.staffType === "practitioner" &&
               vacation.date === selectedDate.toString() &&
               vacation.portion === "full" &&
-              vacation.practitionerId &&
-              (() => {
-                const lineageKey = practitionerLineageKeyById.get(
-                  vacation.practitionerId,
-                );
-                return (
-                  lineageKey !== undefined &&
-                  !practitionersWithAppointments.has(lineageKey)
-                );
-              })(),
+              vacation.practitionerLineageKey &&
+              !practitionersWithAppointments.has(
+                vacation.practitionerLineageKey,
+              ),
           )
           .flatMap((vacation) => {
-            if (!vacation.practitionerId) {
+            if (!vacation.practitionerLineageKey) {
               return [];
             }
-            const lineageKey = practitionerLineageKeyById.get(
-              vacation.practitionerId,
-            );
-            return lineageKey ? [lineageKey] : [];
+            return [vacation.practitionerLineageKey];
           }),
       );
 
@@ -2412,23 +2401,10 @@ export function useCalendarLogic({
           vacation.staffType === "practitioner" &&
           vacation.date === selectedDate.toString() &&
           vacation.portion === "full" &&
-          vacation.practitionerId &&
-          (() => {
-            const lineageKey = practitionerLineageKeyById.get(
-              vacation.practitionerId,
-            );
-            return (
-              lineageKey !== undefined &&
-              practitionersWithAppointments.has(lineageKey)
-            );
-          })()
+          vacation.practitionerLineageKey &&
+          practitionersWithAppointments.has(vacation.practitionerLineageKey)
         ) {
-          const lineageKey = practitionerLineageKeyById.get(
-            vacation.practitionerId,
-          );
-          if (lineageKey) {
-            mutedPractitionerIds.add(lineageKey);
-          }
+          mutedPractitionerIds.add(vacation.practitionerLineageKey);
         }
       }
 
@@ -2869,7 +2845,7 @@ export function useCalendarLogic({
     }[] = [];
 
     const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId;
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
     const effectiveLocationLineageKey =
       effectiveLocationId === undefined
         ? undefined
@@ -2963,7 +2939,11 @@ export function useCalendarLogic({
     }[] = [];
 
     const effectiveLocationId =
-      simulatedContext?.locationId ?? selectedLocationId;
+      simulatedContext?.locationId ?? selectedLocationId ?? undefined;
+    const effectiveLocationLineageKey =
+      effectiveLocationId === undefined
+        ? undefined
+        : locationLineageKeyById.get(effectiveLocationId);
 
     for (const practitioner of workingPractitioners) {
       const practitionerId = getPractitionerIdForLineageKey(
@@ -2985,7 +2965,7 @@ export function useCalendarLogic({
         vacationsData.some(
           (vacation) =>
             vacation.staffType === "practitioner" &&
-            vacation.practitionerId === practitionerId &&
+            vacation.practitionerLineageKey === practitioner.lineageKey &&
             vacation.date === selectedDate.toString() &&
             vacation.portion === "full",
         );
@@ -2996,10 +2976,10 @@ export function useCalendarLogic({
 
       const ranges = getPractitionerVacationRangesForDate(
         selectedDate,
-        practitionerId,
+        practitioner.lineageKey,
         baseSchedulesData,
         vacationsData,
-        effectiveLocationId,
+        effectiveLocationLineageKey,
       );
 
       for (const range of ranges) {
@@ -3025,6 +3005,7 @@ export function useCalendarLogic({
     baseSchedulesData,
     businessStartHour,
     appointmentsData,
+    locationLineageKeyById,
     selectedDate,
     selectedLocationId,
     simulatedContext,
@@ -3503,7 +3484,7 @@ export function useCalendarLogic({
     async (
       blockedSlotId: string,
       options: BlockedSlotConversionOptions,
-    ): Promise<Id<"blockedSlots"> | null> => {
+    ): Promise<null | SimulatedBlockedSlotConversionResult> => {
       if (!simulatedContext) {
         return null;
       }
@@ -3532,7 +3513,10 @@ export function useCalendarLogic({
       }
 
       if (original.isSimulation) {
-        return original._id;
+        return {
+          id: original._id,
+          startISO: original.start,
+        };
       }
 
       const locationId = resultFromNullable(
@@ -3581,7 +3565,10 @@ export function useCalendarLogic({
             source: "convertRealBlockedSlotToSimulation.createBlockedSlot",
           }),
       ).match(
-        (newId) => newId,
+        (newId) => ({
+          id: newId,
+          startISO,
+        }),
         (error) => {
           captureFrontendError(error, {
             blockedSlotId,

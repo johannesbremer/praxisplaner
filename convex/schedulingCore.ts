@@ -25,7 +25,7 @@ export interface CandidateSlot {
   locationLineageKey: LocationLineageKey;
   practitionerId: PractitionerId;
   practitionerLineageKey: PractitionerLineageKey;
-  practitionerName?: string;
+  practitionerName: string;
   reason?: string;
   startTime: string;
   status: "AVAILABLE" | "BLOCKED";
@@ -62,15 +62,8 @@ export async function generateCandidateSlotsForDay(
   const practitionersForPractice = practitioners.filter(
     (practitioner) => practitioner.practiceId === practiceId,
   );
-  const practitionerNameById = new Map(
+  const practitionerNameByLineageKey = new Map(
     practitionersForPractice.map((practitioner) => [
-      practitioner._id,
-      practitioner.name,
-    ]),
-  );
-  const practitionerLineageKeyById = new Map(
-    practitionersForPractice.map((practitioner) => [
-      asPractitionerId(practitioner._id),
       asPractitionerLineageKey(
         requireLineageKey({
           entityId: practitioner._id,
@@ -79,13 +72,26 @@ export async function generateCandidateSlotsForDay(
           ruleSetId: practitioner.ruleSetId,
         }),
       ),
+      practitioner.name,
     ]),
   );
-  const locationLineageKeyById = new Map(
+  const practitionerIdByLineageKey = new Map(
+    practitionersForPractice.map((practitioner) => [
+      asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+      asPractitionerId(practitioner._id),
+    ]),
+  );
+  const locationIdByLineageKey = new Map(
     locations
       .filter((location) => location.practiceId === practiceId)
       .map((location) => [
-        asLocationId(location._id),
         asLocationLineageKey(
           requireLineageKey({
             entityId: location._id,
@@ -94,6 +100,7 @@ export async function generateCandidateSlotsForDay(
             ruleSetId: location.ruleSetId,
           }),
         ),
+        asLocationId(location._id),
       ]),
   );
 
@@ -109,7 +116,12 @@ export async function generateCandidateSlotsForDay(
       return false;
     }
 
-    if (locationId && schedule.locationId !== locationId) {
+    if (
+      locationId &&
+      locationIdByLineageKey.get(
+        asLocationLineageKey(schedule.locationLineageKey),
+      ) !== asLocationId(locationId)
+    ) {
       return false;
     }
 
@@ -150,20 +162,42 @@ export async function generateCandidateSlotsForDay(
         ) ?? false;
 
       if (!isBreakTime) {
+        const locationLineageKey = asLocationLineageKey(
+          schedule.locationLineageKey,
+        );
+        const practitionerLineageKey = asPractitionerLineageKey(
+          schedule.practitionerLineageKey,
+        );
+        const resolvedLocationId =
+          locationIdByLineageKey.get(locationLineageKey);
+        if (!resolvedLocationId) {
+          throw new Error(
+            `[INVARIANT:SCHEDULE_LOCATION_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Standort-Lineage ${locationLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
+          );
+        }
+        const resolvedPractitionerId = practitionerIdByLineageKey.get(
+          practitionerLineageKey,
+        );
+        if (!resolvedPractitionerId) {
+          throw new Error(
+            `[INVARIANT:SCHEDULE_PRACTITIONER_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Behandler-Lineage ${practitionerLineageKey}, die in Regelset ${ruleSetId} nicht aufgelöst werden konnte.`,
+          );
+        }
+        const practitionerName = practitionerNameByLineageKey.get(
+          practitionerLineageKey,
+        );
+        if (!practitionerName) {
+          throw new Error(
+            `[INVARIANT:SCHEDULE_PRACTITIONER_NAME_NOT_RESOLVED] Arbeitszeit ${schedule._id} referenziert Behandler-Lineage ${practitionerLineageKey}, deren Anzeigename in Regelset ${ruleSetId} fehlt.`,
+          );
+        }
         candidateSlots.push({
           duration: DEFAULT_SLOT_DURATION_MINUTES,
-          locationId: asLocationId(schedule.locationId),
-          locationLineageKey:
-            locationLineageKeyById.get(asLocationId(schedule.locationId)) ??
-            asLocationLineageKey(schedule.locationId),
-          practitionerId: asPractitionerId(schedule.practitionerId),
-          practitionerLineageKey:
-            practitionerLineageKeyById.get(
-              asPractitionerId(schedule.practitionerId),
-            ) ?? asPractitionerLineageKey(schedule.practitionerId),
-          practitionerName:
-            practitionerNameById.get(schedule.practitionerId) ??
-            "Unknown Practitioner",
+          locationId: resolvedLocationId,
+          locationLineageKey,
+          practitionerId: resolvedPractitionerId,
+          practitionerLineageKey,
+          practitionerName,
           startTime: slotZoned.toString(),
           status: "AVAILABLE",
         });

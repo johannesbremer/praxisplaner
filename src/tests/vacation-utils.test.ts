@@ -11,8 +11,8 @@ describe("vacation utils", () => {
         breakTimes: [{ end: "12:00", start: "11:00" }],
         dayOfWeek: 1,
         endTime: "16:00",
-        locationId: "loc-1",
-        practitionerId: "doc-1",
+        locationLineageKey: "loc-1",
+        practitionerLineageKey: "doc-1",
         startTime: "08:00",
       },
     ];
@@ -25,7 +25,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "morning",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],
@@ -40,7 +40,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "afternoon",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],
@@ -61,7 +61,7 @@ describe("vacation utils", () => {
         ],
         dayOfWeek: 1,
         endTime: "17:00",
-        practitionerId: "doc-1",
+        practitionerLineageKey: "doc-1",
         startTime: "08:00",
       },
     ];
@@ -74,7 +74,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "morning",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],
@@ -88,7 +88,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "afternoon",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],
@@ -107,7 +107,7 @@ describe("vacation utils", () => {
       {
         dayOfWeek: 1,
         endTime: "16:00",
-        practitionerId: "doc-1",
+        practitionerLineageKey: "doc-1",
         startTime: "08:00",
       },
     ];
@@ -120,7 +120,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "morning",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],
@@ -134,7 +134,7 @@ describe("vacation utils", () => {
         {
           date: "2026-04-06",
           portion: "afternoon",
-          practitionerId: "doc-1",
+          practitionerLineageKey: "doc-1",
           staffType: "practitioner",
         },
       ],

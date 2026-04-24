@@ -603,9 +603,9 @@ describe("appointments self-service cancellation", () => {
         await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId,
+          practitionerLineageKey: practitionerId,
           ruleSetId,
           startTime: "08:00",
         });
@@ -1489,7 +1489,7 @@ describe("appointments update safety", () => {
         date: "2026-01-05",
         portion: "morning",
         practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
+        practitionerLineageKey: baseData.practitionerId,
         ruleSetId: unsavedRuleSetId,
         staffType: "practitioner",
       });

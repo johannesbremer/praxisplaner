@@ -433,7 +433,10 @@ describe("calendar resize interactions", () => {
   it("commits a resized simulation blocked-slot copy even before the blocked-slot list refreshes", async () => {
     const runUpdateBlockedSlot = vi.fn(() => Promise.resolve());
     const convertRealBlockedSlotToSimulation = vi.fn(() =>
-      Promise.resolve(toTableId<"blockedSlots">("blocked_slot_sim")),
+      Promise.resolve({
+        id: toTableId<"blockedSlots">("blocked_slot_sim"),
+        startISO: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+      }),
     );
 
     const { result } = renderHook(() =>
@@ -510,7 +513,10 @@ describe("calendar resize interactions", () => {
   it("preserves the original blocked-slot start slot while converting a real slot to simulation for resize", async () => {
     const runUpdateBlockedSlot = vi.fn(() => Promise.resolve());
     const convertRealBlockedSlotToSimulation = vi.fn(() =>
-      Promise.resolve(toTableId<"blockedSlots">("blocked_slot_sim")),
+      Promise.resolve({
+        id: toTableId<"blockedSlots">("blocked_slot_sim"),
+        startISO: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+      }),
     );
     const slotToTime = (slot: number) =>
       `${String(8 + Math.floor((slot * 5) / 60)).padStart(2, "0")}:${String((slot * 5) % 60).padStart(2, "0")}`;

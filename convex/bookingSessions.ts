@@ -6,6 +6,14 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { isIsoDateString, isZonedDateTimeString } from "../lib/typed-regex.js";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  resolveAppointmentTypeIdForRuleSetByLineage,
+  resolveAppointmentTypeLineageKey,
+  resolveLocationIdForRuleSetByLineage,
+  resolveLocationLineageKey,
+  resolvePractitionerIdForRuleSetByLineage,
+  resolvePractitionerLineageKey,
+} from "./appointmentReferences";
 import { createAppointmentFromTrustedSource } from "./appointments";
 import {
   APPOINTMENT_TIMEZONE,
@@ -30,6 +38,15 @@ import {
   type StepTableName,
   type StepTablePatch,
 } from "./bookingSessions.shared";
+import {
+  asAppointmentTypeId,
+  asAppointmentTypeLineageKey,
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+  toTableId,
+} from "./identity";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
@@ -100,7 +117,7 @@ async function hydrateSessionState(
   session: SessionDoc,
 ): Promise<BookingSessionState> {
   const step = session.state.step;
-  const snapshot = await loadStepSnapshot(ctx, session._id, step);
+  const snapshot = await loadStepSnapshot(ctx, session, step);
   if (STEP_SNAPSHOT_TABLES_BY_STEP[step].length > 0 && snapshot === null) {
     throw new Error(`Missing snapshot for booking session step '${step}'`);
   }
@@ -120,6 +137,89 @@ function isConfirmationState(
   return (
     state.step === "existing-confirmation" || state.step === "new-confirmation"
   );
+}
+
+async function materializeStepSnapshot(
+  ctx: StepReadCtx,
+  session: SessionDoc,
+  snapshot: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const materialized: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    switch (key) {
+      case "appointmentTypeLineageKey": {
+        if (typeof value !== "string") {
+          throw new TypeError(
+            "Invalid appointment type lineage key in snapshot",
+          );
+        }
+        materialized["appointmentTypeId"] =
+          await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asAppointmentTypeLineageKey(
+              toTableId<"appointmentTypes">(value),
+            ),
+            ruleSetId: session.ruleSetId,
+          });
+        break;
+      }
+      case "locationLineageKey": {
+        if (typeof value !== "string") {
+          throw new TypeError("Invalid location lineage key in snapshot");
+        }
+        materialized["locationId"] = await resolveLocationIdForRuleSetByLineage(
+          ctx.db,
+          {
+            lineageKey: asLocationLineageKey(toTableId<"locations">(value)),
+            ruleSetId: session.ruleSetId,
+          },
+        );
+        break;
+      }
+      case "practitionerLineageKey": {
+        if (typeof value !== "string") {
+          throw new TypeError("Invalid practitioner lineage key in snapshot");
+        }
+        materialized["practitionerId"] =
+          await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asPractitionerLineageKey(
+              toTableId<"practitioners">(value),
+            ),
+            ruleSetId: session.ruleSetId,
+          });
+        break;
+      }
+      case "selectedSlot": {
+        if (
+          !isPlainObject(value) ||
+          typeof value["practitionerLineageKey"] !== "string" ||
+          typeof value["practitionerName"] !== "string" ||
+          typeof value["startTime"] !== "string"
+        ) {
+          throw new Error("Invalid selected slot snapshot");
+        }
+        materialized["selectedSlot"] = {
+          practitionerId: await resolvePractitionerIdForRuleSetByLineage(
+            ctx.db,
+            {
+              lineageKey: asPractitionerLineageKey(
+                toTableId<"practitioners">(value["practitionerLineageKey"]),
+              ),
+              ruleSetId: session.ruleSetId,
+            },
+          ),
+          practitionerName: value["practitionerName"],
+          startTime: value["startTime"],
+        };
+        break;
+      }
+      default: {
+        materialized[key] = value;
+      }
+    }
+  }
+
+  return materialized;
 }
 
 function requireSelectableRuleSetEntity<
@@ -156,6 +256,51 @@ function requireSelectableRuleSetEntity<
     );
   }
   return entity;
+}
+
+async function resolveStoredAppointmentTypeLineageKey(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  appointmentTypeId: Id<"appointmentTypes">,
+) {
+  return await resolveAppointmentTypeLineageKey(
+    db,
+    asAppointmentTypeId(appointmentTypeId),
+  );
+}
+
+async function resolveStoredLocationLineageKey(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  locationId: Id<"locations">,
+) {
+  return await resolveLocationLineageKey(db, asLocationId(locationId), {
+    allowDeleted: true,
+  });
+}
+
+async function resolveStoredPractitionerLineageKey(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  practitionerId: Id<"practitioners">,
+) {
+  return await resolvePractitionerLineageKey(
+    db,
+    asPractitionerId(practitionerId),
+  );
+}
+
+async function toStoredSelectedSlot(
+  db: MutationCtx["db"] | QueryCtx["db"],
+  selectedSlot: ReturnType<typeof asSelectedSlotInput>,
+): Promise<
+  StepTableDocMap["bookingExistingCalendarSelectionSteps"]["selectedSlot"]
+> {
+  return {
+    practitionerLineageKey: await resolveStoredPractitionerLineageKey(
+      db,
+      selectedSlot.practitionerId,
+    ),
+    practitionerName: selectedSlot.practitionerName,
+    startTime: selectedSlot.startTime,
+  };
 }
 
 async function tryHydrateSessionState(
@@ -933,7 +1078,7 @@ function assertSlotStartIsInFuture(startTime: string): void {
 
 async function loadStepSnapshot(
   ctx: StepReadCtx,
-  sessionId: Id<"bookingSessions">,
+  session: SessionDoc,
   step: BookingSessionState["step"],
 ): Promise<null | Record<string, unknown>> {
   const tableNames = STEP_SNAPSHOT_TABLES_BY_STEP[step];
@@ -942,13 +1087,15 @@ async function loadStepSnapshot(
   }
 
   for (const tableName of tableNames) {
-    const row = await getStepRow(ctx, tableName, sessionId);
+    const row = await getStepRow(ctx, tableName, session._id);
     if (!row) {
       continue;
     }
 
-    const snapshot = Object.fromEntries(
-      Object.entries(stripStepSnapshotFields(row)),
+    const snapshot = await materializeStepSnapshot(
+      ctx,
+      session,
+      Object.fromEntries(Object.entries(stripStepSnapshotFields(row))),
     );
     return filterStepSnapshot(step, snapshot);
   }
@@ -1712,9 +1859,13 @@ export const selectLocation = mutation({
     await setSessionStep(ctx, args.sessionId, "patient-status");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      args.locationId,
+    );
     await upsertStep(ctx, "bookingLocationSteps", session, {
       ...base,
-      locationId: args.locationId,
+      locationLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -1735,10 +1886,14 @@ export const selectNewPatient = mutation({
     await setSessionStep(ctx, args.sessionId, "new-insurance-type");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     await upsertStep(ctx, "bookingPatientStatusSteps", session, {
       ...base,
       isNewPatient: true as const,
-      locationId: state.locationId,
+      locationLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -1761,10 +1916,14 @@ export const selectExistingPatient = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-doctor-selection");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     await upsertStep(ctx, "bookingPatientStatusSteps", session, {
       ...base,
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -1797,11 +1956,15 @@ export const selectInsuranceType = mutation({
     }
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     await upsertStep(ctx, "bookingNewInsuranceTypeSteps", session, {
       ...base,
       insuranceType: args.insuranceType,
       isNewPatient: true as const,
-      locationId: state.locationId,
+      locationLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -1833,12 +1996,16 @@ export const confirmGkvDetails = mutation({
     await setSessionStep(ctx, args.sessionId, "new-data-input");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     await upsertStep(ctx, "bookingNewGkvDetailSteps", session, {
       ...base,
       hzvStatus: args.hzvStatus,
       insuranceType: "gkv" as const,
       isNewPatient: true as const,
-      locationId: state.locationId,
+      locationLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -1862,11 +2029,15 @@ export const acceptPvsConsent = mutation({
     await setSessionStep(ctx, args.sessionId, "new-pkv-details");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     await upsertStep(ctx, "bookingNewPkvConsentSteps", session, {
       ...base,
       insuranceType: "pkv" as const,
       isNewPatient: true as const,
-      locationId: state.locationId,
+      locationLineageKey,
       pvsConsent: true as const,
     });
 
@@ -1903,11 +2074,15 @@ export const confirmPkvDetails = mutation({
     await setSessionStep(ctx, args.sessionId, "new-data-input");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     const stepData: StepTableInput<"bookingNewPkvDetailSteps"> = {
       ...base,
       insuranceType: "pkv",
       isNewPatient: true,
-      locationId: state.locationId,
+      locationLineageKey,
       pvsConsent: true,
       ...(args.pkvTariff === undefined ? {} : { pkvTariff: args.pkvTariff }),
       ...(args.pkvInsuranceType === undefined
@@ -1952,11 +2127,15 @@ export const submitNewPatientData = mutation({
     await setSessionStep(ctx, args.sessionId, "new-data-sharing");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     const stepData: StepTableInput<"bookingNewPersonalDataSteps"> = {
       ...base,
       insuranceType: state.insuranceType,
       isNewPatient: true,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
       ...(args.medicalHistory === undefined
         ? {}
@@ -2003,12 +2182,16 @@ export const submitNewDataSharing = mutation({
     await setSessionStep(ctx, args.sessionId, "new-calendar-selection");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
     const stepData: StepTableInput<"bookingNewDataSharingSteps"> = {
       ...base,
       dataSharingContacts: ownedContacts,
       insuranceType: state.insuranceType,
       isNewPatient: true,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
       ...(state.medicalHistory === undefined
         ? {}
@@ -2080,16 +2263,26 @@ export const selectNewPatientSlot = mutation({
     });
 
     const base = getStepBase(session);
+    const appointmentTypeLineageKey =
+      await resolveStoredAppointmentTypeLineageKey(
+        ctx.db,
+        args.appointmentTypeId,
+      );
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
+    const storedSelectedSlot = await toStoredSelectedSlot(ctx.db, selectedSlot);
     const calendarStep: StepTableInput<"bookingNewCalendarSelectionSteps"> = {
       ...base,
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeLineageKey,
       dataSharingContacts: state.dataSharingContacts,
       insuranceType: state.insuranceType,
       isNewPatient: true,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
       reasonDescription,
-      selectedSlot,
+      selectedSlot: storedSelectedSlot,
       ...(state.medicalHistory === undefined
         ? {}
         : { medicalHistory: state.medicalHistory }),
@@ -2134,16 +2327,16 @@ export const selectNewPatientSlot = mutation({
       await upsertStep(ctx, "bookingNewConfirmationSteps", session, {
         ...base,
         appointmentId,
-        appointmentTypeId: args.appointmentTypeId,
+        appointmentTypeLineageKey,
         bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         hzvStatus: state.hzvStatus,
         insuranceType: "gkv" as const,
         isNewPatient: true as const,
-        locationId: state.locationId,
+        locationLineageKey,
         personalData,
         reasonDescription,
-        selectedSlot,
+        selectedSlot: storedSelectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
           : { medicalHistory: state.medicalHistory }),
@@ -2156,15 +2349,15 @@ export const selectNewPatientSlot = mutation({
       const confirmStep: StepTableInput<"bookingNewConfirmationSteps"> = {
         ...base,
         appointmentId,
-        appointmentTypeId: args.appointmentTypeId,
+        appointmentTypeLineageKey,
         bookedDurationMinutes,
         dataSharingContacts: state.dataSharingContacts,
         insuranceType: "pkv",
         isNewPatient: true,
-        locationId: state.locationId,
+        locationLineageKey,
         personalData,
         reasonDescription,
-        selectedSlot,
+        selectedSlot: storedSelectedSlot,
         ...(state.medicalHistory === undefined
           ? {}
           : { medicalHistory: state.medicalHistory }),
@@ -2231,11 +2424,19 @@ export const selectDoctor = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-data-input");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
+    const practitionerLineageKey = await resolveStoredPractitionerLineageKey(
+      ctx.db,
+      args.practitionerId,
+    );
     await upsertStep(ctx, "bookingExistingDoctorSelectionSteps", session, {
       ...base,
       isNewPatient: false as const,
-      locationId: state.locationId,
-      practitionerId: args.practitionerId,
+      locationLineageKey,
+      practitionerLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -2270,20 +2471,28 @@ export const submitExistingPatientData = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-calendar-selection");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
+    const practitionerLineageKey = await resolveStoredPractitionerLineageKey(
+      ctx.db,
+      state.practitionerId,
+    );
     await upsertStep(ctx, "bookingExistingPersonalDataSteps", session, {
       ...base,
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
-      practitionerId: state.practitionerId,
+      practitionerLineageKey,
     });
     await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
       ...base,
       dataSharingContacts: [],
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
-      practitionerId: state.practitionerId,
+      practitionerLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -2319,13 +2528,21 @@ export const submitExistingDataSharing = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-calendar-selection");
 
     const base = getStepBase(session);
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
+    const practitionerLineageKey = await resolveStoredPractitionerLineageKey(
+      ctx.db,
+      state.practitionerId,
+    );
     await upsertStep(ctx, "bookingExistingDataSharingSteps", session, {
       ...base,
       dataSharingContacts: ownedContacts,
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
-      practitionerId: state.practitionerId,
+      practitionerLineageKey,
     });
 
     await refreshSession(ctx, args.sessionId);
@@ -2388,30 +2605,44 @@ export const selectExistingPatientSlot = mutation({
     await setSessionStep(ctx, args.sessionId, "existing-confirmation");
 
     const base = getStepBase(session);
+    const appointmentTypeLineageKey =
+      await resolveStoredAppointmentTypeLineageKey(
+        ctx.db,
+        args.appointmentTypeId,
+      );
+    const locationLineageKey = await resolveStoredLocationLineageKey(
+      ctx.db,
+      state.locationId,
+    );
+    const practitionerLineageKey = await resolveStoredPractitionerLineageKey(
+      ctx.db,
+      state.practitionerId,
+    );
+    const storedSelectedSlot = await toStoredSelectedSlot(ctx.db, selectedSlot);
     await upsertStep(ctx, "bookingExistingCalendarSelectionSteps", session, {
       ...base,
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeLineageKey,
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
-      practitionerId: state.practitionerId,
+      practitionerLineageKey,
       reasonDescription,
-      selectedSlot,
+      selectedSlot: storedSelectedSlot,
     });
 
     await upsertStep(ctx, "bookingExistingConfirmationSteps", session, {
       ...base,
       appointmentId,
-      appointmentTypeId: args.appointmentTypeId,
+      appointmentTypeLineageKey,
       bookedDurationMinutes,
       dataSharingContacts: state.dataSharingContacts,
       isNewPatient: false as const,
-      locationId: state.locationId,
+      locationLineageKey,
       personalData,
-      practitionerId: state.practitionerId,
+      practitionerLineageKey,
       reasonDescription,
-      selectedSlot,
+      selectedSlot: storedSelectedSlot,
     });
 
     await refreshSession(ctx, args.sessionId);

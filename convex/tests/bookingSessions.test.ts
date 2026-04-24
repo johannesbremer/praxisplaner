@@ -602,7 +602,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -737,7 +737,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -878,7 +878,7 @@ describe("bookingSessions user identity handling", () => {
         insuranceType: "gkv",
         isNewPatient: true,
         lastModified: BigInt(Date.now()),
-        locationId,
+        locationLineageKey: locationId,
         personalData: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
@@ -1720,9 +1720,9 @@ describe("bookingSessions slot selection validation", () => {
         await insertSelfLineageEntity(ctx.db, "baseSchedules", {
           dayOfWeek,
           endTime: "17:00",
-          locationId,
+          locationLineageKey: locationId,
           practiceId,
-          practitionerId,
+          practitionerLineageKey: practitionerId,
           ruleSetId,
           startTime: "08:00",
         });

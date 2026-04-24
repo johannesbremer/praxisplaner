@@ -31,7 +31,11 @@ import {
   resolveAppointmentTypeIdForRuleSet,
   resolveLocationIdForRuleSet,
 } from "./appointmentCoverage";
-import { resolveStoredAppointmentReferencesForWrite } from "./appointmentReferences";
+import {
+  resolveLocationLineageKey,
+  resolvePractitionerLineageKey,
+  resolveStoredAppointmentReferencesForWrite,
+} from "./appointmentReferences";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
   bumpDraftRevision,
@@ -65,6 +69,7 @@ import {
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
+  asLocationId,
   asLocationLineageKey,
   asPractitionerId,
 } from "./identity";
@@ -293,36 +298,6 @@ async function ensureBaseScheduleLineageKeyForWrite(
   return entity._id;
 }
 
-async function getResolvedBaseScheduleReferenceLineage(params: {
-  db: DatabaseReader;
-  locationId: Id<"locations">;
-  practitionerId: Id<"practitioners">;
-}): Promise<{
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey: Id<"practitioners">;
-}> {
-  const [location, practitioner] = await Promise.all([
-    params.db.get("locations", params.locationId),
-    params.db.get("practitioners", params.practitionerId),
-  ]);
-
-  if (!location) {
-    throw new Error(
-      `[INVARIANT:LOCATION_NOT_FOUND] Standort ${params.locationId} konnte nicht geladen werden.`,
-    );
-  }
-  if (!practitioner) {
-    throw new Error(
-      `[INVARIANT:PRACTITIONER_NOT_FOUND] Behandler ${params.practitionerId} konnte nicht geladen werden.`,
-    );
-  }
-
-  return {
-    locationLineageKey: requireLocationLineageKey(location),
-    practitionerLineageKey: requirePractitionerLineageKey(practitioner),
-  };
-}
-
 function isDeletedRuleSetEntity(
   entity: null | undefined | { deleted?: boolean },
 ): boolean {
@@ -394,6 +369,40 @@ function requirePractitionerLineageKey(
     });
   }
   return entity.lineageKey;
+}
+
+async function resolveBaseScheduleDisplayReferences(params: {
+  db: DatabaseReader;
+  locationLineageKey: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerLineageKey: Id<"practitioners">;
+  ruleSetId: Id<"ruleSets">;
+}): Promise<{
+  locationId: Id<"locations">;
+  locationLineageKey: Id<"locations">;
+  practitionerId: Id<"practitioners">;
+  practitionerLineageKey: Id<"practitioners">;
+}> {
+  const [locationId, practitionerId] = await Promise.all([
+    resolveLocationIdForRuleSet(params.db, {
+      locationLineageKey: asLocationLineageKey(params.locationLineageKey),
+      practiceId: params.practiceId,
+      targetRuleSetId: params.ruleSetId,
+    }),
+    resolvePractitionerIdInRuleSet(
+      params.db,
+      params.practitionerLineageKey,
+      params.practiceId,
+      params.ruleSetId,
+    ),
+  ]);
+
+  return {
+    locationId,
+    locationLineageKey: params.locationLineageKey,
+    practitionerId,
+    practitionerLineageKey: params.practitionerLineageKey,
+  };
 }
 
 /**
@@ -1241,8 +1250,13 @@ export const deletePractitioner = mutation({
     // Delete associated base schedules (using the practitioner ID from unsaved rule set)
     const schedules = await ctx.db
       .query("baseSchedules")
-      .withIndex("by_ruleSetId_practitionerId", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("practitionerId", practitioner._id),
+      .withIndex("by_ruleSetId_practitionerLineageKey", (q) =>
+        q
+          .eq("ruleSetId", ruleSetId)
+          .eq(
+            "practitionerLineageKey",
+            requirePractitionerLineageKey(practitioner),
+          ),
       )
       .collect();
 
@@ -1343,8 +1357,13 @@ export const deletePractitionerWithDependencies = mutation({
 
     const baseSchedules = await ctx.db
       .query("baseSchedules")
-      .withIndex("by_ruleSetId_practitionerId", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("practitionerId", practitioner._id),
+      .withIndex("by_ruleSetId_practitionerLineageKey", (q) =>
+        q
+          .eq("ruleSetId", ruleSetId)
+          .eq(
+            "practitionerLineageKey",
+            requirePractitionerLineageKey(practitioner),
+          ),
       )
       .collect();
 
@@ -1352,29 +1371,41 @@ export const deletePractitionerWithDependencies = mutation({
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect();
-    const locationById = new Map(
-      locationsInRuleSet.map((location) => [location._id, location]),
+    const locationByLineageKey = new Map(
+      locationsInRuleSet.map((location) => [
+        requireLocationLineageKey(location),
+        location,
+      ]),
     );
 
-    const baseScheduleSnapshots = baseSchedules.map((schedule) => {
-      const location = locationById.get(schedule.locationId);
-      if (!location) {
-        throw new Error(
-          `[INVARIANT:LOCATION_MISSING] Standort ${schedule.locationId} der Arbeitszeit ${schedule._id} fehlt im Regelset ${ruleSetId}.`,
-        );
-      }
+    const baseScheduleSnapshots = await Promise.all(
+      baseSchedules.map(async (schedule) => {
+        const displayReferences = await resolveBaseScheduleDisplayReferences({
+          db: ctx.db,
+          locationLineageKey: schedule.locationLineageKey,
+          practiceId: args.practiceId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
+          ruleSetId,
+        });
+        const location = locationByLineageKey.get(schedule.locationLineageKey);
+        if (!location) {
+          throw new Error(
+            `[INVARIANT:LOCATION_MISSING] Standort mit lineageKey ${schedule.locationLineageKey} der Arbeitszeit ${schedule._id} fehlt im Regelset ${ruleSetId}.`,
+          );
+        }
 
-      return {
-        ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
-        dayOfWeek: schedule.dayOfWeek,
-        endTime: schedule.endTime,
-        lineageKey: requireBaseScheduleLineageKey(schedule),
-        locationId: schedule.locationId,
-        locationLineageKey: requireLocationLineageKey(location),
-        locationOriginId: location.parentId ?? schedule.locationId,
-        startTime: schedule.startTime,
-      };
-    });
+        return {
+          ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
+          dayOfWeek: schedule.dayOfWeek,
+          endTime: schedule.endTime,
+          lineageKey: requireBaseScheduleLineageKey(schedule),
+          locationId: displayReferences.locationId,
+          locationLineageKey: schedule.locationLineageKey,
+          locationOriginId: location.parentId ?? displayReferences.locationId,
+          startTime: schedule.startTime,
+        };
+      }),
+    );
 
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
@@ -1588,8 +1619,8 @@ export const restorePractitionerWithDependencies = mutation({
           ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
           dayOfWeek: schedule.dayOfWeek,
           endTime: schedule.endTime,
-          locationId: locationInTarget._id,
-          practitionerId: restoredPractitionerId,
+          locationLineageKey: schedule.locationLineageKey,
+          practitionerLineageKey: args.snapshot.practitioner.lineageKey,
           startTime: schedule.startTime,
         });
         continue;
@@ -1600,9 +1631,9 @@ export const restorePractitionerWithDependencies = mutation({
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
         lineageKey: schedule.lineageKey,
-        locationId: locationInTarget._id,
+        locationLineageKey: schedule.locationLineageKey,
         practiceId: args.practiceId,
-        practitionerId: restoredPractitionerId,
+        practitionerLineageKey: args.snapshot.practitioner.lineageKey,
         ruleSetId,
         startTime: schedule.startTime,
       });
@@ -1999,7 +2030,9 @@ export const deleteLocation = mutation({
     // Delete associated base schedules (using the location ID from unsaved rule set)
     const schedules = await ctx.db
       .query("baseSchedules")
-      .withIndex("by_locationId", (q) => q.eq("locationId", location._id))
+      .withIndex("by_locationLineageKey", (q) =>
+        q.eq("locationLineageKey", requireLocationLineageKey(location)),
+      )
       .collect();
 
     // SAFETY: Verify all schedules belong to unsaved rule set before deleting
@@ -2101,35 +2134,21 @@ export const createBaseScheduleBatch = mutation({
         schedule._id,
       ]),
     );
-    const resolvedPractitionerIds = new Map<
-      Id<"practitioners">,
-      Id<"practitioners">
-    >();
-    const resolvedLocationIds = new Map<Id<"locations">, Id<"locations">>();
     const seenLineageKeys = new Set<Id<"baseSchedules">>();
     const createdScheduleIds: Id<"baseSchedules">[] = [];
 
     for (const schedule of schedules) {
-      let practitionerId = resolvedPractitionerIds.get(schedule.practitionerId);
-      if (!practitionerId) {
-        practitionerId = await resolvePractitionerIdInRuleSet(
-          ctx.db,
-          schedule.practitionerId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedPractitionerIds.set(schedule.practitionerId, practitionerId);
-      }
-      let locationId = resolvedLocationIds.get(schedule.locationId);
-      if (!locationId) {
-        locationId = await resolveLocationIdInRuleSet(
-          ctx.db,
-          schedule.locationId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedLocationIds.set(schedule.locationId, locationId);
-      }
+      await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerLineageId,
+        args.practiceId,
+        ruleSetId,
+      );
+      await resolveLocationIdForRuleSet(ctx.db, {
+        locationLineageKey: asLocationLineageKey(schedule.locationLineageId),
+        practiceId: args.practiceId,
+        targetRuleSetId: ruleSetId,
+      });
 
       if (schedule.lineageKey) {
         if (seenLineageKeys.has(schedule.lineageKey)) {
@@ -2150,9 +2169,9 @@ export const createBaseScheduleBatch = mutation({
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
         ...(schedule.lineageKey && { lineageKey: schedule.lineageKey }),
-        locationId,
+        locationLineageKey: schedule.locationLineageId,
         practiceId: args.practiceId,
-        practitionerId,
+        practitionerLineageKey: schedule.practitionerLineageId,
         ruleSetId,
         startTime: schedule.startTime,
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
@@ -2224,24 +2243,37 @@ export const updateBaseSchedule = mutation({
       );
     }
 
-    const resolvedPractitionerId =
+    const resolvedPractitionerLineageKey =
       args.practitionerId === undefined
         ? undefined
-        : await resolvePractitionerIdInRuleSet(
+        : await resolvePractitionerLineageKey(
             ctx.db,
-            args.practitionerId,
-            args.practiceId,
-            ruleSetId,
+            asPractitionerId(
+              await resolvePractitionerIdInRuleSet(
+                ctx.db,
+                args.practitionerId,
+                args.practiceId,
+                ruleSetId,
+              ),
+            ),
           );
 
-    const resolvedLocationId =
+    const resolvedLocationLineageKey =
       args.locationId === undefined
         ? undefined
-        : await resolveLocationIdInRuleSet(
+        : await resolveLocationLineageKey(
             ctx.db,
-            args.locationId,
-            args.practiceId,
-            ruleSetId,
+            asLocationId(
+              await resolveLocationIdInRuleSet(
+                ctx.db,
+                args.locationId,
+                args.practiceId,
+                ruleSetId,
+              ),
+            ),
+            {
+              allowDeleted: true,
+            },
           );
 
     // Update the schedule (use the entity in the unsaved rule set)
@@ -2249,8 +2281,8 @@ export const updateBaseSchedule = mutation({
       breakTimes: undefined | { end: string; start: string }[];
       dayOfWeek: number;
       endTime: string;
-      locationId: typeof args.locationId;
-      practitionerId: typeof args.practitionerId;
+      locationLineageKey: Id<"locations">;
+      practitionerLineageKey: Id<"practitioners">;
       startTime: string;
     }> = {};
 
@@ -2263,11 +2295,11 @@ export const updateBaseSchedule = mutation({
     if (args.endTime !== undefined) {
       updates.endTime = args.endTime;
     }
-    if (resolvedPractitionerId !== undefined) {
-      updates.practitionerId = resolvedPractitionerId;
+    if (resolvedPractitionerLineageKey !== undefined) {
+      updates.practitionerLineageKey = resolvedPractitionerLineageKey;
     }
-    if (resolvedLocationId !== undefined) {
-      updates.locationId = resolvedLocationId;
+    if (resolvedLocationLineageKey !== undefined) {
+      updates.locationLineageKey = resolvedLocationLineageKey;
     }
     if (args.breakTimes !== undefined) {
       updates.breakTimes = args.breakTimes;
@@ -2357,70 +2389,43 @@ export const updateBaseScheduleSet = mutation({
       selectedSchedules.push(schedule);
     }
 
-    const resolvedPractitionerIds = new Map<
-      Id<"practitioners">,
-      Id<"practitioners">
-    >();
-    const resolvedLocationIds = new Map<Id<"locations">, Id<"locations">>();
-    const resolvePractitionerId = async (
-      practitionerId: Id<"practitioners">,
-    ) => {
-      let resolved = resolvedPractitionerIds.get(practitionerId);
-      if (!resolved) {
-        resolved = await resolvePractitionerIdInRuleSet(
-          ctx.db,
-          practitionerId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedPractitionerIds.set(practitionerId, resolved);
-      }
-      return resolved;
-    };
-    const resolveLocationId = async (locationId: Id<"locations">) => {
-      let resolved = resolvedLocationIds.get(locationId);
-      if (!resolved) {
-        resolved = await resolveLocationIdInRuleSet(
-          ctx.db,
-          locationId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedLocationIds.set(locationId, resolved);
-      }
-      return resolved;
-    };
-
     const explicitDesiredSchedules: {
       breakTimes?: { end: string; start: string }[];
       dayOfWeek: number;
       endTime: string;
       lineageKey: Id<"baseSchedules">;
-      locationId: Id<"locations">;
-      practitionerId: Id<"practitioners">;
+      locationLineageKey: Id<"locations">;
+      practitionerLineageKey: Id<"practitioners">;
       startTime: string;
     }[] = [];
     const implicitDesiredSchedules: {
       breakTimes?: { end: string; start: string }[];
       dayOfWeek: number;
       endTime: string;
-      locationId: Id<"locations">;
-      practitionerId: Id<"practitioners">;
+      locationLineageKey: Id<"locations">;
+      practitionerLineageKey: Id<"practitioners">;
       startTime: string;
     }[] = [];
     const seenExplicitLineages = new Set<Id<"baseSchedules">>();
 
     for (const schedule of schedules) {
-      const practitionerId = await resolvePractitionerId(
-        schedule.practitionerId,
+      await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerLineageId,
+        args.practiceId,
+        ruleSetId,
       );
-      const locationId = await resolveLocationId(schedule.locationId);
+      await resolveLocationIdForRuleSet(ctx.db, {
+        locationLineageKey: asLocationLineageKey(schedule.locationLineageId),
+        practiceId: args.practiceId,
+        targetRuleSetId: ruleSetId,
+      });
       const normalized = {
         ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
-        locationId,
-        practitionerId,
+        locationLineageKey: schedule.locationLineageId,
+        practitionerLineageKey: schedule.practitionerLineageId,
         startTime: schedule.startTime,
       };
 
@@ -2476,21 +2481,23 @@ export const updateBaseScheduleSet = mutation({
         ...(desired.breakTimes === undefined ? { breakTimes: undefined } : {}),
         dayOfWeek: desired.dayOfWeek,
         endTime: desired.endTime,
-        locationId: desired.locationId,
-        practitionerId: desired.practitionerId,
+        locationLineageKey: desired.locationLineageKey,
+        practitionerLineageKey: desired.practitionerLineageKey,
         startTime: desired.startTime,
       });
 
-      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+      const displayReferences = await resolveBaseScheduleDisplayReferences({
         db: ctx.db,
-        locationId: desired.locationId,
-        practitionerId: desired.practitionerId,
+        locationLineageKey: desired.locationLineageKey,
+        practiceId: args.practiceId,
+        practitionerLineageKey: desired.practitionerLineageKey,
+        ruleSetId,
       });
       consumedLineageKeys.add(desired.lineageKey);
       appliedSchedules.push({
         ...desired,
         entityId: existing._id,
-        ...referenceLineage,
+        ...displayReferences,
       });
     }
 
@@ -2516,21 +2523,23 @@ export const updateBaseScheduleSet = mutation({
             : {}),
           dayOfWeek: desired.dayOfWeek,
           endTime: desired.endTime,
-          locationId: desired.locationId,
-          practitionerId: desired.practitionerId,
+          locationLineageKey: desired.locationLineageKey,
+          practitionerLineageKey: desired.practitionerLineageKey,
           startTime: desired.startTime,
         });
-        const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+        const displayReferences = await resolveBaseScheduleDisplayReferences({
           db: ctx.db,
-          locationId: desired.locationId,
-          practitionerId: desired.practitionerId,
+          locationLineageKey: desired.locationLineageKey,
+          practiceId: args.practiceId,
+          practitionerLineageKey: desired.practitionerLineageKey,
+          ruleSetId,
         });
         consumedLineageKeys.add(lineageKey);
         appliedSchedules.push({
           ...desired,
           entityId: recycled._id,
           lineageKey,
-          ...referenceLineage,
+          ...displayReferences,
         });
         continue;
       }
@@ -2539,23 +2548,25 @@ export const updateBaseScheduleSet = mutation({
         ...(desired.breakTimes ? { breakTimes: desired.breakTimes } : {}),
         dayOfWeek: desired.dayOfWeek,
         endTime: desired.endTime,
-        locationId: desired.locationId,
+        locationLineageKey: desired.locationLineageKey,
         practiceId: args.practiceId,
-        practitionerId: desired.practitionerId,
+        practitionerLineageKey: desired.practitionerLineageKey,
         ruleSetId,
         startTime: desired.startTime,
       });
-      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+      const displayReferences = await resolveBaseScheduleDisplayReferences({
         db: ctx.db,
-        locationId: desired.locationId,
-        practitionerId: desired.practitionerId,
+        locationLineageKey: desired.locationLineageKey,
+        practiceId: args.practiceId,
+        practitionerLineageKey: desired.practitionerLineageKey,
+        ruleSetId,
       });
       createdScheduleIds.push(createdId);
       appliedSchedules.push({
         ...desired,
         entityId: createdId,
         lineageKey: createdId,
-        ...referenceLineage,
+        ...displayReferences,
       });
     }
 
@@ -2734,10 +2745,12 @@ export const replaceBaseScheduleSet = mutation({
           );
         }
         existingCreatedIds.push(existing._id);
-        const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+        const displayReferences = await resolveBaseScheduleDisplayReferences({
           db: ctx.db,
-          locationId: existing.locationId,
-          practitionerId: existing.practitionerId,
+          locationLineageKey: existing.locationLineageKey,
+          practiceId: args.practiceId,
+          practitionerLineageKey: existing.practitionerLineageKey,
+          ruleSetId,
         });
         appliedSchedules.push({
           ...(existing.breakTimes ? { breakTimes: existing.breakTimes } : {}),
@@ -2745,11 +2758,8 @@ export const replaceBaseScheduleSet = mutation({
           endTime: existing.endTime,
           entityId: existing._id,
           lineageKey,
-          locationId: existing.locationId,
-          locationLineageKey: referenceLineage.locationLineageKey,
-          practitionerId: existing.practitionerId,
-          practitionerLineageKey: referenceLineage.practitionerLineageKey,
           startTime: existing.startTime,
+          ...displayReferences,
         });
       }
       const currentDraftRevision = await ctx.db.get("ruleSets", ruleSetId);
@@ -2786,11 +2796,6 @@ export const replaceBaseScheduleSet = mutation({
       await ctx.db.delete("baseSchedules", scheduleId);
     }
 
-    const resolvedPractitionerIds = new Map<
-      Id<"practitioners">,
-      Id<"practitioners">
-    >();
-    const resolvedLocationIds = new Map<Id<"locations">, Id<"locations">>();
     const appliedSchedules: {
       breakTimes?: { end: string; start: string }[];
       dayOfWeek: number;
@@ -2805,26 +2810,17 @@ export const replaceBaseScheduleSet = mutation({
     }[] = [];
     const createdScheduleIds: Id<"baseSchedules">[] = [];
     for (const schedule of replacementSchedules) {
-      let practitionerId = resolvedPractitionerIds.get(schedule.practitionerId);
-      if (!practitionerId) {
-        practitionerId = await resolvePractitionerIdInRuleSet(
-          ctx.db,
-          schedule.practitionerId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedPractitionerIds.set(schedule.practitionerId, practitionerId);
-      }
-      let locationId = resolvedLocationIds.get(schedule.locationId);
-      if (!locationId) {
-        locationId = await resolveLocationIdInRuleSet(
-          ctx.db,
-          schedule.locationId,
-          args.practiceId,
-          ruleSetId,
-        );
-        resolvedLocationIds.set(schedule.locationId, locationId);
-      }
+      await resolvePractitionerIdInRuleSet(
+        ctx.db,
+        schedule.practitionerLineageId,
+        args.practiceId,
+        ruleSetId,
+      );
+      await resolveLocationIdForRuleSet(ctx.db, {
+        locationLineageKey: asLocationLineageKey(schedule.locationLineageId),
+        practiceId: args.practiceId,
+        targetRuleSetId: ruleSetId,
+      });
 
       if (existingSchedulesByLineage.has(schedule.lineageKey)) {
         throw new Error(
@@ -2836,18 +2832,20 @@ export const replaceBaseScheduleSet = mutation({
         dayOfWeek: schedule.dayOfWeek,
         endTime: schedule.endTime,
         lineageKey: schedule.lineageKey,
-        locationId,
+        locationLineageKey: schedule.locationLineageId,
         practiceId: args.practiceId,
-        practitionerId,
+        practitionerLineageKey: schedule.practitionerLineageId,
         ruleSetId,
         startTime: schedule.startTime,
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
       });
       createdScheduleIds.push(createdId);
-      const referenceLineage = await getResolvedBaseScheduleReferenceLineage({
+      const displayReferences = await resolveBaseScheduleDisplayReferences({
         db: ctx.db,
-        locationId,
-        practitionerId,
+        locationLineageKey: schedule.locationLineageId,
+        practiceId: args.practiceId,
+        practitionerLineageKey: schedule.practitionerLineageId,
+        ruleSetId,
       });
       appliedSchedules.push({
         ...(schedule.breakTimes ? { breakTimes: schedule.breakTimes } : {}),
@@ -2855,11 +2853,8 @@ export const replaceBaseScheduleSet = mutation({
         endTime: schedule.endTime,
         entityId: createdId,
         lineageKey: schedule.lineageKey,
-        locationId,
-        locationLineageKey: referenceLineage.locationLineageKey,
-        practitionerId,
-        practitionerLineageKey: referenceLineage.practitionerLineageKey,
         startTime: schedule.startTime,
+        ...displayReferences,
       });
       existingSchedulesByLineage.set(schedule.lineageKey, {
         _creationTime: 0,
@@ -2868,9 +2863,9 @@ export const replaceBaseScheduleSet = mutation({
         endTime: schedule.endTime,
         ...(schedule.breakTimes && { breakTimes: schedule.breakTimes }),
         lineageKey: schedule.lineageKey,
-        locationId,
+        locationLineageKey: schedule.locationLineageId,
         practiceId: args.practiceId,
-        practitionerId,
+        practitionerLineageKey: schedule.practitionerLineageId,
         ruleSetId,
         startTime: schedule.startTime,
       });
@@ -2903,10 +2898,26 @@ export const getBaseSchedules = query({
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
       .collect();
 
-    return schedules.map((schedule) => ({
-      ...schedule,
-      lineageKey: requireBaseScheduleLineageKey(schedule),
-    }));
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (!ruleSet) {
+      throw new Error(
+        `[INVARIANT:RULE_SET_NOT_FOUND] Regelset ${args.ruleSetId} konnte nicht geladen werden.`,
+      );
+    }
+
+    return await Promise.all(
+      schedules.map(async (schedule) => ({
+        ...schedule,
+        ...(await resolveBaseScheduleDisplayReferences({
+          db: ctx.db,
+          locationLineageKey: schedule.locationLineageKey,
+          practiceId: schedule.practiceId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
+          ruleSetId: args.ruleSetId,
+        })),
+        lineageKey: requireBaseScheduleLineageKey(schedule),
+      })),
+    );
   },
 });
 
@@ -2921,19 +2932,40 @@ export const getBaseSchedulesByPractitioner = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+    if (!practitioner) {
+      throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
+    }
+    const practitionerLineageKey = requirePractitionerLineageKey(practitioner);
     const schedules = await ctx.db
       .query("baseSchedules")
-      .withIndex("by_ruleSetId_practitionerId", (q) =>
+      .withIndex("by_ruleSetId_practitionerLineageKey", (q) =>
         q
           .eq("ruleSetId", args.ruleSetId)
-          .eq("practitionerId", args.practitionerId),
+          .eq("practitionerLineageKey", practitionerLineageKey),
       )
       .collect();
 
-    return schedules.map((schedule) => ({
-      ...schedule,
-      lineageKey: requireBaseScheduleLineageKey(schedule),
-    }));
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (!ruleSet) {
+      throw new Error(
+        `[INVARIANT:RULE_SET_NOT_FOUND] Regelset ${args.ruleSetId} konnte nicht geladen werden.`,
+      );
+    }
+
+    return await Promise.all(
+      schedules.map(async (schedule) => ({
+        ...schedule,
+        ...(await resolveBaseScheduleDisplayReferences({
+          db: ctx.db,
+          locationLineageKey: schedule.locationLineageKey,
+          practiceId: schedule.practiceId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
+          ruleSetId: args.ruleSetId,
+        })),
+        lineageKey: requireBaseScheduleLineageKey(schedule),
+      })),
+    );
   },
 });
 
@@ -3501,10 +3533,23 @@ export const getBaseSchedulesFromActive = query({
       return [];
     }
     const ruleSetId = practice.currentActiveRuleSetId;
-    return await ctx.db
+    const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect();
+    return await Promise.all(
+      schedules.map(async (schedule) => ({
+        ...schedule,
+        ...(await resolveBaseScheduleDisplayReferences({
+          db: ctx.db,
+          locationLineageKey: schedule.locationLineageKey,
+          practiceId: schedule.practiceId,
+          practitionerLineageKey: schedule.practitionerLineageKey,
+          ruleSetId,
+        })),
+        lineageKey: requireBaseScheduleLineageKey(schedule),
+      })),
+    );
   },
 });
 

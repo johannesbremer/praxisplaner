@@ -56,8 +56,8 @@ export const baseSchedulePayloadValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   lineageKey: v.id("baseSchedules"),
-  locationId: v.id("locations"),
-  practitionerId: v.id("practitioners"),
+  locationLineageId: v.id("locations"),
+  practitionerLineageId: v.id("practitioners"),
   startTime: v.string(),
 });
 
@@ -73,8 +73,8 @@ export const baseScheduleCreatePayloadValidator = v.object({
   dayOfWeek: v.number(),
   endTime: v.string(),
   lineageKey: v.optional(v.id("baseSchedules")),
-  locationId: v.id("locations"),
-  practitionerId: v.id("practitioners"),
+  locationLineageId: v.id("locations"),
+  practitionerLineageId: v.id("practitioners"),
   startTime: v.string(),
 });
 

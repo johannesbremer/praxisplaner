@@ -16,15 +16,15 @@ export interface ScheduleLike {
   breakTimes?: BreakTimeLike[];
   dayOfWeek: number;
   endTime: string;
-  locationId?: string;
-  practitionerId: string;
+  locationLineageKey?: string;
+  practitionerLineageKey: string;
   startTime: string;
 }
 
 export interface VacationLike {
   date: string;
   portion: VacationPortion;
-  practitionerId?: string;
+  practitionerLineageKey?: string;
   staffType: "mfa" | "practitioner";
 }
 
@@ -32,16 +32,16 @@ export type VacationPortion = "afternoon" | "full" | "morning";
 
 export function getPractitionerAvailabilityRangesForDate(
   date: Temporal.PlainDate,
-  practitionerId: string,
+  practitionerLineageKey: string,
   schedules: ScheduleLike[],
   vacations: VacationLike[],
-  locationId?: string,
+  locationLineageKey?: string,
 ): MinuteRange[] {
   const workingRanges = getPractitionerWorkingRangesForDate(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
-    locationId,
+    locationLineageKey,
   );
 
   if (workingRanges.length === 0) {
@@ -50,10 +50,10 @@ export function getPractitionerAvailabilityRangesForDate(
 
   const vacationRanges = getPractitionerVacationRangesForDate(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
     vacations,
-    locationId,
+    locationLineageKey,
   );
 
   if (vacationRanges.length === 0) {
@@ -65,16 +65,16 @@ export function getPractitionerAvailabilityRangesForDate(
 
 export function getPractitionerVacationRangesForDate(
   date: Temporal.PlainDate,
-  practitionerId: string,
+  practitionerLineageKey: string,
   schedules: ScheduleLike[],
   vacations: VacationLike[],
-  locationId?: string,
+  locationLineageKey?: string,
 ): MinuteRange[] {
   const dateKey = date.toString();
   const practitionerVacations = vacations.filter(
     (vacation) =>
       vacation.staffType === "practitioner" &&
-      vacation.practitionerId === practitionerId &&
+      vacation.practitionerLineageKey === practitionerLineageKey &&
       vacation.date === dateKey,
   );
 
@@ -84,9 +84,9 @@ export function getPractitionerVacationRangesForDate(
 
   const workingRanges = getPractitionerWorkingRangesForDate(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
-    locationId,
+    locationLineageKey,
   );
 
   if (workingRanges.length === 0) {
@@ -106,9 +106,9 @@ export function getPractitionerVacationRangesForDate(
 
   const matchingSchedules = getMatchingSchedules(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
-    locationId,
+    locationLineageKey,
   );
   const splitBreak = getPreferredSplitBreak(matchingSchedules);
 
@@ -169,15 +169,15 @@ export function getPractitionerVacationRangesForDate(
 
 export function getPractitionerWorkingRangesForDate(
   date: Temporal.PlainDate,
-  practitionerId: string,
+  practitionerLineageKey: string,
   schedules: ScheduleLike[],
-  locationId?: string,
+  locationLineageKey?: string,
 ): MinuteRange[] {
   const matchingSchedules = getMatchingSchedules(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
-    locationId,
+    locationLineageKey,
   );
 
   const ranges = matchingSchedules.flatMap((schedule) => {
@@ -214,18 +214,21 @@ function getDayOfWeek(date: Temporal.PlainDate): number {
 
 function getMatchingSchedules(
   date: Temporal.PlainDate,
-  practitionerId: string,
+  practitionerLineageKey: string,
   schedules: ScheduleLike[],
-  locationId?: string,
+  locationLineageKey?: string,
 ): ScheduleLike[] {
   return schedules.filter((schedule) => {
-    if (schedule.practitionerId !== practitionerId) {
+    if (schedule.practitionerLineageKey !== practitionerLineageKey) {
       return false;
     }
     if (schedule.dayOfWeek !== getDayOfWeek(date)) {
       return false;
     }
-    if (locationId && schedule.locationId !== locationId) {
+    if (
+      locationLineageKey &&
+      schedule.locationLineageKey !== locationLineageKey
+    ) {
       return false;
     }
     return true;

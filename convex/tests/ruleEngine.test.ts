@@ -2946,13 +2946,31 @@ async function insertBaseSchedule(
   endTime = "17:00",
 ) {
   return await t.run(async (ctx) => {
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
+    if (!practitioner) {
+      throw new Error(`Practitioner ${practitionerId} not found`);
+    }
+    const location = await ctx.db.get("locations", locationId);
+    if (!location) {
+      throw new Error(`Location ${locationId} not found`);
+    }
     const scheduleId = await insertSelfLineageEntity(ctx.db, "baseSchedules", {
       breakTimes: [],
       dayOfWeek,
       endTime,
-      locationId,
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId,
+      }),
       practiceId,
-      practitionerId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId,
+      }),
       ruleSetId,
       startTime,
     });

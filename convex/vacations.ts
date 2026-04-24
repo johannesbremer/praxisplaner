@@ -4,7 +4,7 @@ import { Temporal } from "temporal-polyfill";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import type { MfaId } from "./identity";
+import type { MfaId, MfaLineageKey, PractitionerLineageKey } from "./identity";
 
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
@@ -86,19 +86,29 @@ async function assertStaffExists(
     staffType: "mfa" | "practitioner";
   },
 ): Promise<
-  | { mfaId: Id<"mfas">; practitionerId?: never }
-  | { mfaId?: never; practitionerId: Id<"practitioners"> }
+  | {
+      mfaLineageKey: MfaLineageKey;
+      practitionerLineageKey?: never;
+    }
+  | {
+      mfaLineageKey?: never;
+      practitionerLineageKey: PractitionerLineageKey;
+    }
 > {
   if (args.staffType === "practitioner") {
     if (!args.practitionerId || args.mfaId) {
       throw new Error("Ungültige Urlaubszuordnung für Arzt.");
     }
+    const practitionerId = await resolvePractitionerIdInRuleSet(
+      ctx,
+      args.practitionerId,
+      args.practiceId,
+      args.ruleSetId,
+    );
     return {
-      practitionerId: await resolvePractitionerIdInRuleSet(
-        ctx,
-        args.practitionerId,
-        args.practiceId,
-        args.ruleSetId,
+      practitionerLineageKey: await resolvePractitionerLineageKey(
+        ctx.db,
+        asPractitionerId(practitionerId),
       ),
     };
   }
@@ -106,12 +116,24 @@ async function assertStaffExists(
   if (!args.mfaId || args.practitionerId) {
     throw new Error("Ungültige Urlaubszuordnung für MFA.");
   }
+  const mfaId = await resolveMfaIdInRuleSet(
+    ctx,
+    asMfaId(args.mfaId),
+    args.practiceId,
+    args.ruleSetId,
+  );
+  const mfa = await ctx.db.get("mfas", mfaId);
+  if (!mfa) {
+    throw new Error("MFA nicht gefunden.");
+  }
   return {
-    mfaId: await resolveMfaIdInRuleSet(
-      ctx,
-      asMfaId(args.mfaId),
-      args.practiceId,
-      args.ruleSetId,
+    mfaLineageKey: asMfaLineageKey(
+      requireLineageKey({
+        entityId: mfa._id,
+        entityType: "mfa",
+        lineageKey: mfa.lineageKey,
+        ruleSetId: mfa.ruleSetId,
+      }),
     ),
   };
 }
@@ -156,17 +178,17 @@ async function getPatientDateOfBirthForAppointment(
 
 function getVacationStaffId(vacation: Doc<"vacations">) {
   return vacation.staffType === "practitioner"
-    ? vacation.practitionerId
-    : vacation.mfaId;
+    ? vacation.practitionerLineageKey
+    : vacation.mfaLineageKey;
 }
 
 async function replaceVacationsInDraft(
   ctx: MutationCtx,
   args: {
     date: string;
-    mfaId?: Id<"mfas">;
+    mfaLineageKey?: MfaLineageKey;
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
+    practitionerLineageKey?: PractitionerLineageKey;
     replacingVacationLineageKeys: Id<"vacations">[];
     ruleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
@@ -193,8 +215,9 @@ async function replaceVacationsInDraft(
       existingVacation.date !== args.date ||
       existingVacation.staffType !== args.staffType ||
       (args.staffType === "practitioner"
-        ? existingVacation.practitionerId !== args.practitionerId
-        : existingVacation.mfaId !== args.mfaId)
+        ? existingVacation.practitionerLineageKey !==
+          args.practitionerLineageKey
+        : existingVacation.mfaLineageKey !== args.mfaLineageKey)
     ) {
       throw new Error(
         "Der zu ersetzende Urlaub passt nicht mehr zum aktuellen Bearbeitungskontext.",
@@ -335,7 +358,7 @@ async function findExistingVacationForDateAndStaff(
   args:
     | {
         date: string;
-        mfaId: Id<"mfas">;
+        mfaLineageKey: MfaLineageKey;
         portion: Doc<"vacations">["portion"];
         ruleSetId: Id<"ruleSets">;
         staffType: "mfa";
@@ -343,7 +366,7 @@ async function findExistingVacationForDateAndStaff(
     | {
         date: string;
         portion: Doc<"vacations">["portion"];
-        practitionerId: Id<"practitioners">;
+        practitionerLineageKey: PractitionerLineageKey;
         ruleSetId: Id<"ruleSets">;
         staffType: "practitioner";
       },
@@ -351,26 +374,28 @@ async function findExistingVacationForDateAndStaff(
   if (args.staffType === "practitioner") {
     return await db
       .query("vacations")
-      .withIndex("by_ruleSetId_date_staffType_portion_practitionerId", (q) =>
-        q
-          .eq("ruleSetId", args.ruleSetId)
-          .eq("date", args.date)
-          .eq("staffType", args.staffType)
-          .eq("portion", args.portion)
-          .eq("practitionerId", args.practitionerId),
+      .withIndex(
+        "by_ruleSetId_date_staffType_portion_practitionerLineageKey",
+        (q) =>
+          q
+            .eq("ruleSetId", args.ruleSetId)
+            .eq("date", args.date)
+            .eq("staffType", args.staffType)
+            .eq("portion", args.portion)
+            .eq("practitionerLineageKey", args.practitionerLineageKey),
       )
       .first();
   }
 
   return await db
     .query("vacations")
-    .withIndex("by_ruleSetId_date_staffType_portion_mfaId", (q) =>
+    .withIndex("by_ruleSetId_date_staffType_portion_mfaLineageKey", (q) =>
       q
         .eq("ruleSetId", args.ruleSetId)
         .eq("date", args.date)
         .eq("staffType", args.staffType)
         .eq("portion", args.portion)
-        .eq("mfaId", args.mfaId),
+        .eq("mfaLineageKey", args.mfaLineageKey),
     )
     .first();
 }
@@ -431,8 +456,9 @@ export const createVacation = mutation({
         existingByLineage.portion !== args.portion ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
-          ? existingByLineage.practitionerId !== resolved.practitionerId
-          : existingByLineage.mfaId !== resolved.mfaId)
+          ? existingByLineage.practitionerLineageKey !==
+            resolved.practitionerLineageKey
+          : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey)
       ) {
         throw new Error(
           "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
@@ -448,17 +474,17 @@ export const createVacation = mutation({
     }
 
     const existing =
-      "practitionerId" in resolved
+      "practitionerLineageKey" in resolved
         ? await findExistingVacationForDateAndStaff(ctx.db, {
             date: args.date,
             portion: args.portion,
-            practitionerId: resolved.practitionerId,
+            practitionerLineageKey: resolved.practitionerLineageKey,
             ruleSetId,
             staffType: "practitioner",
           })
         : await findExistingVacationForDateAndStaff(ctx.db, {
             date: args.date,
-            mfaId: resolved.mfaId,
+            mfaLineageKey: resolved.mfaLineageKey,
             portion: args.portion,
             ruleSetId,
             staffType: "mfa",
@@ -487,11 +513,13 @@ export const createVacation = mutation({
         createdAt: BigInt(Date.now()),
         date: args.date,
         ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
-        ...(resolved.mfaId ? { mfaId: resolved.mfaId } : {}),
+        ...(resolved.mfaLineageKey
+          ? { mfaLineageKey: resolved.mfaLineageKey }
+          : {}),
         portion: args.portion,
         practiceId: args.practiceId,
-        ...(resolved.practitionerId
-          ? { practitionerId: resolved.practitionerId }
+        ...(resolved.practitionerLineageKey
+          ? { practitionerLineageKey: resolved.practitionerLineageKey }
           : {}),
         ruleSetId,
         staffType: args.staffType,
@@ -554,8 +582,9 @@ async function createVacationInDraft(
       existingByLineage.portion !== args.portion ||
       existingByLineage.staffType !== args.staffType ||
       (args.staffType === "practitioner"
-        ? existingByLineage.practitionerId !== resolved.practitionerId
-        : existingByLineage.mfaId !== resolved.mfaId)
+        ? existingByLineage.practitionerLineageKey !==
+          resolved.practitionerLineageKey
+        : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey)
     ) {
       throw new Error(
         "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
@@ -571,17 +600,17 @@ async function createVacationInDraft(
   }
 
   const existing =
-    "practitionerId" in resolved
+    "practitionerLineageKey" in resolved
       ? await findExistingVacationForDateAndStaff(ctx.db, {
           date: args.date,
           portion: args.portion,
-          practitionerId: resolved.practitionerId,
+          practitionerLineageKey: resolved.practitionerLineageKey,
           ruleSetId,
           staffType: "practitioner",
         })
       : await findExistingVacationForDateAndStaff(ctx.db, {
           date: args.date,
-          mfaId: resolved.mfaId,
+          mfaLineageKey: resolved.mfaLineageKey,
           portion: args.portion,
           ruleSetId,
           staffType: "mfa",
@@ -610,11 +639,13 @@ async function createVacationInDraft(
       createdAt: BigInt(Date.now()),
       date: args.date,
       ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
-      ...(resolved.mfaId ? { mfaId: resolved.mfaId } : {}),
+      ...(resolved.mfaLineageKey
+        ? { mfaLineageKey: resolved.mfaLineageKey }
+        : {}),
       portion: args.portion,
       practiceId: args.practiceId,
-      ...(resolved.practitionerId
-        ? { practitionerId: resolved.practitionerId }
+      ...(resolved.practitionerLineageKey
+        ? { practitionerLineageKey: resolved.practitionerLineageKey }
         : {}),
       ruleSetId,
       staffType: args.staffType,
@@ -671,7 +702,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     await replaceVacationsInDraft(ctx, {
       date: args.date,
       practiceId: args.practiceId,
-      practitionerId: draftPractitionerId,
+      practitionerLineageKey: absentPractitionerLineageKey,
       replacingVacationLineageKeys,
       ruleSetId,
       staffType: "practitioner",
@@ -715,7 +746,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     ]);
     const vacationRanges = getPractitionerVacationRangesForDate(
       Temporal.PlainDate.from(args.date),
-      draftPractitionerId,
+      absentPractitionerLineageKey,
       baseSchedules,
       vacations,
     );
@@ -1006,17 +1037,17 @@ export const deleteVacation = mutation({
       existingByLineage ??
       (args.lineageKey
         ? null
-        : "practitionerId" in resolved
+        : "practitionerLineageKey" in resolved
           ? await findExistingVacationForDateAndStaff(ctx.db, {
               date: args.date,
               portion: args.portion,
-              practitionerId: resolved.practitionerId,
+              practitionerLineageKey: resolved.practitionerLineageKey,
               ruleSetId,
               staffType: "practitioner",
             })
           : await findExistingVacationForDateAndStaff(ctx.db, {
               date: args.date,
-              mfaId: resolved.mfaId,
+              mfaLineageKey: resolved.mfaLineageKey,
               portion: args.portion,
               ruleSetId,
               staffType: "mfa",
@@ -1029,8 +1060,9 @@ export const deleteVacation = mutation({
         existingByLineage.portion !== args.portion ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
-          ? existingByLineage.practitionerId !== resolved.practitionerId
-          : existingByLineage.mfaId !== resolved.mfaId))
+          ? existingByLineage.practitionerLineageKey !==
+            resolved.practitionerLineageKey
+          : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey))
     ) {
       throw new Error(
         "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",

@@ -52,7 +52,7 @@ export interface BaseScheduleMutationAppliedSchedule {
 }
 
 export interface ExtendedSchedule extends Omit<
-  Doc<"baseSchedules">,
+  MaterializedSchedule,
   "_creationTime"
 > {
   _creationTime?: number; // Optional for synthetic objects
@@ -72,6 +72,8 @@ export type MaterializedSchedule = FrontendLineageEntity<
   Doc<"baseSchedules"> & {
     _creationTime: number;
     lineageKey?: Id<"baseSchedules">;
+    locationId: Id<"locations">;
+    practitionerId: Id<"practitioners">;
   }
 >;
 
@@ -188,21 +190,18 @@ export const toSchedulePayload = (
   practitioners: PractitionerMatchEntity[] | undefined,
   locations: LocationMatchEntity[] | undefined,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
+  void practitioners;
+  void locations;
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
-  return resolveLocationLineageId(schedule.locationId, locations).andThen(
-    (locationLineageId) =>
-      resolvePractitionerLineageId(schedule.practitionerId, practitioners).map(
-        (practitionerLineageId) => ({
-          ...(breakTimes && { breakTimes }),
-          dayOfWeek: schedule.dayOfWeek,
-          endTime: asTypedTime(schedule.endTime),
-          lineageKey: schedule.lineageKey,
-          locationLineageId,
-          practitionerLineageId,
-          startTime: asTypedTime(schedule.startTime),
-        }),
-      ),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: schedule.dayOfWeek,
+    endTime: asTypedTime(schedule.endTime),
+    lineageKey: schedule.lineageKey,
+    locationLineageId: schedule.locationLineageKey,
+    practitionerLineageId: schedule.practitionerLineageKey,
+    startTime: asTypedTime(schedule.startTime),
+  });
 };
 
 export const buildLocationLineageByIdMap = (
@@ -276,24 +275,18 @@ export const toSchedulePayloadFromLineageSnapshot = (
   >,
   locationLineageById: ReadonlyMap<Id<"locations">, Id<"locations">>,
 ): Result<SchedulePayload, ReturnType<typeof invalidStateError>> => {
+  void practitionerLineageById;
+  void locationLineageById;
   const breakTimes = asTypedBreakTimes(schedule.breakTimes);
-  return resolveLocationLineageIdFromSnapshot(
-    schedule.locationId,
-    locationLineageById,
-  ).andThen((locationLineageId) =>
-    resolvePractitionerLineageIdFromSnapshot(
-      schedule.practitionerId,
-      practitionerLineageById,
-    ).map((practitionerLineageId) => ({
-      ...(breakTimes && { breakTimes }),
-      dayOfWeek: schedule.dayOfWeek,
-      endTime: asTypedTime(schedule.endTime),
-      lineageKey: schedule.lineageKey,
-      locationLineageId,
-      practitionerLineageId,
-      startTime: asTypedTime(schedule.startTime),
-    })),
-  );
+  return ok({
+    ...(breakTimes && { breakTimes }),
+    dayOfWeek: schedule.dayOfWeek,
+    endTime: asTypedTime(schedule.endTime),
+    lineageKey: schedule.lineageKey,
+    locationLineageId: schedule.locationLineageKey,
+    practitionerLineageId: schedule.practitionerLineageKey,
+    startTime: asTypedTime(schedule.startTime),
+  });
 };
 
 export const toMutationSchedulePayload = (
@@ -307,7 +300,9 @@ export const toMutationSchedulePayload = (
     endTime: string;
     lineageKey: Id<"baseSchedules">;
     locationId: Id<"locations">;
+    locationLineageId: Id<"locations">;
     practitionerId: Id<"practitioners">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   },
   ReturnType<typeof invalidStateError>
@@ -323,7 +318,9 @@ export const toMutationSchedulePayload = (
         endTime: payload.endTime,
         lineageKey: payload.lineageKey,
         locationId,
+        locationLineageId: payload.locationLineageId,
         practitionerId,
+        practitionerLineageId: payload.practitionerLineageId,
         startTime: payload.startTime,
       })),
   );
@@ -334,7 +331,9 @@ export interface BatchCreateScheduleInput {
   endTime: string;
   lineageKey?: Id<"baseSchedules">;
   locationId: Id<"locations">;
+  locationLineageId: Id<"locations">;
   practitionerId: Id<"practitioners">;
+  practitionerLineageId: Id<"practitioners">;
   startTime: string;
 }
 
@@ -358,7 +357,9 @@ export const scheduleDocFromInput = (params: {
     endTime: string;
     lineageKey?: Id<"baseSchedules">;
     locationId: Id<"locations">;
+    locationLineageId: Id<"locations">;
     practitionerId: Id<"practitioners">;
+    practitionerLineageId: Id<"practitioners">;
     startTime: string;
   };
 }): MaterializedSchedule => {
@@ -375,8 +376,10 @@ export const scheduleDocFromInput = (params: {
     endTime: params.schedule.endTime,
     lineageKey,
     locationId: params.schedule.locationId,
+    locationLineageKey: params.schedule.locationLineageId,
     practiceId: params.practiceId,
     practitionerId: params.schedule.practitionerId,
+    practitionerLineageKey: params.schedule.practitionerLineageId,
     ruleSetId: params.ruleSetId,
     startTime: params.schedule.startTime,
   };
@@ -472,7 +475,19 @@ export const applyReplaceResultToRef = (params: {
         entityId: appliedSchedule.entityId,
         practiceId: params.practiceId,
         ruleSetId: params.ruleSetId,
-        schedule: appliedSchedule,
+        schedule: {
+          ...(appliedSchedule.breakTimes
+            ? { breakTimes: appliedSchedule.breakTimes }
+            : {}),
+          dayOfWeek: appliedSchedule.dayOfWeek,
+          endTime: appliedSchedule.endTime,
+          lineageKey: appliedSchedule.lineageKey,
+          locationId: appliedSchedule.locationId,
+          locationLineageId: appliedSchedule.locationLineageKey,
+          practitionerId: appliedSchedule.practitionerId,
+          practitionerLineageId: appliedSchedule.practitionerLineageKey,
+          startTime: appliedSchedule.startTime,
+        },
       }),
     ),
   );

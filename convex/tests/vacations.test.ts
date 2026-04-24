@@ -94,9 +94,9 @@ async function createCoverageFixture(
       await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "16:00",
-        locationId,
+        locationLineageKey: locationId,
         practiceId,
-        practitionerId,
+        practitionerLineageKey: practitionerId,
         ruleSetId,
         startTime: "08:00",
       });
@@ -171,9 +171,9 @@ async function createSchedulingFixture(
     await insertWithLineage(ctx, "baseSchedules", {
       dayOfWeek: 1,
       endTime: "16:00",
-      locationId,
+      locationLineageKey: locationId,
       practiceId,
-      practitionerId,
+      practitionerLineageKey: practitionerId,
       ruleSetId,
       startTime: "08:00",
     });
@@ -527,7 +527,7 @@ describe("vacations", () => {
         currentActiveRuleSetId: copiedRuleSetId,
       });
 
-      const copiedLocationId = await ctx.db.insert("locations", {
+      await ctx.db.insert("locations", {
         lineageKey: fixture.locationId,
         name: "Praxis Kopie",
         practiceId: fixture.practiceId,
@@ -558,17 +558,17 @@ describe("vacations", () => {
         },
       );
 
-      for (const practitionerId of [
-        copiedAbsentPractitionerId,
-        copiedPreferredPractitionerId,
-        copiedFallbackPractitionerId,
+      for (const practitionerLineageKey of [
+        fixture.absentPractitionerId,
+        fixture.preferredPractitionerId,
+        fixture.fallbackPractitionerId,
       ]) {
         await ctx.db.insert("baseSchedules", {
           dayOfWeek: 1,
           endTime: "16:00",
-          locationId: copiedLocationId,
+          locationLineageKey: fixture.locationId,
           practiceId: fixture.practiceId,
-          practitionerId,
+          practitionerLineageKey,
           ruleSetId: copiedRuleSetId,
           startTime: "08:00",
         });
@@ -694,17 +694,17 @@ describe("vacations", () => {
         },
       );
 
-      for (const practitionerId of [
-        copiedAbsentPractitionerId,
-        copiedPreferredPractitionerId,
-        copiedFallbackPractitionerId,
+      for (const practitionerLineageKey of [
+        fixture.absentPractitionerId,
+        fixture.preferredPractitionerId,
+        fixture.fallbackPractitionerId,
       ]) {
         await ctx.db.insert("baseSchedules", {
           dayOfWeek: 1,
           endTime: "16:00",
-          locationId: copiedLocationId,
+          locationLineageKey: fixture.locationId,
           practiceId: fixture.practiceId,
-          practitionerId,
+          practitionerLineageKey,
           ruleSetId: copiedRuleSetId,
           startTime: "08:00",
         });
@@ -794,9 +794,9 @@ describe("vacations", () => {
       await insertWithLineage(ctx, "baseSchedules", {
         dayOfWeek: 1,
         endTime: "12:00",
-        locationId: draftLocation._id,
+        locationLineageKey: draftLocation._id,
         practiceId: fixture.practiceId,
-        practitionerId: draftPractitioner.entityId,
+        practitionerLineageKey: draftPractitioner.entityId,
         ruleSetId: draftPractitioner.ruleSetId,
         startTime: "08:00",
       });
@@ -897,7 +897,9 @@ describe("vacations", () => {
         })
       : null;
     assertDefined(createdVacation);
-    expect(createdVacation.practitionerId).toBe(draftPractitioner.entityId);
+    expect(createdVacation.practitionerLineageKey).toBe(
+      draftPractitioner.entityId,
+    );
   });
 
   test("coverage preview does not mark practitioners as movable when only the draft appointment type allows them", async () => {
@@ -1697,9 +1699,9 @@ describe("vacations", () => {
         await insertWithLineage(ctx, "baseSchedules", {
           dayOfWeek: 1,
           endTime: "16:00",
-          locationId: fixture.locationId,
+          locationLineageKey: fixture.locationId,
           practiceId: fixture.practiceId,
-          practitionerId: secondAbsentPractitionerId,
+          practitionerLineageKey: secondAbsentPractitionerId,
           ruleSetId: fixture.ruleSetId,
           startTime: "08:00",
         });
@@ -2005,8 +2007,9 @@ describe("vacations", () => {
 
       const draftBaseSchedule = draftBaseSchedules.find(
         (schedule) =>
-          schedule.practitionerId === draftPreferredPractitioner._id &&
-          schedule.locationId === draftLocation._id,
+          schedule.practitionerLineageKey ===
+            draftPreferredPractitioner.lineageKey &&
+          schedule.locationLineageKey === draftLocation.lineageKey,
       );
       assertDefined(draftBaseSchedule);
 

@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
+import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
 import type { DraftMutationResult } from "../utils/cow-history";
 
@@ -226,16 +227,29 @@ export default function BaseScheduleManagement({
       toast.error("Fehler: Ungültige Zeitplan-Daten");
       return;
     }
+    const locationLineageKey = locations.find(
+      (location) => location._id === scheduleGroup.locationId,
+    )?.lineageKey;
+    const practitionerLineageKey = practitioners.find(
+      (practitioner) => practitioner._id === scheduleGroup.practitionerId,
+    )?.lineageKey;
+    if (!locationLineageKey || !practitionerLineageKey) {
+      toast.error("Fehler: Zeitplan-Referenzen konnten nicht aufgelöst werden");
+      return;
+    }
 
     // Create a representative schedule object for editing
     const representativeSchedule: ExtendedSchedule = {
-      _id: firstScheduleId, // Use first ID for form processing
+      _id: asBaseScheduleId(firstScheduleId), // Use first ID for form processing
       ...(scheduleGroup.breakTimes && { breakTimes: scheduleGroup.breakTimes }),
       dayOfWeek: firstDayOfWeek, // This will be overridden by the form
       endTime: scheduleGroup.endTime,
+      lineageKey: asBaseScheduleLineageKey(firstScheduleId),
       locationId: scheduleGroup.locationId,
+      locationLineageKey,
       practiceId,
       practitionerId: scheduleGroup.practitionerId,
+      practitionerLineageKey,
       ruleSetId,
       startTime: scheduleGroup.startTime,
       // Add metadata to track the full group
@@ -612,12 +626,24 @@ function BaseScheduleDialog({
     currentLocations: readonly LocationMatchEntity[],
   ): Id<"locations"> | null =>
     currentLocations.find((location) => location._id === value)?._id ?? null;
+  const resolveSelectedLocationLineageId = (
+    value: string,
+    currentLocations: readonly LocationMatchEntity[],
+  ): Id<"locations"> | null =>
+    currentLocations.find((location) => location._id === value)?.lineageKey ??
+    null;
   const resolveSelectedPractitionerId = (
     value: string,
     currentPractitioners: readonly PractitionerMatchEntity[],
   ): Id<"practitioners"> | null =>
     currentPractitioners.find((practitioner) => practitioner._id === value)
       ?._id ?? null;
+  const resolveSelectedPractitionerLineageId = (
+    value: string,
+    currentPractitioners: readonly PractitionerMatchEntity[],
+  ): Id<"practitioners"> | null =>
+    currentPractitioners.find((practitioner) => practitioner._id === value)
+      ?.lineageKey ?? null;
 
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
@@ -774,6 +800,10 @@ function BaseScheduleDialog({
           value.locationId,
           locationsRef.current,
         );
+        const selectedLocationLineageId = resolveSelectedLocationLineageId(
+          value.locationId,
+          locationsRef.current,
+        );
 
         if (schedule) {
           // When editing, check if it's a group edit
@@ -849,7 +879,10 @@ function BaseScheduleDialog({
                   ? { lineageKey: existingPayload.lineageKey }
                   : {}),
                 locationId: selectedLocationId ?? schedule.locationId,
+                locationLineageId:
+                  selectedLocationLineageId ?? schedule.locationLineageKey,
                 practitionerId: schedule.practitionerId,
+                practitionerLineageId: schedule.practitionerLineageKey,
                 startTime: value.startTime,
               };
             });
@@ -890,8 +923,13 @@ function BaseScheduleDialog({
             value.practitionerId,
             practitionersRef.current,
           );
+          const selectedPractitionerLineageId =
+            resolveSelectedPractitionerLineageId(
+              value.practitionerId,
+              practitionersRef.current,
+            );
 
-          if (!selectedPractitionerId) {
+          if (!selectedPractitionerId || !selectedPractitionerLineageId) {
             const error = new Error("Bitte wählen Sie einen Arzt aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -904,7 +942,7 @@ function BaseScheduleDialog({
             return;
           }
 
-          if (!selectedLocationId) {
+          if (!selectedLocationId || !selectedLocationLineageId) {
             const error = new Error("Bitte wählen Sie einen Standort aus");
             captureError(error, {
               context: "base_schedule_validation",
@@ -939,7 +977,9 @@ function BaseScheduleDialog({
             dayOfWeek,
             endTime: value.endTime,
             locationId: selectedLocationId,
+            locationLineageId: selectedLocationLineageId,
             practitionerId: selectedPractitionerId,
+            practitionerLineageId: selectedPractitionerLineageId,
             startTime: value.startTime,
           }));
           const batchResult = await createScheduleBatchMutation({

@@ -23,7 +23,9 @@ import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asLocationId,
+  asLocationLineageKey,
   asPractitionerId,
+  asPractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
@@ -864,16 +866,54 @@ async function getEligibleWeekdays(
   }
 
   const baseSchedules = await baseSchedulesPromise;
+  const [locationLineageKey, practitionerLineageKey] = await Promise.all([
+    args.locationId
+      ? ctx.db.get("locations", args.locationId).then((location) => {
+          if (!location) {
+            throw new Error(`Standort ${args.locationId} nicht gefunden.`);
+          }
+          return asLocationLineageKey(
+            requireLineageKey({
+              entityId: location._id,
+              entityType: "location",
+              lineageKey: location.lineageKey,
+              ruleSetId: location.ruleSetId,
+            }),
+          );
+        })
+      : Promise.resolve(),
+    args.practitionerId
+      ? ctx.db
+          .get("practitioners", args.practitionerId)
+          .then((practitioner) => {
+            if (!practitioner) {
+              throw new Error(
+                `Behandler ${args.practitionerId} nicht gefunden.`,
+              );
+            }
+            return asPractitionerLineageKey(
+              requireLineageKey({
+                entityId: practitioner._id,
+                entityType: "practitioner",
+                lineageKey: practitioner.lineageKey,
+                ruleSetId: practitioner.ruleSetId,
+              }),
+            );
+          })
+      : Promise.resolve(),
+  ]);
   const weekdays = [
     ...new Set(
       baseSchedules
         .filter((schedule) => schedule.practiceId === args.practiceId)
         .filter((schedule) =>
-          args.locationId ? schedule.locationId === args.locationId : true,
+          locationLineageKey
+            ? schedule.locationLineageKey === locationLineageKey
+            : true,
         )
         .filter((schedule) =>
-          args.practitionerId
-            ? schedule.practitionerId === args.practitionerId
+          practitionerLineageKey
+            ? schedule.practitionerLineageKey === practitionerLineageKey
             : true,
         )
         .map((schedule) => schedule.dayOfWeek),

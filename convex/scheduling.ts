@@ -25,7 +25,16 @@ import {
   getEffectiveAppointmentsForOccupancyView,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
-import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
+import {
+  resolveLocationLineageKey,
+  resolvePractitionerLineageKey,
+} from "./appointmentReferences";
+import {
+  asLocationId,
+  asLocationLineageKey,
+  asPractitionerId,
+  asPractitionerLineageKey,
+} from "./identity";
 import { ensurePracticeAccessForQuery } from "./practiceAccess";
 import {
   buildPreloadedDayData,
@@ -124,12 +133,12 @@ function formatDateForIndex(date: Date): IsoDateString {
 function getCachedVacationRangesForPractitionerLocation(
   cache: Map<string, MinuteRange[]>,
   date: Temporal.PlainDate,
-  practitionerId: Id<"practitioners">,
+  practitionerLineageKey: Id<"practitioners">,
   schedules: Doc<"baseSchedules">[],
   vacations: Doc<"vacations">[],
-  locationId?: Id<"locations">,
+  locationLineageKey?: Id<"locations">,
 ): MinuteRange[] {
-  const key = `${practitionerId}:${locationId ?? "all"}`;
+  const key = `${practitionerLineageKey}:${locationLineageKey ?? "all"}`;
   const cached = cache.get(key);
   if (cached) {
     return cached;
@@ -137,10 +146,10 @@ function getCachedVacationRangesForPractitionerLocation(
 
   const ranges = getPractitionerVacationRangesForDate(
     date,
-    practitionerId,
+    practitionerLineageKey,
     schedules,
     vacations,
-    locationId,
+    locationLineageKey,
   );
   cache.set(key, ranges);
   return ranges;
@@ -488,10 +497,10 @@ async function getSlotsForDayImpl(
     const vacationRanges = getCachedVacationRangesForPractitionerLocation(
       vacationRangesByPractitionerLocation,
       targetPlainDate,
-      slot.practitionerId,
+      slot.practitionerLineageKey,
       ruleSetBaseSchedules,
       practitionerVacationsForDay,
-      slot.locationId,
+      slot.locationLineageKey,
     );
 
     if (minuteRangeContains(vacationRanges, slotMinute)) {
@@ -698,7 +707,7 @@ async function getSlotsForDayImpl(
         locationLineageKey: slot.locationLineageKey,
         practitionerId: slot.practitionerId,
         practitionerLineageKey: slot.practitionerLineageKey,
-        practitionerName: slot.practitionerName ?? "Unknown Practitioner",
+        practitionerName: slot.practitionerName,
         ...(slot.reason && { reason: slot.reason }),
         startTime: asZonedDateTimeString(slot.startTime),
         status: slot.status,
@@ -849,9 +858,25 @@ export const getNextAvailableSlot = query({
       appointmentTypeId,
     );
 
-    const allowedPractitionerIds = new Set(
-      appointmentType.allowedPractitionerIds,
+    const allowedPractitionerLineageKeys = new Set(
+      await Promise.all(
+        appointmentType.allowedPractitionerIds.map((practitionerId) =>
+          resolvePractitionerLineageKey(
+            ctx.db,
+            asPractitionerId(practitionerId),
+          ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+        ),
+      ),
     );
+    const selectedLocationLineageKey =
+      simulatedContext.locationId === undefined
+        ? null
+        : asLocationLineageKey(
+            await resolveLocationLineageKey(
+              ctx.db,
+              asLocationId(simulatedContext.locationId),
+            ),
+          );
     const startDate = Temporal.PlainDate.from(date);
     const maxSearchDays = 90;
     let effectiveRuleSetId = args.ruleSetId;
@@ -877,13 +902,17 @@ export const getNextAvailableSlot = query({
             return false;
           }
 
-          if (!allowedPractitionerIds.has(schedule.practitionerId)) {
+          if (
+            !allowedPractitionerLineageKeys.has(
+              asPractitionerLineageKey(schedule.practitionerLineageKey),
+            )
+          ) {
             return false;
           }
 
           if (
-            simulatedContext.locationId &&
-            schedule.locationId !== simulatedContext.locationId
+            selectedLocationLineageKey &&
+            schedule.locationLineageKey !== selectedLocationLineageKey
           ) {
             return false;
           }
@@ -919,7 +948,9 @@ export const getNextAvailableSlot = query({
           .filter(
             (slot: InternalSchedulingResultSlot) =>
               slot.status === "AVAILABLE" &&
-              allowedPractitionerIds.has(slot.practitionerId),
+              allowedPractitionerLineageKeys.has(
+                asPractitionerLineageKey(slot.practitionerLineageKey),
+              ),
           )
           .toSorted((left, right) =>
             left.startTime.localeCompare(right.startTime),
