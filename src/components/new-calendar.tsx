@@ -243,8 +243,8 @@ export function NewCalendar({
   const {
     addAppointment,
     appointments,
+    blockedSlotResultsData,
     blockedSlots,
-    blockedSlotsData,
     blockedSlotWarning,
     // businessEndHour,
     businessStartHour,
@@ -254,6 +254,7 @@ export function NewCalendar({
     draggedAppointment,
     draggedBlockedSlotId,
     dragPreview,
+    getPractitionerIdForColumn,
     handleBlockedSlotDragEnd,
     handleBlockedSlotDragStart,
     handleBlockedSlotResizeStart,
@@ -369,7 +370,7 @@ export function NewCalendar({
       }
 
       // Find the blocked slot to get its current title
-      const blockedSlot = blockedSlotsData?.find(
+      const blockedSlot = blockedSlotResultsData?.find(
         (slot) => slot._id === blockedSlotId,
       );
       if (!blockedSlot) {
@@ -385,7 +386,7 @@ export function NewCalendar({
       });
       setBlockedSlotEditModalOpen(true);
     },
-    [blockedSlotsData, handleEditBlockedSlotInternal],
+    [blockedSlotResultsData, handleEditBlockedSlotInternal],
   );
 
   const handleAppointmentTypeSelect = (
@@ -464,9 +465,7 @@ export function NewCalendar({
         return;
       }
 
-      const practitionerId = workingPractitioners.find(
-        (practitioner) => practitioner.lineageKey === column,
-      )?.displayId;
+      const practitionerId = getPractitionerIdForColumn(column);
       if (practitionerId === undefined) {
         return;
       }
@@ -487,7 +486,12 @@ export function NewCalendar({
       setBlockedSlotModalOpen(true);
       setIsBlockingModeActive(false); // Deactivate blocking mode after click
     },
-    [isBlockingModeActive, selectedDate, slotToTime, workingPractitioners],
+    [
+      getPractitionerIdForColumn,
+      isBlockingModeActive,
+      selectedDate,
+      slotToTime,
+    ],
   );
 
   return (

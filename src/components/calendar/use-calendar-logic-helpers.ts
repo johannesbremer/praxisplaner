@@ -4,8 +4,7 @@ import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
-import type { CalendarColumnId } from "./types";
+import type { CalendarAppointmentRecord, CalendarColumnId } from "./types";
 
 import { invalidStateError } from "../../utils/frontend-errors";
 
@@ -72,7 +71,7 @@ interface ConflictBlockedSlotRecord extends ConflictBlockedSlotCandidate {
 }
 
 export function collectDeletedPractitionerCalendarRanges(args: {
-  appointments: AppointmentResult[];
+  appointments: CalendarAppointmentRecord[];
   blockedSlots: readonly CalendarBlockedSlotRecord[];
   deletedPractitionerLineageKeys: ReadonlySet<Id<"practitioners">>;
   effectiveLocationLineageKey: Id<"locations"> | undefined;

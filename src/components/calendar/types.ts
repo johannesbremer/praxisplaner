@@ -1,7 +1,10 @@
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../../convex/appointments";
+import type {
+  AppointmentResult,
+  BlockedSlotResult,
+} from "../../../convex/appointments";
 import type {
   PatientInfo,
   SchedulingRuleSetId,
@@ -23,20 +26,27 @@ export interface Appointment {
   title: string;
 }
 
+export type CalendarAppointmentRecord = Omit<
+  AppointmentResult,
+  "appointmentTypeId" | "locationId" | "practitionerId"
+>;
+
 export interface CalendarAppointmentResource {
-  appointmentTypeId?: AppointmentResult["appointmentTypeId"];
   appointmentTypeLineageKey?: AppointmentResult["appointmentTypeLineageKey"];
   appointmentTypeTitle?: string;
   isSimulation?: boolean;
-  locationId?: AppointmentResult["locationId"];
   locationLineageKey?: AppointmentResult["locationLineageKey"];
   patientId?: AppointmentResult["patientId"];
-  practitionerId?: AppointmentResult["practitionerId"];
   practitionerLineageKey?: AppointmentResult["practitionerLineageKey"];
   seriesId?: AppointmentResult["seriesId"];
   title?: string;
   userId?: AppointmentResult["userId"];
 }
+
+export type CalendarBlockedSlotRecord = Omit<
+  BlockedSlotResult,
+  "locationId" | "practitionerId"
+>;
 
 export interface CalendarColumn {
   id: CalendarColumnId;
@@ -44,15 +54,12 @@ export interface CalendarColumn {
   isDragDisabled?: boolean;
   isMuted?: boolean;
   isUnavailable?: boolean;
-  practitionerId?: Id<"practitioners">;
-  practitionerLineageKey?: Id<"practitioners">;
   title: string;
 }
 
 export type CalendarColumnId = "ekg" | "labor" | Id<"practitioners">;
 
 export interface WorkingPractitioner {
-  displayId: Id<"practitioners">;
   endTime: string;
   lineageKey: Id<"practitioners">;
   name: string;

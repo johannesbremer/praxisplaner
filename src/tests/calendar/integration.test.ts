@@ -26,6 +26,11 @@ const location1 = toTableId<"locations">("location_1");
 const practice1 = toTableId<"practices">("practice_1");
 const practitioner1 = toTableId<"practitioners">("practitioner_1");
 
+const resolveBlockedSlotDisplayRefs = () => ({
+  locationId: location1,
+  practitionerId: practitioner1,
+});
+
 function buildBlockedSlotResult(
   overrides: Partial<BlockedSlotResult> & Pick<BlockedSlotResult, "_id">,
 ): BlockedSlotResult {
@@ -84,6 +89,7 @@ describe("calendar resize interactions", () => {
         convertRealAppointmentToSimulation: vi.fn(),
         convertRealBlockedSlotToSimulation: vi.fn(),
         isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        resolveBlockedSlotDisplayRefs,
         runUpdateAppointment,
         runUpdateBlockedSlot: vi.fn(),
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -149,6 +155,7 @@ describe("calendar resize interactions", () => {
         convertRealAppointmentToSimulation: vi.fn(),
         convertRealBlockedSlotToSimulation: vi.fn(),
         isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        resolveBlockedSlotDisplayRefs,
         runUpdateAppointment,
         runUpdateBlockedSlot: vi.fn(),
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -201,6 +208,7 @@ describe("calendar resize interactions", () => {
         convertRealAppointmentToSimulation: vi.fn(),
         convertRealBlockedSlotToSimulation: vi.fn(),
         isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        resolveBlockedSlotDisplayRefs,
         runUpdateAppointment,
         runUpdateBlockedSlot: vi.fn(),
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -248,6 +256,7 @@ describe("calendar resize interactions", () => {
         convertRealAppointmentToSimulation: vi.fn(),
         convertRealBlockedSlotToSimulation: vi.fn(),
         isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        resolveBlockedSlotDisplayRefs,
         runUpdateAppointment,
         runUpdateBlockedSlot: vi.fn(),
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -304,6 +313,7 @@ describe("calendar resize interactions", () => {
         convertRealAppointmentToSimulation: vi.fn(),
         convertRealBlockedSlotToSimulation: vi.fn(),
         isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+        resolveBlockedSlotDisplayRefs,
         runUpdateAppointment: vi.fn(),
         runUpdateBlockedSlot,
         selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -385,6 +395,7 @@ describe("calendar resize interactions", () => {
           convertRealAppointmentToSimulation: vi.fn(),
           convertRealBlockedSlotToSimulation,
           isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+          resolveBlockedSlotDisplayRefs,
           runUpdateAppointment: vi.fn(),
           runUpdateBlockedSlot,
           selectedDate: Temporal.PlainDate.from("2026-04-23"),
@@ -440,6 +451,7 @@ describe("calendar resize interactions", () => {
       convertRealAppointmentToSimulation: vi.fn(),
       convertRealBlockedSlotToSimulation,
       isNonRootSeriesAppointment: vi.fn().mockReturnValue(false),
+      resolveBlockedSlotDisplayRefs,
       runUpdateAppointment: vi.fn(),
       runUpdateBlockedSlot,
       selectedDate: Temporal.PlainDate.from("2026-04-23"),

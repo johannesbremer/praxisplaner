@@ -1,11 +1,18 @@
-import type { AppointmentResult } from "../../../convex/appointments";
-import type { Appointment } from "./types";
+import type {
+  AppointmentResult,
+  BlockedSlotResult,
+} from "../../../convex/appointments";
+import type {
+  Appointment,
+  CalendarAppointmentRecord,
+  CalendarBlockedSlotRecord,
+} from "./types";
 
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS } from "./types";
 
 export function buildCalendarAppointments(args: {
-  appointments: readonly AppointmentResult[];
+  appointments: readonly CalendarAppointmentRecord[];
   patientData:
     | null
     | Record<string, { firstName?: string; lastName?: string; name?: string }>
@@ -64,14 +71,11 @@ export function buildCalendarAppointments(args: {
         ...(patientName && { patientName }),
         replacesAppointmentId: appointment.replacesAppointmentId ?? null,
         resource: {
-          appointmentTypeId: appointment.appointmentTypeId,
           appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
           appointmentTypeTitle: appointment.appointmentTypeTitle,
           isSimulation: appointment.isSimulation === true,
-          locationId: appointment.locationId,
           locationLineageKey: appointment.locationLineageKey,
           patientId: appointment.patientId,
-          practitionerId: appointment.practitionerId,
           practitionerLineageKey: appointment.practitionerLineageKey,
           seriesId: appointment.seriesId,
           title: appointment.title,
@@ -82,4 +86,32 @@ export function buildCalendarAppointments(args: {
       };
     })
     .filter((appointment): appointment is Appointment => appointment !== null);
+}
+
+export function toCalendarAppointmentRecord(
+  appointment: AppointmentResult,
+): CalendarAppointmentRecord {
+  const {
+    appointmentTypeId: _appointmentTypeId,
+    locationId: _locationId,
+    practitionerId: _practitionerId,
+    ...record
+  } = appointment;
+  void _appointmentTypeId;
+  void _locationId;
+  void _practitionerId;
+  return record;
+}
+
+export function toCalendarBlockedSlotRecord(
+  blockedSlot: BlockedSlotResult,
+): CalendarBlockedSlotRecord {
+  const {
+    locationId: _locationId,
+    practitionerId: _practitionerId,
+    ...record
+  } = blockedSlot;
+  void _locationId;
+  void _practitionerId;
+  return record;
 }

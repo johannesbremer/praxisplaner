@@ -95,11 +95,12 @@ describe("Calendar Types and Constants", () => {
         id: "test-1",
         isSimulation: false,
         resource: {
-          appointmentTypeId: "appointmentType-1" as never,
+          appointmentTypeLineageKey:
+            toTableId<"appointmentTypes">("appointmentType_1"),
           isSimulation: false,
-          locationId: "location-1" as never,
+          locationLineageKey: toTableId<"locations">("location_1"),
           patientId: "patient-1" as never,
-          practitionerId: "practitioner-1" as never,
+          practitionerLineageKey: toTableId<"practitioners">("practitioner_1"),
         },
         startTime: "10:00",
         title: "Test Appointment",

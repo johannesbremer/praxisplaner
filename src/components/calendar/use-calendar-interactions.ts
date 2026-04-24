@@ -5,8 +5,11 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { BlockedSlotResult } from "../../../convex/appointments";
-import type { Appointment, CalendarColumnId } from "./types";
+import type {
+  Appointment,
+  CalendarBlockedSlotRecord,
+  CalendarColumnId,
+} from "./types";
 
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
@@ -47,7 +50,7 @@ export interface ResizeStartEvent {
   stopPropagation(): void;
 }
 
-type BlockedSlotRecord = BlockedSlotResult;
+type BlockedSlotRecord = CalendarBlockedSlotRecord;
 
 export function useCalendarInteractions({
   baseAppointments,
@@ -57,6 +60,7 @@ export function useCalendarInteractions({
   convertRealAppointmentToSimulation,
   convertRealBlockedSlotToSimulation,
   isNonRootSeriesAppointment,
+  resolveBlockedSlotDisplayRefs,
   runUpdateAppointment,
   runUpdateBlockedSlot,
   selectedDate,
@@ -93,6 +97,10 @@ export function useCalendarInteractions({
     },
   ) => Promise<Id<"blockedSlots"> | null>;
   isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
+  resolveBlockedSlotDisplayRefs: (blockedSlot: BlockedSlotRecord) => null | {
+    locationId: Id<"locations">;
+    practitionerId?: Id<"practitioners">;
+  };
   runUpdateAppointment: (args: {
     end?: string;
     id: Id<"appointments">;
@@ -499,14 +507,21 @@ export function useCalendarInteractions({
       ) {
         void (async () => {
           try {
+            const displayRefs = resolveBlockedSlotDisplayRefs(blockedSlotDoc);
+            if (!displayRefs) {
+              toast.error(
+                "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
+              );
+              return;
+            }
             const convertedId =
               await convertRealBlockedSlotToSimulationRef.current(
                 blockedSlotId,
                 {
                   endISO: blockedSlotDoc.end,
-                  locationId: blockedSlotDoc.locationId,
-                  ...(blockedSlotDoc.practitionerId
-                    ? { practitionerId: blockedSlotDoc.practitionerId }
+                  locationId: displayRefs.locationId,
+                  ...(displayRefs.practitionerId
+                    ? { practitionerId: displayRefs.practitionerId }
                     : {}),
                   startISO: blockedSlotDoc.start,
                   title:
@@ -539,6 +554,7 @@ export function useCalendarInteractions({
       blockedSlotDocMapRef,
       ensureResizeListeners,
       resolveBlockedSlotStartSlot,
+      resolveBlockedSlotDisplayRefs,
       setResizeDraft,
     ],
   );

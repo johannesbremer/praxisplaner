@@ -3,11 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type {
-  AppointmentResult,
-  BlockedSlotResult,
-} from "../../../convex/appointments";
 import type { PatientInfo } from "../../types";
+import type {
+  CalendarAppointmentRecord,
+  CalendarBlockedSlotRecord,
+} from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { createSimulatedContext } from "../../../lib/utils";
@@ -16,7 +16,11 @@ import {
   invalidStateError,
 } from "../../utils/frontend-errors";
 import { buildCalendarDayQueryArgs } from "./calendar-query-args";
-import { buildCalendarAppointments } from "./calendar-view-models";
+import {
+  buildCalendarAppointments,
+  toCalendarAppointmentRecord,
+  toCalendarBlockedSlotRecord,
+} from "./calendar-view-models";
 
 export function useCalendarData(args: {
   patient: PatientInfo | undefined;
@@ -62,11 +66,11 @@ export function useCalendarData(args: {
     ],
   );
 
-  const appointmentsData = useQuery(
+  const appointmentResultsData = useQuery(
     api.appointments.getCalendarDayAppointments,
     calendarDayQueryArgs ?? "skip",
   );
-  const blockedSlotsData = useQuery(
+  const blockedSlotResultsData = useQuery(
     api.appointments.getCalendarDayBlockedSlots,
     calendarDayQueryArgs ?? "skip",
   );
@@ -76,14 +80,28 @@ export function useCalendarData(args: {
     [activeRuleSetId, args.practiceId, args.ruleSetId],
   );
   const [allPracticeConflictData, setAllPracticeConflictData] = useState<{
-    appointments: AppointmentResult[] | undefined;
-    blockedSlots: BlockedSlotResult[] | undefined;
+    appointments: CalendarAppointmentRecord[] | undefined;
+    blockedSlots: CalendarBlockedSlotRecord[] | undefined;
     key: string;
   }>({
     appointments: undefined,
     blockedSlots: undefined,
     key: allPracticeConflictScopeKey,
   });
+  const appointmentsData = useMemo(
+    () =>
+      (appointmentResultsData ?? []).map((appointment) =>
+        toCalendarAppointmentRecord(appointment),
+      ),
+    [appointmentResultsData],
+  );
+  const blockedSlotsData = useMemo(
+    () =>
+      (blockedSlotResultsData ?? []).map((blockedSlot) =>
+        toCalendarBlockedSlotRecord(blockedSlot),
+      ),
+    [blockedSlotResultsData],
+  );
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
     args.practiceId && args.ruleSetId
@@ -96,8 +114,8 @@ export function useCalendarData(args: {
   );
 
   const appointmentDocMap = useMemo(() => {
-    const map = new Map<Id<"appointments">, AppointmentResult>();
-    for (const appointment of appointmentsData ?? []) {
+    const map = new Map<Id<"appointments">, CalendarAppointmentRecord>();
+    for (const appointment of appointmentsData) {
       map.set(appointment._id, appointment);
     }
     return map;
@@ -108,8 +126,8 @@ export function useCalendarData(args: {
   }, [appointmentDocMap]);
 
   const blockedSlotDocMap = useMemo(() => {
-    const map = new Map<Id<"blockedSlots">, BlockedSlotResult>();
-    for (const blockedSlot of blockedSlotsData ?? []) {
+    const map = new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>();
+    for (const blockedSlot of blockedSlotsData) {
       map.set(blockedSlot._id, blockedSlot);
     }
     return map;
@@ -120,8 +138,8 @@ export function useCalendarData(args: {
   }, [blockedSlotDocMap]);
 
   const buildAllPracticeAppointmentDocMap = useCallback(
-    (appointments: readonly AppointmentResult[]) => {
-      const map = new Map<Id<"appointments">, AppointmentResult>();
+    (appointments: readonly CalendarAppointmentRecord[]) => {
+      const map = new Map<Id<"appointments">, CalendarAppointmentRecord>();
       for (const appointment of appointments) {
         map.set(appointment._id, appointment);
       }
@@ -131,8 +149,8 @@ export function useCalendarData(args: {
   );
 
   const buildAllPracticeBlockedSlotDocMap = useCallback(
-    (blockedSlots: readonly BlockedSlotResult[]) => {
-      const map = new Map<Id<"blockedSlots">, BlockedSlotResult>();
+    (blockedSlots: readonly CalendarBlockedSlotRecord[]) => {
+      const map = new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>();
       for (const blockedSlot of blockedSlots) {
         map.set(blockedSlot._id, blockedSlot);
       }
@@ -142,10 +160,10 @@ export function useCalendarData(args: {
   );
 
   const allPracticeAppointmentDocMapRef = useRef(
-    new Map<Id<"appointments">, AppointmentResult>(),
+    new Map<Id<"appointments">, CalendarAppointmentRecord>(),
   );
   const allPracticeBlockedSlotDocMapRef = useRef(
-    new Map<Id<"blockedSlots">, BlockedSlotResult>(),
+    new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>(),
   );
   const fullPracticeConflictLoadRef = useRef(0);
 
@@ -172,12 +190,12 @@ export function useCalendarData(args: {
       return;
     }
 
-    const nextAppointments = appointments.filter(
-      (appointment) => appointment.practiceId === args.practiceId,
-    );
-    const nextBlockedSlots = blockedSlots.filter(
-      (blockedSlot) => blockedSlot.practiceId === args.practiceId,
-    );
+    const nextAppointments = appointments
+      .filter((appointment) => appointment.practiceId === args.practiceId)
+      .map((appointment) => toCalendarAppointmentRecord(appointment));
+    const nextBlockedSlots = blockedSlots
+      .filter((blockedSlot) => blockedSlot.practiceId === args.practiceId)
+      .map((blockedSlot) => toCalendarBlockedSlotRecord(blockedSlot));
 
     allPracticeAppointmentDocMapRef.current =
       buildAllPracticeAppointmentDocMap(nextAppointments);
@@ -290,6 +308,17 @@ export function useCalendarData(args: {
     return map;
   }, [appointmentTypesData]);
 
+  const appointmentTypeIdByLineageKey = useMemo(
+    () =>
+      new Map(
+        (appointmentTypesData ?? []).flatMap((appointmentType) =>
+          appointmentType.lineageKey
+            ? [[appointmentType.lineageKey, appointmentType._id] as const]
+            : [],
+        ),
+      ),
+    [appointmentTypesData],
+  );
   const appointmentTypeLineageKeyById = useMemo(
     () =>
       new Map(
@@ -307,6 +336,17 @@ export function useCalendarData(args: {
         (locationsData ?? []).flatMap((location) =>
           location.lineageKey
             ? [[location._id, location.lineageKey] as const]
+            : [],
+        ),
+      ),
+    [locationsData],
+  );
+  const locationIdByLineageKey = useMemo(
+    () =>
+      new Map(
+        (locationsData ?? []).flatMap((location) =>
+          location.lineageKey
+            ? [[location.lineageKey, location._id] as const]
             : [],
         ),
       ),
@@ -420,7 +460,7 @@ export function useCalendarData(args: {
 
   const appointmentPatientIds = useMemo(() => {
     const ids = new Set<Id<"patients">>();
-    for (const appointment of appointmentsData ?? []) {
+    for (const appointment of appointmentsData) {
       if (appointment.patientId) {
         ids.add(appointment.patientId);
       }
@@ -429,7 +469,7 @@ export function useCalendarData(args: {
   }, [appointmentsData]);
   const appointmentUserIds = useMemo(() => {
     const ids = new Set<Id<"users">>();
-    for (const appointment of appointmentsData ?? []) {
+    for (const appointment of appointmentsData) {
       if (appointment.userId) {
         ids.add(appointment.userId);
       }
@@ -451,7 +491,7 @@ export function useCalendarData(args: {
   const appointments = useMemo(
     () =>
       buildCalendarAppointments({
-        appointments: appointmentsData ?? [],
+        appointments: appointmentsData,
         patientData,
         userData,
       }),
@@ -468,17 +508,21 @@ export function useCalendarData(args: {
     allPracticeBlockedSlotsLoaded: allBlockedSlotsData !== undefined,
     appointmentDocMap,
     appointmentDocMapRef,
+    appointmentResultsData,
     appointments,
     appointmentsData,
+    appointmentTypeIdByLineageKey,
     appointmentTypeLineageKeyById,
     appointmentTypeMap,
     baseSchedulesData,
     blockedSlotDocMap,
     blockedSlotDocMapRef,
+    blockedSlotResultsData,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
     getRequiredAppointmentTypeInfo,
+    locationIdByLineageKey,
     locationLineageKeyById,
     locationsData,
     practitionerIdByLineageKey,
