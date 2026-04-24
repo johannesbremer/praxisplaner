@@ -124,8 +124,9 @@ export async function resolveLocationIdForRuleSetByLineage(
 export async function resolveLocationLineageKey(
   db: DatabaseReader,
   locationId: LocationId,
+  options?: { allowDeleted?: boolean },
 ): Promise<LocationLineageKey> {
-  const location = await requireLocation(db, locationId);
+  const location = await requireLocation(db, locationId, options);
   return asLocationLineageKey(
     requireLineageKey({
       entityId: location._id,
@@ -248,12 +249,13 @@ async function requireAppointmentType(
 async function requireLocation(
   db: DatabaseReader,
   locationId: Id<"locations">,
+  options?: { allowDeleted?: boolean },
 ) {
   const location = await db.get("locations", locationId);
   if (!location) {
     throw new Error(`Standort ${locationId} nicht gefunden.`);
   }
-  if (isRuleSetEntityDeleted(location)) {
+  if (options?.allowDeleted !== true && isRuleSetEntityDeleted(location)) {
     throw new Error(
       `Standort ${locationId} wurde im aktuellen Regelset gelöscht und kann nicht mehr neu referenziert werden.`,
     );

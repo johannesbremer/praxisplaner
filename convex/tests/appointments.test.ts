@@ -2247,6 +2247,120 @@ describe("calendar day appointment queries", () => {
     ]);
   });
 
+  test("getCalendarDayAppointments accepts a deleted selected location when resolving day-query lineage", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_deleted_selected_location",
+      "day-query-deleted-selected-location@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-deleted-selected-location@example.com",
+      subject: "workos_day_query_deleted_selected_location",
+    });
+    const targetRange = makeDayRange(12);
+
+    const displayRuleSet = await t.run(async (ctx) => {
+      const savedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Deleted Display Location Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const deletedDisplayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Display Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Displayed Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerIds: [displayedPractitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          lastModified: BigInt(Date.now()),
+          lineageKey: baseData.appointmentTypeId,
+          name: "Displayed Checkup",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      return {
+        deletedDisplayedLocationId,
+        displayedAppointmentTypeId,
+        displayedPractitionerId,
+        savedRuleSetId,
+      };
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: displayRuleSet.savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        appointmentTypeId: displayRuleSet.displayedAppointmentTypeId,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practitionerId: displayRuleSet.displayedPractitionerId,
+      },
+    ]);
+  });
+
   test("getCalendarDayBlockedSlots filters by location lineage and remaps ids after filtering", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -2546,6 +2660,107 @@ describe("calendar day appointment queries", () => {
       {
         locationId: baseData.locationId,
         title: "Real blocked slot",
+      },
+    ]);
+  });
+
+  test("getCalendarDayBlockedSlots accepts a deleted selected location when resolving day-query lineage", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slots_deleted_selected_location",
+      "day-blocked-slots-deleted-selected-location@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slots-deleted-selected-location@example.com",
+      subject: "workos_day_blocked_slots_deleted_selected_location",
+    });
+    const targetRange = makeDayRange(13);
+
+    const displayRuleSet = await t.run(async (ctx) => {
+      const savedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Deleted Display Blocked Slot Location Rule Set",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const deletedDisplayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          deleted: true,
+          lineageKey: baseData.locationId,
+          name: "Deleted Display Blocked Slot Location",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Displayed Blocked Slot Practitioner",
+          practiceId: baseData.practiceId,
+          ruleSetId: savedRuleSetId,
+        },
+      );
+
+      return {
+        deletedDisplayedLocationId,
+        displayedPractitionerId,
+        savedRuleSetId,
+      };
+    });
+
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Main location block",
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: displayRuleSet.savedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        locationId: displayRuleSet.deletedDisplayedLocationId,
+        practitionerId: displayRuleSet.displayedPractitionerId,
+        title: "Main location block",
       },
     ]);
   });

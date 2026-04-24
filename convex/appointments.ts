@@ -547,7 +547,9 @@ async function getOptionalLocationLineageKey(
     return;
   }
 
-  return await resolveLocationLineageKey(db, asLocationId(locationId));
+  return await resolveLocationLineageKey(db, asLocationId(locationId), {
+    allowDeleted: true,
+  });
 }
 
 async function getSimulationAppointmentReplacements(
@@ -559,26 +561,21 @@ async function getSimulationAppointmentReplacements(
     return [];
   }
 
-  const replacementGroups = await Promise.all(
-    replacedAppointmentIds.map((replacedAppointmentId) =>
-      ctx.db
-        .query("appointments")
-        .withIndex("by_replacesAppointmentId", (q) =>
-          q.eq("replacesAppointmentId", replacedAppointmentId),
-        )
-        .collect(),
-    ),
-  );
+  const replacedAppointmentIdSet = new Set(replacedAppointmentIds);
+  const simulationAppointments = await ctx.db
+    .query("appointments")
+    .withIndex("by_practiceId_isSimulation", (q) =>
+      q.eq("practiceId", practiceId).eq("isSimulation", true),
+    )
+    .collect();
 
   return dedupeById(
-    replacementGroups
-      .flat()
-      .filter(
-        (appointment) =>
-          appointment.practiceId === practiceId &&
-          appointment.isSimulation === true &&
-          isVisibleAppointment(appointment),
-      ),
+    simulationAppointments.filter(
+      (appointment) =>
+        appointment.replacesAppointmentId !== undefined &&
+        replacedAppointmentIdSet.has(appointment.replacesAppointmentId) &&
+        isVisibleAppointment(appointment),
+    ),
   );
 }
 
@@ -591,25 +588,20 @@ async function getSimulationBlockedSlotReplacements(
     return [];
   }
 
-  const replacementGroups = await Promise.all(
-    replacedBlockedSlotIds.map((replacedBlockedSlotId) =>
-      ctx.db
-        .query("blockedSlots")
-        .withIndex("by_replacesBlockedSlotId", (q) =>
-          q.eq("replacesBlockedSlotId", replacedBlockedSlotId),
-        )
-        .collect(),
-    ),
-  );
+  const replacedBlockedSlotIdSet = new Set(replacedBlockedSlotIds);
+  const simulationBlockedSlots = await ctx.db
+    .query("blockedSlots")
+    .withIndex("by_practiceId_isSimulation", (q) =>
+      q.eq("practiceId", practiceId).eq("isSimulation", true),
+    )
+    .collect();
 
   return dedupeById(
-    replacementGroups
-      .flat()
-      .filter(
-        (blockedSlot) =>
-          blockedSlot.practiceId === practiceId &&
-          blockedSlot.isSimulation === true,
-      ),
+    simulationBlockedSlots.filter(
+      (blockedSlot) =>
+        blockedSlot.replacesBlockedSlotId !== undefined &&
+        replacedBlockedSlotIdSet.has(blockedSlot.replacesBlockedSlotId),
+    ),
   );
 }
 

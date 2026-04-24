@@ -17,7 +17,11 @@ import {
 } from "../../../lib/vacation-utils";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
-import { createOptimisticId, isOptimisticId } from "../../utils/convex-ids";
+import {
+  createOptimisticId,
+  findIdInList,
+  isOptimisticId,
+} from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
@@ -119,8 +123,10 @@ export function useCalendarLogic({
     externalSelectedLocationId ?? internalSelectedLocationId;
 
   const {
+    allPracticeAppointmentDocMap,
     allPracticeAppointmentDocMapRef,
     allPracticeAppointmentsLoaded,
+    allPracticeBlockedSlotDocMap,
     allPracticeBlockedSlotDocMapRef,
     allPracticeBlockedSlotsLoaded,
     appointmentDocMapRef,
@@ -157,36 +163,36 @@ export function useCalendarLogic({
   const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
 
   useEffect(() => {
+    if (!allPracticeAppointmentsLoaded) {
+      return;
+    }
+
     for (const id of appointmentHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id)) {
+      if (isOptimisticId(id) || allPracticeAppointmentDocMap.has(id)) {
         appointmentHistoryDocMapRef.current.delete(id);
       }
     }
 
-    for (const appointment of appointmentsData ?? []) {
-      deletedAppointmentIdsRef.current.delete(appointment._id);
-      if (isOptimisticId(appointment._id)) {
-        continue;
-      }
-      appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
+    for (const appointmentId of allPracticeAppointmentDocMap.keys()) {
+      deletedAppointmentIdsRef.current.delete(appointmentId);
     }
-  }, [appointmentsData]);
+  }, [allPracticeAppointmentDocMap, allPracticeAppointmentsLoaded]);
 
   useEffect(() => {
+    if (!allPracticeBlockedSlotsLoaded) {
+      return;
+    }
+
     for (const id of blockedSlotHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id)) {
+      if (isOptimisticId(id) || allPracticeBlockedSlotDocMap.has(id)) {
         blockedSlotHistoryDocMapRef.current.delete(id);
       }
     }
 
-    for (const blockedSlot of blockedSlotsData ?? []) {
-      deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
-      if (isOptimisticId(blockedSlot._id)) {
-        continue;
-      }
-      blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
+    for (const blockedSlotId of allPracticeBlockedSlotDocMap.keys()) {
+      deletedBlockedSlotIdsRef.current.delete(blockedSlotId);
     }
-  }, [blockedSlotsData]);
+  }, [allPracticeBlockedSlotDocMap, allPracticeBlockedSlotsLoaded]);
 
   const getAppointmentHistoryDoc = useCallback(
     (id: Id<"appointments">) => {
@@ -195,11 +201,12 @@ export function useCalendarLogic({
       }
 
       return (
+        appointmentHistoryDocMapRef.current.get(id) ??
         appointmentDocMapRef.current.get(id) ??
-        appointmentHistoryDocMapRef.current.get(id)
+        allPracticeAppointmentDocMapRef.current.get(id)
       );
     },
-    [appointmentDocMapRef],
+    [allPracticeAppointmentDocMapRef, appointmentDocMapRef],
   );
 
   const getBlockedSlotHistoryDoc = useCallback(
@@ -209,15 +216,19 @@ export function useCalendarLogic({
       }
 
       return (
+        blockedSlotHistoryDocMapRef.current.get(id) ??
         blockedSlotDocMapRef.current.get(id) ??
-        blockedSlotHistoryDocMapRef.current.get(id)
+        allPracticeBlockedSlotDocMapRef.current.get(id)
       );
     },
-    [blockedSlotDocMapRef],
+    [allPracticeBlockedSlotDocMapRef, blockedSlotDocMapRef],
   );
 
   const rememberAppointmentHistoryDoc = useCallback(
     (appointment: AppointmentResult) => {
+      if (isOptimisticId(appointment._id)) {
+        return;
+      }
       deletedAppointmentIdsRef.current.delete(appointment._id);
       appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
     },
@@ -231,6 +242,9 @@ export function useCalendarLogic({
 
   const rememberBlockedSlotHistoryDoc = useCallback(
     (blockedSlot: Doc<"blockedSlots">) => {
+      if (isOptimisticId(blockedSlot._id)) {
+        return;
+      }
       deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
       blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
     },
@@ -332,6 +346,61 @@ export function useCalendarLogic({
         .toString();
     },
     [],
+  );
+
+  const buildCreatedAppointmentHistoryDoc = useCallback(
+    (args: {
+      appointmentTypeId: Id<"appointmentTypes">;
+      appointmentTypeTitle: string;
+      createdId: Id<"appointments">;
+      createEnd: string;
+      createStart: string;
+      isSimulation: boolean;
+      locationId: Id<"locations">;
+      patientId?: Id<"patients">;
+      practiceId: Id<"practices">;
+      practitionerId?: Id<"practitioners">;
+      replacesAppointmentId?: Id<"appointments">;
+      title: string;
+      userId?: Id<"users">;
+    }): AppointmentResult | null => {
+      const start = parseZonedDateTime(
+        args.createStart,
+        "useCalendarLogic.buildCreatedAppointmentHistoryDoc.start",
+      );
+      const end = parseZonedDateTime(
+        args.createEnd,
+        "useCalendarLogic.buildCreatedAppointmentHistoryDoc.end",
+      );
+      if (!start || !end) {
+        return null;
+      }
+
+      const now = Date.now();
+      return {
+        _creationTime: now,
+        _id: args.createdId,
+        appointmentTypeId: args.appointmentTypeId,
+        appointmentTypeTitle: args.appointmentTypeTitle,
+        createdAt: BigInt(now),
+        end,
+        isSimulation: args.isSimulation,
+        lastModified: BigInt(now),
+        locationId: args.locationId,
+        ...(args.patientId && { patientId: args.patientId }),
+        practiceId: args.practiceId,
+        ...(args.practitionerId && {
+          practitionerId: args.practitionerId,
+        }),
+        ...(args.replacesAppointmentId && {
+          replacesAppointmentId: args.replacesAppointmentId,
+        }),
+        start,
+        title: args.title,
+        ...(args.userId && { userId: args.userId }),
+      };
+    },
+    [parseZonedDateTime],
   );
 
   const {
@@ -928,6 +997,28 @@ export function useCalendarLogic({
         durationMinutes: appointmentTypeInfo.duration,
         start: createArgs.start,
       });
+      const createdAppointmentHistoryDoc = buildCreatedAppointmentHistoryDoc({
+        appointmentTypeId: createArgs.appointmentTypeId,
+        appointmentTypeTitle: appointmentTypeInfo.name,
+        createdId,
+        createEnd,
+        createStart: createArgs.start,
+        isSimulation: createArgs.isSimulation,
+        locationId: createArgs.locationId,
+        ...(createArgs.patientId && { patientId: createArgs.patientId }),
+        practiceId: createArgs.practiceId,
+        ...(createArgs.practitionerId && {
+          practitionerId: createArgs.practitionerId,
+        }),
+        ...(createArgs.replacesAppointmentId && {
+          replacesAppointmentId: createArgs.replacesAppointmentId,
+        }),
+        title: createArgs.title,
+        ...(createArgs.userId && { userId: createArgs.userId }),
+      });
+      if (createdAppointmentHistoryDoc) {
+        rememberAppointmentHistoryDoc(createdAppointmentHistoryDoc);
+      }
 
       pushHistoryAction({
         label: "Termin erstellt",
@@ -966,6 +1057,29 @@ export function useCalendarLogic({
           }
 
           currentAppointmentId = recreatedId;
+          const recreatedAppointmentHistoryDoc =
+            buildCreatedAppointmentHistoryDoc({
+              appointmentTypeId: createArgs.appointmentTypeId,
+              appointmentTypeTitle: appointmentTypeInfo.name,
+              createdId: recreatedId,
+              createEnd,
+              createStart: createArgs.start,
+              isSimulation: createArgs.isSimulation,
+              locationId: createArgs.locationId,
+              ...(createArgs.patientId && { patientId: createArgs.patientId }),
+              practiceId: createArgs.practiceId,
+              ...(createArgs.practitionerId && {
+                practitionerId: createArgs.practitionerId,
+              }),
+              ...(createArgs.replacesAppointmentId && {
+                replacesAppointmentId: createArgs.replacesAppointmentId,
+              }),
+              title: createArgs.title,
+              ...(createArgs.userId && { userId: createArgs.userId }),
+            });
+          if (recreatedAppointmentHistoryDoc) {
+            rememberAppointmentHistoryDoc(recreatedAppointmentHistoryDoc);
+          }
           return { status: "applied" };
         },
         undo: async () => {
@@ -987,12 +1101,14 @@ export function useCalendarLogic({
     },
     [
       canValidateAppointmentHistoryConflict,
+      buildCreatedAppointmentHistoryDoc,
       createAppointmentMutation,
       forgetAppointmentHistoryDoc,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
       pushHistoryAction,
+      rememberAppointmentHistoryDoc,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
     ],
@@ -1283,6 +1399,25 @@ export function useCalendarLogic({
 
       let currentBlockedSlotId: Id<"blockedSlots"> = createdId;
       const createArgs = { ...args, isSimulation: args.isSimulation ?? false };
+      const now = Date.now();
+      rememberBlockedSlotHistoryDoc({
+        _creationTime: now,
+        _id: createdId,
+        createdAt: BigInt(now),
+        end: createArgs.end,
+        isSimulation: createArgs.isSimulation,
+        lastModified: BigInt(now),
+        locationId: createArgs.locationId,
+        practiceId: createArgs.practiceId,
+        ...(createArgs.practitionerId && {
+          practitionerId: createArgs.practitionerId,
+        }),
+        ...(createArgs.replacesBlockedSlotId && {
+          replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
+        }),
+        start: createArgs.start,
+        title: createArgs.title,
+      });
 
       pushHistoryAction({
         label: "Sperrung erstellt",
@@ -1318,6 +1453,24 @@ export function useCalendarLogic({
           }
 
           currentBlockedSlotId = recreatedId;
+          rememberBlockedSlotHistoryDoc({
+            _creationTime: now,
+            _id: recreatedId,
+            createdAt: BigInt(now),
+            end: createArgs.end,
+            isSimulation: createArgs.isSimulation,
+            lastModified: BigInt(now),
+            locationId: createArgs.locationId,
+            practiceId: createArgs.practiceId,
+            ...(createArgs.practitionerId && {
+              practitionerId: createArgs.practitionerId,
+            }),
+            ...(createArgs.replacesBlockedSlotId && {
+              replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
+            }),
+            start: createArgs.start,
+            title: createArgs.title,
+          });
           return { status: "applied" };
         },
         undo: async () => {
@@ -1342,6 +1495,7 @@ export function useCalendarLogic({
       forgetBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
+      rememberBlockedSlotHistoryDoc,
       runCreateBlockedSlotInternal,
       runDeleteBlockedSlotInternal,
     ],
@@ -2782,8 +2936,14 @@ export function useCalendarLogic({
         return null;
       }
 
+      const resolvedBlockedSlotId = findIdInList(
+        [...blockedSlotDocMapRef.current.keys()],
+        blockedSlotId,
+      );
       const original = resultFromNullable(
-        blockedSlotDocMapRef.current.get(blockedSlotId),
+        resolvedBlockedSlotId === undefined
+          ? undefined
+          : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId),
         invalidStateError(
           "Gesperrter Zeitraum wurde nicht gefunden.",
           "convertRealBlockedSlotToSimulation.original",
@@ -3079,10 +3239,17 @@ export function useCalendarLogic({
         return;
       }
 
-      const blockedSlotDoc =
+      const resolvedBlockedSlotId =
         blockedSlot.id === undefined
           ? undefined
-          : blockedSlotDocMapRef.current.get(blockedSlot.id);
+          : findIdInList(
+              [...blockedSlotDocMapRef.current.keys()],
+              blockedSlot.id,
+            );
+      const blockedSlotDoc =
+        resolvedBlockedSlotId === undefined
+          ? undefined
+          : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId);
 
       const finalSlot = dragPreview.slot;
       const newTime = slotToTime(finalSlot);

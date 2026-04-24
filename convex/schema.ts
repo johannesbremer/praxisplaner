@@ -396,6 +396,7 @@ export default defineSchema({
     .index("by_patientId", ["patientId"])
     .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
+    .index("by_practiceId_isSimulation", ["practiceId", "isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
@@ -503,6 +504,7 @@ export default defineSchema({
   })
     .index("by_practiceId_start", ["practiceId", "start"])
     .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_isSimulation", ["practiceId", "isSimulation"])
     .index("by_start", ["start"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),

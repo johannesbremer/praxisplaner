@@ -104,7 +104,7 @@ export function useCalendarData(args: {
   }, [appointmentDocMap]);
 
   const blockedSlotDocMap = useMemo(() => {
-    const map = new Map<string, Doc<"blockedSlots">>();
+    const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
     for (const blockedSlot of blockedSlotsData ?? []) {
       map.set(blockedSlot._id, blockedSlot);
     }
@@ -130,7 +130,7 @@ export function useCalendarData(args: {
   }, [allPracticeAppointmentDocMap]);
 
   const allPracticeBlockedSlotDocMap = useMemo(() => {
-    const map = new Map<string, Doc<"blockedSlots">>();
+    const map = new Map<Id<"blockedSlots">, Doc<"blockedSlots">>();
     for (const blockedSlot of allBlockedSlotsData ?? []) {
       if (blockedSlot.practiceId === args.practiceId) {
         map.set(blockedSlot._id, blockedSlot);
@@ -320,8 +320,10 @@ export function useCalendarData(args: {
 
   return {
     activeRuleSetId,
+    allPracticeAppointmentDocMap,
     allPracticeAppointmentDocMapRef,
     allPracticeAppointmentsLoaded: allAppointmentsData !== undefined,
+    allPracticeBlockedSlotDocMap,
     allPracticeBlockedSlotDocMapRef,
     allPracticeBlockedSlotsLoaded: allBlockedSlotsData !== undefined,
     appointmentDocMap,
