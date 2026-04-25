@@ -192,7 +192,6 @@ export function useCalendarLogic({
   });
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
   const {
-    blockedSlotHistoryDocMapRef,
     forgetAppointmentHistoryDoc,
     forgetBlockedSlotHistoryDoc,
     getAppointmentHistoryDoc,
@@ -203,6 +202,7 @@ export function useCalendarLogic({
     hasBlockedSlotConflict,
     rememberAppointmentHistoryDoc,
     rememberBlockedSlotHistoryDoc,
+    resolveBlockedSlotId,
   } = useCalendarPlanningWorkbench({
     activeDayAppointmentMapRef: appointmentDocMapRef,
     activeDayBlockedSlotMapRef: blockedSlotDocMapRef,
@@ -341,14 +341,7 @@ export function useCalendarLogic({
       slotData: CalendarBlockedSlotEditorRecord;
       slotIsSimulation: boolean;
     } => {
-      const resolvedBlockedSlotId = findIdInList(
-        [
-          ...blockedSlotHistoryDocMapRef.current.keys(),
-          ...blockedSlotDocMapRef.current.keys(),
-          ...allPracticeBlockedSlotDocMapRef.current.keys(),
-        ],
-        blockedSlotId,
-      );
+      const resolvedBlockedSlotId = resolveBlockedSlotId(blockedSlotId);
       if (!resolvedBlockedSlotId) {
         return null;
       }
@@ -370,13 +363,7 @@ export function useCalendarLogic({
         slotIsSimulation: blockedSlot.isSimulation ?? false,
       };
     },
-    [
-      allPracticeBlockedSlotDocMapRef,
-      blockedSlotDocMapRef,
-      blockedSlotHistoryDocMapRef,
-      getBlockedSlotHistoryDoc,
-      referenceMaps,
-    ],
+    [getBlockedSlotHistoryDoc, referenceMaps, resolveBlockedSlotId],
   );
 
   const placementAppointmentTypeLineageKey =

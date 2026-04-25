@@ -11,7 +11,7 @@ import type {
   CalendarBlockedSlotRecord,
 } from "./types";
 
-import { isOptimisticId } from "../../utils/convex-ids";
+import { findIdInList, isOptimisticId } from "../../utils/convex-ids";
 import {
   getCurrentCalendarRecordById,
   hasCalendarOccupancyConflictInRecords,
@@ -158,6 +158,20 @@ export function useCalendarPlanningWorkbench(args: {
     [args.activeDayBlockedSlotMapRef, args.allPracticeBlockedSlotMapRef],
   );
 
+  const resolveBlockedSlotId = useCallback(
+    (blockedSlotId: string): Id<"blockedSlots"> | undefined => {
+      return findIdInList(
+        [
+          ...blockedSlotHistoryDocMapRef.current.keys(),
+          ...args.activeDayBlockedSlotMapRef.current.keys(),
+          ...args.allPracticeBlockedSlotMapRef.current.keys(),
+        ],
+        blockedSlotId,
+      );
+    },
+    [args.activeDayBlockedSlotMapRef, args.allPracticeBlockedSlotMapRef],
+  );
+
   const rememberAppointmentHistoryDoc = useCallback(
     (appointment: CalendarAppointmentRecord) => {
       if (isOptimisticId(appointment._id)) {
@@ -246,8 +260,6 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   return {
-    appointmentHistoryDocMapRef,
-    blockedSlotHistoryDocMapRef,
     forgetAppointmentHistoryDoc,
     forgetBlockedSlotHistoryDoc,
     getAppointmentHistoryDoc,
@@ -258,5 +270,6 @@ export function useCalendarPlanningWorkbench(args: {
     hasBlockedSlotConflict,
     rememberAppointmentHistoryDoc,
     rememberBlockedSlotHistoryDoc,
+    resolveBlockedSlotId,
   };
 }
