@@ -25,11 +25,7 @@ import {
 } from "../../../lib/vacation-utils";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
-import {
-  createOptimisticId,
-  findIdInList,
-  isOptimisticId,
-} from "../../utils/convex-ids";
+import { createOptimisticId, findIdInList } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import {
   captureFrontendError,
@@ -84,15 +80,13 @@ import {
   type BlockedSlotConversionOptions,
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
-  getCurrentCalendarRecordById,
   handleEditBlockedSlot,
-  hasCalendarOccupancyConflictInRecords,
-  mergeCurrentConflictRecordsByIdExcluding,
   parsePlainTimeResult,
   type SimulatedBlockedSlotConversionResult,
   type SimulationConversionOptions,
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
+import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
 
 /**
  * Deep comparison of appointment arrays.
@@ -197,132 +191,28 @@ export function useCalendarLogic({
     simulatedContext,
   });
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
-  const appointmentHistoryDocMapRef = useRef(
-    new Map<Id<"appointments">, CalendarAppointmentRecord>(),
-  );
-  const deletedAppointmentIdsRef = useRef(new Set<Id<"appointments">>());
-  const blockedSlotHistoryDocMapRef = useRef(
-    new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>(),
-  );
-  const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
-
-  useEffect(() => {
-    if (!allPracticeAppointmentsLoaded) {
-      return;
-    }
-
-    for (const id of appointmentHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id) || allPracticeAppointmentDocMap.has(id)) {
-        appointmentHistoryDocMapRef.current.delete(id);
-      }
-    }
-
-    for (const appointmentId of allPracticeAppointmentDocMap.keys()) {
-      deletedAppointmentIdsRef.current.delete(appointmentId);
-    }
-  }, [allPracticeAppointmentDocMap, allPracticeAppointmentsLoaded]);
-
-  useEffect(() => {
-    if (!allPracticeBlockedSlotsLoaded) {
-      return;
-    }
-
-    for (const id of blockedSlotHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id) || allPracticeBlockedSlotDocMap.has(id)) {
-        blockedSlotHistoryDocMapRef.current.delete(id);
-      }
-    }
-
-    for (const blockedSlotId of allPracticeBlockedSlotDocMap.keys()) {
-      deletedBlockedSlotIdsRef.current.delete(blockedSlotId);
-    }
-  }, [allPracticeBlockedSlotDocMap, allPracticeBlockedSlotsLoaded]);
-
-  const getAppointmentHistoryDoc = useCallback(
-    (id: Id<"appointments">) => {
-      if (deletedAppointmentIdsRef.current.has(id)) {
-        return;
-      }
-
-      return (
-        appointmentHistoryDocMapRef.current.get(id) ??
-        appointmentDocMapRef.current.get(id) ??
-        allPracticeAppointmentDocMapRef.current.get(id)
-      );
-    },
-    [allPracticeAppointmentDocMapRef, appointmentDocMapRef],
-  );
-
-  const getCurrentAppointmentDoc = useCallback(
-    (id: Id<"appointments">) =>
-      getCurrentCalendarRecordById({
-        activeDayMap: appointmentDocMapRef.current,
-        allPracticeMap: allPracticeAppointmentDocMapRef.current,
-        deletedIds: deletedAppointmentIdsRef.current,
-        historyMap: appointmentHistoryDocMapRef.current,
-        id,
-      }),
-    [allPracticeAppointmentDocMapRef, appointmentDocMapRef],
-  );
-
-  const getBlockedSlotHistoryDoc = useCallback(
-    (id: Id<"blockedSlots">) => {
-      if (deletedBlockedSlotIdsRef.current.has(id)) {
-        return;
-      }
-
-      return (
-        blockedSlotHistoryDocMapRef.current.get(id) ??
-        blockedSlotDocMapRef.current.get(id) ??
-        allPracticeBlockedSlotDocMapRef.current.get(id)
-      );
-    },
-    [allPracticeBlockedSlotDocMapRef, blockedSlotDocMapRef],
-  );
-
-  const getCurrentBlockedSlotDoc = useCallback(
-    (id: Id<"blockedSlots">) =>
-      getCurrentCalendarRecordById({
-        activeDayMap: blockedSlotDocMapRef.current,
-        allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
-        deletedIds: deletedBlockedSlotIdsRef.current,
-        historyMap: blockedSlotHistoryDocMapRef.current,
-        id,
-      }),
-    [allPracticeBlockedSlotDocMapRef, blockedSlotDocMapRef],
-  );
-
-  const rememberAppointmentHistoryDoc = useCallback(
-    (appointment: CalendarAppointmentRecord) => {
-      if (isOptimisticId(appointment._id)) {
-        return;
-      }
-      deletedAppointmentIdsRef.current.delete(appointment._id);
-      appointmentHistoryDocMapRef.current.set(appointment._id, appointment);
-    },
-    [],
-  );
-
-  const forgetAppointmentHistoryDoc = useCallback((id: Id<"appointments">) => {
-    deletedAppointmentIdsRef.current.add(id);
-    appointmentHistoryDocMapRef.current.delete(id);
-  }, []);
-
-  const rememberBlockedSlotHistoryDoc = useCallback(
-    (blockedSlot: CalendarBlockedSlotRecord) => {
-      if (isOptimisticId(blockedSlot._id)) {
-        return;
-      }
-      deletedBlockedSlotIdsRef.current.delete(blockedSlot._id);
-      blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
-    },
-    [],
-  );
-
-  const forgetBlockedSlotHistoryDoc = useCallback((id: Id<"blockedSlots">) => {
-    deletedBlockedSlotIdsRef.current.add(id);
-    blockedSlotHistoryDocMapRef.current.delete(id);
-  }, []);
+  const {
+    blockedSlotHistoryDocMapRef,
+    forgetAppointmentHistoryDoc,
+    forgetBlockedSlotHistoryDoc,
+    getAppointmentHistoryDoc,
+    getBlockedSlotHistoryDoc,
+    getCurrentAppointmentDoc,
+    getCurrentBlockedSlotDoc,
+    hasAppointmentConflict,
+    hasBlockedSlotConflict,
+    rememberAppointmentHistoryDoc,
+    rememberBlockedSlotHistoryDoc,
+  } = useCalendarPlanningWorkbench({
+    activeDayAppointmentMapRef: appointmentDocMapRef,
+    activeDayBlockedSlotMapRef: blockedSlotDocMapRef,
+    allPracticeAppointmentMap: allPracticeAppointmentDocMap,
+    allPracticeAppointmentMapRef: allPracticeAppointmentDocMapRef,
+    allPracticeAppointmentsLoaded,
+    allPracticeBlockedSlotMap: allPracticeBlockedSlotDocMap,
+    allPracticeBlockedSlotMapRef: allPracticeBlockedSlotDocMapRef,
+    allPracticeBlockedSlotsLoaded,
+  });
 
   const isNonRootSeriesAppointment = useCallback(
     (appointmentId?: string) => {
@@ -483,6 +373,7 @@ export function useCalendarLogic({
     [
       allPracticeBlockedSlotDocMapRef,
       blockedSlotDocMapRef,
+      blockedSlotHistoryDocMapRef,
       getBlockedSlotHistoryDoc,
       referenceMaps,
     ],
@@ -615,79 +506,6 @@ export function useCalendarLogic({
   } = useLocalHistory();
   const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
   const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
-
-  const toEpochMilliseconds = useCallback((iso: string) => {
-    return Temporal.ZonedDateTime.from(iso).epochMilliseconds;
-  }, []);
-
-  const hasAppointmentConflict = useCallback(
-    (
-      candidate: {
-        end: string;
-        isSimulation: boolean;
-        locationLineageKey: LocationLineageKey;
-        practitionerLineageKey?: PractitionerLineageKey;
-        replacesAppointmentId?: Id<"appointments">;
-        start: string;
-      },
-      excludeId?: Id<"appointments">,
-    ) => {
-      return hasCalendarOccupancyConflictInRecords({
-        appointments: mergeCurrentConflictRecordsByIdExcluding({
-          allPracticeMap: allPracticeAppointmentDocMapRef.current,
-          excludedIds: deletedAppointmentIdsRef.current,
-          historyMap: appointmentHistoryDocMapRef.current,
-        }),
-        blockedSlots: mergeCurrentConflictRecordsByIdExcluding({
-          allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
-          excludedIds: deletedBlockedSlotIdsRef.current,
-          historyMap: blockedSlotHistoryDocMapRef.current,
-        }),
-        candidate,
-        ...(excludeId === undefined ? {} : { excludeId }),
-        toEpochMilliseconds,
-      });
-    },
-    [
-      allPracticeAppointmentDocMapRef,
-      allPracticeBlockedSlotDocMapRef,
-      toEpochMilliseconds,
-    ],
-  );
-
-  const hasBlockedSlotConflict = useCallback(
-    (
-      candidate: {
-        end: string;
-        isSimulation: boolean;
-        locationLineageKey: LocationLineageKey;
-        practitionerLineageKey?: PractitionerLineageKey;
-        start: string;
-      },
-      excludeId?: Id<"blockedSlots">,
-    ) => {
-      return hasCalendarOccupancyConflictInRecords({
-        appointments: mergeCurrentConflictRecordsByIdExcluding({
-          allPracticeMap: allPracticeAppointmentDocMapRef.current,
-          excludedIds: deletedAppointmentIdsRef.current,
-          historyMap: appointmentHistoryDocMapRef.current,
-        }),
-        blockedSlots: mergeCurrentConflictRecordsByIdExcluding({
-          allPracticeMap: allPracticeBlockedSlotDocMapRef.current,
-          excludedIds: deletedBlockedSlotIdsRef.current,
-          historyMap: blockedSlotHistoryDocMapRef.current,
-        }),
-        candidate,
-        ...(excludeId === undefined ? {} : { excludeId }),
-        toEpochMilliseconds,
-      });
-    },
-    [
-      allPracticeAppointmentDocMapRef,
-      allPracticeBlockedSlotDocMapRef,
-      toEpochMilliseconds,
-    ],
-  );
 
   const ensureLatestConflictData = useCallback(async () => {
     await refreshAllPracticeConflictData();
