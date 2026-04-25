@@ -8,7 +8,7 @@
   "scripts": {
     "build": "vite build",
     "build:vercel": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then PREVIEW_NAME=\"$(printf '%s' \"$VERCEL_GIT_COMMIT_REF\" | tr '/' '-')\"; pnpm exec convex deploy --cmd \"pnpm run build\" --preview-create \"$PREVIEW_NAME\" && pnpm exec convex import --preview-name \"$PREVIEW_NAME\" --replace-all seed_data.zip; else pnpm exec convex deploy --cmd \"pnpm run build\"; fi",
-    "ci-check": "pnpm --silent ci-check:gen && pnpm --silent lint && pnpm tsc && pnpm exec prettier --write . --log-level silent && pnpm --silent ci-check:test && pnpm --silent ci-check:build",
+    "ci-check": "pnpm --silent ci-check:gen && pnpm --silent lint && pnpm tsc && pnpm exec prettier --write . --log-level silent && pnpm --silent ci-check:test && pnpm --silent ci-check:build && echo 'ci-check passed: gen, lint, tsc, format, test, and build completed successfully.'",
     "ci-check:build": "sh -c 'log=\"${TMPDIR:-/tmp}/praxisplaner-build-$$.log\"; pnpm exec vite build --logLevel silent >\"$log\" 2>&1 || { cat \"$log\" >&2; rm -f \"$log\"; exit 1; }; rm -f \"$log\"'",
     "ci-check:gen": "sh -c 'log=\"${TMPDIR:-/tmp}/praxisplaner-gen-$$.log\"; pnpm exec tsr generate >\"$log\" 2>&1 && pnpm exec convex codegen >>\"$log\" 2>&1 || { cat \"$log\" >&2; rm -f \"$log\"; exit 1; }; rm -f \"$log\"'",
     "ci-check:test": "sh -c 'log=\"${TMPDIR:-/tmp}/praxisplaner-test-$$.log\"; VITE_ENABLE_POSTHOG_IN_DEV=true pnpm exec vitest --run >\"$log\" 2>&1 || { cat \"$log\" >&2; rm -f \"$log\"; exit 1; }; rm -f \"$log\"'",
