@@ -7,7 +7,7 @@ import {
   mergeConflictRecordsById,
   mergeConflictRecordsByIdExcluding,
   mergeCurrentConflictRecordsByIdExcluding,
-} from "../../components/calendar/use-calendar-logic-helpers";
+} from "../../components/calendar/calendar-planning-records";
 import { isOptimisticId } from "../../utils/convex-ids";
 
 const toEpochMilliseconds = (iso: string) =>

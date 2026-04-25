@@ -19,10 +19,7 @@ import {
   asPractitionerLineageKey,
 } from "../../../convex/identity";
 import { createSimulatedContext } from "../../../lib/utils";
-import {
-  getPractitionerAvailabilityRangesForDate,
-  getPractitionerVacationRangesForDate,
-} from "../../../lib/vacation-utils";
+import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useLocalHistory } from "../../hooks/use-local-history";
 import { createOptimisticId, findIdInList } from "../../utils/convex-ids";
@@ -44,13 +41,6 @@ import {
   shouldCollapseOptimisticReplacementInDayQuery,
 } from "./calendar-day-query-membership";
 import {
-  resolveAppointmentDisplayRefs,
-  resolveAppointmentLineageRefs,
-  resolveBlockedSlotDisplayRefs,
-  resolveBlockedSlotLineageRefs,
-  toBlockedSlotEditorRecord,
-} from "./calendar-reference-adapters";
-import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
   toCalendarAppointmentRecord,
@@ -67,7 +57,6 @@ import {
   type CalendarColumnId,
   type NewCalendarProps,
   SLOT_DURATION,
-  type WorkingPractitioner,
 } from "./types";
 import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
 import { useCalendarData } from "./use-calendar-data";
@@ -78,7 +67,6 @@ import {
 } from "./use-calendar-interactions";
 import {
   type BlockedSlotConversionOptions,
-  collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
   handleEditBlockedSlot,
   parsePlainTimeResult,
@@ -87,6 +75,8 @@ import {
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
 import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
+import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver";
+import { useCalendarVisibleDay } from "./use-calendar-visible-day";
 
 /**
  * Deep comparison of appointment arrays.
@@ -202,6 +192,8 @@ export function useCalendarLogic({
     hasBlockedSlotConflict,
     rememberAppointmentHistoryDoc,
     rememberBlockedSlotHistoryDoc,
+    rememberCreatedAppointmentHistoryDoc,
+    rememberCreatedBlockedSlotHistoryDoc,
     resolveBlockedSlotId,
   } = useCalendarPlanningWorkbench({
     activeDayAppointmentMapRef: appointmentDocMapRef,
@@ -250,87 +242,25 @@ export function useCalendarLogic({
     [],
   );
 
-  const referenceMaps = useMemo(
-    () => ({
-      appointmentTypeIdByLineageKey,
-      appointmentTypeLineageKeyById,
-      locationIdByLineageKey,
-      locationLineageKeyById,
-      practitionerIdByLineageKey,
-      practitionerLineageKeyById,
-    }),
-    [
-      appointmentTypeIdByLineageKey,
-      appointmentTypeLineageKeyById,
-      locationIdByLineageKey,
-      locationLineageKeyById,
-      practitionerIdByLineageKey,
-      practitionerLineageKeyById,
-    ],
-  );
-
-  const getAppointmentTypeIdForLineageKey = useCallback(
-    (appointmentTypeLineageKey: AppointmentTypeLineageKey) =>
-      appointmentTypeIdByLineageKey.get(appointmentTypeLineageKey),
-    [appointmentTypeIdByLineageKey],
-  );
-
-  const getLocationLineageKeyForDisplayId = useCallback(
-    (locationId: Id<"locations">) => locationLineageKeyById.get(locationId),
-    [locationLineageKeyById],
-  );
-
-  const getLocationIdForLineageKey = useCallback(
-    (locationLineageKey: LocationLineageKey) =>
-      locationIdByLineageKey.get(locationLineageKey),
-    [locationIdByLineageKey],
-  );
-
-  const getPractitionerLineageKeyForDisplayId = useCallback(
-    (practitionerId: Id<"practitioners">) =>
-      practitionerLineageKeyById.get(practitionerId),
-    [practitionerLineageKeyById],
-  );
-
-  const getPractitionerIdForLineageKey = useCallback(
-    (practitionerLineageKey: PractitionerLineageKey) =>
-      practitionerIdByLineageKey.get(practitionerLineageKey),
-    [practitionerIdByLineageKey],
-  );
-
-  const resolveAppointmentReferenceLineageKeys = useCallback(
-    (args: {
-      appointmentTypeId: Id<"appointmentTypes">;
-      locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
-    }) => resolveAppointmentLineageRefs(args, referenceMaps),
-    [referenceMaps],
-  );
-
-  const resolveAppointmentReferenceDisplayIds = useCallback(
-    (args: {
-      appointmentTypeLineageKey: AppointmentTypeLineageKey;
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
-    }) => resolveAppointmentDisplayRefs(args, referenceMaps),
-    [referenceMaps],
-  );
-
-  const resolveBlockedSlotReferenceLineageKeys = useCallback(
-    (args: {
-      locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
-    }) => resolveBlockedSlotLineageRefs(args, referenceMaps),
-    [referenceMaps],
-  );
-
-  const resolveBlockedSlotReferenceDisplayIds = useCallback(
-    (args: {
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
-    }) => resolveBlockedSlotDisplayRefs(args, referenceMaps),
-    [referenceMaps],
-  );
+  const {
+    getAppointmentTypeIdForLineageKey,
+    getLocationIdForLineageKey,
+    getLocationLineageKeyForDisplayId,
+    getPractitionerIdForLineageKey,
+    getPractitionerLineageKeyForDisplayId,
+    resolveAppointmentReferenceDisplayIds,
+    resolveAppointmentReferenceLineageKeys,
+    resolveBlockedSlotReferenceDisplayIds,
+    resolveBlockedSlotReferenceLineageKeys,
+    toBlockedSlotEditorData,
+  } = useCalendarReferenceResolver({
+    appointmentTypeIdByLineageKey,
+    appointmentTypeLineageKeyById,
+    locationIdByLineageKey,
+    locationLineageKeyById,
+    practitionerIdByLineageKey,
+    practitionerLineageKeyById,
+  });
 
   const getBlockedSlotEditorData = useCallback(
     (
@@ -351,7 +281,7 @@ export function useCalendarLogic({
         return null;
       }
 
-      const slotData = toBlockedSlotEditorRecord(blockedSlot, referenceMaps);
+      const slotData = toBlockedSlotEditorData(blockedSlot);
       if (!slotData) {
         return null;
       }
@@ -363,7 +293,7 @@ export function useCalendarLogic({
         slotIsSimulation: blockedSlot.isSimulation ?? false,
       };
     },
-    [getBlockedSlotHistoryDoc, referenceMaps, resolveBlockedSlotId],
+    [getBlockedSlotHistoryDoc, resolveBlockedSlotId, toBlockedSlotEditorData],
   );
 
   const placementAppointmentTypeLineageKey =
@@ -429,7 +359,7 @@ export function useCalendarLogic({
     [],
   );
 
-  const buildCreatedAppointmentHistoryDoc = useCallback(
+  const rememberCreatedAppointmentFromStrings = useCallback(
     (args: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
       appointmentTypeTitle: string;
@@ -444,44 +374,42 @@ export function useCalendarLogic({
       replacesAppointmentId?: Id<"appointments">;
       title: string;
       userId?: Id<"users">;
-    }): CalendarAppointmentRecord | null => {
+    }): boolean => {
       const start = parseZonedDateTime(
         args.createStart,
-        "useCalendarLogic.buildCreatedAppointmentHistoryDoc.start",
+        "useCalendarLogic.rememberCreatedAppointmentFromStrings.start",
       );
       const end = parseZonedDateTime(
         args.createEnd,
-        "useCalendarLogic.buildCreatedAppointmentHistoryDoc.end",
+        "useCalendarLogic.rememberCreatedAppointmentFromStrings.end",
       );
       if (!start || !end) {
-        return null;
+        return false;
       }
 
-      const now = Date.now();
-      return {
-        _creationTime: now,
-        _id: args.createdId,
+      rememberCreatedAppointmentHistoryDoc({
+        appointmentId: args.createdId,
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         appointmentTypeTitle: args.appointmentTypeTitle,
-        createdAt: BigInt(now),
         end,
         isSimulation: args.isSimulation,
-        lastModified: BigInt(now),
         locationLineageKey: args.locationLineageKey,
-        ...(args.patientId && { patientId: args.patientId }),
+        now: Date.now(),
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
         practiceId: args.practiceId,
-        ...(args.practitionerLineageKey && {
-          practitionerLineageKey: args.practitionerLineageKey,
-        }),
-        ...(args.replacesAppointmentId && {
-          replacesAppointmentId: args.replacesAppointmentId,
-        }),
+        ...(args.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: args.practitionerLineageKey }),
+        ...(args.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: args.replacesAppointmentId }),
         start,
         title: args.title,
-        ...(args.userId && { userId: args.userId }),
-      };
+        ...(args.userId === undefined ? {} : { userId: args.userId }),
+      });
+      return true;
     },
-    [parseZonedDateTime],
+    [parseZonedDateTime, rememberCreatedAppointmentHistoryDoc],
   );
 
   const {
@@ -1134,7 +1062,7 @@ export function useCalendarLogic({
         toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
         return createdId;
       }
-      const createdAppointmentHistoryDoc = buildCreatedAppointmentHistoryDoc({
+      rememberCreatedAppointmentFromStrings({
         appointmentTypeLineageKey:
           appointmentReferences.appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
@@ -1154,9 +1082,6 @@ export function useCalendarLogic({
         title: createArgs.title,
         ...(createArgs.userId && { userId: createArgs.userId }),
       });
-      if (createdAppointmentHistoryDoc) {
-        rememberAppointmentHistoryDoc(createdAppointmentHistoryDoc);
-      }
 
       pushHistoryAction({
         label: "Termin erstellt",
@@ -1190,31 +1115,27 @@ export function useCalendarLogic({
           }
 
           currentAppointmentId = recreatedId;
-          const recreatedAppointmentHistoryDoc =
-            buildCreatedAppointmentHistoryDoc({
-              appointmentTypeLineageKey:
-                appointmentReferences.appointmentTypeLineageKey,
-              appointmentTypeTitle: appointmentTypeInfo.name,
-              createdId: recreatedId,
-              createEnd,
-              createStart: createArgs.start,
-              isSimulation: createArgs.isSimulation,
-              locationLineageKey: appointmentReferences.locationLineageKey,
-              ...(createArgs.patientId && { patientId: createArgs.patientId }),
-              practiceId: createArgs.practiceId,
-              ...(appointmentReferences.practitionerLineageKey && {
-                practitionerLineageKey:
-                  appointmentReferences.practitionerLineageKey,
-              }),
-              ...(createArgs.replacesAppointmentId && {
-                replacesAppointmentId: createArgs.replacesAppointmentId,
-              }),
-              title: createArgs.title,
-              ...(createArgs.userId && { userId: createArgs.userId }),
-            });
-          if (recreatedAppointmentHistoryDoc) {
-            rememberAppointmentHistoryDoc(recreatedAppointmentHistoryDoc);
-          }
+          rememberCreatedAppointmentFromStrings({
+            appointmentTypeLineageKey:
+              appointmentReferences.appointmentTypeLineageKey,
+            appointmentTypeTitle: appointmentTypeInfo.name,
+            createdId: recreatedId,
+            createEnd,
+            createStart: createArgs.start,
+            isSimulation: createArgs.isSimulation,
+            locationLineageKey: appointmentReferences.locationLineageKey,
+            ...(createArgs.patientId && { patientId: createArgs.patientId }),
+            practiceId: createArgs.practiceId,
+            ...(appointmentReferences.practitionerLineageKey && {
+              practitionerLineageKey:
+                appointmentReferences.practitionerLineageKey,
+            }),
+            ...(createArgs.replacesAppointmentId && {
+              replacesAppointmentId: createArgs.replacesAppointmentId,
+            }),
+            title: createArgs.title,
+            ...(createArgs.userId && { userId: createArgs.userId }),
+          });
           return { status: "applied" };
         },
         undo: async () => {
@@ -1235,7 +1156,6 @@ export function useCalendarLogic({
       return createdId;
     },
     [
-      buildCreatedAppointmentHistoryDoc,
       createAppointmentMutation,
       ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
@@ -1243,7 +1163,7 @@ export function useCalendarLogic({
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
       pushHistoryAction,
-      rememberAppointmentHistoryDoc,
+      rememberCreatedAppointmentFromStrings,
       resolveAppointmentReferenceLineageKeys,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
@@ -1603,14 +1523,12 @@ export function useCalendarLogic({
         toast.error("Sperrungs-Referenzen konnten nicht aufgelöst werden.");
         return createdId;
       }
-      rememberBlockedSlotHistoryDoc({
-        _creationTime: now,
-        _id: createdId,
-        createdAt: BigInt(now),
+      rememberCreatedBlockedSlotHistoryDoc({
+        blockedSlotId: createdId,
         end: createArgs.end,
         isSimulation: createArgs.isSimulation,
-        lastModified: BigInt(now),
         locationLineageKey: blockedSlotReferences.locationLineageKey,
+        now,
         practiceId: createArgs.practiceId,
         ...(blockedSlotReferences.practitionerLineageKey && {
           practitionerLineageKey: blockedSlotReferences.practitionerLineageKey,
@@ -1651,14 +1569,12 @@ export function useCalendarLogic({
           }
 
           currentBlockedSlotId = recreatedId;
-          rememberBlockedSlotHistoryDoc({
-            _creationTime: now,
-            _id: recreatedId,
-            createdAt: BigInt(now),
+          rememberCreatedBlockedSlotHistoryDoc({
+            blockedSlotId: recreatedId,
             end: createArgs.end,
             isSimulation: createArgs.isSimulation,
-            lastModified: BigInt(now),
             locationLineageKey: blockedSlotReferences.locationLineageKey,
+            now,
             practiceId: createArgs.practiceId,
             ...(blockedSlotReferences.practitionerLineageKey && {
               practitionerLineageKey:
@@ -1694,7 +1610,7 @@ export function useCalendarLogic({
       forgetBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
       pushHistoryAction,
-      rememberBlockedSlotHistoryDoc,
+      rememberCreatedBlockedSlotHistoryDoc,
       resolveBlockedSlotReferenceLineageKeys,
       runCreateBlockedSlotInternal,
       runDeleteBlockedSlotInternal,
@@ -2059,397 +1975,31 @@ export function useCalendarLogic({
     }
   }, []);
 
-  // Calculate working practitioners and business hours
   const {
     businessEndHour,
     businessStartHour,
     columns,
     totalSlots,
     workingPractitioners,
-  } = useMemo(() => {
-    if (!practitionersData || !baseSchedulesData) {
-      return {
-        businessEndHour: 0,
-        businessStartHour: 0,
-        columns: [],
-        totalSlots: 0,
-        workingPractitioners: [],
-      };
-    }
-
-    const practitionerNameByDisplayId = new Map(
-      practitionersData.map((practitioner) => [
-        practitioner._id,
-        practitioner.name,
-      ]),
-    );
-
-    let daySchedules = baseSchedulesData.filter(
-      (schedule) => schedule.dayOfWeek === currentDayOfWeek,
-    );
-    const effectiveLocationLineageKey =
-      simulatedContext?.locationLineageKey ??
-      (selectedLocationId === undefined
-        ? undefined
-        : locationLineageKeyById.get(selectedLocationId));
-
-    if (simulatedContext?.locationLineageKey && effectiveLocationLineageKey) {
-      daySchedules = daySchedules.filter(
-        (schedule) =>
-          schedule.locationLineageKey === effectiveLocationLineageKey,
-      );
-    } else if (selectedLocationId && effectiveLocationLineageKey) {
-      daySchedules = daySchedules.filter(
-        (schedule) =>
-          schedule.locationLineageKey === effectiveLocationLineageKey,
-      );
-    }
-
-    const appointmentsForSelectedDate = appointmentsData.filter(
-      (appointment) => {
-        if (!appointment.practitionerLineageKey) {
-          return false;
-        }
-
-        if (
-          Temporal.PlainDate.compare(
-            Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
-            selectedDate,
-          ) !== 0
-        ) {
-          return false;
-        }
-
-        if (
-          effectiveLocationLineageKey !== undefined &&
-          appointment.locationLineageKey !== effectiveLocationLineageKey
-        ) {
-          return false;
-        }
-
-        return true;
-      },
-    );
-    const deletedPractitionerIds = new Set(
-      practitionersData
-        .filter((practitioner) => practitioner.deleted === true)
-        .flatMap((practitioner) =>
-          practitioner.lineageKey === undefined
-            ? []
-            : [practitioner.lineageKey],
-        ),
-    );
-    const deletedPractitionerCalendarRanges =
-      collectDeletedPractitionerCalendarRanges({
-        appointments: appointmentsData,
-        blockedSlots: blockedSlotsData,
-        deletedPractitionerLineageKeys: deletedPractitionerIds,
-        effectiveLocationLineageKey,
-        selectedDate,
-      });
-    const deletedPractitionerIdsWithCalendarItems = new Set(
-      deletedPractitionerCalendarRanges.map(
-        (range) => range.practitionerLineageKey,
-      ),
-    );
-
-    if (
-      daySchedules.length === 0 &&
-      deletedPractitionerIdsWithCalendarItems.size === 0
-    ) {
-      return {
-        businessEndHour: 0,
-        businessStartHour: 0,
-        columns: [],
-        totalSlots: 0,
-        workingPractitioners: [],
-      };
-    }
-
-    // Validate and filter schedules with invalid times
-    let validSchedules = daySchedules.filter((schedule) => {
-      const startMinutes = timeToMinutes(schedule.startTime);
-      const endMinutes = timeToMinutes(schedule.endTime);
-
-      if (startMinutes === null || endMinutes === null) {
-        const practitionerName =
-          practitionerNameByDisplayId.get(schedule.practitionerId) ??
-          "Unbekannt";
-        toast.error(
-          `Ungültige Zeitangabe für ${practitionerName}: ${schedule.startTime}-${schedule.endTime}`,
-        );
-        return false;
-      }
-      return true;
-    });
-
-    const mutedPractitionerIds = new Set<Id<"practitioners">>();
-
-    if (vacationsData) {
-      const practitionersWithAppointments = new Set(
-        appointmentsForSelectedDate
-          .map((appointment) => appointment.practitionerLineageKey)
-          .filter(Boolean),
-      );
-
-      const hiddenPractitionerIds = new Set(
-        vacationsData
-          .filter(
-            (vacation) =>
-              vacation.staffType === "practitioner" &&
-              vacation.date === selectedDate.toString() &&
-              vacation.portion === "full" &&
-              vacation.practitionerLineageKey &&
-              !practitionersWithAppointments.has(
-                asPractitionerLineageKey(vacation.practitionerLineageKey),
-              ),
-          )
-          .flatMap((vacation) => {
-            if (!vacation.practitionerLineageKey) {
-              return [];
-            }
-            return [asPractitionerLineageKey(vacation.practitionerLineageKey)];
-          }),
-      );
-
-      for (const vacation of vacationsData) {
-        if (
-          vacation.staffType === "practitioner" &&
-          vacation.date === selectedDate.toString() &&
-          vacation.portion === "full" &&
-          vacation.practitionerLineageKey &&
-          practitionersWithAppointments.has(
-            asPractitionerLineageKey(vacation.practitionerLineageKey),
-          )
-        ) {
-          mutedPractitionerIds.add(
-            asPractitionerLineageKey(vacation.practitionerLineageKey),
-          );
-        }
-      }
-
-      if (hiddenPractitionerIds.size > 0) {
-        validSchedules = validSchedules.filter((schedule) => {
-          const lineageKey = practitionerLineageKeyById.get(
-            schedule.practitionerId,
-          );
-          return (
-            lineageKey === undefined || !hiddenPractitionerIds.has(lineageKey)
-          );
-        });
-      }
-    }
-
-    if (validSchedules.length < daySchedules.length) {
-      const invalidCount = daySchedules.length - validSchedules.length;
-      toast.warning(
-        `${invalidCount} Zeitplan${invalidCount > 1 ? "e" : ""} mit ungültigen Zeiten wurde${invalidCount > 1 ? "n" : ""} übersprungen`,
-      );
-    }
-
-    const working: WorkingPractitioner[] = validSchedules.flatMap(
-      (schedule) => {
-        const lineageKey = practitionerLineageKeyById.get(
-          schedule.practitionerId,
-        );
-        if (!lineageKey) {
-          return [];
-        }
-
-        return [
-          {
-            endTime: schedule.endTime,
-            lineageKey,
-            name:
-              practitionerNameByLineageKey.get(lineageKey) ??
-              practitionerNameByDisplayId.get(schedule.practitionerId) ??
-              "Unbekannt",
-            startTime: schedule.startTime,
-          },
-        ];
-      },
-    );
-    const workingPractitionerIds = new Set(
-      working.map((practitioner) => practitioner.lineageKey),
-    );
-
-    const formatMinutesAsTime = (minutes: number) => {
-      const hours = Math.floor(minutes / 60);
-      const remainder = minutes % 60;
-      return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-    };
-
-    for (const {
-      endMinutes,
-      practitionerLineageKey,
-      startMinutes,
-    } of deletedPractitionerCalendarRanges) {
-      const brandedPractitionerLineageKey = asPractitionerLineageKey(
-        practitionerLineageKey,
-      );
-      mutedPractitionerIds.add(brandedPractitionerLineageKey);
-      if (workingPractitionerIds.has(brandedPractitionerLineageKey)) {
-        continue;
-      }
-
-      if (!practitionerIdByLineageKey.get(brandedPractitionerLineageKey)) {
-        continue;
-      }
-
-      working.push({
-        endTime: formatMinutesAsTime(endMinutes),
-        lineageKey: brandedPractitionerLineageKey,
-        name:
-          practitionerNameByLineageKey.get(brandedPractitionerLineageKey) ??
-          "Unbekannt",
-        startTime: formatMinutesAsTime(startMinutes),
-      });
-      workingPractitionerIds.add(brandedPractitionerLineageKey);
-    }
-
-    const effectiveWorkingRanges = working.flatMap((practitioner) => {
-      return getPractitionerAvailabilityRangesForDate(
-        selectedDate,
-        practitioner.lineageKey,
-        baseSchedulesData,
-        vacationsData ?? [],
-        effectiveLocationLineageKey,
-      );
-    });
-    const practitionerIds = new Set(
-      working.map((practitioner) => practitioner.lineageKey),
-    );
-    const appointmentRanges = appointmentsForSelectedDate.flatMap(
-      (appointment) => {
-        if (
-          appointment.practitionerLineageKey === undefined ||
-          !practitionerIds.has(appointment.practitionerLineageKey)
-        ) {
-          return [];
-        }
-
-        const start = Temporal.ZonedDateTime.from(appointment.start);
-        const end = Temporal.ZonedDateTime.from(appointment.end);
-
-        return [
-          {
-            endMinutes: end.hour * 60 + end.minute,
-            startMinutes: start.hour * 60 + start.minute,
-          },
-        ];
-      },
-    );
-    const deletedPractitionerCalendarItemRanges =
-      deletedPractitionerCalendarRanges.map(({ endMinutes, startMinutes }) => ({
-        endMinutes,
-        startMinutes,
-      }));
-    const visibleRanges = [
-      ...effectiveWorkingRanges,
-      ...appointmentRanges,
-      ...deletedPractitionerCalendarItemRanges,
-    ];
-
-    const startTimes = visibleRanges.map((range) => range.startMinutes);
-    const endTimes = visibleRanges.map((range) => range.endMinutes);
-
-    if (startTimes.length === 0 || endTimes.length === 0) {
-      return {
-        businessEndHour: 0,
-        businessStartHour: 0,
-        columns: [],
-        totalSlots: 0,
-        workingPractitioners: [],
-      };
-    }
-
-    const earliestStartMinutes = Math.min(...startTimes);
-    const latestEndMinutes = Math.max(...endTimes);
-    const businessStartHour = Math.floor(earliestStartMinutes / 60);
-    const businessEndHour = Math.ceil(latestEndMinutes / 60);
-    const totalSlots =
-      ((businessEndHour - businessStartHour) * 60) / SLOT_DURATION;
-
-    const workingPractitionerIdList = working.map(
-      (practitioner) => practitioner.lineageKey,
-    );
-    const placementUnsupportedPractitionerIds =
-      getUnsupportedPractitionerIdsForAppointmentType(
-        placementAppointmentTypeLineageKey,
-        workingPractitionerIdList,
-      );
-    const dragUnsupportedPractitionerIds =
-      getUnsupportedPractitionerIdsForAppointmentType(
-        draggedAppointmentTypeLineageKey,
-        workingPractitionerIdList,
-      );
-
-    const practitionerColumns: CalendarColumn[] = working.map(
-      (practitioner) => ({
-        id: practitioner.lineageKey,
-        isAppointmentTypeUnavailable: placementUnsupportedPractitionerIds.has(
-          practitioner.lineageKey,
-        ),
-        isDragDisabled: dragUnsupportedPractitionerIds.has(
-          practitioner.lineageKey,
-        ),
-        isMuted:
-          mutedPractitionerIds.has(practitioner.lineageKey) ||
-          placementUnsupportedPractitionerIds.has(practitioner.lineageKey) ||
-          dragUnsupportedPractitionerIds.has(practitioner.lineageKey),
-        isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
-          practitioner.lineageKey,
-        ),
-        title: practitioner.name,
-      }),
-    );
-
-    const specialColumns: CalendarColumn[] =
-      working.length > 0
-        ? [
-            {
-              id: "ekg",
-              isMuted: false,
-              isUnavailable: false,
-              title: "EKG",
-            },
-            {
-              id: "labor",
-              isMuted: false,
-              isUnavailable: false,
-              title: "Labor",
-            },
-          ]
-        : [];
-
-    const allColumns = [...practitionerColumns, ...specialColumns];
-
-    return {
-      businessEndHour,
-      businessStartHour,
-      columns: allColumns,
-      totalSlots,
-      workingPractitioners: working,
-    };
-  }, [
-    practitionersData,
-    baseSchedulesData,
-    currentDayOfWeek,
+  } = useCalendarVisibleDay({
     appointmentsData,
+    baseSchedulesData,
+    blockedSlotsData,
+    currentDayOfWeek,
     draggedAppointmentTypeLineageKey,
-    locationLineageKeyById,
     getUnsupportedPractitionerIdsForAppointmentType,
+    locationLineageKeyById,
     placementAppointmentTypeLineageKey,
     practitionerIdByLineageKey,
     practitionerLineageKeyById,
     practitionerNameByLineageKey,
-    simulatedContext,
-    selectedLocationId,
+    practitionersData,
     selectedDate,
+    selectedLocationId,
+    simulatedContext,
     timeToMinutes,
-    blockedSlotsData,
     vacationsData,
-  ]);
+  });
 
   const getPractitionerIdForColumn = useCallback(
     (column: CalendarColumnId): Id<"practitioners"> | undefined =>

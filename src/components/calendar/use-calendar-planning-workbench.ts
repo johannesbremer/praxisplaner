@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
+  AppointmentTypeLineageKey,
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
@@ -16,7 +17,7 @@ import {
   getCurrentCalendarRecordById,
   hasCalendarOccupancyConflictInRecords,
   mergeCurrentConflictRecordsByIdExcluding,
-} from "./use-calendar-logic-helpers";
+} from "./calendar-planning-records";
 
 interface AppointmentCandidate {
   end: string;
@@ -37,6 +38,36 @@ interface BlockedSlotCandidate {
 
 interface CalendarRecordRef<T> {
   current: T;
+}
+
+interface CreatedAppointmentHistoryArgs {
+  appointmentId: Id<"appointments">;
+  appointmentTypeLineageKey: AppointmentTypeLineageKey;
+  appointmentTypeTitle: string;
+  end: CalendarAppointmentRecord["end"];
+  isSimulation: boolean;
+  locationLineageKey: LocationLineageKey;
+  now: number;
+  patientId?: Id<"patients">;
+  practiceId: Id<"practices">;
+  practitionerLineageKey?: PractitionerLineageKey;
+  replacesAppointmentId?: Id<"appointments">;
+  start: CalendarAppointmentRecord["start"];
+  title: string;
+  userId?: Id<"users">;
+}
+
+interface CreatedBlockedSlotHistoryArgs {
+  blockedSlotId: Id<"blockedSlots">;
+  end: CalendarBlockedSlotRecord["end"];
+  isSimulation: boolean;
+  locationLineageKey: LocationLineageKey;
+  now: number;
+  practiceId: Id<"practices">;
+  practitionerLineageKey?: PractitionerLineageKey;
+  replacesBlockedSlotId?: Id<"blockedSlots">;
+  start: CalendarBlockedSlotRecord["start"];
+  title: string;
 }
 
 export function useCalendarPlanningWorkbench(args: {
@@ -183,6 +214,34 @@ export function useCalendarPlanningWorkbench(args: {
     [],
   );
 
+  const rememberCreatedAppointmentHistoryDoc = useCallback(
+    (args: CreatedAppointmentHistoryArgs) => {
+      rememberAppointmentHistoryDoc({
+        _creationTime: args.now,
+        _id: args.appointmentId,
+        appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        appointmentTypeTitle: args.appointmentTypeTitle,
+        createdAt: BigInt(args.now),
+        end: args.end,
+        isSimulation: args.isSimulation,
+        lastModified: BigInt(args.now),
+        locationLineageKey: args.locationLineageKey,
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+        ...(args.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: args.practitionerLineageKey }),
+        ...(args.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: args.replacesAppointmentId }),
+        start: args.start,
+        title: args.title,
+        ...(args.userId === undefined ? {} : { userId: args.userId }),
+      });
+    },
+    [rememberAppointmentHistoryDoc],
+  );
+
   const forgetAppointmentHistoryDoc = useCallback((id: Id<"appointments">) => {
     deletedAppointmentIdsRef.current.add(id);
     appointmentHistoryDocMapRef.current.delete(id);
@@ -197,6 +256,30 @@ export function useCalendarPlanningWorkbench(args: {
       blockedSlotHistoryDocMapRef.current.set(blockedSlot._id, blockedSlot);
     },
     [],
+  );
+
+  const rememberCreatedBlockedSlotHistoryDoc = useCallback(
+    (args: CreatedBlockedSlotHistoryArgs) => {
+      rememberBlockedSlotHistoryDoc({
+        _creationTime: args.now,
+        _id: args.blockedSlotId,
+        createdAt: BigInt(args.now),
+        end: args.end,
+        isSimulation: args.isSimulation,
+        lastModified: BigInt(args.now),
+        locationLineageKey: args.locationLineageKey,
+        practiceId: args.practiceId,
+        ...(args.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: args.practitionerLineageKey }),
+        ...(args.replacesBlockedSlotId === undefined
+          ? {}
+          : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
+        start: args.start,
+        title: args.title,
+      });
+    },
+    [rememberBlockedSlotHistoryDoc],
   );
 
   const forgetBlockedSlotHistoryDoc = useCallback((id: Id<"blockedSlots">) => {
@@ -270,6 +353,8 @@ export function useCalendarPlanningWorkbench(args: {
     hasBlockedSlotConflict,
     rememberAppointmentHistoryDoc,
     rememberBlockedSlotHistoryDoc,
+    rememberCreatedAppointmentHistoryDoc,
+    rememberCreatedBlockedSlotHistoryDoc,
     resolveBlockedSlotId,
   };
 }
