@@ -1,0 +1,7 @@
+# Appointment changes are append-only replacements
+
+Praxisplaner treats an appointment change as a new appointment that replaces the previous appointment, rather than mutating the existing appointment in place. This keeps appointment history auditable and tamper-resistant because Convex does not need to expose an in-place edit operation for existing appointments; queries can resolve the current appointment by following the replacement chain while still preserving the full history of what changed.
+
+Replacement chains are limited to changes within the same calendar day, matching the single-day drag/drop calendar model and keeping day-scoped queries simple. Cross-day moves are modeled as cancellation plus a new unrelated appointment, not as replacements. Cancellations are recorded as dedicated cancellation records that point to the root appointment of the replacement chain, rather than fields patched onto appointments, so cancellation preserves the same append-only audit property while making day-view filtering cheap.
+
+Day views show only the current tail appointments of each replacement chain. Appointment history views can walk from a selected tail appointment back through its replacement links to the root appointment. Root appointments are inferred by the absence of `replacesAppointmentId`; current tails are inferred by the absence of a later same-day replacement pointing to them. We do not store redundant root or current-tail flags.
