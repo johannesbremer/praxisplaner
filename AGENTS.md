@@ -28,8 +28,9 @@ This is a `TanStack Start` + `Convex` project.
 Before getting back to me after making changes, run:
 
 ```sh
-pnpm gen && pnpm lint && pnpm tsc && pnpm format && pnpm test && pnpm build
+pnpm --silent ci-check
 ```
 
 Heads up: this will take at least 45s because `eslint` is slow on this large codebase.
 Do not claim completion until all commands pass.
+If the change affects browser-visible behavior, test it in `$browser-use:browser` before getting back to me.
