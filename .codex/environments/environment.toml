@@ -28,8 +28,10 @@ PREVIEW_SLUG="$(
     sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
 )"
 PREVIEW_HASH="$(printf '%s' "$(pwd)" | shasum -a 256 | cut -c1-8)"
-PREVIEW_NAME="codex-${PREVIEW_SLUG:-worktree}-${PREVIEW_HASH}"
-PREVIEW_NAME="$(printf '%s' "$PREVIEW_NAME" | cut -c1-63 | sed -E 's/-+$//')"
+PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
+PREVIEW_SLUG="$(printf '%s' "$PREVIEW_SLUG" | cut -c1-48 | sed -E 's/-+$//')"
+PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
+PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
 WORKOS_ID="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
