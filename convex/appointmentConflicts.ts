@@ -93,9 +93,14 @@ export async function findConflictingCalendarOccupancy(
       .collect(),
   ]);
 
+  const appointmentCandidates =
+    args.occupancyView === "live"
+      ? await includeLiveAppointmentReplacements(db, rawAppointments)
+      : rawAppointments;
+
   return findFirstCalendarOccupancyConflict({
     appointments: getEffectiveAppointmentsForOccupancyView(
-      rawAppointments,
+      appointmentCandidates,
       args.occupancyView,
       args.draftRuleSetId,
     ),
@@ -119,9 +124,7 @@ export function getEffectiveAppointmentsForOccupancyView(
   );
 
   if (occupancyView === "live") {
-    return visibleAppointments.filter(
-      (appointment) => appointment.isSimulation !== true,
-    );
+    return getEffectiveLiveAppointments(visibleAppointments);
   }
 
   const simulationAppointments = visibleAppointments.filter((appointment) => {
@@ -149,6 +152,25 @@ export function getEffectiveAppointmentsForOccupancyView(
   return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
     a.start.localeCompare(b.start),
   );
+}
+
+export function getEffectiveLiveAppointments<T extends Doc<"appointments">>(
+  appointments: T[],
+): T[] {
+  const liveAppointments = appointments.filter(
+    (appointment) =>
+      appointment.cancelledAt === undefined &&
+      appointment.isSimulation !== true,
+  );
+  const replacedLiveAppointmentIds = new Set(
+    liveAppointments
+      .map((appointment) => appointment.replacesAppointmentId)
+      .filter(Boolean),
+  );
+
+  return liveAppointments
+    .filter((appointment) => !replacedLiveAppointmentIds.has(appointment._id))
+    .toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
 export function getOccupancyViewForBookingScope(
@@ -242,6 +264,50 @@ function getEffectiveBlockedSlotsForOccupancyView(
   return [...realBlockedSlots, ...simulationBlockedSlots].toSorted((a, b) =>
     a.start.localeCompare(b.start),
   );
+}
+
+async function includeLiveAppointmentReplacements(
+  db: DatabaseLike,
+  appointments: Doc<"appointments">[],
+): Promise<Doc<"appointments">[]> {
+  let candidateIds = appointments
+    .filter(
+      (appointment) =>
+        appointment.cancelledAt === undefined &&
+        appointment.isSimulation !== true,
+    )
+    .map((appointment) => appointment._id);
+  const seenIds = new Set(candidateIds);
+  const replacements: Doc<"appointments">[] = [];
+
+  while (candidateIds.length > 0) {
+    const replacementBatches = await Promise.all(
+      candidateIds.map((appointmentId) =>
+        db
+          .query("appointments")
+          .withIndex("by_replacesAppointmentId", (q) =>
+            q.eq("replacesAppointmentId", appointmentId),
+          )
+          .collect(),
+      ),
+    );
+    const liveReplacements = replacementBatches
+      .flat()
+      .filter(
+        (appointment) =>
+          appointment.cancelledAt === undefined &&
+          appointment.isSimulation !== true &&
+          !seenIds.has(appointment._id),
+      );
+
+    for (const replacement of liveReplacements) {
+      seenIds.add(replacement._id);
+    }
+    replacements.push(...liveReplacements);
+    candidateIds = liveReplacements.map((appointment) => appointment._id);
+  }
+
+  return [...appointments, ...replacements];
 }
 
 function overlapsCalendarOccupancyCandidate(

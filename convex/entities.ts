@@ -39,8 +39,6 @@ import {
 } from "./appointmentReferences";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
-  bumpDraftRevision,
-  resolveDraftForWrite,
   validateAppointmentTypeLineageKeysInRuleSet,
   validateLocationLineageKeysInRuleSet,
   validatePractitionerLineageKeysInRuleSet,
@@ -88,6 +86,10 @@ import {
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
+  markDraftRuleSetEdited,
+  selectDraftRuleSetForWrite,
+} from "./ruleSetLifecycle";
+import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
 } from "./typedDtos";
@@ -105,7 +107,7 @@ async function finalizeDraftMutation(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
 ): Promise<number> {
-  return await bumpDraftRevision(db, ruleSetId);
+  return await markDraftRuleSetEdited(db, ruleSetId);
 }
 
 async function resolveDraftRuleSetForMutation(
@@ -114,12 +116,11 @@ async function resolveDraftRuleSetForMutation(
   expectedDraftRevision: null | number,
   selectedRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"ruleSets">> {
-  const resolved = await resolveDraftForWrite(
-    db,
-    practiceId,
+  const resolved = await selectDraftRuleSetForWrite(db, {
     expectedDraftRevision,
+    practiceId,
     selectedRuleSetId,
-  );
+  });
   return resolved.ruleSetId;
 }
 

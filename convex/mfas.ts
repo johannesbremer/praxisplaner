@@ -5,13 +5,16 @@ import type { MutationCtx } from "./_generated/server";
 import type { MfaId } from "./identity";
 
 import { mutation, query } from "./_generated/server";
-import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import { asMfaId, asMfaLineageKey } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import {
+  markDraftRuleSetEdited,
+  selectDraftRuleSetForWrite,
+} from "./ruleSetLifecycle";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const expectedDraftRevisionValidator = v.union(v.number(), v.null());
@@ -96,12 +99,11 @@ export const create = mutation({
       throw new Error("MFA-Name ist erforderlich.");
     }
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const existing = await ctx.db
       .query("mfas")
@@ -134,7 +136,7 @@ export const create = mutation({
       ruleSetId,
     });
 
-    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
   },
   returns: createMfaResultValidator,
@@ -151,12 +153,11 @@ export const remove = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const mfa = await resolveMfaEntityInRuleSet(
       ctx,
@@ -188,7 +189,7 @@ export const remove = mutation({
 
     await ctx.db.delete("mfas", mfa._id);
 
-    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
     return { draftRevision, ruleSetId };
   },
   returns: draftMutationResultValidator,

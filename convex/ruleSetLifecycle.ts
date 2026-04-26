@@ -10,7 +10,13 @@ import {
   findConflictingAppointment,
 } from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+import {
+  bumpDraftRevision,
+  findUnsavedRuleSet,
+  getOrCreateUnsavedRuleSet,
+  resolveDraftForWrite,
+  validateRuleSet,
+} from "./copyOnWrite";
 import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -66,6 +72,43 @@ export interface RuleSetDiffSummary {
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
+
+export async function markDraftRuleSetEdited(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+): Promise<number> {
+  return await bumpDraftRevision(db, ruleSetId);
+}
+
+export async function selectDraftRuleSetForWrite(
+  db: DatabaseWriter,
+  args: {
+    expectedDraftRevision: null | number;
+    practiceId: Id<"practices">;
+    selectedRuleSetId: Id<"ruleSets">;
+  },
+): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
+  return await resolveDraftForWrite(
+    db,
+    args.practiceId,
+    args.expectedDraftRevision,
+    args.selectedRuleSetId,
+  );
+}
+
+export async function startDraftRuleSetFromSource(
+  db: DatabaseWriter,
+  args: {
+    practiceId: Id<"practices">;
+    sourceRuleSetId: Id<"ruleSets">;
+  },
+): Promise<Id<"ruleSets">> {
+  return await getOrCreateUnsavedRuleSet(
+    db,
+    args.practiceId,
+    args.sourceRuleSetId,
+  );
+}
 
 /**
  * Delete appointment types by ruleSetId in batches.

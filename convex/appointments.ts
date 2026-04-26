@@ -15,6 +15,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
   findConflictingCalendarOccupancy,
+  getEffectiveLiveAppointments,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -572,6 +573,44 @@ function getDisplayRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
+async function getLiveAppointmentReplacements(
+  ctx: QueryCtx,
+  replacedAppointmentIds: Id<"appointments">[],
+): Promise<AppointmentDoc[]> {
+  let candidateIds = replacedAppointmentIds;
+  const seenIds = new Set(candidateIds);
+  const replacements: AppointmentDoc[] = [];
+
+  while (candidateIds.length > 0) {
+    const replacementBatches = await Promise.all(
+      candidateIds.map((appointmentId) =>
+        ctx.db
+          .query("appointments")
+          .withIndex("by_replacesAppointmentId", (q) =>
+            q.eq("replacesAppointmentId", appointmentId),
+          )
+          .collect(),
+      ),
+    );
+    const liveReplacements = replacementBatches
+      .flat()
+      .filter(
+        (appointment) =>
+          appointment.cancelledAt === undefined &&
+          appointment.isSimulation !== true &&
+          !seenIds.has(appointment._id),
+      );
+
+    for (const replacement of liveReplacements) {
+      seenIds.add(replacement._id);
+    }
+    replacements.push(...liveReplacements);
+    candidateIds = liveReplacements.map((appointment) => appointment._id);
+  }
+
+  return dedupeById(replacements);
+}
+
 async function getOptionalLocationLineageKey(
   db: DatabaseReader,
   locationId: Id<"locations"> | undefined,
@@ -828,8 +867,12 @@ export const getAppointments = query({
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
+    const effectiveVisibleAppointments =
+      scope === "real"
+        ? getEffectiveLiveAppointments(visibleAppointments)
+        : visibleAppointments;
     const scopedAppointments = filterAppointmentsForScope(
-      visibleAppointments,
+      effectiveVisibleAppointments,
       args,
       scope,
     );
@@ -897,12 +940,26 @@ export const getCalendarDayAppointments = query({
               .map((appointment) => appointment._id),
           )
         : [];
+    const liveReplacementAppointments =
+      scope === "real"
+        ? await getLiveAppointmentReplacements(
+            ctx,
+            visibleAppointments
+              .filter((appointment) => appointment.isSimulation !== true)
+              .map((appointment) => appointment._id),
+          )
+        : [];
     const candidateAppointments = dedupeById([
       ...visibleAppointments,
       ...simulationReplacementAppointments,
+      ...liveReplacementAppointments,
     ]);
+    const effectiveCandidateAppointments =
+      scope === "real"
+        ? getEffectiveLiveAppointments(candidateAppointments)
+        : candidateAppointments;
     const scopedAppointments = filterAppointmentsForScope(
-      candidateAppointments,
+      effectiveCandidateAppointments,
       args,
       scope,
     );
@@ -915,9 +972,15 @@ export const getCalendarDayAppointments = query({
               selectedLocationLineageKey,
             ),
           )
-        : scopedAppointments.toSorted((left, right) =>
-            left.start.localeCompare(right.start),
-          );
+        : scopedAppointments
+            .filter((appointment) =>
+              isAppointmentInCalendarDayQuery(
+                appointment,
+                args,
+                selectedLocationLineageKey,
+              ),
+            )
+            .toSorted((left, right) => left.start.localeCompare(right.start));
     const displayRuleSetId = getDisplayRuleSetId(args);
 
     return displayRuleSetId
@@ -959,8 +1022,28 @@ export const getAppointmentsInRange = query({
         isVisibleAppointment(appointment),
     );
     const scope: AppointmentScope = args.scope ?? "real";
+    const liveReplacementAppointments =
+      scope === "real"
+        ? await getLiveAppointmentReplacements(
+            ctx,
+            filteredAppointments
+              .filter((appointment) => appointment.isSimulation !== true)
+              .map((appointment) => appointment._id),
+          )
+        : [];
+    const candidateAppointments = dedupeById([
+      ...filteredAppointments,
+      ...liveReplacementAppointments,
+    ]);
+    const effectiveFilteredAppointments =
+      scope === "real"
+        ? getEffectiveLiveAppointments(candidateAppointments).filter(
+            (appointment) =>
+              appointment.start >= args.start && appointment.start <= args.end,
+          )
+        : candidateAppointments;
     const scopedAppointments = filterAppointmentsForScope(
-      filteredAppointments,
+      effectiveFilteredAppointments,
       args,
       scope,
     );

@@ -25,7 +25,6 @@ import {
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -40,6 +39,10 @@ import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import {
+  markDraftRuleSetEdited,
+  selectDraftRuleSetForWrite,
+} from "./ruleSetLifecycle";
 import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -387,12 +390,11 @@ export const createVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const resolved = await assertStaffExists(ctx, {
       ...(args.mfaId ? { mfaId: args.mfaId } : {}),
@@ -427,7 +429,7 @@ export const createVacation = mutation({
         );
       }
 
-      const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+      const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
       return {
         draftRevision,
         entityId: existingByLineage._id,
@@ -488,7 +490,7 @@ export const createVacation = mutation({
       });
     }
 
-    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
     return { draftRevision, entityId, ruleSetId };
   },
   returns: draftMutationResultValidator,
@@ -511,12 +513,11 @@ async function createVacationInDraft(
 ) {
   let ruleSetId = args.resolvedRuleSetId;
   if (!ruleSetId) {
-    const resolvedDraft = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const resolvedDraft = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
     ruleSetId = resolvedDraft.ruleSetId;
   }
 
@@ -553,7 +554,7 @@ async function createVacationInDraft(
       );
     }
 
-    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
     return {
       draftRevision,
       entityId: existingByLineage._id,
@@ -614,7 +615,7 @@ async function createVacationInDraft(
     });
   }
 
-  const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+  const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
   return { draftRevision, entityId, ruleSetId };
 }
 
@@ -637,12 +638,11 @@ export const createVacationWithCoverageAdjustments = mutation({
     if (!practice?.currentActiveRuleSetId) {
       throw new Error("Aktives Regelset nicht gefunden.");
     }
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
     const replacingVacationLineageKeys = [
       ...(args.replacingVacationLineageKeys ?? []).map((lineageKey) =>
         asVacationLineageKey(lineageKey),
@@ -983,12 +983,11 @@ export const deleteVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const resolved = await assertStaffExists(ctx, {
       ...(args.mfaId ? { mfaId: args.mfaId } : {}),
@@ -1054,7 +1053,7 @@ export const deleteVacation = mutation({
       await ctx.db.delete("vacations", existing._id);
     }
 
-    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
     return {
       draftRevision,
       ...(entityId ? { entityId } : {}),
