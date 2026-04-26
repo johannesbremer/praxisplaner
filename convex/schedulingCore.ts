@@ -83,9 +83,12 @@ export interface CandidateSlotEvaluationDiagnostics {
 
 export interface CandidateSlotEvaluationResult {
   diagnostics: CandidateSlotEvaluationDiagnostics;
-  displayReferencesBySlotKey: Map<string, CandidateSlotDisplayReferences>;
   manualBlockedSlots: Doc<"blockedSlots">[];
-  slots: CandidateSlot[];
+  slots: EvaluatedCandidateSlot[];
+}
+
+export interface EvaluatedCandidateSlot extends CandidateSlot {
+  displayReferences: CandidateSlotDisplayReferences;
 }
 
 interface CandidateSlotDisplayReferenceMaps {
@@ -259,12 +262,20 @@ export async function evaluateCandidateSlotsForDay(
     (slot) => slot.status === "AVAILABLE",
   ).length;
   diagnostics.slotsBlocked = candidateSlots.length - diagnostics.slotsAvailable;
+  const evaluatedSlots = candidateSlots.map(
+    (slot): EvaluatedCandidateSlot => ({
+      ...slot,
+      displayReferences: getRequiredDisplayReferences(
+        displayReferencesBySlotKey,
+        slot,
+      ),
+    }),
+  );
 
   return {
     diagnostics,
-    displayReferencesBySlotKey,
     manualBlockedSlots,
-    slots: candidateSlots,
+    slots: evaluatedSlots,
   };
 }
 
@@ -415,15 +426,6 @@ export async function generateCandidateSlotsForDay(
   }
 
   return candidateSlots;
-}
-
-export function getCandidateSlotKey(
-  slot: Pick<
-    CandidateSlot,
-    "locationLineageKey" | "practitionerLineageKey" | "startTime"
-  >,
-): string {
-  return `${slot.startTime}:${slot.locationLineageKey}:${slot.practitionerLineageKey}`;
 }
 
 export function isSlotStartInFuture(
@@ -613,6 +615,15 @@ function getCachedVacationRangesForPractitionerLocation(
   );
   cache.set(key, ranges);
   return ranges;
+}
+
+function getCandidateSlotKey(
+  slot: Pick<
+    CandidateSlot,
+    "locationLineageKey" | "practitionerLineageKey" | "startTime"
+  >,
+): string {
+  return `${slot.startTime}:${slot.locationLineageKey}:${slot.practitionerLineageKey}`;
 }
 
 function getRequestedAtForRuleEvaluation(

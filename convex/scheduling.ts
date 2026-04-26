@@ -38,7 +38,6 @@ import {
   type CandidateSlot,
   evaluateCandidateSlotsForDay,
   generateCandidateSlotsForDay,
-  getCandidateSlotKey,
   SCHEDULING_TIMEZONE,
 } from "./schedulingCore";
 import {
@@ -558,19 +557,11 @@ async function getSlotsForDayImpl(
   // Return final results
   const finalSlots: InternalSchedulingResultSlot[] = candidateSlots.map(
     (slot) => {
-      const displayReferences = evaluation.displayReferencesBySlotKey.get(
-        getCandidateSlotKey(slot),
-      );
-      if (!displayReferences) {
-        throw new Error(
-          `[INVARIANT:SLOT_DISPLAY_REFERENCES_NOT_RESOLVED] Slot ${slot.startTime} konnte nicht auf konkrete Anzeige-Referenzen aufgelöst werden.`,
-        );
-      }
       const slotResult: InternalSchedulingResultSlot = {
         duration: slot.duration,
         locationLineageKey: slot.locationLineageKey,
         practitionerLineageKey: slot.practitionerLineageKey,
-        practitionerName: displayReferences.practitionerName,
+        practitionerName: slot.displayReferences.practitionerName,
         ...(slot.reason && { reason: slot.reason }),
         startTime: asZonedDateTimeString(slot.startTime),
         status: slot.status,
