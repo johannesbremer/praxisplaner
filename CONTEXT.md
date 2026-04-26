@@ -100,6 +100,10 @@ _Avoid_: Sperrung outside German UI copy, closure, blackout
 A staff decision to create an Appointment despite a Scheduling Rule that would normally block it.
 _Avoid_: Force booking, ignore rules
 
+**Appointment Occupancy**:
+The fact that an Appointment already reserves a concrete time interval at a Location and optionally for a Practitioner.
+_Avoid_: Rule block, constraint
+
 **Unresolved Appointment**:
 An existing Appointment that remains scheduled against a schedulable resource no longer available in the Active Rule Set.
 _Avoid_: Legacy appointment, orphaned appointment
@@ -140,9 +144,33 @@ _Avoid_: Constraint, filter
 A node inside a Scheduling Rule tree that combines logical operators or tests one appointment attribute.
 _Avoid_: Predicate, clause
 
+**Candidate Slot**:
+A concrete appointment possibility being evaluated for a date, time, Appointment Type, Location, and optionally a Practitioner.
+_Avoid_: Slot, opening
+
+**Available Slot**:
+A Candidate Slot that passes Base Schedule, Absence, Blocked Slot, Appointment Occupancy, and Scheduling Rule checks.
+_Avoid_: Free slot, bookable slot
+
+**Rule Block**:
+The result of a Scheduling Rule matching a Candidate Slot and preventing it from being booked.
+_Avoid_: Conflict, validation error
+
+**Booking Attempt**:
+The server-side action that tries to turn selected Booking Session data into a confirmed Appointment.
+_Avoid_: Slot selection, checkout
+
 **Booking Session**:
 An authenticated user's in-progress online appointment booking for a Practice.
 _Avoid_: Wizard state, checkout
+
+**Booking Path**:
+The branch of a Booking Session for either new-patient intake or existing-patient intake.
+_Avoid_: Flow, funnel
+
+**Booking Intake**:
+The personal, insurance, medical, and data-sharing information captured before a Booking Attempt.
+_Avoid_: Form data, profile
 
 ## Relationships
 
@@ -222,10 +250,25 @@ _Avoid_: Wizard state, checkout
 - A **Blocked Slot** references **Location** and optionally **Practitioner** by **Lineage Key**.
 - A **Scheduling Rule** is a root **Rule Condition** with child **Rule Conditions**.
 - A **Scheduling Rule** can block many candidate appointment slots by matching their attributes.
+- A **Candidate Slot** belongs to exactly one **Practice**, one **Appointment Type**, one **Location**, and optionally one **Practitioner**.
+- A **Candidate Slot** can become an **Available Slot** only if it is inside a **Base Schedule** and outside relevant **Absences**, **Blocked Slots**, **Appointment Occupancy**, and **Rule Blocks**.
+- **Appointment Occupancy** is not a **Scheduling Rule** and cannot be overridden by a **Staff Override**.
+- A **Rule Block** identifies which **Scheduling Rules** matched the **Candidate Slot**.
+- A **Rule Block** can be bypassed only by an explicit **Staff Override**.
+- A **Blocked Slot** and **Appointment Occupancy** block booking before **Scheduling Rules** are considered.
+- **Available Slots** are advisory until a **Booking Attempt** validates the selected **Candidate Slot** server-side.
+- Online slot selection does not reserve the selected **Candidate Slot**.
 - Practitioner suitability for an **Appointment Type** is expressed through **Scheduling Rules**, not owned by the **Appointment Type**.
 - A **Booking Session** belongs to exactly one authenticated user and one **Practice**.
+- A **Booking Session** follows one **Booking Path**.
+- A **Booking Session** accumulates **Booking Intake** before a **Booking Attempt**.
+- A **Booking Attempt** belongs to one **Booking Session** when created through online booking.
+- A **Booking Attempt** either creates one confirmed **Appointment** or fails without reserving the selected **Candidate Slot**.
+- A **Booking Session** does not store or own a **Rule Set**.
+- A **Booking Session** always presents availability derived from the **Practice**'s current **Active Rule Set**.
 - Online booking availability follows the **Practice**'s current **Active Rule Set** until the discrete booking attempt.
 - A booking attempt must be validated server-side against the **Practice**'s current **Active Rule Set**.
+- A successful **Booking Attempt** records the validating **Rule Set** on the created **Appointment** for auditability.
 - Manual staff-created appointments and online-booked appointments use the same server-side validation against the current **Active Rule Set** by default.
 - Staff overrides are explicit exceptions and record that scheduling rules were overridden.
 - A confirmed **Appointment** snapshots the **Rule Set** used to validate the booking attempt.
@@ -339,6 +382,7 @@ _Avoid_: Wizard state, checkout
 - **Booking Session** should not own a **Rule Set** reference; storing `ruleSetId` on booking session state risks freezing availability semantics before the booking attempt.
 - **Appointment** may keep **Rule Set** provenance from the booking attempt even though **Booking Session** should not.
 - **Rule Set** provenance points to the **Rule Set** active at the decisive moment: booking validation for creation, activation for reassignment.
+- Current implementation mismatch: `bookingSessions.ruleSetId` should be removed because availability must stay synchronized to the current **Active Rule Set** until the **Booking Attempt**.
 - Operational **Appointments** use **Lineage Keys** to refer to versioned schedulable resources across **Rule Sets**.
 - **Appointment** snapshots explain what was booked; **Lineage Keys** support grouping and identity across **Rule Sets**.
 - **Appointment** snapshots also support reassignment explanations, such as showing the Practitioner an Appointment was originally booked with before an **Absence**-driven reassignment.
@@ -357,3 +401,8 @@ _Avoid_: Wizard state, checkout
 - **Staff Override** does not apply to **Blocked Slots**. To book inside a **Blocked Slot**, staff must first remove or shorten the **Blocked Slot**.
 - **Staff Override** does not apply to existing **Appointment** occupancy.
 - The existing "Trotzdem buchen" modal is the UI surface for a **Staff Override** only for rule-based blocks; manual **Blocked Slots** should not allow booking on top because they are edited like calendar objects.
+- **Candidate Slot** is the domain term for one possible appointment being evaluated; use plain "slot" only in UI copy or low-level code.
+- **Available Slot** means all relevant availability checks passed at the time of evaluation, but it is not a reservation.
+- **Rule Block** is the Scheduling Rule outcome; do not use it for **Blocked Slots** or **Appointment Occupancy**.
+- **Booking Attempt** is the decisive booking moment; earlier **Booking Session** steps only collect intake and selection state.
+- **Booking Intake** is patient-facing booking information, not the canonical **PVS Patient** record.
