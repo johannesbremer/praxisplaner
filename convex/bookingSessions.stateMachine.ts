@@ -14,7 +14,7 @@ import type {
 import { isIsoDateString, isZonedDateTimeString } from "../lib/typed-regex.js";
 import { bookingSessionStepValidator } from "./schema";
 
-export const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
+const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
   BookingSessionState["step"],
   StepTableName[]
 > = {
@@ -348,10 +348,139 @@ const PKV_STEPS_REQUIRING_PVS_CONSENT = new Set<BookingSessionState["step"]>([
   "new-pkv-details-complete",
 ]);
 
+export interface BookingSessionMaterializers {
+  resolveAppointmentTypeName: (
+    appointmentTypeLineageKey: Extract<
+      InternalBookingSessionState,
+      { appointmentTypeLineageKey: unknown }
+    >["appointmentTypeLineageKey"],
+  ) => Promise<string>;
+  resolveLocationName: (
+    locationLineageKey: Extract<
+      InternalBookingSessionState,
+      { locationLineageKey: unknown }
+    >["locationLineageKey"],
+  ) => Promise<string>;
+  resolvePractitionerName: (
+    practitionerLineageKey: Extract<
+      InternalBookingSessionState,
+      { practitionerLineageKey: unknown }
+    >["practitionerLineageKey"],
+  ) => Promise<string>;
+}
+
 export interface BookingSessionTransition {
   nextStep: BookingSessionState["step"];
   writes: StepSnapshotWrite[];
 }
+
+export type BookingSessionTransitionInput =
+  | {
+      base: StepBase;
+      dataSharingContacts: DataSharingContact[];
+      kind: "submitExistingDataSharing";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      dataSharingContacts: DataSharingContact[];
+      kind: "submitNewDataSharing";
+      personalData: BookingPersonalData;
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      details: {
+        beihilfeStatus?: StepTableInput<"bookingNewPkvDetailSteps">["beihilfeStatus"];
+        pkvInsuranceType?: StepTableInput<"bookingNewPkvDetailSteps">["pkvInsuranceType"];
+        pkvTariff?: StepTableInput<"bookingNewPkvDetailSteps">["pkvTariff"];
+      };
+      kind: "confirmPkvDetails";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      hzvStatus: StepTableInput<"bookingNewGkvDetailSteps">["hzvStatus"];
+      kind: "confirmGkvDetails";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      insuranceType: StepTableInput<"bookingNewInsuranceTypeSteps">["insuranceType"];
+      kind: "selectInsuranceType";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "acceptPrivacy";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "acceptPvsConsent";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectDoctor";
+      practitionerLineageKey: StepTableInput<"bookingExistingDoctorSelectionSteps">["practitionerLineageKey"];
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectExistingPatient";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectExistingPatientSlot";
+      slotAttempt: Pick<
+        StepTableInput<"bookingExistingConfirmationSteps">,
+        | "appointmentId"
+        | "appointmentTypeLineageKey"
+        | "bookedDurationMinutes"
+        | "reasonDescription"
+        | "selectedSlot"
+      > & { personalData: BookingPersonalData };
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectLocation";
+      locationLineageKey: StepTableInput<"bookingLocationSteps">["locationLineageKey"];
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectNewPatient";
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "selectNewPatientSlot";
+      slotAttempt: Pick<
+        StepTableInput<"bookingNewConfirmationSteps">,
+        | "appointmentId"
+        | "appointmentTypeLineageKey"
+        | "bookedDurationMinutes"
+        | "reasonDescription"
+        | "selectedSlot"
+      > & { personalData: BookingPersonalData };
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "submitExistingPatientData";
+      personalData: BookingPersonalData;
+      state: InternalBookingSessionState;
+    }
+  | {
+      base: StepBase;
+      kind: "submitNewPatientData";
+      medicalHistory?: StepTableInput<"bookingNewPersonalDataSteps">["medicalHistory"];
+      personalData: BookingPersonalData;
+      state: InternalBookingSessionState;
+    };
 
 type StepBase = Pick<
   StepTableInput<"bookingPrivacySteps">,
@@ -373,7 +502,155 @@ type StepSnapshotWrite = {
   };
 }[StepTableName];
 
-export function transitionAcceptPrivacy(
+export function applyBookingSessionTransition(
+  input: BookingSessionTransitionInput,
+): BookingSessionTransition {
+  switch (input.kind) {
+    case "acceptPrivacy": {
+      return transitionAcceptPrivacy(input.base, input.state);
+    }
+    case "acceptPvsConsent": {
+      return transitionAcceptPvsConsent(input.base, input.state);
+    }
+    case "confirmGkvDetails": {
+      return transitionConfirmGkvDetails(
+        input.base,
+        input.state,
+        input.hzvStatus,
+      );
+    }
+    case "confirmPkvDetails": {
+      return transitionConfirmPkvDetails(
+        input.base,
+        input.state,
+        input.details,
+      );
+    }
+    case "selectDoctor": {
+      return transitionSelectDoctor(
+        input.base,
+        input.state,
+        input.practitionerLineageKey,
+      );
+    }
+    case "selectExistingPatient": {
+      return transitionSelectExistingPatient(input.base, input.state);
+    }
+    case "selectExistingPatientSlot": {
+      return transitionSelectExistingPatientSlot(
+        input.base,
+        input.state,
+        input.slotAttempt,
+      );
+    }
+    case "selectInsuranceType": {
+      return transitionSelectInsuranceType(
+        input.base,
+        input.state,
+        input.insuranceType,
+      );
+    }
+    case "selectLocation": {
+      return transitionSelectLocation(
+        input.base,
+        input.state,
+        input.locationLineageKey,
+      );
+    }
+    case "selectNewPatient": {
+      return transitionSelectNewPatient(input.base, input.state);
+    }
+    case "selectNewPatientSlot": {
+      return transitionSelectNewPatientSlot(
+        input.base,
+        input.state,
+        input.slotAttempt,
+      );
+    }
+    case "submitExistingDataSharing": {
+      return transitionSubmitExistingDataSharing(
+        input.base,
+        input.state,
+        input.dataSharingContacts,
+      );
+    }
+    case "submitExistingPatientData": {
+      return transitionSubmitExistingPatientData(
+        input.base,
+        input.state,
+        input.personalData,
+      );
+    }
+    case "submitNewDataSharing": {
+      return transitionSubmitNewDataSharing(
+        input.base,
+        input.state,
+        input.personalData,
+        input.dataSharingContacts,
+      );
+    }
+    case "submitNewPatientData": {
+      return transitionSubmitNewPatientData(input.base, input.state, {
+        ...(input.medicalHistory === undefined
+          ? {}
+          : { medicalHistory: input.medicalHistory }),
+        personalData: input.personalData,
+      });
+    }
+  }
+}
+
+export function getBookingSessionSnapshotTables(
+  step: BookingSessionState["step"],
+): StepTableName[] {
+  return STEP_SNAPSHOT_TABLES_BY_STEP[step];
+}
+
+export function hydrateBookingSessionInternalState(
+  step: InternalBookingSessionState["step"],
+  snapshot: null | Record<string, unknown>,
+): InternalBookingSessionState {
+  if (STEP_SNAPSHOT_TABLES_BY_STEP[step].length > 0 && snapshot === null) {
+    throw new Error(`Missing snapshot for booking session step '${step}'`);
+  }
+
+  const mergedState = snapshot === null ? { step } : { step, ...snapshot };
+  const sanitizedState = sanitizeInternalState(step, mergedState);
+  assertInternalHydratedStateConsistency(step, sanitizedState);
+  return sanitizedState;
+}
+
+export async function materializeBookingSessionUiState(
+  state: InternalBookingSessionState,
+  materializers: BookingSessionMaterializers,
+): Promise<BookingSessionState> {
+  const materialized: Record<string, unknown> = { ...state };
+
+  if ("appointmentTypeLineageKey" in state) {
+    materialized["appointmentTypeName"] =
+      await materializers.resolveAppointmentTypeName(
+        state.appointmentTypeLineageKey,
+      );
+  }
+  if ("locationLineageKey" in state) {
+    materialized["locationName"] = await materializers.resolveLocationName(
+      state.locationLineageKey,
+    );
+  }
+  if ("practitionerLineageKey" in state) {
+    materialized["practitionerName"] =
+      await materializers.resolvePractitionerName(state.practitionerLineageKey);
+  }
+
+  const publicState = sanitizeState(state.step, {
+    step: state.step,
+    ...materialized,
+  });
+  assertHydratedStateConsistency(state.step, publicState);
+  return publicState;
+}
+
+function transitionAcceptPrivacy(
   base: StepBase,
   state: InternalBookingSessionState,
 ): BookingSessionTransition {
@@ -389,7 +666,7 @@ export function transitionAcceptPrivacy(
   };
 }
 
-export function transitionAcceptPvsConsent(
+function transitionAcceptPvsConsent(
   base: StepBase,
   state: InternalBookingSessionState,
 ): BookingSessionTransition {
@@ -411,7 +688,7 @@ export function transitionAcceptPvsConsent(
   };
 }
 
-export function transitionConfirmGkvDetails(
+function transitionConfirmGkvDetails(
   base: StepBase,
   state: InternalBookingSessionState,
   hzvStatus: StepTableInput<"bookingNewGkvDetailSteps">["hzvStatus"],
@@ -443,13 +720,14 @@ export function transitionConfirmGkvDetails(
   };
 }
 
-export function transitionConfirmPkvDetails(
+function transitionConfirmPkvDetails(
   base: StepBase,
   state: InternalBookingSessionState,
-  details: Pick<
-    StepTableInput<"bookingNewPkvDetailSteps">,
-    "beihilfeStatus" | "pkvInsuranceType" | "pkvTariff"
-  >,
+  details: {
+    beihilfeStatus?: StepTableInput<"bookingNewPkvDetailSteps">["beihilfeStatus"];
+    pkvInsuranceType?: StepTableInput<"bookingNewPkvDetailSteps">["pkvInsuranceType"];
+    pkvTariff?: StepTableInput<"bookingNewPkvDetailSteps">["pkvTariff"];
+  },
 ): BookingSessionTransition {
   if (
     state.step !== "new-pkv-details" &&
@@ -487,7 +765,7 @@ export function transitionConfirmPkvDetails(
   };
 }
 
-export function transitionSelectDoctor(
+function transitionSelectDoctor(
   base: StepBase,
   state: InternalBookingSessionState,
   practitionerLineageKey: StepTableInput<"bookingExistingDoctorSelectionSteps">["practitionerLineageKey"],
@@ -509,7 +787,7 @@ export function transitionSelectDoctor(
   };
 }
 
-export function transitionSelectExistingPatient(
+function transitionSelectExistingPatient(
   base: StepBase,
   state: InternalBookingSessionState,
 ): BookingSessionTransition {
@@ -529,7 +807,7 @@ export function transitionSelectExistingPatient(
   };
 }
 
-export function transitionSelectExistingPatientSlot(
+function transitionSelectExistingPatientSlot(
   base: StepBase,
   state: InternalBookingSessionState,
   args: Pick<
@@ -575,7 +853,7 @@ export function transitionSelectExistingPatientSlot(
   };
 }
 
-export function transitionSelectInsuranceType(
+function transitionSelectInsuranceType(
   base: StepBase,
   state: InternalBookingSessionState,
   insuranceType: StepTableInput<"bookingNewInsuranceTypeSteps">["insuranceType"],
@@ -597,7 +875,7 @@ export function transitionSelectInsuranceType(
   };
 }
 
-export function transitionSelectLocation(
+function transitionSelectLocation(
   base: StepBase,
   state: InternalBookingSessionState,
   locationLineageKey: StepTableInput<"bookingLocationSteps">["locationLineageKey"],
@@ -614,7 +892,7 @@ export function transitionSelectLocation(
   };
 }
 
-export function transitionSelectNewPatient(
+function transitionSelectNewPatient(
   base: StepBase,
   state: InternalBookingSessionState,
 ): BookingSessionTransition {
@@ -634,7 +912,7 @@ export function transitionSelectNewPatient(
   };
 }
 
-export function transitionSelectNewPatientSlot(
+function transitionSelectNewPatientSlot(
   base: StepBase,
   state: InternalBookingSessionState,
   args: Pick<
@@ -680,7 +958,7 @@ export function transitionSelectNewPatientSlot(
   };
 }
 
-export function transitionSubmitExistingDataSharing(
+function transitionSubmitExistingDataSharing(
   base: StepBase,
   state: InternalBookingSessionState,
   dataSharingContacts: DataSharingContact[],
@@ -704,7 +982,7 @@ export function transitionSubmitExistingDataSharing(
   };
 }
 
-export function transitionSubmitExistingPatientData(
+function transitionSubmitExistingPatientData(
   base: StepBase,
   state: InternalBookingSessionState,
   personalData: BookingPersonalData,
@@ -747,7 +1025,7 @@ export function transitionSubmitExistingPatientData(
   };
 }
 
-export function transitionSubmitNewDataSharing(
+function transitionSubmitNewDataSharing(
   base: StepBase,
   state: InternalBookingSessionState,
   personalData: BookingPersonalData,
@@ -770,7 +1048,7 @@ export function transitionSubmitNewDataSharing(
   };
 }
 
-export function transitionSubmitNewPatientData(
+function transitionSubmitNewPatientData(
   base: StepBase,
   state: InternalBookingSessionState,
   args: {
@@ -843,20 +1121,6 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
 export function assertHydratedStateConsistency(
   step: BookingSessionState["step"],
   state: BookingSessionState,
-): void {
-  if (
-    "insuranceType" in state &&
-    state.insuranceType === "pkv" &&
-    PKV_STEPS_REQUIRING_PVS_CONSENT.has(step) &&
-    !("pvsConsent" in state)
-  ) {
-    throw new Error(`Missing snapshot for booking session step '${step}'`);
-  }
-}
-
-export function assertInternalHydratedStateConsistency(
-  step: InternalBookingSessionState["step"],
-  state: InternalBookingSessionState,
 ): void {
   if (
     "insuranceType" in state &&
@@ -1011,41 +1275,6 @@ export function computePreviousInternalState(
   }
 }
 
-export function filterInternalStepSnapshot(
-  step: InternalBookingSessionState["step"],
-  snapshot: Record<string, unknown>,
-): Record<string, unknown> {
-  const allow = new Set(STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS[step]);
-  const filtered: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (allow.has(key)) {
-      filtered[key] = value;
-    }
-  }
-  return filtered;
-}
-
-export function sanitizeInternalState(
-  step: InternalBookingSessionState["step"],
-  state: Record<string, unknown>,
-): InternalBookingSessionState {
-  const allow = new Set([
-    "step",
-    ...STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS[step],
-  ]);
-  const sanitized: Record<string, unknown> = { step };
-  for (const [key, value] of Object.entries(state)) {
-    if (allow.has(key)) {
-      sanitized[key] = value;
-    }
-  }
-  assertValidSanitizedInternalBookingSessionState(step, sanitized);
-  if (!hasInternalStep(sanitized, step)) {
-    throw new Error(`Invalid booking session snapshot for step '${step}'`);
-  }
-  return sanitized;
-}
-
 export function sanitizeState(
   step: BookingSessionState["step"],
   state: Record<string, unknown>,
@@ -1062,6 +1291,20 @@ export function sanitizeState(
     throw new Error(`Invalid booking session snapshot for step '${step}'`);
   }
   return sanitized;
+}
+
+function assertInternalHydratedStateConsistency(
+  step: InternalBookingSessionState["step"],
+  state: InternalBookingSessionState,
+): void {
+  if (
+    "insuranceType" in state &&
+    state.insuranceType === "pkv" &&
+    PKV_STEPS_REQUIRING_PVS_CONSENT.has(step) &&
+    !("pvsConsent" in state)
+  ) {
+    throw new Error(`Missing snapshot for booking session step '${step}'`);
+  }
 }
 
 function assertInternalStep<S extends InternalBookingSessionState["step"]>(
@@ -1375,6 +1618,27 @@ function newPersonalDataSnapshot(args: {
     personalData: args.personalData,
     pvsConsent: true,
   };
+}
+
+function sanitizeInternalState(
+  step: InternalBookingSessionState["step"],
+  state: Record<string, unknown>,
+): InternalBookingSessionState {
+  const allow = new Set([
+    "step",
+    ...STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS[step],
+  ]);
+  const sanitized: Record<string, unknown> = { step };
+  for (const [key, value] of Object.entries(state)) {
+    if (allow.has(key)) {
+      sanitized[key] = value;
+    }
+  }
+  assertValidSanitizedInternalBookingSessionState(step, sanitized);
+  if (!hasInternalStep(sanitized, step)) {
+    throw new Error(`Invalid booking session snapshot for step '${step}'`);
+  }
+  return sanitized;
 }
 
 function toGkvDataInputCompleteState(

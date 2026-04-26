@@ -36,29 +36,12 @@ import {
   type StepTablePatch,
 } from "./bookingSessions.shared";
 import {
-  assertHydratedStateConsistency,
-  assertInternalHydratedStateConsistency,
+  applyBookingSessionTransition,
   type BookingSessionTransition,
   computePreviousInternalState,
-  filterInternalStepSnapshot,
-  sanitizeInternalState,
-  sanitizeState,
-  STEP_SNAPSHOT_TABLES_BY_STEP,
-  transitionAcceptPrivacy,
-  transitionAcceptPvsConsent,
-  transitionConfirmGkvDetails,
-  transitionConfirmPkvDetails,
-  transitionSelectDoctor,
-  transitionSelectExistingPatient,
-  transitionSelectExistingPatientSlot,
-  transitionSelectInsuranceType,
-  transitionSelectLocation,
-  transitionSelectNewPatient,
-  transitionSelectNewPatientSlot,
-  transitionSubmitExistingDataSharing,
-  transitionSubmitExistingPatientData,
-  transitionSubmitNewDataSharing,
-  transitionSubmitNewPatientData,
+  getBookingSessionSnapshotTables,
+  hydrateBookingSessionInternalState,
+  materializeBookingSessionUiState,
 } from "./bookingSessions.stateMachine";
 import {
   type AppointmentTypeLineageKey,
@@ -148,14 +131,7 @@ async function hydrateInternalSessionState(
 ): Promise<InternalBookingSessionState> {
   const step = session.state.step;
   const snapshot = await loadInternalStepSnapshot(ctx, session, step);
-  if (STEP_SNAPSHOT_TABLES_BY_STEP[step].length > 0 && snapshot === null) {
-    throw new Error(`Missing snapshot for booking session step '${step}'`);
-  }
-
-  const mergedState = snapshot === null ? { step } : { step, ...snapshot };
-  const sanitizedState = sanitizeInternalState(step, mergedState);
-  assertInternalHydratedStateConsistency(step, sanitizedState);
-  return sanitizedState;
+  return hydrateBookingSessionInternalState(step, snapshot);
 }
 
 function isConfirmationState(
@@ -182,37 +158,26 @@ async function materializeInternalState(
   session: SessionDoc,
   state: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
-  const materialized: Record<string, unknown> = { ...state };
-
-  if ("appointmentTypeLineageKey" in state) {
-    materialized["appointmentTypeName"] =
+  return await materializeBookingSessionUiState(state, {
+    resolveAppointmentTypeName: async (appointmentTypeLineageKey) =>
       await resolveAppointmentTypeNameForPublicState(
         ctx.db,
         session.ruleSetId,
-        asAppointmentTypeLineageKey(state.appointmentTypeLineageKey),
-      );
-  }
-  if ("locationLineageKey" in state) {
-    materialized["locationName"] = await resolveLocationNameForPublicState(
-      ctx.db,
-      session.ruleSetId,
-      asLocationLineageKey(state.locationLineageKey),
-    );
-  }
-  if ("practitionerLineageKey" in state) {
-    materialized["practitionerName"] =
+        asAppointmentTypeLineageKey(appointmentTypeLineageKey),
+      ),
+    resolveLocationName: async (locationLineageKey) =>
+      await resolveLocationNameForPublicState(
+        ctx.db,
+        session.ruleSetId,
+        asLocationLineageKey(locationLineageKey),
+      ),
+    resolvePractitionerName: async (practitionerLineageKey) =>
       await resolvePractitionerNameForPublicState(
         ctx.db,
         session.ruleSetId,
-        asPractitionerLineageKey(state.practitionerLineageKey),
-      );
-  }
-
-  const publicState = sanitizeState(session.state.step, {
-    step: session.state.step,
-    ...materialized,
+        asPractitionerLineageKey(practitionerLineageKey),
+      ),
   });
-  return publicState;
 }
 
 async function materializePublicSessionState(
@@ -220,13 +185,7 @@ async function materializePublicSessionState(
   session: SessionDoc,
   internalState: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
-  const materialized = await materializeInternalState(
-    ctx,
-    session,
-    internalState,
-  );
-  assertHydratedStateConsistency(internalState.step, materialized);
-  return materialized;
+  return await materializeInternalState(ctx, session, internalState);
 }
 
 function requireSelectableRuleSetEntity<
@@ -992,7 +951,7 @@ async function hasValidStepEntryUserAssociation(
   // The persisted step row owner (`booking*Steps.userId`) must match the
   // booking session owner. For data-sharing steps, each contact also carries
   // an owner `userId` which must match the authenticated session user.
-  const tableNames = STEP_SNAPSHOT_TABLES_BY_STEP[session.state.step];
+  const tableNames = getBookingSessionSnapshotTables(session.state.step);
   if (tableNames.length === 0) {
     return true;
   }
@@ -1279,7 +1238,7 @@ async function loadInternalStepSnapshot(
   session: SessionDoc,
   step: InternalBookingSessionState["step"],
 ): Promise<null | Record<string, unknown>> {
-  const tableNames = STEP_SNAPSHOT_TABLES_BY_STEP[step];
+  const tableNames = getBookingSessionSnapshotTables(step);
   if (tableNames.length === 0) {
     return null;
   }
@@ -1293,7 +1252,7 @@ async function loadInternalStepSnapshot(
     const snapshot = Object.fromEntries(
       Object.entries(stripStepSnapshotFields(row)),
     );
-    return filterInternalStepSnapshot(step, snapshot);
+    return snapshot;
   }
 
   return null;
@@ -1424,7 +1383,11 @@ export const acceptPrivacy = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionAcceptPrivacy(getStepBase(session), session.state),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "acceptPrivacy",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1465,11 +1428,12 @@ export const selectLocation = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectLocation(
-        getStepBase(session),
-        session.state,
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "selectLocation",
         locationLineageKey,
-      ),
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1488,7 +1452,11 @@ export const selectNewPatient = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectNewPatient(getStepBase(session), session.state),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "selectNewPatient",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1509,7 +1477,11 @@ export const selectExistingPatient = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectExistingPatient(getStepBase(session), session.state),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "selectExistingPatient",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1536,11 +1508,12 @@ export const selectInsuranceType = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectInsuranceType(
-        getStepBase(session),
-        session.state,
-        args.insuranceType,
-      ),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        insuranceType: args.insuranceType,
+        kind: "selectInsuranceType",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1562,11 +1535,12 @@ export const confirmGkvDetails = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionConfirmGkvDetails(
-        getStepBase(session),
-        session.state,
-        args.hzvStatus,
-      ),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        hzvStatus: args.hzvStatus,
+        kind: "confirmGkvDetails",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1588,7 +1562,11 @@ export const acceptPvsConsent = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionAcceptPvsConsent(getStepBase(session), session.state),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "acceptPvsConsent",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1614,14 +1592,21 @@ export const confirmPkvDetails = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionConfirmPkvDetails(getStepBase(session), session.state, {
-        ...(args.beihilfeStatus === undefined
-          ? {}
-          : { beihilfeStatus: args.beihilfeStatus }),
-        ...(args.pkvInsuranceType === undefined
-          ? {}
-          : { pkvInsuranceType: args.pkvInsuranceType }),
-        ...(args.pkvTariff === undefined ? {} : { pkvTariff: args.pkvTariff }),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        details: {
+          ...(args.beihilfeStatus === undefined
+            ? {}
+            : { beihilfeStatus: args.beihilfeStatus }),
+          ...(args.pkvInsuranceType === undefined
+            ? {}
+            : { pkvInsuranceType: args.pkvInsuranceType }),
+          ...(args.pkvTariff === undefined
+            ? {}
+            : { pkvTariff: args.pkvTariff }),
+        },
+        kind: "confirmPkvDetails",
+        state: session.state,
       }),
     );
 
@@ -1647,11 +1632,14 @@ export const submitNewPatientData = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSubmitNewPatientData(getStepBase(session), session.state, {
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "submitNewPatientData",
         ...(args.medicalHistory === undefined
           ? {}
           : { medicalHistory: args.medicalHistory }),
         personalData,
+        state: session.state,
       }),
     );
 
@@ -1682,12 +1670,13 @@ export const submitNewDataSharing = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSubmitNewDataSharing(
-        getStepBase(session),
-        state,
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        dataSharingContacts: ownedContacts,
+        kind: "submitNewDataSharing",
         personalData,
-        ownedContacts,
-      ),
+        state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1784,13 +1773,18 @@ export const selectNewPatientSlot = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectNewPatientSlot(base, state, {
-        appointmentId,
-        appointmentTypeLineageKey,
-        bookedDurationMinutes,
-        personalData,
-        reasonDescription,
-        selectedSlot: storedSelectedSlot,
+      applyBookingSessionTransition({
+        base,
+        kind: "selectNewPatientSlot",
+        slotAttempt: {
+          appointmentId,
+          appointmentTypeLineageKey,
+          bookedDurationMinutes,
+          personalData,
+          reasonDescription,
+          selectedSlot: storedSelectedSlot,
+        },
+        state,
       }),
     );
     await refreshSession(ctx, args.sessionId);
@@ -1842,11 +1836,12 @@ export const selectDoctor = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectDoctor(
-        getStepBase(session),
-        session.state,
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "selectDoctor",
         practitionerLineageKey,
-      ),
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1872,11 +1867,12 @@ export const submitExistingPatientData = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSubmitExistingPatientData(
-        getStepBase(session),
-        session.state,
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        kind: "submitExistingPatientData",
         personalData,
-      ),
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -1905,11 +1901,12 @@ export const submitExistingDataSharing = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSubmitExistingDataSharing(
-        getStepBase(session),
-        session.state,
-        ownedContacts,
-      ),
+      applyBookingSessionTransition({
+        base: getStepBase(session),
+        dataSharingContacts: ownedContacts,
+        kind: "submitExistingDataSharing",
+        state: session.state,
+      }),
     );
 
     await refreshSession(ctx, args.sessionId);
@@ -2003,13 +2000,18 @@ export const selectExistingPatientSlot = mutation({
     await persistBookingSessionTransition(
       ctx,
       session,
-      transitionSelectExistingPatientSlot(base, state, {
-        appointmentId,
-        appointmentTypeLineageKey,
-        bookedDurationMinutes,
-        personalData,
-        reasonDescription,
-        selectedSlot: storedSelectedSlot,
+      applyBookingSessionTransition({
+        base,
+        kind: "selectExistingPatientSlot",
+        slotAttempt: {
+          appointmentId,
+          appointmentTypeLineageKey,
+          bookedDurationMinutes,
+          personalData,
+          reasonDescription,
+          selectedSlot: storedSelectedSlot,
+        },
+        state,
       }),
     );
 

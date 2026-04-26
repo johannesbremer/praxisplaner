@@ -5,9 +5,16 @@ import { Temporal } from "temporal-polyfill";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
+import type { InternalBookingSessionState } from "../bookingSessions.shared";
 
 import { api } from "../_generated/api";
 import { assertValidSanitizedBookingSessionState } from "../bookingSessions";
+import {
+  applyBookingSessionTransition,
+  computePreviousInternalState,
+  materializeBookingSessionUiState,
+  sanitizeState,
+} from "../bookingSessions.stateMachine";
 import { insertSelfLineageEntity } from "../lineage";
 import schema, { type BookingSessionStep } from "../schema";
 import { modules } from "./test.setup";
@@ -1048,6 +1055,100 @@ describe("bookingSessions user identity handling", () => {
 });
 
 describe("bookingSessions atomic pending/completed step states", () => {
+  test("state machine dispatcher emits next step and snapshot writes", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "state_machine_dispatch");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    const session = await t.run(async (ctx) => {
+      return await ctx.db.get("bookingSessions", sessionId);
+    });
+    assertSessionExists(session, "session should exist for transition test");
+
+    const state: InternalBookingSessionState = {
+      locationLineageKey: locationId,
+      step: "patient-status",
+    };
+    const transition = applyBookingSessionTransition({
+      base: {
+        practiceId: session.practiceId,
+        ruleSetId: session.ruleSetId,
+        sessionId: session._id,
+        userId: session.userId,
+      },
+      kind: "selectNewPatient",
+      state,
+    });
+
+    expect(transition.nextStep).toBe("new-insurance-type");
+    expect(transition.writes).toHaveLength(1);
+    expect(transition.writes[0]?.tableName).toBe("bookingPatientStatusSteps");
+    expect(transition.writes[0]?.data).toMatchObject({
+      isNewPatient: true,
+      locationLineageKey: locationId,
+      sessionId,
+    });
+  });
+
+  test("state machine computes completed previous state for GKV data input", async () => {
+    const t = createTestContext();
+    const { locationId } = await createBookingEntities(t);
+    const state: InternalBookingSessionState = {
+      hzvStatus: "has-contract",
+      insuranceType: "gkv",
+      isNewPatient: true,
+      locationLineageKey: locationId,
+      step: "new-data-input",
+    };
+
+    const previous = computePreviousInternalState(state);
+
+    expect(previous).toMatchObject({
+      hzvStatus: "has-contract",
+      insuranceType: "gkv",
+      isNewPatient: true,
+      locationLineageKey: locationId,
+      step: "new-gkv-details-complete",
+    });
+  });
+
+  test("state machine materializes and sanitizes UI state through one interface", async () => {
+    const t = createTestContext();
+    const { locationId, practitionerId } = await createBookingEntities(t);
+    const state: InternalBookingSessionState = {
+      isNewPatient: false,
+      locationLineageKey: locationId,
+      practitionerLineageKey: practitionerId,
+      step: "existing-data-input",
+    };
+
+    const materialized = await materializeBookingSessionUiState(state, {
+      resolveAppointmentTypeName: () => Promise.resolve("unused"),
+      resolveLocationName: () => Promise.resolve("Main Location"),
+      resolvePractitionerName: () => Promise.resolve("Dr. Test"),
+    });
+
+    expect(materialized).toMatchObject({
+      isNewPatient: false,
+      locationLineageKey: locationId,
+      locationName: "Main Location",
+      practitionerLineageKey: practitionerId,
+      practitionerName: "Dr. Test",
+      step: "existing-data-input",
+    });
+
+    const sanitized = sanitizeState("existing-data-input", {
+      ...materialized,
+      reasonDescription: "should be stripped",
+    });
+    expect("reasonDescription" in sanitized).toBe(false);
+  });
+
   test("GKV details step transitions from pending to completed variant via goBack", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
