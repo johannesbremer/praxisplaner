@@ -1,5 +1,7 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
+
 import { UNSAVED_RULE_SET_DESCRIPTION } from "./-rule-set-diff";
 
 interface DraftRuleSetSummary {
@@ -103,7 +105,14 @@ export function summarizeRuleSetsForLifecycle(args: {
       : undefined;
   const selectedRuleSet = args.selectedRuleSetId
     ? args.ruleSets.find((ruleSet) => ruleSet._id === args.selectedRuleSetId)
-    : undefined;
+    : args.routeRuleSetToken === RESERVED_UNSAVED_DESCRIPTION
+      ? draftRecord
+      : args.routeRuleSetToken
+        ? args.ruleSets.find(
+            (ruleSet) =>
+              ruleSet.saved && ruleSet.description === args.routeRuleSetToken,
+          )
+        : undefined;
   const currentWorkingRuleSet =
     selectedRuleSet ?? draftRuleSet ?? activeRuleSet;
   const isShowingDraftRuleSet =

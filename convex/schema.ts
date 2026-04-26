@@ -964,6 +964,16 @@ export default defineSchema({
     .index("by_lineageKey", ["lineageKey"])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
+  ruleSetActivations: defineTable({
+    actingWorkspaceId: v.optional(v.string()),
+    activatedAt: v.number(),
+    practiceId: v.id("practices"),
+    previousRuleSetId: v.optional(v.id("ruleSets")),
+    ruleSetId: v.id("ruleSets"),
+  })
+    .index("by_practiceId_activatedAt", ["practiceId", "activatedAt"])
+    .index("by_ruleSetId", ["ruleSetId"]),
+
   ruleSets: defineTable({
     createdAt: v.number(),
     description: v.string(),

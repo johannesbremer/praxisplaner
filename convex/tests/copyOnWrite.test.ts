@@ -733,10 +733,23 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      actingWorkspaceId: "workspace-copy-on-write-test",
       description: "Saved Daily Capacity Scope",
       practiceId,
       setAsActive: true,
     });
+
+    const activationHistory = await t.query(api.ruleSets.getActivationHistory, {
+      practiceId,
+    });
+    const savedActivation = activationHistory.find(
+      (activation) => activation.ruleSetId === savedRuleSetId,
+    );
+    expect(savedActivation).toBeDefined();
+    expect(savedActivation?.actingWorkspaceId).toBe(
+      "workspace-copy-on-write-test",
+    );
+    expect(savedActivation?.previousRuleSetId).toBe(initialRuleSetId);
 
     const rules = await t.query(api.entities.getRules, {
       ruleSetId: savedRuleSetId,
