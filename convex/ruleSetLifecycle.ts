@@ -110,6 +110,16 @@ export async function startDraftRuleSetFromSource(
   );
 }
 
+function maxBigInt(first: bigint, ...rest: bigint[]): bigint {
+  let currentMax = first;
+  for (const value of rest) {
+    if (value > currentMax) {
+      currentMax = value;
+    }
+  }
+  return currentMax;
+}
+
 /**
  * Delete appointment types by ruleSetId in batches.
  */
@@ -318,14 +328,21 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       continue;
     }
 
-    const now = BigInt(Date.now());
+    const simulationValidatedAt =
+      simulationAppointment.simulationValidatedAt ??
+      simulationAppointment.createdAt;
+    const activationTimestamp = maxBigInt(
+      BigInt(Date.now()),
+      replacedAppointment.lastModified + 1n,
+      simulationValidatedAt + 1n,
+    );
     await db.insert("appointments", {
       appointmentTypeLineageKey:
         simulationAppointment.appointmentTypeLineageKey,
       appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
-      createdAt: now,
+      createdAt: activationTimestamp,
       end: simulationAppointment.end,
-      lastModified: now,
+      lastModified: activationTimestamp,
       locationLineageKey: simulationAppointment.locationLineageKey,
       ...(simulationAppointment.patientId
         ? { patientId: simulationAppointment.patientId }
@@ -359,6 +376,9 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       ...(simulationAppointment.userId
         ? { userId: simulationAppointment.userId }
         : {}),
+    });
+    await db.patch("appointments", replacedAppointment._id, {
+      lastModified: activationTimestamp,
     });
     await db.delete("appointments", simulationAppointment._id);
   }

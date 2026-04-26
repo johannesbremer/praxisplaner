@@ -1785,6 +1785,114 @@ describe("vacations", () => {
     expect(draftResult.ruleSetId).toBe(savedRuleSetId);
   });
 
+  test("activating a reassignment touches the source appointment so older saved reassignments become stale", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createCoverageFixture(t);
+    const monday = nextWeekday(1);
+    const now = BigInt(Date.now());
+
+    const appointmentId = await t.run(async (ctx) => {
+      const start = monday
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from("09:00"),
+          timeZone: "Europe/Berlin",
+        })
+        .toString();
+      return await insertStoredAppointment(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Kontrolle",
+        createdAt: now,
+        end: Temporal.ZonedDateTime.from(start).add({ minutes: 30 }).toString(),
+        lastModified: now,
+        locationId: fixture.locationId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.absentPractitionerId,
+        start,
+        title: "Termin",
+      });
+    });
+
+    await t.mutation(api.vacations.createVacationWithCoverageAdjustments, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.absentPractitionerId,
+      reassignments: [
+        {
+          appointmentId,
+          targetPractitionerLineageKey: fixture.preferredPractitionerId,
+        },
+      ],
+      selectedRuleSetId: fixture.ruleSetId,
+    });
+
+    const olderSavedRuleSetId = await t.mutation(
+      api.ruleSets.saveUnsavedRuleSet,
+      {
+        description: "Urlaubsplanung alt",
+        practiceId: fixture.practiceId,
+      },
+    );
+
+    await t.mutation(api.vacations.createVacationWithCoverageAdjustments, {
+      date: monday.toString(),
+      expectedDraftRevision: null,
+      portion: "morning",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.absentPractitionerId,
+      reassignments: [
+        {
+          appointmentId,
+          targetPractitionerLineageKey: fixture.preferredPractitionerId,
+        },
+      ],
+      selectedRuleSetId: fixture.ruleSetId,
+    });
+
+    const newerSavedRuleSetId = await t.mutation(
+      api.ruleSets.saveUnsavedRuleSet,
+      {
+        description: "Urlaubsplanung neu",
+        practiceId: fixture.practiceId,
+        setAsActive: true,
+      },
+    );
+
+    const touchedAppointment = await t.run(async (ctx) =>
+      ctx.db.get("appointments", appointmentId),
+    );
+    expect(touchedAppointment?.lastModified).toBeGreaterThan(now);
+
+    await expect(
+      t.mutation(api.ruleSets.setActiveRuleSet, {
+        practiceId: fixture.practiceId,
+        ruleSetId: olderSavedRuleSetId,
+      }),
+    ).rejects.toThrow("nach der Simulation geändert");
+
+    const replacements = await t.run(async (ctx) => {
+      const candidateReplacements = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", appointmentId),
+        )
+        .collect();
+      return candidateReplacements.filter(
+        (appointment) => appointment.isSimulation !== true,
+      );
+    });
+    const practice = await t.run(async (ctx) =>
+      ctx.db.get("practices", fixture.practiceId),
+    );
+
+    expect(newerSavedRuleSetId).not.toBe(olderSavedRuleSetId);
+    expect(practice?.currentActiveRuleSetId).toBe(newerSavedRuleSetId);
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]?.reassignmentRuleSetId).toBe(newerSavedRuleSetId);
+  });
+
   test("manually changing an auto-reassigned simulation keeps it activation-bound", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);
