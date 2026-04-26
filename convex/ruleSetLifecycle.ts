@@ -11,10 +11,8 @@ import {
 } from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
-  bumpDraftRevision,
+  copyAllEntities,
   findUnsavedRuleSet,
-  getOrCreateUnsavedRuleSet,
-  resolveDraftForWrite,
   validateRuleSet,
 } from "./copyOnWrite";
 import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
@@ -77,7 +75,20 @@ export async function markDraftRuleSetEdited(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
 ): Promise<number> {
-  return await bumpDraftRevision(db, ruleSetId);
+  const ruleSet = await db.get("ruleSets", ruleSetId);
+  if (!ruleSet) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_NOT_FOUND] Draft-Regelset ${ruleSetId} fehlt.`,
+    );
+  }
+  if (ruleSet.saved) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_EXPECTED] Regelset ${ruleSetId} ist gespeichert und darf keine Draft-Revision erhöhen.`,
+    );
+  }
+  const nextRevision = ruleSet.draftRevision + 1;
+  await db.patch("ruleSets", ruleSetId, { draftRevision: nextRevision });
+  return nextRevision;
 }
 
 export async function selectDraftRuleSetForWrite(
@@ -88,12 +99,41 @@ export async function selectDraftRuleSetForWrite(
     selectedRuleSetId: Id<"ruleSets">;
   },
 ): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
-  return await resolveDraftForWrite(
+  const existingDraftRuleSet = await selectCurrentDraftRuleSet(
     db,
     args.practiceId,
-    args.expectedDraftRevision,
-    args.selectedRuleSetId,
   );
+  if (existingDraftRuleSet) {
+    const actualRevision = existingDraftRuleSet.draftRevision;
+    if (args.expectedDraftRevision !== actualRevision) {
+      throw draftRevisionMismatchError({
+        actual: actualRevision,
+        expected: args.expectedDraftRevision,
+        ruleSetId: existingDraftRuleSet._id,
+      });
+    }
+    return {
+      draftRevision: actualRevision,
+      ruleSetId: existingDraftRuleSet._id,
+    };
+  }
+
+  if (args.expectedDraftRevision !== null) {
+    throw draftRevisionMismatchError({
+      actual: null,
+      expected: args.expectedDraftRevision,
+      ruleSetId: null,
+    });
+  }
+
+  const ruleSetId = await startDraftRuleSetFromSource(db, {
+    practiceId: args.practiceId,
+    sourceRuleSetId: args.selectedRuleSetId,
+  });
+  return {
+    draftRevision: 0,
+    ruleSetId,
+  };
 }
 
 export async function startDraftRuleSetFromSource(
@@ -103,10 +143,67 @@ export async function startDraftRuleSetFromSource(
     sourceRuleSetId: Id<"ruleSets">;
   },
 ): Promise<Id<"ruleSets">> {
-  return await getOrCreateUnsavedRuleSet(
+  const existingDraftRuleSet = await selectCurrentDraftRuleSet(
     db,
     args.practiceId,
-    args.sourceRuleSetId,
+  );
+  if (existingDraftRuleSet) {
+    return existingDraftRuleSet._id;
+  }
+
+  const sourceRuleSet = await db.get("ruleSets", args.sourceRuleSetId);
+  if (!sourceRuleSet) {
+    throw new Error("Source rule set not found");
+  }
+  if (sourceRuleSet.practiceId !== args.practiceId) {
+    throw new Error("Source rule set does not belong to this practice");
+  }
+  if (!sourceRuleSet.saved) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:SOURCE_RULE_SET_MUST_BE_SAVED] Gewaehltes Regelset ${args.sourceRuleSetId} ist kein gespeichertes Regelset und kann nicht als Draft-Quelle verwendet werden.`,
+    );
+  }
+
+  return await createDraftRuleSetFromSource(db, {
+    practiceId: args.practiceId,
+    sourceRuleSet,
+  });
+}
+
+async function createDraftRuleSetFromSource(
+  db: DatabaseWriter,
+  args: {
+    practiceId: Id<"practices">;
+    sourceRuleSet: Doc<"ruleSets">;
+  },
+): Promise<Id<"ruleSets">> {
+  const draftRuleSetId = await db.insert("ruleSets", {
+    createdAt: Date.now(),
+    description: "Ungespeicherte Änderungen",
+    draftRevision: 0,
+    parentVersion: args.sourceRuleSet._id,
+    practiceId: args.practiceId,
+    saved: false,
+    version: args.sourceRuleSet.version + 1,
+  });
+
+  await copyAllEntities(
+    db,
+    args.sourceRuleSet._id,
+    draftRuleSetId,
+    args.practiceId,
+  );
+
+  return draftRuleSetId;
+}
+
+function draftRevisionMismatchError(params: {
+  actual: null | number;
+  expected: null | number;
+  ruleSetId: Id<"ruleSets"> | null;
+}): Error {
+  return new Error(
+    `[HISTORY:REVISION_MISMATCH] expected=${params.expected ?? "null"} actual=${params.actual ?? "null"} ruleSet=${params.ruleSetId ?? "null"}`,
   );
 }
 
