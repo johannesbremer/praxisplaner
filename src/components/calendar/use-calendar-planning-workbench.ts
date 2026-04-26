@@ -7,8 +7,12 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { ZonedDateTimeString } from "../../../convex/typedDtos";
+import type { CalendarDayQueryArgs } from "./calendar-query-args";
+import type { CalendarReferenceMaps } from "./calendar-reference-adapters";
 import type {
   CalendarAppointmentRecord,
+  CalendarBlockedSlotEditorRecord,
   CalendarBlockedSlotRecord,
 } from "./types";
 
@@ -18,6 +22,15 @@ import {
   hasCalendarOccupancyConflictInRecords,
   mergeCurrentConflictRecordsByIdExcluding,
 } from "./calendar-planning-records";
+import {
+  resolveAppointmentDisplayRefs,
+  resolveAppointmentLineageRefs,
+  resolveBlockedSlotDisplayRefs,
+  resolveBlockedSlotLineageRefs,
+  toBlockedSlotEditorRecord,
+} from "./calendar-reference-adapters";
+import { useCalendarPlanningCommands } from "./use-calendar-planning-commands";
+import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 
 interface AppointmentCandidate {
   end: string;
@@ -26,6 +39,12 @@ interface AppointmentCandidate {
   practitionerLineageKey?: PractitionerLineageKey;
   replacesAppointmentId?: Id<"appointments">;
   start: string;
+}
+
+interface AppointmentTypeInfo {
+  duration: number;
+  hasFollowUpPlan: boolean;
+  name: string;
 }
 
 interface BlockedSlotCandidate {
@@ -93,7 +112,27 @@ export function useCalendarPlanningWorkbench(args: {
     ReadonlyMap<Id<"blockedSlots">, CalendarBlockedSlotRecord>
   >;
   allPracticeBlockedSlotsLoaded: boolean;
+  blockedSlotsQueryArgs: CalendarDayQueryArgs | null;
+  calendarDayQueryArgs: CalendarDayQueryArgs | null;
+  getRequiredAppointmentTypeInfo: (
+    appointmentTypeId: Id<"appointmentTypes">,
+    source: string,
+  ) => AppointmentTypeInfo | null;
+  parseZonedDateTime: (
+    value: string,
+    source: string,
+  ) => null | ZonedDateTimeString;
+  referenceMaps: CalendarReferenceMaps;
+  refreshAllPracticeConflictData: () => Promise<void>;
 }) {
+  const {
+    blockedSlotsQueryArgs,
+    calendarDayQueryArgs,
+    getRequiredAppointmentTypeInfo,
+    parseZonedDateTime,
+    referenceMaps,
+    refreshAllPracticeConflictData,
+  } = args;
   const appointmentHistoryDocMapRef = useRef(
     new Map<Id<"appointments">, CalendarAppointmentRecord>(),
   );
@@ -342,19 +381,145 @@ export function useCalendarPlanningWorkbench(args: {
     ],
   );
 
-  return {
+  const getAppointmentCreationEnd = useCallback(
+    (args: { durationMinutes: number; start: string }): string => {
+      return Temporal.ZonedDateTime.from(args.start)
+        .add({ minutes: args.durationMinutes })
+        .toString();
+    },
+    [],
+  );
+
+  const rememberCreatedAppointmentFromStrings = useCallback(
+    (createdArgs: {
+      appointmentTypeLineageKey: AppointmentTypeLineageKey;
+      appointmentTypeTitle: string;
+      createdId: Id<"appointments">;
+      createEnd: string;
+      createStart: string;
+      isSimulation: boolean;
+      locationLineageKey: LocationLineageKey;
+      patientId?: Id<"patients">;
+      practiceId: Id<"practices">;
+      practitionerLineageKey?: PractitionerLineageKey;
+      replacesAppointmentId?: Id<"appointments">;
+      title: string;
+      userId?: Id<"users">;
+    }): boolean => {
+      const start = parseZonedDateTime(
+        createdArgs.createStart,
+        "useCalendarPlanningWorkbench.rememberCreatedAppointmentFromStrings.start",
+      );
+      const end = parseZonedDateTime(
+        createdArgs.createEnd,
+        "useCalendarPlanningWorkbench.rememberCreatedAppointmentFromStrings.end",
+      );
+      if (!start || !end) {
+        return false;
+      }
+
+      rememberCreatedAppointmentHistoryDoc({
+        appointmentId: createdArgs.createdId,
+        appointmentTypeLineageKey: createdArgs.appointmentTypeLineageKey,
+        appointmentTypeTitle: createdArgs.appointmentTypeTitle,
+        end,
+        isSimulation: createdArgs.isSimulation,
+        locationLineageKey: createdArgs.locationLineageKey,
+        now: Date.now(),
+        ...(createdArgs.patientId === undefined
+          ? {}
+          : { patientId: createdArgs.patientId }),
+        practiceId: createdArgs.practiceId,
+        ...(createdArgs.practitionerLineageKey === undefined
+          ? {}
+          : { practitionerLineageKey: createdArgs.practitionerLineageKey }),
+        ...(createdArgs.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: createdArgs.replacesAppointmentId }),
+        start,
+        title: createdArgs.title,
+        ...(createdArgs.userId === undefined
+          ? {}
+          : { userId: createdArgs.userId }),
+      });
+      return true;
+    },
+    [parseZonedDateTime, rememberCreatedAppointmentHistoryDoc],
+  );
+
+  const getBlockedSlotEditorData = useCallback(
+    (
+      blockedSlotId: string,
+    ): null | {
+      blockedSlotId: Id<"blockedSlots">;
+      currentTitle: string;
+      slotData: CalendarBlockedSlotEditorRecord;
+      slotIsSimulation: boolean;
+    } => {
+      const resolvedBlockedSlotId = resolveBlockedSlotId(blockedSlotId);
+      if (!resolvedBlockedSlotId) {
+        return null;
+      }
+
+      const blockedSlot = getBlockedSlotHistoryDoc(resolvedBlockedSlotId);
+      if (!blockedSlot) {
+        return null;
+      }
+
+      const slotData = toBlockedSlotEditorRecord(blockedSlot, referenceMaps);
+      if (!slotData) {
+        return null;
+      }
+
+      return {
+        blockedSlotId: resolvedBlockedSlotId,
+        currentTitle: blockedSlot.title,
+        slotData,
+        slotIsSimulation: blockedSlot.isSimulation ?? false,
+      };
+    },
+    [referenceMaps, getBlockedSlotHistoryDoc, resolveBlockedSlotId],
+  );
+
+  const { pushHistoryAction } = useCalendarPlanningHistory();
+
+  const commands = useCalendarPlanningCommands({
+    blockedSlotsQueryArgs,
+    calendarDayQueryArgs,
     forgetAppointmentHistoryDoc,
     forgetBlockedSlotHistoryDoc,
+    getAppointmentCreationEnd,
     getAppointmentHistoryDoc,
+    getAppointmentUpdateMutationHistoryDoc: getAppointmentHistoryDoc,
     getBlockedSlotHistoryDoc,
     getCurrentAppointmentDoc,
     getCurrentBlockedSlotDoc,
+    getLocationLineageKeyForDisplayId: (locationId) =>
+      referenceMaps.locationLineageKeyById.get(locationId),
+    getPractitionerLineageKeyForDisplayId: (practitionerId) =>
+      referenceMaps.practitionerLineageKeyById.get(practitionerId),
+    getRequiredAppointmentTypeInfo,
     hasAppointmentConflict,
     hasBlockedSlotConflict,
+    parseZonedDateTime,
+    pushHistoryAction,
+    refreshAllPracticeConflictData,
     rememberAppointmentHistoryDoc,
     rememberBlockedSlotHistoryDoc,
-    rememberCreatedAppointmentHistoryDoc,
+    rememberCreatedAppointmentFromStrings,
     rememberCreatedBlockedSlotHistoryDoc,
-    resolveBlockedSlotId,
+    resolveAppointmentReferenceDisplayIds: (refs) =>
+      resolveAppointmentDisplayRefs(refs, referenceMaps),
+    resolveAppointmentReferenceLineageKeys: (refs) =>
+      resolveAppointmentLineageRefs(refs, referenceMaps),
+    resolveBlockedSlotReferenceDisplayIds: (refs) =>
+      resolveBlockedSlotDisplayRefs(refs, referenceMaps),
+    resolveBlockedSlotReferenceLineageKeys: (refs) =>
+      resolveBlockedSlotLineageRefs(refs, referenceMaps),
+  });
+
+  return {
+    commands,
+    getBlockedSlotEditorData,
   };
 }
