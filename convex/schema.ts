@@ -965,7 +965,6 @@ export default defineSchema({
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   ruleSetActivations: defineTable({
-    actingWorkspaceId: v.optional(v.string()),
     activatedAt: v.number(),
     practiceId: v.id("practices"),
     previousRuleSetId: v.optional(v.id("ruleSets")),

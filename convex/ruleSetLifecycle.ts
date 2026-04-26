@@ -471,7 +471,6 @@ const canonicalSnapshotSectionTitles = {
 export async function activateSavedRuleSet(
   db: DatabaseWriter,
   args: {
-    actingWorkspaceId?: string;
     practiceId: Id<"practices">;
     ruleSetId: Id<"ruleSets">;
   },
@@ -492,9 +491,6 @@ export async function activateSavedRuleSet(
   await applyPendingSimulationAppointmentsForRuleSet(db, args.ruleSetId);
   await db.insert("ruleSetActivations", {
     activatedAt: Date.now(),
-    ...(args.actingWorkspaceId
-      ? { actingWorkspaceId: args.actingWorkspaceId }
-      : {}),
     practiceId: args.practiceId,
     ...(practice.currentActiveRuleSetId
       ? { previousRuleSetId: practice.currentActiveRuleSetId }
@@ -621,7 +617,6 @@ export async function getExistingSavedRuleSetDescriptions(
 export async function saveDraftRuleSet(
   db: DatabaseWriter,
   args: {
-    actingWorkspaceId?: string;
     description: string;
     existingSavedDescriptions: string[];
     practiceId: Id<"practices">;
@@ -654,9 +649,6 @@ export async function saveDraftRuleSet(
 
   if (args.setAsActive) {
     await activateSavedRuleSet(db, {
-      ...(args.actingWorkspaceId
-        ? { actingWorkspaceId: args.actingWorkspaceId }
-        : {}),
       practiceId: args.practiceId,
       ruleSetId: draftRuleSet._id,
     });

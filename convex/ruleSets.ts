@@ -43,7 +43,6 @@ export const getUnsavedRuleSetDiff = query({
  */
 export const saveUnsavedRuleSet = mutation({
   args: {
-    actingWorkspaceId: v.optional(v.string()),
     description: v.string(),
     practiceId: v.id("practices"),
     setAsActive: v.optional(v.boolean()),
@@ -58,9 +57,6 @@ export const saveUnsavedRuleSet = mutation({
       description: args.description,
       existingSavedDescriptions: existingDescriptions,
       practiceId: args.practiceId,
-      ...(args.actingWorkspaceId === undefined
-        ? {}
-        : { actingWorkspaceId: args.actingWorkspaceId }),
       ...(args.setAsActive === undefined
         ? {}
         : { setAsActive: args.setAsActive }),
@@ -165,7 +161,6 @@ export const getRuleSet = query({
  */
 export const setActiveRuleSet = mutation({
   args: {
-    actingWorkspaceId: v.optional(v.string()),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
   },
@@ -251,7 +246,6 @@ export const getActivationHistory = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("ruleSetActivations"),
-      actingWorkspaceId: v.optional(v.string()),
       activatedAt: v.number(),
       practiceId: v.id("practices"),
       previousRuleSetId: v.optional(v.id("ruleSets")),

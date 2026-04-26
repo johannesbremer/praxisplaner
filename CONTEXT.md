@@ -343,7 +343,7 @@ _Avoid_: Form data, profile
 - **Workspace** attribution is only for staff actions; online patient actions are attributed to the authenticated **Online Booking Identity**.
 - **Phone Booking Identity** identifies the caller; **Integration Actor** identifies the external system that created or changed records.
 - PVS is the source of **PVS Patient** truth, but GDT import is a **Workspace** action.
-- Current implementation gap: **Workspace** attribution is not implemented yet.
+- Current implementation gap: **Workspace** attribution is not implemented yet; current **Rule Set Activation** records intentionally omit Workspace actors until the **Workspace** model exists, as recorded in ADR-0003.
 - Parentless **Rule Sets** are only valid for initial practice setup.
 - A **Practice** has one current **Draft Rule Set**; competing **Rule Set** branches are not part of the domain model.
 - **Lineage Key** is domain language for stable identity across **Rule Sets**, not just a database implementation detail.
