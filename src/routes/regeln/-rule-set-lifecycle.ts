@@ -78,15 +78,15 @@ export function summarizeRuleSetsForLifecycle(args: {
     )
       ? args.trackedDraftRuleSetId
       : null;
-  const existingDraftRuleSet = summaries.find(
+  const existingDraftRecord = args.ruleSets.find(
     (ruleSet) =>
-      !ruleSet.isActive && ruleSet.description === UNSAVED_RULE_SET_DESCRIPTION,
+      !ruleSet.saved && ruleSet.description === UNSAVED_RULE_SET_DESCRIPTION,
   );
   const draftRuleSetId =
     resolvedTrackedDraftRuleSetId ??
     (args.routeRuleSetToken && args.routeRuleSetToken !== "ungespeichert"
       ? null
-      : (existingDraftRuleSet?._id ?? null));
+      : (existingDraftRecord?._id ?? null));
   const draftRecord = draftRuleSetId
     ? args.ruleSets.find((ruleSet) => ruleSet._id === draftRuleSetId)
     : undefined;
