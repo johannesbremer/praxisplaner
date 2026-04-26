@@ -68,8 +68,8 @@ import {
   RuleSetDiffChangeCount,
   RuleSetDiffView,
   SaveDialogForm,
-  UNSAVED_RULE_SET_DESCRIPTION,
 } from "./regeln/-rule-set-diff";
+import { summarizeRuleSetsForLifecycle } from "./regeln/-rule-set-lifecycle";
 import { SimulationControls } from "./regeln/-simulation-controls";
 
 type SimulatedContext = SchedulingSimulatedContext;
@@ -360,19 +360,21 @@ function LogicView() {
     simulatedContext.appointmentTypeLineageKey,
   ]);
 
-  // Transform rule sets to include isActive computed field
-  // RuleSetSummary interface expects: { _id, description, isActive, version }
-  const ruleSetsWithActive = useMemo(() => {
-    if (!ruleSetsQuery || !currentPractice) {
-      return;
-    }
-    return ruleSetsQuery.map((rs) => ({
-      _id: rs._id,
-      description: rs.description,
-      isActive: currentPractice.currentActiveRuleSetId === rs._id,
-      version: rs.version,
-    }));
-  }, [currentPractice, ruleSetsQuery]);
+  const initialRuleSetLifecycle = useMemo(
+    () =>
+      summarizeRuleSetsForLifecycle({
+        activeRuleSetId: currentPractice?.currentActiveRuleSetId,
+        routeRuleSetToken: routeSearch.regelwerk,
+        ruleSets: ruleSetsQuery,
+        trackedDraftRuleSetId: trackedUnsavedRuleSetId,
+      }),
+    [
+      currentPractice?.currentActiveRuleSetId,
+      routeSearch.regelwerk,
+      ruleSetsQuery,
+      trackedUnsavedRuleSetId,
+    ],
+  );
 
   // Mutations
   const activateRuleSetMutation = useMutation(api.ruleSets.setActiveRuleSet);
@@ -420,70 +422,14 @@ function LogicView() {
     api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
   );
 
-  const activeRuleSet = ruleSetsWithActive?.find((rs) => rs.isActive);
-  // selectedRuleSet will be computed after unsavedRuleSet and ruleSetIdFromUrl are available
-
-  // Find any existing unsaved rule set (not active and no explicit selection)
-  const existingUnsavedRuleSet = ruleSetsWithActive?.find(
-    (rs) => !rs.isActive && rs.description === UNSAVED_RULE_SET_DESCRIPTION,
-  );
-  const resolvedTrackedUnsavedRuleSetId =
-    trackedUnsavedRuleSetId &&
-    ruleSetsQuery?.some(
-      (ruleSet) => ruleSet._id === trackedUnsavedRuleSetId && !ruleSet.saved,
-    )
-      ? trackedUnsavedRuleSetId
-      : null;
-  const unsavedRuleSetId =
-    resolvedTrackedUnsavedRuleSetId ??
-    (routeSearch.regelwerk && routeSearch.regelwerk !== "ungespeichert"
-      ? null
-      : (existingUnsavedRuleSet?._id ?? null));
-
-  // Transform unsavedRuleSet from raw query to include isActive
-  const unsavedRuleSet = useMemo(() => {
-    const rawUnsaved = unsavedRuleSetId
-      ? ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSetId)
-      : undefined;
-    if (!currentPractice) {
-      return;
-    }
-    if (!rawUnsaved) {
-      return;
-    }
-
-    if (rawUnsaved.saved) {
-      return;
-    }
-
-    return {
-      _id: rawUnsaved._id,
-      description: rawUnsaved.description,
-      draftRevision: rawUnsaved.draftRevision,
-      isActive: currentPractice.currentActiveRuleSetId === rawUnsaved._id,
-      parentVersion: rawUnsaved.parentVersion,
-      version: rawUnsaved.version,
-    };
-  }, [currentPractice, ruleSetsQuery, unsavedRuleSetId]);
+  const activeRuleSet = initialRuleSetLifecycle.activeRuleSet;
+  const unsavedRuleSet = initialRuleSetLifecycle.draftRuleSet;
 
   // Determine current working rule set based on URL
   // We'll do a preliminary calculation to fetch locations
-  const preliminarySelectedRuleSet = useMemo(() => {
-    // We need to extract ruleSetIdFromUrl logic inline here to avoid circular dependency
-    const ruleSetId = routeSearch.regelwerk;
-    if (!ruleSetId) {
-      return;
-    }
-    if (ruleSetId === "ungespeichert") {
-      return ruleSetsQuery?.find((rs) => rs._id === unsavedRuleSet?._id);
-    }
-    // Match by ID directly - IDs are unique and prevent collisions
-    return ruleSetsQuery?.find((rs) => rs._id === ruleSetId);
-  }, [ruleSetsQuery, routeSearch.regelwerk, unsavedRuleSet]);
-
   const preliminaryWorkingRuleSet = useMemo(
-    () => preliminarySelectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
-    [preliminarySelectedRuleSet, unsavedRuleSet, activeRuleSet],
+    () => initialRuleSetLifecycle.currentWorkingRuleSet,
+    [initialRuleSetLifecycle.currentWorkingRuleSet],
   );
   const resolvedPreliminaryWorkingRuleSet = useMemo(
     () =>
@@ -516,7 +462,7 @@ function LogicView() {
     selectedDate,
   } = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
-    ruleSetsQuery: ruleSetsWithActive,
+    ruleSetsQuery: initialRuleSetLifecycle.summaries,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
   const effectiveSimulatedContext = useMemo(() => {
@@ -554,11 +500,6 @@ function LogicView() {
     [locationsListQuery, pushUrl],
   );
 
-  // Determine current working rule set based on the properly computed ruleSetIdFromUrl
-  const selectedRuleSet = useMemo(
-    () => ruleSetsQuery?.find((rs) => rs._id === ruleSetIdFromUrl),
-    [ruleSetsQuery, ruleSetIdFromUrl],
-  );
   const resolvedRuleSetIdFromUrl = useMemo(
     () =>
       ruleSetsQuery?.some((ruleSet) => ruleSet._id === ruleSetIdFromUrl)
@@ -567,11 +508,25 @@ function LogicView() {
     [ruleSetIdFromUrl, ruleSetsQuery],
   );
 
-  // Use unsaved rule set if available, otherwise selected rule set, otherwise active rule set
-  const currentWorkingRuleSet = useMemo(
-    () => selectedRuleSet ?? unsavedRuleSet ?? activeRuleSet,
-    [selectedRuleSet, unsavedRuleSet, activeRuleSet],
+  const ruleSetLifecycle = useMemo(
+    () =>
+      summarizeRuleSetsForLifecycle({
+        activeRuleSetId: currentPractice?.currentActiveRuleSetId,
+        routeRuleSetToken: raw.ruleSet,
+        ruleSets: ruleSetsQuery,
+        selectedRuleSetId: resolvedRuleSetIdFromUrl,
+        trackedDraftRuleSetId: trackedUnsavedRuleSetId,
+      }),
+    [
+      currentPractice?.currentActiveRuleSetId,
+      raw.ruleSet,
+      resolvedRuleSetIdFromUrl,
+      ruleSetsQuery,
+      trackedUnsavedRuleSetId,
+    ],
   );
+  const selectedRuleSet = ruleSetLifecycle.selectedRuleSet;
+  const currentWorkingRuleSet = ruleSetLifecycle.currentWorkingRuleSet;
   const resolvedCurrentWorkingRuleSet = useMemo(
     () =>
       currentWorkingRuleSet &&
@@ -582,14 +537,10 @@ function LogicView() {
         : undefined,
     [currentWorkingRuleSet, ruleSetsQuery],
   );
-  const isShowingUnsavedRuleSet =
-    Boolean(unsavedRuleSet) &&
-    currentWorkingRuleSet?._id === unsavedRuleSet?._id;
-  const hasBlockingUnsavedChanges = Boolean(
-    unsavedRuleSet && !isDraftEquivalentToParent,
-  );
-  const selectedVersionId =
-    resolvedRuleSetIdFromUrl ?? unsavedRuleSet?._id ?? undefined;
+  const isShowingUnsavedRuleSet = ruleSetLifecycle.isShowingDraftRuleSet;
+  const hasBlockingUnsavedChanges =
+    ruleSetLifecycle.hasBlockingDraftChanges && !isDraftEquivalentToParent;
+  const selectedVersionId = ruleSetLifecycle.selectedVersionId;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
     currentPractice && unsavedRuleSet && !isDraftEquivalentToParent
@@ -1005,7 +956,7 @@ function LogicView() {
   const handleActivateRuleSet = async (ruleSetId: Id<"ruleSets">) => {
     try {
       // Check if this is the unsaved rule set
-      const isUnsavedRuleSet = ruleSetId === unsavedRuleSetId;
+      const isUnsavedRuleSet = ruleSetId === unsavedRuleSet?._id;
 
       if (isUnsavedRuleSet) {
         // Save and activate the unsaved rule set
@@ -1071,7 +1022,8 @@ function LogicView() {
 
     void (async () => {
       try {
-        const isUnsavedRuleSet = currentWorkingRuleSet._id === unsavedRuleSetId;
+        const isUnsavedRuleSet =
+          currentWorkingRuleSet._id === unsavedRuleSet?._id;
 
         if (isUnsavedRuleSet) {
           // Save the unsaved rule set WITHOUT activating
@@ -1408,7 +1360,7 @@ function LogicView() {
                     }
                     pushUrl({ ruleSetId: id });
                   }}
-                  ruleSetsQuery={ruleSetsWithActive}
+                  ruleSetsQuery={ruleSetLifecycle.summaries}
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={effectiveSimulatedContext}
@@ -1521,7 +1473,7 @@ function LogicView() {
                     }
                     pushUrl({ ruleSetId: id });
                   }}
-                  ruleSetsQuery={ruleSetsWithActive}
+                  ruleSetsQuery={ruleSetLifecycle.summaries}
                   selectedDate={selectedDate}
                   selectedLocationId={locationIdFromUrl}
                   simulatedContext={effectiveSimulatedContext}

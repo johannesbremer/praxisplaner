@@ -13,7 +13,6 @@ import {
   findConflictingAppointment,
 } from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
 import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
 import { requireLineageKey } from "./lineage";
 import {
@@ -22,7 +21,16 @@ import {
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
+import {
+  activateSavedRuleSet,
+  discardCurrentDraftRuleSet,
+  discardDraftRuleSet,
+  discardDraftRuleSetIfEquivalentToParent,
+  type RuleSetCanonicalSnapshot,
+  saveDraftRuleSet,
+  selectCurrentDraftRuleSet,
+  summarizeDraftRuleSetDiff,
+} from "./ruleSetLifecycle";
 
 // ================================
 // HELPER FUNCTIONS
@@ -440,17 +448,6 @@ interface CanonicalRuleConditionNode {
   valueNumber: null | number;
 }
 
-interface RuleSetCanonicalSnapshot {
-  appointmentCoverage: string[];
-  appointmentTypes: string[];
-  baseSchedules: string[];
-  locations: string[];
-  mfas: string[];
-  practitioners: string[];
-  rules: string[];
-  vacations: string[];
-}
-
 const canonicalSnapshotSectionTitles = {
   appointmentCoverage: "Terminverschiebungen",
   appointmentTypes: "Terminarten",
@@ -461,6 +458,19 @@ const canonicalSnapshotSectionTitles = {
   rules: "Regeln",
   vacations: "Urlaub",
 } satisfies Record<keyof RuleSetCanonicalSnapshot, string>;
+
+async function activateRuleSetLifecycleAdapter(
+  db: DatabaseWriter,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<void> {
+  await activateSavedRuleSet(db, args, {
+    applyPendingSimulationAppointments:
+      applyPendingSimulationAppointmentsForRuleSet,
+  });
+}
 
 async function buildAppointmentCoverageDiffSection(
   db: DatabaseReader,
@@ -479,7 +489,7 @@ async function buildAppointmentCoverageDiffSection(
   if (simulationAppointments.length === 0) {
     return {
       added: [],
-      key: "appointmentCoverage",
+      key: "appointmentCoverage" as const,
       removed: [],
       title: canonicalSnapshotSectionTitles.appointmentCoverage,
     };
@@ -562,7 +572,7 @@ async function buildAppointmentCoverageDiffSection(
 
   return {
     added: added.toSorted(),
-    key: "appointmentCoverage",
+    key: "appointmentCoverage" as const,
     removed: removed.toSorted(),
     title: canonicalSnapshotSectionTitles.appointmentCoverage,
   };
@@ -818,6 +828,20 @@ function createEntityNameLookup(
   return new Map(entries);
 }
 
+async function deleteDraftRuleSetContents(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+): Promise<void> {
+  await deleteRuleConditionsByRuleSet(db, ruleSetId);
+  await deletePractitionersByRuleSet(db, ruleSetId);
+  await deleteLocationsByRuleSet(db, ruleSetId);
+  await deleteAppointmentTypesByRuleSet(db, ruleSetId);
+  await deleteBaseSchedulesByRuleSet(db, ruleSetId);
+  await deleteVacationsByRuleSet(db, ruleSetId);
+  await deleteMfasByRuleSet(db, ruleSetId);
+  await deleteSimulationAppointmentsByRuleSet(db, ruleSetId);
+}
+
 async function deleteRuleConditionsByRuleSet(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
@@ -980,92 +1004,12 @@ export const getUnsavedRuleSetDiff = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-
-    const draftRuleSet = await ctx.db.get("ruleSets", args.ruleSetId);
-    if (!draftRuleSet) {
-      return null;
-    }
-    if (draftRuleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-    if (draftRuleSet.saved) {
-      return null;
-    }
-    if (!draftRuleSet.parentVersion) {
-      throw new Error("Unsaved rule set has no parent");
-    }
-
-    const parentRuleSet = await ctx.db.get(
-      "ruleSets",
-      draftRuleSet.parentVersion,
-    );
-    if (parentRuleSet?.practiceId !== args.practiceId) {
-      throw new Error("Parent rule set not found");
-    }
-
-    const [draftSnapshot, parentSnapshot, appointmentCoverageSection] =
-      await Promise.all([
-        buildRuleSetCanonicalSnapshot(ctx.db, draftRuleSet._id),
-        buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
-        buildAppointmentCoverageDiffSection(ctx.db, {
-          practiceId: args.practiceId,
-          ruleSetId: draftRuleSet._id,
-        }),
-      ]);
-
-    const sectionKeys = Object.keys(
-      canonicalSnapshotSectionTitles,
-    ) as (keyof RuleSetCanonicalSnapshot)[];
-
-    const sections = sectionKeys.map((key) => {
-      const added = getMultisetDifference(
-        draftSnapshot[key],
-        parentSnapshot[key],
-      );
-      const removed = getMultisetDifference(
-        parentSnapshot[key],
-        draftSnapshot[key],
-      );
-
-      return {
-        added,
-        key,
-        removed,
-        title: canonicalSnapshotSectionTitles[key],
-      };
+    return await summarizeDraftRuleSetDiff(ctx.db, args, {
+      buildAppointmentCoverageDiffSection,
+      buildRuleSetCanonicalSnapshot,
+      getMultisetDifference,
+      sectionTitles: canonicalSnapshotSectionTitles,
     });
-    const sectionsWithCoverage = [
-      ...sections.filter((section) => section.key !== "appointmentCoverage"),
-      appointmentCoverageSection,
-    ];
-
-    const totalAdded = sectionsWithCoverage.reduce(
-      (sum, section) => sum + section.added.length,
-      0,
-    );
-    const totalRemoved = sectionsWithCoverage.reduce(
-      (sum, section) => sum + section.removed.length,
-      0,
-    );
-
-    return {
-      draftRuleSet: {
-        _id: draftRuleSet._id,
-        description: draftRuleSet.description,
-        version: draftRuleSet.version,
-      },
-      parentRuleSet: {
-        _id: parentRuleSet._id,
-        description: parentRuleSet.description,
-        version: parentRuleSet.version,
-      },
-      sections: sectionsWithCoverage,
-      totals: {
-        added: totalAdded,
-        changed: totalAdded + totalRemoved,
-        removed: totalRemoved,
-      },
-    };
   },
 });
 
@@ -1086,55 +1030,22 @@ export const saveUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const trimmedDescription = args.description.trim();
-
-    // Get existing saved descriptions for validation
     const existingDescriptions = await getExistingSavedDescriptions(
       ctx.db,
       args.practiceId,
     );
-
-    // Validate the description using shared validation logic
-    const validationResult = validateRuleSetDescriptionSync(
-      trimmedDescription,
-      existingDescriptions,
+    return await saveDraftRuleSet(
+      ctx.db,
+      {
+        description: args.description,
+        existingSavedDescriptions: existingDescriptions,
+        practiceId: args.practiceId,
+        ...(args.setAsActive === undefined
+          ? {}
+          : { setAsActive: args.setAsActive }),
+      },
+      { activateSavedRuleSet: activateRuleSetLifecycleAdapter },
     );
-
-    if (!validationResult.isValid) {
-      throw new Error(validationResult.error);
-    }
-
-    // Find the unsaved rule set
-    const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
-
-    if (!unsavedRuleSet) {
-      throw new Error("No unsaved rule set exists for this practice");
-    }
-
-    // Validate it's actually unsaved
-    if (unsavedRuleSet.saved) {
-      throw new Error("Cannot save a rule set that is already saved");
-    }
-
-    // Update to saved state
-    await ctx.db.patch("ruleSets", unsavedRuleSet._id, {
-      description: trimmedDescription,
-      draftRevision: 0,
-      saved: true,
-    });
-
-    // Optionally set as active
-    if (args.setAsActive) {
-      await applyPendingSimulationAppointmentsForRuleSet(
-        ctx.db,
-        unsavedRuleSet._id,
-      );
-      await ctx.db.patch("practices", args.practiceId, {
-        currentActiveRuleSetId: unsavedRuleSet._id,
-      });
-    }
-
-    return unsavedRuleSet._id;
   },
   returns: v.id("ruleSets"),
 });
@@ -1149,29 +1060,9 @@ export const discardUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Find the unsaved rule set
-    const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
-
-    if (!unsavedRuleSet) {
-      throw new Error("No unsaved rule set exists for this practice");
-    }
-
-    // Delete the rule set (entities will cascade via Convex deletion rules)
-    // Note: We manually delete entities in batches for explicit cleanup
-    const ruleSetId = unsavedRuleSet._id;
-
-    // Delete all entities belonging to this rule set using batch processing
-    await deleteAppointmentTypesByRuleSet(ctx.db, ruleSetId);
-    await deletePractitionersByRuleSet(ctx.db, ruleSetId);
-    await deleteLocationsByRuleSet(ctx.db, ruleSetId);
-    await deleteBaseSchedulesByRuleSet(ctx.db, ruleSetId);
-    await deleteVacationsByRuleSet(ctx.db, ruleSetId);
-    await deleteMfasByRuleSet(ctx.db, ruleSetId);
-    await deleteRuleConditionsByRuleSet(ctx.db, ruleSetId);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSetId);
-
-    // Finally, delete the rule set itself
-    await ctx.db.delete("ruleSets", ruleSetId);
+    await discardCurrentDraftRuleSet(ctx.db, args.practiceId, {
+      deleteDraftContents: deleteDraftRuleSetContents,
+    });
   },
 });
 
@@ -1184,7 +1075,7 @@ export const getUnsavedRuleSet = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return await findUnsavedRuleSet(ctx.db, args.practiceId);
+    return await selectCurrentDraftRuleSet(ctx.db, args.practiceId);
   },
   returns: v.union(
     v.object({
@@ -1262,22 +1153,7 @@ export const setActiveRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Validate the rule set exists and belongs to practice
-    const ruleSet = await validateRuleSet(
-      ctx.db,
-      args.ruleSetId,
-      args.practiceId,
-    );
-
-    // Only saved rule sets can be set as active
-    if (!ruleSet.saved) {
-      throw new Error("Cannot set an unsaved rule set as active");
-    }
-
-    await applyPendingSimulationAppointmentsForRuleSet(ctx.db, args.ruleSetId);
-    await ctx.db.patch("practices", args.practiceId, {
-      currentActiveRuleSetId: args.ruleSetId,
-    });
+    await activateRuleSetLifecycleAdapter(ctx.db, args);
   },
 });
 
@@ -1354,36 +1230,9 @@ export const deleteUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
-
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-
-    // Verify it belongs to the practice
-    if (ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-
-    // CRITICAL: Only allow deleting unsaved rule sets
-    if (ruleSet.saved) {
-      throw new Error(
-        "Cannot delete saved rule sets. Only unsaved rule sets can be deleted.",
-      );
-    }
-
-    // Delete all entities associated with this rule set using batch processing
-    await deleteRuleConditionsByRuleSet(ctx.db, args.ruleSetId);
-    await deletePractitionersByRuleSet(ctx.db, args.ruleSetId);
-    await deleteLocationsByRuleSet(ctx.db, args.ruleSetId);
-    await deleteAppointmentTypesByRuleSet(ctx.db, args.ruleSetId);
-    await deleteBaseSchedulesByRuleSet(ctx.db, args.ruleSetId);
-    await deleteVacationsByRuleSet(ctx.db, args.ruleSetId);
-    await deleteMfasByRuleSet(ctx.db, args.ruleSetId);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, args.ruleSetId);
-
-    // Finally, delete the rule set itself
-    await ctx.db.delete("ruleSets", args.ruleSetId);
+    await discardDraftRuleSet(ctx.db, args, {
+      deleteDraftContents: deleteDraftRuleSetContents,
+    });
   },
 });
 
@@ -1398,77 +1247,12 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
-
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-
-    if (ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-
-    if (ruleSet.saved) {
-      return {
-        deleted: false,
-        reason: "not_unsaved" as const,
-      };
-    }
-
-    if (!ruleSet.parentVersion) {
-      return {
-        deleted: false,
-        reason: "no_parent" as const,
-      };
-    }
-
-    const parentRuleSet = await ctx.db.get("ruleSets", ruleSet.parentVersion);
-    if (parentRuleSet?.practiceId !== args.practiceId) {
-      return {
-        deleted: false,
-        reason: "parent_missing" as const,
-      };
-    }
-
-    if (await hasPendingSimulationAppointmentsForRuleSet(ctx.db, ruleSet._id)) {
-      return {
-        deleted: false,
-        parentRuleSetId: parentRuleSet._id,
-        reason: "has_changes" as const,
-      };
-    }
-
-    const [unsavedSnapshot, parentSnapshot] = await Promise.all([
-      buildRuleSetCanonicalSnapshot(ctx.db, ruleSet._id),
-      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
-    ]);
-
-    const isEquivalent =
-      JSON.stringify(unsavedSnapshot) === JSON.stringify(parentSnapshot);
-
-    if (!isEquivalent) {
-      return {
-        deleted: false,
-        parentRuleSetId: parentRuleSet._id,
-        reason: "has_changes" as const,
-      };
-    }
-
-    await deleteRuleConditionsByRuleSet(ctx.db, ruleSet._id);
-    await deletePractitionersByRuleSet(ctx.db, ruleSet._id);
-    await deleteLocationsByRuleSet(ctx.db, ruleSet._id);
-    await deleteAppointmentTypesByRuleSet(ctx.db, ruleSet._id);
-    await deleteBaseSchedulesByRuleSet(ctx.db, ruleSet._id);
-    await deleteVacationsByRuleSet(ctx.db, ruleSet._id);
-    await deleteMfasByRuleSet(ctx.db, ruleSet._id);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSet._id);
-    await ctx.db.delete("ruleSets", ruleSet._id);
-
-    return {
-      deleted: true,
-      parentRuleSetId: parentRuleSet._id,
-      reason: "discarded" as const,
-    };
+    return await discardDraftRuleSetIfEquivalentToParent(ctx.db, args, {
+      buildRuleSetCanonicalSnapshot,
+      deleteDraftContents: deleteDraftRuleSetContents,
+      hasPendingSimulationAppointments:
+        hasPendingSimulationAppointmentsForRuleSet,
+    });
   },
   returns: v.object({
     deleted: v.boolean(),

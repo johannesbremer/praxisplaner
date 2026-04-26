@@ -35,6 +35,7 @@ import type * as publicHolidays from "../publicHolidays.js";
 import type * as recursiveValidator from "../recursiveValidator.js";
 import type * as ruleEngine from "../ruleEngine.js";
 import type * as ruleSetEntityDeletion from "../ruleSetEntityDeletion.js";
+import type * as ruleSetLifecycle from "../ruleSetLifecycle.js";
 import type * as ruleSetValidation from "../ruleSetValidation.js";
 import type * as ruleSets from "../ruleSets.js";
 import type * as scheduling from "../scheduling.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   recursiveValidator: typeof recursiveValidator;
   ruleEngine: typeof ruleEngine;
   ruleSetEntityDeletion: typeof ruleSetEntityDeletion;
+  ruleSetLifecycle: typeof ruleSetLifecycle;
   ruleSetValidation: typeof ruleSetValidation;
   ruleSets: typeof ruleSets;
   scheduling: typeof scheduling;
