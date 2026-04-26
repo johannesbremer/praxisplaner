@@ -407,6 +407,7 @@ export default defineSchema({
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
+    reassignmentRuleSetId: v.optional(v.id("ruleSets")),
     reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
@@ -431,6 +432,7 @@ export default defineSchema({
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_start", ["practiceId", "start"])
+    .index("by_reassignmentRuleSetId", ["reassignmentRuleSetId"])
     .index("by_simulationRuleSetId_reassignmentSourceVacationLineageKey", [
       "simulationRuleSetId",
       "reassignmentSourceVacationLineageKey",
@@ -972,6 +974,16 @@ export default defineSchema({
   })
     .index("by_practiceId_activatedAt", ["practiceId", "activatedAt"])
     .index("by_ruleSetId", ["ruleSetId"]),
+
+  ruleSetDraftDiscards: defineTable({
+    createdDraftRuleSetId: v.optional(v.id("ruleSets")),
+    discardedAt: v.number(),
+    draftRuleSetId: v.id("ruleSets"),
+    parentRuleSetId: v.optional(v.id("ruleSets")),
+    practiceId: v.id("practices"),
+  })
+    .index("by_practiceId_discardedAt", ["practiceId", "discardedAt"])
+    .index("by_draftRuleSetId", ["draftRuleSetId"]),
 
   ruleSets: defineTable({
     createdAt: v.number(),

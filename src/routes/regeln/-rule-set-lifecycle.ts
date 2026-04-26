@@ -46,7 +46,7 @@ export function summarizeRuleSetsForLifecycle(args: {
   hasBlockingDraftChanges: boolean;
   isShowingDraftRuleSet: boolean;
   resolvedTrackedDraftRuleSetId: Id<"ruleSets"> | null;
-  selectedRuleSet: RuleSetRecord | undefined;
+  selectedRuleSet: DraftRuleSetSummary | RuleSetRecord | undefined;
   selectedVersionId: Id<"ruleSets"> | undefined;
   summaries: RuleSetSummary[] | undefined;
 } {
@@ -106,7 +106,7 @@ export function summarizeRuleSetsForLifecycle(args: {
   const selectedRuleSet = args.selectedRuleSetId
     ? args.ruleSets.find((ruleSet) => ruleSet._id === args.selectedRuleSetId)
     : args.routeRuleSetToken === RESERVED_UNSAVED_DESCRIPTION
-      ? draftRecord
+      ? draftRuleSet
       : args.routeRuleSetToken
         ? args.ruleSets.find(
             (ruleSet) =>

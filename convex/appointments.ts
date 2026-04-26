@@ -76,6 +76,7 @@ type AppointmentListItem = AppointmentResult &
     AppointmentDoc,
     | "cancelledAt"
     | "isSimulation"
+    | "reassignmentRuleSetId"
     | "replacesAppointmentId"
     | "simulationKind"
     | "simulationRuleSetId"
@@ -122,6 +123,7 @@ const appointmentResultValidator = v.object({
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
   practitionerLineageKey: v.optional(v.id("practitioners")),
+  reassignmentRuleSetId: v.optional(v.id("ruleSets")),
   reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
@@ -772,6 +774,9 @@ function toAppointmentListItem(
           reassignmentSourceVacationLineageKey:
             appointment.reassignmentSourceVacationLineageKey,
         }),
+    ...(appointment.reassignmentRuleSetId === undefined
+      ? {}
+      : { reassignmentRuleSetId: appointment.reassignmentRuleSetId }),
     ...(appointment.replacesAppointmentId === undefined
       ? {}
       : { replacesAppointmentId: appointment.replacesAppointmentId }),

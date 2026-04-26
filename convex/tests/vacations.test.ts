@@ -1507,11 +1507,17 @@ describe("vacations", () => {
       setAsActive: true,
     });
 
-    const activatedAppointment = await t.run(async (ctx) =>
-      ctx.db.get("appointments", appointmentId),
-    );
-    const activatedTargetPractitioner = await t.run(async (ctx) =>
-      ctx.db.get("practitioners", draftPreferredPractitionerId),
+    const [activatedAppointment, replacementAppointments] = await t.run(
+      async (ctx) => {
+        const original = await ctx.db.get("appointments", appointmentId);
+        const replacements = await ctx.db
+          .query("appointments")
+          .withIndex("by_replacesAppointmentId", (q) =>
+            q.eq("replacesAppointmentId", appointmentId),
+          )
+          .collect();
+        return [original, replacements];
+      },
     );
     const remainingSimulations = await t.run(async (ctx) =>
       ctx.db
@@ -1523,8 +1529,21 @@ describe("vacations", () => {
     );
 
     expect(activatedAppointment?.practitionerLineageKey).toBe(
-      activatedTargetPractitioner?.lineageKey ?? draftPreferredPractitionerId,
+      fixture.absentPractitionerId,
     );
+    expect(replacementAppointments).toHaveLength(1);
+    expect(replacementAppointments[0]?.practitionerLineageKey).toBe(
+      fixture.preferredPractitionerId,
+    );
+    expect(replacementAppointments[0]?.replacesAppointmentId).toBe(
+      appointmentId,
+    );
+    expect(replacementAppointments[0]?.reassignmentRuleSetId).toBe(
+      result.ruleSetId,
+    );
+    expect(
+      replacementAppointments[0]?.reassignmentSourceVacationLineageKey,
+    ).toBe(vacations[0]?.lineageKey ?? vacations[0]?._id);
     expect(remainingSimulations).toHaveLength(0);
   });
 
@@ -1654,18 +1673,39 @@ describe("vacations", () => {
       setAsActive: true,
     });
 
-    const [appointmentA, appointmentB] = await t.run(async (ctx) => {
-      const first = await ctx.db.get("appointments", appointmentAId);
-      const second = await ctx.db.get("appointments", appointmentBId);
-      return [first, second];
-    });
+    const [appointmentA, appointmentB, replacementA, replacementB] =
+      await t.run(async (ctx) => {
+        const first = await ctx.db.get("appointments", appointmentAId);
+        const second = await ctx.db.get("appointments", appointmentBId);
+        const firstReplacements = await ctx.db
+          .query("appointments")
+          .withIndex("by_replacesAppointmentId", (q) =>
+            q.eq("replacesAppointmentId", appointmentAId),
+          )
+          .collect();
+        const secondReplacements = await ctx.db
+          .query("appointments")
+          .withIndex("by_replacesAppointmentId", (q) =>
+            q.eq("replacesAppointmentId", appointmentBId),
+          )
+          .collect();
+        return [first, second, firstReplacements[0], secondReplacements[0]];
+      });
 
     expect(appointmentA?.practitionerLineageKey).toBe(
-      fixture.preferredPractitionerId,
-    );
-    expect(appointmentB?.practitionerLineageKey).toBe(
       fixture.absentPractitionerId,
     );
+    expect(appointmentB?.practitionerLineageKey).toBe(
+      fixture.preferredPractitionerId,
+    );
+    expect(replacementA?.practitionerLineageKey).toBe(
+      fixture.preferredPractitionerId,
+    );
+    expect(replacementB?.practitionerLineageKey).toBe(
+      fixture.absentPractitionerId,
+    );
+    expect(replacementA?.reassignmentRuleSetId).toBe(draftResult.ruleSetId);
+    expect(replacementB?.reassignmentRuleSetId).toBe(draftResult.ruleSetId);
   });
 
   test("activating an older saved ruleset rejects stale staged coverage replacements", async () => {
@@ -1844,11 +1884,19 @@ describe("vacations", () => {
       setAsActive: true,
     });
 
-    const activatedAppointment = await t.run(async (ctx) =>
-      ctx.db.get("appointments", appointmentId),
+    const activatedReplacement = await t.run(async (ctx) =>
+      ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", appointmentId),
+        )
+        .first(),
     );
-    expect(activatedAppointment?.practitionerLineageKey).toBe(
+    expect(activatedReplacement?.practitionerLineageKey).toBe(
       fixture.fallbackPractitionerId,
+    );
+    expect(activatedReplacement?.reassignmentRuleSetId).toBe(
+      draftResult.ruleSetId,
     );
   });
 

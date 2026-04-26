@@ -270,17 +270,47 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       continue;
     }
 
-    await db.patch("appointments", replacedAppointmentId, {
+    const replacedAppointment = replacedAppointments.get(replacedAppointmentId);
+    if (!replacedAppointment) {
+      continue;
+    }
+
+    const now = BigInt(Date.now());
+    await db.insert("appointments", {
       appointmentTypeLineageKey:
         simulationAppointment.appointmentTypeLineageKey,
       appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
+      createdAt: now,
       end: simulationAppointment.end,
-      lastModified: BigInt(Date.now()),
+      lastModified: now,
       locationLineageKey: simulationAppointment.locationLineageKey,
       ...(simulationAppointment.patientId
         ? { patientId: simulationAppointment.patientId }
         : {}),
-      practitionerLineageKey: simulationAppointment.practitionerLineageKey,
+      practiceId: simulationAppointment.practiceId,
+      ...(simulationAppointment.practitionerLineageKey
+        ? {
+            practitionerLineageKey:
+              simulationAppointment.practitionerLineageKey,
+          }
+        : {}),
+      reassignmentRuleSetId: ruleSetId,
+      ...(simulationAppointment.reassignmentSourceVacationLineageKey
+        ? {
+            reassignmentSourceVacationLineageKey:
+              simulationAppointment.reassignmentSourceVacationLineageKey,
+          }
+        : {}),
+      replacesAppointmentId: replacedAppointment._id,
+      ...(replacedAppointment.seriesId
+        ? { seriesId: replacedAppointment.seriesId }
+        : {}),
+      ...(replacedAppointment.seriesStepId
+        ? { seriesStepId: replacedAppointment.seriesStepId }
+        : {}),
+      ...(replacedAppointment.seriesStepIndex === undefined
+        ? {}
+        : { seriesStepIndex: replacedAppointment.seriesStepIndex }),
       start: simulationAppointment.start,
       title: simulationAppointment.title,
       ...(simulationAppointment.userId
@@ -511,6 +541,7 @@ export async function discardCurrentDraftRuleSet(
     throw new Error("No unsaved rule set exists for this practice");
   }
 
+  await recordDraftDiscard(db, draftRuleSet);
   await deleteDraftRuleSetContents(db, draftRuleSet._id);
   await db.delete("ruleSets", draftRuleSet._id);
 }
@@ -523,6 +554,7 @@ export async function discardDraftRuleSet(
   },
 ): Promise<void> {
   const draftRuleSet = await requireDraftRuleSet(db, args);
+  await recordDraftDiscard(db, draftRuleSet);
   await deleteDraftRuleSetContents(db, draftRuleSet._id);
   await db.delete("ruleSets", draftRuleSet._id);
 }
@@ -590,6 +622,7 @@ export async function discardDraftRuleSetIfEquivalentToParent(
     };
   }
 
+  await recordDraftDiscard(db, ruleSet);
   await deleteDraftRuleSetContents(db, ruleSet._id);
   await db.delete("ruleSets", ruleSet._id);
 
@@ -1216,6 +1249,20 @@ function normalizeValueIds(
       return toSortedStrings(node.valueIds);
     }
   }
+}
+
+async function recordDraftDiscard(
+  db: DatabaseWriter,
+  draftRuleSet: Doc<"ruleSets">,
+): Promise<void> {
+  await db.insert("ruleSetDraftDiscards", {
+    discardedAt: Date.now(),
+    draftRuleSetId: draftRuleSet._id,
+    ...(draftRuleSet.parentVersion
+      ? { parentRuleSetId: draftRuleSet.parentVersion }
+      : {}),
+    practiceId: draftRuleSet.practiceId,
+  });
 }
 
 async function requireDraftRuleSet(

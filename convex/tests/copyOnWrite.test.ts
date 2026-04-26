@@ -1103,6 +1103,18 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       ruleSetId: discardedDraftRuleSetId,
     });
 
+    const draftDiscard = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("ruleSetDraftDiscards")
+        .withIndex("by_draftRuleSetId", (q) =>
+          q.eq("draftRuleSetId", discardedDraftRuleSetId),
+        )
+        .first();
+    });
+    expect(draftDiscard).toBeDefined();
+    expect(draftDiscard?.practiceId).toBe(practiceId);
+    expect(draftDiscard?.parentRuleSetId).toBe(initialRuleSetId);
+
     const secondDelete = await t.mutation(api.entities.deleteBaseSchedule, {
       baseScheduleId,
       expectedDraftRevision: null,
