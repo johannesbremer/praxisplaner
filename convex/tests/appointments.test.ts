@@ -2005,6 +2005,100 @@ describe("appointments update safety", () => {
     ).resolves.toEqual([]);
   });
 
+  test('getAppointments with scope "all" collapses live replacement chains', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_all_scope_live_replacements",
+      "all-scope-live-replacements@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "all-scope-live-replacements@example.com",
+      subject: "workos_all_scope_live_replacements",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const sourceAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+    const replacementAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      replacesAppointmentId: sourceAppointmentId,
+      userId,
+      window: makeSlotWindow(5),
+    });
+
+    const appointments = await authed.query(api.appointments.getAppointments, {
+      activeRuleSetId: baseData.ruleSetId,
+      scope: "all",
+      selectedRuleSetId: baseData.ruleSetId,
+    });
+
+    expect(appointments.map((appointment) => appointment._id)).toContain(
+      replacementAppointmentId,
+    );
+    expect(appointments.map((appointment) => appointment._id)).not.toContain(
+      sourceAppointmentId,
+    );
+  });
+
+  test('getAppointmentsInRange with scope "simulation" collapses live replacements before range filtering', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_simulation_range_live_replacements",
+      "simulation-range-live-replacements@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "simulation-range-live-replacements@example.com",
+      subject: "workos_simulation_range_live_replacements",
+    });
+    const sourceDay = makeDayRange(4);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const sourceAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      replacesAppointmentId: sourceAppointmentId,
+      userId,
+      window: makeSlotWindow(5),
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointmentsInRange, {
+        activeRuleSetId: baseData.ruleSetId,
+        end: sourceDay.dayEnd,
+        scope: "simulation",
+        selectedRuleSetId: baseData.ruleSetId,
+        start: sourceDay.dayStart,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
