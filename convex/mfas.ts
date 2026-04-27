@@ -11,10 +11,7 @@ import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
-import {
-  markDraftRuleSetEdited,
-  selectDraftRuleSetForWrite,
-} from "./ruleSetLifecycle";
+import { editDraftRuleSet } from "./ruleSetLifecycle";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
 const expectedDraftRevisionValidator = v.union(v.number(), v.null());
@@ -99,45 +96,50 @@ export const create = mutation({
       throw new Error("MFA-Name ist erforderlich.");
     }
 
-    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
+    return await editDraftRuleSet(
+      ctx.db,
+      {
+        expectedDraftRevision: args.expectedDraftRevision,
+        practiceId: args.practiceId,
+        selectedRuleSetId: args.selectedRuleSetId,
+      },
+      async ({ ruleSetId }) => {
+        const existing = await ctx.db
+          .query("mfas")
+          .withIndex("by_ruleSetId_name", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq("name", name),
+          )
+          .first();
+        if (existing) {
+          throw new Error("Eine MFA mit diesem Namen existiert bereits.");
+        }
 
-    const existing = await ctx.db
-      .query("mfas")
-      .withIndex("by_ruleSetId_name", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("name", name),
-      )
-      .first();
-    if (existing) {
-      throw new Error("Eine MFA mit diesem Namen existiert bereits.");
-    }
+        if (args.lineageKey) {
+          const lineageKey = asMfaLineageKey(args.lineageKey);
+          const existingByLineage = await ctx.db
+            .query("mfas")
+            .withIndex("by_ruleSetId_lineageKey", (q) =>
+              q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
+            )
+            .first();
+          if (existingByLineage) {
+            throw new Error(
+              "Diese MFA existiert im aktuellen Regelset bereits.",
+            );
+          }
+        }
 
-    if (args.lineageKey) {
-      const lineageKey = asMfaLineageKey(args.lineageKey);
-      const existingByLineage = await ctx.db
-        .query("mfas")
-        .withIndex("by_ruleSetId_lineageKey", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("lineageKey", lineageKey),
-        )
-        .first();
-      if (existingByLineage) {
-        throw new Error("Diese MFA existiert im aktuellen Regelset bereits.");
-      }
-    }
+        const entityId = await insertSelfLineageEntity(ctx.db, "mfas", {
+          createdAt: BigInt(Date.now()),
+          ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
+          name,
+          practiceId: args.practiceId,
+          ruleSetId,
+        });
 
-    const entityId = await insertSelfLineageEntity(ctx.db, "mfas", {
-      createdAt: BigInt(Date.now()),
-      ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
-      name,
-      practiceId: args.practiceId,
-      ruleSetId,
-    });
-
-    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-    return { draftRevision, entityId, ruleSetId };
+        return { entityId };
+      },
+    );
   },
   returns: createMfaResultValidator,
 });
@@ -153,44 +155,47 @@ export const remove = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
+    return await editDraftRuleSet(
+      ctx.db,
+      {
+        expectedDraftRevision: args.expectedDraftRevision,
+        practiceId: args.practiceId,
+        selectedRuleSetId: args.selectedRuleSetId,
+      },
+      async ({ ruleSetId }) => {
+        const mfa = await resolveMfaEntityInRuleSet(
+          ctx,
+          asMfaId(args.mfaId),
+          args.practiceId,
+          ruleSetId,
+        );
 
-    const mfa = await resolveMfaEntityInRuleSet(
-      ctx,
-      asMfaId(args.mfaId),
-      args.practiceId,
-      ruleSetId,
+        const vacations = await ctx.db
+          .query("vacations")
+          .withIndex("by_ruleSetId_mfaLineageKey", (q) =>
+            q.eq("ruleSetId", ruleSetId).eq(
+              "mfaLineageKey",
+              asMfaLineageKey(
+                requireLineageKey({
+                  entityId: mfa._id,
+                  entityType: "mfa",
+                  lineageKey: mfa.lineageKey,
+                  ruleSetId: mfa.ruleSetId,
+                }),
+              ),
+            ),
+          )
+          .collect();
+
+        for (const vacation of vacations) {
+          await ctx.db.delete("vacations", vacation._id);
+        }
+
+        await ctx.db.delete("mfas", mfa._id);
+
+        return {};
+      },
     );
-
-    const vacations = await ctx.db
-      .query("vacations")
-      .withIndex("by_ruleSetId_mfaLineageKey", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq(
-          "mfaLineageKey",
-          asMfaLineageKey(
-            requireLineageKey({
-              entityId: mfa._id,
-              entityType: "mfa",
-              lineageKey: mfa.lineageKey,
-              ruleSetId: mfa.ruleSetId,
-            }),
-          ),
-        ),
-      )
-      .collect();
-
-    for (const vacation of vacations) {
-      await ctx.db.delete("vacations", vacation._id);
-    }
-
-    await ctx.db.delete("mfas", mfa._id);
-
-    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-    return { draftRevision, ruleSetId };
   },
   returns: draftMutationResultValidator,
 });

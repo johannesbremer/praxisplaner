@@ -71,67 +71,22 @@ type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 
-export async function markDraftRuleSetEdited(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-): Promise<number> {
-  const ruleSet = await db.get("ruleSets", ruleSetId);
-  if (!ruleSet) {
-    throw new Error(
-      `[RULE_SET_LIFECYCLE:DRAFT_NOT_FOUND] Draft-Regelset ${ruleSetId} fehlt.`,
-    );
-  }
-  if (ruleSet.saved) {
-    throw new Error(
-      `[RULE_SET_LIFECYCLE:DRAFT_EXPECTED] Regelset ${ruleSetId} ist gespeichert und darf keine Draft-Revision erhöhen.`,
-    );
-  }
-  const nextRevision = ruleSet.draftRevision + 1;
-  await db.patch("ruleSets", ruleSetId, { draftRevision: nextRevision });
-  return nextRevision;
-}
-
-export async function selectDraftRuleSetForWrite(
+export async function editDraftRuleSet<Result extends Record<string, unknown>>(
   db: DatabaseWriter,
   args: {
     expectedDraftRevision: null | number;
     practiceId: Id<"practices">;
     selectedRuleSetId: Id<"ruleSets">;
   },
-): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
-  const existingDraftRuleSet = await selectCurrentDraftRuleSet(
-    db,
-    args.practiceId,
-  );
-  if (existingDraftRuleSet) {
-    const actualRevision = existingDraftRuleSet.draftRevision;
-    if (args.expectedDraftRevision !== actualRevision) {
-      throw draftRevisionMismatchError({
-        actual: actualRevision,
-        expected: args.expectedDraftRevision,
-        ruleSetId: existingDraftRuleSet._id,
-      });
-    }
-    return {
-      draftRevision: actualRevision,
-      ruleSetId: existingDraftRuleSet._id,
-    };
-  }
+  edit: (draft: { ruleSetId: Id<"ruleSets"> }) => Promise<Result>,
+): Promise<Result & { draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
+  const { ruleSetId } = await selectDraftRuleSetForWrite(db, args);
+  const result = await edit({ ruleSetId });
+  const draftRevision = await markDraftRuleSetEdited(db, ruleSetId);
 
-  if (args.expectedDraftRevision !== null) {
-    throw draftRevisionMismatchError({
-      actual: null,
-      expected: args.expectedDraftRevision,
-      ruleSetId: null,
-    });
-  }
-
-  const ruleSetId = await startDraftRuleSetFromSource(db, {
-    practiceId: args.practiceId,
-    sourceRuleSetId: args.selectedRuleSetId,
-  });
   return {
-    draftRevision: 0,
+    ...result,
+    draftRevision,
     ruleSetId,
   };
 }
@@ -207,6 +162,26 @@ function draftRevisionMismatchError(params: {
   );
 }
 
+async function markDraftRuleSetEdited(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+): Promise<number> {
+  const ruleSet = await db.get("ruleSets", ruleSetId);
+  if (!ruleSet) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_NOT_FOUND] Draft-Regelset ${ruleSetId} fehlt.`,
+    );
+  }
+  if (ruleSet.saved) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_EXPECTED] Regelset ${ruleSetId} ist gespeichert und darf keine Draft-Revision erhöhen.`,
+    );
+  }
+  const nextRevision = ruleSet.draftRevision + 1;
+  await db.patch("ruleSets", ruleSetId, { draftRevision: nextRevision });
+  return nextRevision;
+}
+
 function maxBigInt(first: bigint, ...rest: bigint[]): bigint {
   let currentMax = first;
   for (const value of rest) {
@@ -215,6 +190,51 @@ function maxBigInt(first: bigint, ...rest: bigint[]): bigint {
     }
   }
   return currentMax;
+}
+
+async function selectDraftRuleSetForWrite(
+  db: DatabaseWriter,
+  args: {
+    expectedDraftRevision: null | number;
+    practiceId: Id<"practices">;
+    selectedRuleSetId: Id<"ruleSets">;
+  },
+): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
+  const existingDraftRuleSet = await selectCurrentDraftRuleSet(
+    db,
+    args.practiceId,
+  );
+  if (existingDraftRuleSet) {
+    const actualRevision = existingDraftRuleSet.draftRevision;
+    if (args.expectedDraftRevision !== actualRevision) {
+      throw draftRevisionMismatchError({
+        actual: actualRevision,
+        expected: args.expectedDraftRevision,
+        ruleSetId: existingDraftRuleSet._id,
+      });
+    }
+    return {
+      draftRevision: actualRevision,
+      ruleSetId: existingDraftRuleSet._id,
+    };
+  }
+
+  if (args.expectedDraftRevision !== null) {
+    throw draftRevisionMismatchError({
+      actual: null,
+      expected: args.expectedDraftRevision,
+      ruleSetId: null,
+    });
+  }
+
+  const ruleSetId = await startDraftRuleSetFromSource(db, {
+    practiceId: args.practiceId,
+    sourceRuleSetId: args.selectedRuleSetId,
+  });
+  return {
+    draftRevision: 0,
+    ruleSetId,
+  };
 }
 
 /**

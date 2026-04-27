@@ -85,10 +85,7 @@ import {
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import {
-  markDraftRuleSetEdited,
-  selectDraftRuleSetForWrite,
-} from "./ruleSetLifecycle";
+import { startDraftRuleSetFromSource } from "./ruleSetLifecycle";
 import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
@@ -107,7 +104,20 @@ async function finalizeDraftMutation(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
 ): Promise<number> {
-  return await markDraftRuleSetEdited(db, ruleSetId);
+  const ruleSet = await db.get("ruleSets", ruleSetId);
+  if (!ruleSet) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_NOT_FOUND] Draft-Regelset ${ruleSetId} fehlt.`,
+    );
+  }
+  if (ruleSet.saved) {
+    throw new Error(
+      `[RULE_SET_LIFECYCLE:DRAFT_EXPECTED] Regelset ${ruleSetId} ist gespeichert und darf keine Draft-Revision erhöhen.`,
+    );
+  }
+  const nextRevision = ruleSet.draftRevision + 1;
+  await db.patch("ruleSets", ruleSetId, { draftRevision: nextRevision });
+  return nextRevision;
 }
 
 async function resolveDraftRuleSetForMutation(
@@ -116,12 +126,30 @@ async function resolveDraftRuleSetForMutation(
   expectedDraftRevision: null | number,
   selectedRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"ruleSets">> {
-  const resolved = await selectDraftRuleSetForWrite(db, {
-    expectedDraftRevision,
+  const existingDraftRuleSet = await db
+    .query("ruleSets")
+    .withIndex("by_practiceId_saved", (q) =>
+      q.eq("practiceId", practiceId).eq("saved", false),
+    )
+    .first();
+  if (existingDraftRuleSet) {
+    const actualRevision = existingDraftRuleSet.draftRevision;
+    if (expectedDraftRevision !== actualRevision) {
+      throw new Error(
+        `[HISTORY:REVISION_MISMATCH] expected=${expectedDraftRevision ?? "null"} actual=${actualRevision} ruleSet=${existingDraftRuleSet._id}`,
+      );
+    }
+    return existingDraftRuleSet._id;
+  }
+  if (expectedDraftRevision !== null) {
+    throw new Error(
+      `[HISTORY:REVISION_MISMATCH] expected=${expectedDraftRevision} actual=null ruleSet=null`,
+    );
+  }
+  return await startDraftRuleSetFromSource(db, {
     practiceId,
-    selectedRuleSetId,
+    sourceRuleSetId: selectedRuleSetId,
   });
-  return resolved.ruleSetId;
 }
 
 // ================================

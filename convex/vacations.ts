@@ -39,10 +39,7 @@ import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
-import {
-  markDraftRuleSetEdited,
-  selectDraftRuleSetForWrite,
-} from "./ruleSetLifecycle";
+import { editDraftRuleSet } from "./ruleSetLifecycle";
 import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -390,108 +387,109 @@ export const createVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
-
-    const resolved = await assertStaffExists(ctx, {
-      ...(args.mfaId ? { mfaId: args.mfaId } : {}),
-      practiceId: args.practiceId,
-      ...(args.practitionerId ? { practitionerId: args.practitionerId } : {}),
-      ruleSetId,
-      staffType: args.staffType,
-    });
-
-    const existingByLineage = args.lineageKey
-      ? await ctx.db
-          .query("vacations")
-          .withIndex("by_ruleSetId_lineageKey", (q) =>
-            q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
-          )
-          .first()
-      : null;
-
-    if (existingByLineage) {
-      if (
-        existingByLineage.practiceId !== args.practiceId ||
-        existingByLineage.date !== args.date ||
-        existingByLineage.portion !== args.portion ||
-        existingByLineage.staffType !== args.staffType ||
-        (args.staffType === "practitioner"
-          ? existingByLineage.practitionerLineageKey !==
-            resolved.practitionerLineageKey
-          : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey)
-      ) {
-        throw new Error(
-          "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
-        );
-      }
-
-      const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-      return {
-        draftRevision,
-        entityId: existingByLineage._id,
-        ruleSetId,
-      };
-    }
-
-    const existing =
-      "practitionerLineageKey" in resolved
-        ? await findExistingVacationForDateAndStaff(ctx.db, {
-            date: args.date,
-            portion: args.portion,
-            practitionerLineageKey: resolved.practitionerLineageKey,
-            ruleSetId,
-            staffType: "practitioner",
-          })
-        : await findExistingVacationForDateAndStaff(ctx.db, {
-            date: args.date,
-            mfaLineageKey: resolved.mfaLineageKey,
-            portion: args.portion,
-            ruleSetId,
-            staffType: "mfa",
-          });
-
-    let entityId: Id<"vacations">;
-    if (existing) {
-      if (
-        args.lineageKey &&
-        existing.lineageKey &&
-        existing.lineageKey !== args.lineageKey
-      ) {
-        throw new Error(
-          "Urlaub für diesen Zeitraum existiert bereits mit anderer lineageKey.",
-        );
-      }
-      entityId = existing._id;
-      const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
-      if (existing.lineageKey !== lineageKey) {
-        await ctx.db.patch("vacations", existing._id, {
-          lineageKey,
-        });
-      }
-    } else {
-      entityId = await insertSelfLineageEntity(ctx.db, "vacations", {
-        createdAt: BigInt(Date.now()),
-        date: args.date,
-        ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
-        ...(resolved.mfaLineageKey
-          ? { mfaLineageKey: resolved.mfaLineageKey }
-          : {}),
-        portion: args.portion,
+    return await editDraftRuleSet(
+      ctx.db,
+      {
+        expectedDraftRevision: args.expectedDraftRevision,
         practiceId: args.practiceId,
-        ...(resolved.practitionerLineageKey
-          ? { practitionerLineageKey: resolved.practitionerLineageKey }
-          : {}),
-        ruleSetId,
-        staffType: args.staffType,
-      });
-    }
+        selectedRuleSetId: args.selectedRuleSetId,
+      },
+      async ({ ruleSetId }) => {
+        const resolved = await assertStaffExists(ctx, {
+          ...(args.mfaId ? { mfaId: args.mfaId } : {}),
+          practiceId: args.practiceId,
+          ...(args.practitionerId
+            ? { practitionerId: args.practitionerId }
+            : {}),
+          ruleSetId,
+          staffType: args.staffType,
+        });
 
-    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-    return { draftRevision, entityId, ruleSetId };
+        const existingByLineage = args.lineageKey
+          ? await ctx.db
+              .query("vacations")
+              .withIndex("by_ruleSetId_lineageKey", (q) =>
+                q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+              )
+              .first()
+          : null;
+
+        if (existingByLineage) {
+          if (
+            existingByLineage.practiceId !== args.practiceId ||
+            existingByLineage.date !== args.date ||
+            existingByLineage.portion !== args.portion ||
+            existingByLineage.staffType !== args.staffType ||
+            (args.staffType === "practitioner"
+              ? existingByLineage.practitionerLineageKey !==
+                resolved.practitionerLineageKey
+              : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey)
+          ) {
+            throw new Error(
+              "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
+            );
+          }
+
+          return { entityId: existingByLineage._id };
+        }
+
+        const existing =
+          "practitionerLineageKey" in resolved
+            ? await findExistingVacationForDateAndStaff(ctx.db, {
+                date: args.date,
+                portion: args.portion,
+                practitionerLineageKey: resolved.practitionerLineageKey,
+                ruleSetId,
+                staffType: "practitioner",
+              })
+            : await findExistingVacationForDateAndStaff(ctx.db, {
+                date: args.date,
+                mfaLineageKey: resolved.mfaLineageKey,
+                portion: args.portion,
+                ruleSetId,
+                staffType: "mfa",
+              });
+
+        let entityId: Id<"vacations">;
+        if (existing) {
+          if (
+            args.lineageKey &&
+            existing.lineageKey &&
+            existing.lineageKey !== args.lineageKey
+          ) {
+            throw new Error(
+              "Urlaub für diesen Zeitraum existiert bereits mit anderer lineageKey.",
+            );
+          }
+          entityId = existing._id;
+          const lineageKey =
+            args.lineageKey ?? requireVacationLineageKey(existing);
+          if (existing.lineageKey !== lineageKey) {
+            await ctx.db.patch("vacations", existing._id, {
+              lineageKey,
+            });
+          }
+        } else {
+          entityId = await insertSelfLineageEntity(ctx.db, "vacations", {
+            createdAt: BigInt(Date.now()),
+            date: args.date,
+            ...(args.lineageKey ? { lineageKey: args.lineageKey } : {}),
+            ...(resolved.mfaLineageKey
+              ? { mfaLineageKey: resolved.mfaLineageKey }
+              : {}),
+            portion: args.portion,
+            practiceId: args.practiceId,
+            ...(resolved.practitionerLineageKey
+              ? { practitionerLineageKey: resolved.practitionerLineageKey }
+              : {}),
+            ruleSetId,
+            staffType: args.staffType,
+          });
+        }
+
+        return { entityId };
+      },
+    );
   },
   returns: draftMutationResultValidator,
 });
@@ -500,26 +498,16 @@ async function createVacationInDraft(
   ctx: MutationCtx,
   args: {
     date: string;
-    expectedDraftRevision: null | number;
     lineageKey?: Id<"vacations">;
     mfaId?: Id<"mfas">;
     portion: "afternoon" | "full" | "morning";
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
-    resolvedRuleSetId?: Id<"ruleSets">;
-    selectedRuleSetId: Id<"ruleSets">;
+    ruleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
   },
 ) {
-  let ruleSetId = args.resolvedRuleSetId;
-  if (!ruleSetId) {
-    const resolvedDraft = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
-    ruleSetId = resolvedDraft.ruleSetId;
-  }
+  const ruleSetId = args.ruleSetId;
 
   const resolved = await assertStaffExists(ctx, {
     ...(args.mfaId ? { mfaId: args.mfaId } : {}),
@@ -554,12 +542,7 @@ async function createVacationInDraft(
       );
     }
 
-    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-    return {
-      draftRevision,
-      entityId: existingByLineage._id,
-      ruleSetId,
-    };
+    return { entityId: existingByLineage._id };
   }
 
   const existing =
@@ -615,8 +598,7 @@ async function createVacationInDraft(
     });
   }
 
-  const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-  return { draftRevision, entityId, ruleSetId };
+  return { entityId };
 }
 
 export const createVacationWithCoverageAdjustments = mutation({
@@ -638,331 +620,343 @@ export const createVacationWithCoverageAdjustments = mutation({
     if (!practice?.currentActiveRuleSetId) {
       throw new Error("Aktives Regelset nicht gefunden.");
     }
-    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
-    const replacingVacationLineageKeys = [
-      ...(args.replacingVacationLineageKeys ?? []).map((lineageKey) =>
-        asVacationLineageKey(lineageKey),
-      ),
-    ];
-    const retainedLineageKey =
-      replacingVacationLineageKeys.length === 1
-        ? replacingVacationLineageKeys[0]
-        : undefined;
-
-    const absentPractitionerLineageKey = asPractitionerLineageKey(
-      await resolvePractitionerLineageKey(
-        ctx.db,
-        asPractitionerId(args.practitionerId),
-      ),
-    );
-    await resolvePractitionerIdForRuleSet(ctx.db, {
-      practiceId: args.practiceId,
-      practitionerLineageKey: absentPractitionerLineageKey,
-      ruleSetId,
-    });
-    await replaceVacationsInDraft(ctx, {
-      date: args.date,
-      practiceId: args.practiceId,
-      practitionerLineageKey: absentPractitionerLineageKey,
-      replacingVacationLineageKeys,
-      ruleSetId,
-      staffType: "practitioner",
-    });
-
-    const vacationResult = await createVacationInDraft(ctx, {
-      date: args.date,
-      expectedDraftRevision: args.expectedDraftRevision,
-      ...(retainedLineageKey ? { lineageKey: retainedLineageKey } : {}),
-      portion: args.portion,
-      practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
-      resolvedRuleSetId: ruleSetId,
-      selectedRuleSetId: ruleSetId,
-      staffType: "practitioner",
-    });
-    const vacation = vacationResult.entityId
-      ? await ctx.db.get("vacations", vacationResult.entityId)
-      : null;
-    if (!vacation) {
-      throw new Error("Urlaub konnte nicht angelegt werden.");
-    }
-    const vacationLineageKey = requireVacationLineageKey(vacation);
-
-    await deleteCoverageSimulationAppointmentsForVacation(ctx, {
-      ruleSetId,
-      vacationLineageKey,
-    });
-
-    const [baseSchedules, vacations] = await Promise.all([
-      ctx.db
-        .query("baseSchedules")
-        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-        .collect(),
-      ctx.db
-        .query("vacations")
-        .withIndex("by_ruleSetId_date", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("date", args.date),
-        )
-        .collect(),
-    ]);
-    const vacationRanges = getPractitionerVacationRangesForDate(
-      Temporal.PlainDate.from(args.date),
-      absentPractitionerLineageKey,
-      baseSchedules,
-      vacations,
-    );
-
-    const now = BigInt(Date.now());
-    const seenAppointmentIds = new Set<Id<"appointments">>();
-    for (const reassignment of args.reassignments) {
-      if (seenAppointmentIds.has(reassignment.appointmentId)) {
-        throw new Error(
-          "Jeder betroffene Termin darf nur einmal verschoben werden.",
-        );
-      }
-      seenAppointmentIds.add(reassignment.appointmentId);
-
-      const appointment = await ctx.db.get(
-        "appointments",
-        reassignment.appointmentId,
-      );
-      if (!appointment) {
-        throw new Error("Termin nicht gefunden.");
-      }
-      if (appointment.practiceId !== args.practiceId) {
-        throw new Error("Termin gehört nicht zu dieser Praxis.");
-      }
-      if (
-        appointment.cancelledAt !== undefined ||
-        appointment.isSimulation === true
-      ) {
-        throw new Error("Nur echte, aktive Termine können verschoben werden.");
-      }
-      if (appointment.practitionerLineageKey !== absentPractitionerLineageKey) {
-        throw new Error(
-          "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
-        );
-      }
-      if (
-        Temporal.ZonedDateTime.from(appointment.start)
-          .withTimeZone("Europe/Berlin")
-          .toPlainDate()
-          .toString() !== args.date ||
-        !appointmentOverlapsVacationRanges(appointment, vacationRanges)
-      ) {
-        throw new Error(
-          "Mindestens ein Termin ist nicht vom angefragten Urlaub betroffen. Bitte Vorschläge neu laden.",
-        );
-      }
-      if (appointment.seriesId !== undefined) {
-        throw new Error(
-          "Kettentermine können derzeit nicht automatisch verschoben werden.",
-        );
-      }
-
-      const targetPractitionerIdInDraft = await resolvePractitionerIdForRuleSet(
-        ctx.db,
-        {
-          practiceId: args.practiceId,
-          practitionerLineageKey: asPractitionerLineageKey(
-            reassignment.targetPractitionerLineageKey,
+    return await editDraftRuleSet(
+      ctx.db,
+      {
+        expectedDraftRevision: args.expectedDraftRevision,
+        practiceId: args.practiceId,
+        selectedRuleSetId: args.selectedRuleSetId,
+      },
+      async ({ ruleSetId }) => {
+        const replacingVacationLineageKeys = [
+          ...(args.replacingVacationLineageKeys ?? []).map((lineageKey) =>
+            asVacationLineageKey(lineageKey),
           ),
-          ruleSetId,
-        },
-      );
-      const targetPractitioner = await ctx.db.get(
-        "practitioners",
-        targetPractitionerIdInDraft,
-      );
-      if (
-        targetPractitioner?.practiceId !== args.practiceId ||
-        targetPractitioner.ruleSetId !== ruleSetId
-      ) {
-        throw new Error("Ziel-Behandler konnte nicht validiert werden.");
-      }
+        ];
+        const retainedLineageKey =
+          replacingVacationLineageKeys.length === 1
+            ? replacingVacationLineageKeys[0]
+            : undefined;
 
-      const selectedAppointmentTypeId =
-        await resolveAppointmentTypeIdForRuleSet(ctx.db, {
-          appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-            appointment.appointmentTypeLineageKey,
-          ),
-          practiceId: args.practiceId,
-          targetRuleSetId: ruleSetId,
-        });
-      const selectedAppointmentType = await ctx.db.get(
-        "appointmentTypes",
-        selectedAppointmentTypeId,
-      );
-      if (!selectedAppointmentType) {
-        throw new Error("Terminart des Termins konnte nicht geladen werden.");
-      }
-      if (
-        !selectedAppointmentType.allowedPractitionerLineageKeys.includes(
+        const absentPractitionerLineageKey = asPractitionerLineageKey(
           await resolvePractitionerLineageKey(
             ctx.db,
-            asPractitionerId(targetPractitionerIdInDraft),
-          ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
-        )
-      ) {
-        throw new Error(
-          "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
+            asPractitionerId(args.practitionerId),
+          ),
         );
-      }
-      const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
-        locationLineageKey: asLocationLineageKey(
-          appointment.locationLineageKey,
-        ),
-        practiceId: args.practiceId,
-        targetRuleSetId: ruleSetId,
-      });
-      const selectedAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
-        appointment.appointmentTypeLineageKey,
-      );
-      const selectedLocationLineageKey = asLocationLineageKey(
-        appointment.locationLineageKey,
-      );
-
-      const targetPractitionerLineageKey = await resolvePractitionerLineageKey(
-        ctx.db,
-        targetPractitionerIdInDraft,
-      );
-
-      const conflictingAppointment = targetPractitionerLineageKey
-        ? await findConflictingAppointment(ctx.db, {
-            candidate: {
-              end: appointment.end,
-              locationLineageKey: asLocationLineageKey(
-                appointment.locationLineageKey,
-              ),
-              practitionerLineageKey: targetPractitionerLineageKey,
-              start: appointment.start,
-            },
-            draftRuleSetId: ruleSetId,
-            excludeAppointmentIds: [appointment._id],
-            occupancyView: "draftEffective",
-            practiceId: args.practiceId,
-          })
-        : null;
-
-      if (conflictingAppointment) {
-        throw new Error(
-          "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
-        );
-      }
-      const patientDateOfBirth = await getPatientDateOfBirthForAppointment(
-        ctx,
-        appointment,
-      );
-      const schedulingResult = await ctx.runQuery(
-        internal.scheduling.getSlotsForDayInternal,
-        {
-          date: Temporal.ZonedDateTime.from(appointment.start)
-            .withTimeZone("Europe/Berlin")
-            .toPlainDate()
-            .toString(),
-          excludedAppointmentIds: [appointment._id],
+        await resolvePractitionerIdForRuleSet(ctx.db, {
           practiceId: args.practiceId,
+          practitionerLineageKey: absentPractitionerLineageKey,
           ruleSetId,
-          simulatedContext: {
-            appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
-            locationLineageKey: selectedLocationLineageKey,
-            patient: {
-              ...(patientDateOfBirth
-                ? { dateOfBirth: patientDateOfBirth }
-                : {}),
-              isNew: false,
+        });
+        await replaceVacationsInDraft(ctx, {
+          date: args.date,
+          practiceId: args.practiceId,
+          practitionerLineageKey: absentPractitionerLineageKey,
+          replacingVacationLineageKeys,
+          ruleSetId,
+          staffType: "practitioner",
+        });
+
+        const vacationResult = await createVacationInDraft(ctx, {
+          date: args.date,
+          ...(retainedLineageKey ? { lineageKey: retainedLineageKey } : {}),
+          portion: args.portion,
+          practiceId: args.practiceId,
+          practitionerId: args.practitionerId,
+          ruleSetId,
+          staffType: "practitioner",
+        });
+        const vacation = vacationResult.entityId
+          ? await ctx.db.get("vacations", vacationResult.entityId)
+          : null;
+        if (!vacation) {
+          throw new Error("Urlaub konnte nicht angelegt werden.");
+        }
+        const vacationLineageKey = requireVacationLineageKey(vacation);
+
+        await deleteCoverageSimulationAppointmentsForVacation(ctx, {
+          ruleSetId,
+          vacationLineageKey,
+        });
+
+        const [baseSchedules, vacations] = await Promise.all([
+          ctx.db
+            .query("baseSchedules")
+            .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+            .collect(),
+          ctx.db
+            .query("vacations")
+            .withIndex("by_ruleSetId_date", (q) =>
+              q.eq("ruleSetId", ruleSetId).eq("date", args.date),
+            )
+            .collect(),
+        ]);
+        const vacationRanges = getPractitionerVacationRangesForDate(
+          Temporal.PlainDate.from(args.date),
+          absentPractitionerLineageKey,
+          baseSchedules,
+          vacations,
+        );
+
+        const now = BigInt(Date.now());
+        const seenAppointmentIds = new Set<Id<"appointments">>();
+        for (const reassignment of args.reassignments) {
+          if (seenAppointmentIds.has(reassignment.appointmentId)) {
+            throw new Error(
+              "Jeder betroffene Termin darf nur einmal verschoben werden.",
+            );
+          }
+          seenAppointmentIds.add(reassignment.appointmentId);
+
+          const appointment = await ctx.db.get(
+            "appointments",
+            reassignment.appointmentId,
+          );
+          if (!appointment) {
+            throw new Error("Termin nicht gefunden.");
+          }
+          if (appointment.practiceId !== args.practiceId) {
+            throw new Error("Termin gehört nicht zu dieser Praxis.");
+          }
+          if (
+            appointment.cancelledAt !== undefined ||
+            appointment.isSimulation === true
+          ) {
+            throw new Error(
+              "Nur echte, aktive Termine können verschoben werden.",
+            );
+          }
+          if (
+            appointment.practitionerLineageKey !== absentPractitionerLineageKey
+          ) {
+            throw new Error(
+              "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
+            );
+          }
+          if (
+            Temporal.ZonedDateTime.from(appointment.start)
+              .withTimeZone("Europe/Berlin")
+              .toPlainDate()
+              .toString() !== args.date ||
+            !appointmentOverlapsVacationRanges(appointment, vacationRanges)
+          ) {
+            throw new Error(
+              "Mindestens ein Termin ist nicht vom angefragten Urlaub betroffen. Bitte Vorschläge neu laden.",
+            );
+          }
+          if (appointment.seriesId !== undefined) {
+            throw new Error(
+              "Kettentermine können derzeit nicht automatisch verschoben werden.",
+            );
+          }
+
+          const targetPractitionerIdInDraft =
+            await resolvePractitionerIdForRuleSet(ctx.db, {
+              practiceId: args.practiceId,
+              practitionerLineageKey: asPractitionerLineageKey(
+                reassignment.targetPractitionerLineageKey,
+              ),
+              ruleSetId,
+            });
+          const targetPractitioner = await ctx.db.get(
+            "practitioners",
+            targetPractitionerIdInDraft,
+          );
+          if (
+            targetPractitioner?.practiceId !== args.practiceId ||
+            targetPractitioner.ruleSetId !== ruleSetId
+          ) {
+            throw new Error("Ziel-Behandler konnte nicht validiert werden.");
+          }
+
+          const selectedAppointmentTypeId =
+            await resolveAppointmentTypeIdForRuleSet(ctx.db, {
+              appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                appointment.appointmentTypeLineageKey,
+              ),
+              practiceId: args.practiceId,
+              targetRuleSetId: ruleSetId,
+            });
+          const selectedAppointmentType = await ctx.db.get(
+            "appointmentTypes",
+            selectedAppointmentTypeId,
+          );
+          if (!selectedAppointmentType) {
+            throw new Error(
+              "Terminart des Termins konnte nicht geladen werden.",
+            );
+          }
+          if (
+            !selectedAppointmentType.allowedPractitionerLineageKeys.includes(
+              await resolvePractitionerLineageKey(
+                ctx.db,
+                asPractitionerId(targetPractitionerIdInDraft),
+              ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
+            )
+          ) {
+            throw new Error(
+              "Der Ziel-Behandler ist für diese Terminart nicht freigegeben.",
+            );
+          }
+          const selectedLocationId = await resolveLocationIdForRuleSet(ctx.db, {
+            locationLineageKey: asLocationLineageKey(
+              appointment.locationLineageKey,
+            ),
+            practiceId: args.practiceId,
+            targetRuleSetId: ruleSetId,
+          });
+          const selectedAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+            appointment.appointmentTypeLineageKey,
+          );
+          const selectedLocationLineageKey = asLocationLineageKey(
+            appointment.locationLineageKey,
+          );
+
+          const targetPractitionerLineageKey =
+            await resolvePractitionerLineageKey(
+              ctx.db,
+              targetPractitionerIdInDraft,
+            );
+
+          const conflictingAppointment = targetPractitionerLineageKey
+            ? await findConflictingAppointment(ctx.db, {
+                candidate: {
+                  end: appointment.end,
+                  locationLineageKey: asLocationLineageKey(
+                    appointment.locationLineageKey,
+                  ),
+                  practitionerLineageKey: targetPractitionerLineageKey,
+                  start: appointment.start,
+                },
+                draftRuleSetId: ruleSetId,
+                excludeAppointmentIds: [appointment._id],
+                occupancyView: "draftEffective",
+                practiceId: args.practiceId,
+              })
+            : null;
+
+          if (conflictingAppointment) {
+            throw new Error(
+              "Mindestens ein Verschiebevorschlag ist nicht mehr frei. Bitte Vorschläge neu laden.",
+            );
+          }
+          const patientDateOfBirth = await getPatientDateOfBirthForAppointment(
+            ctx,
+            appointment,
+          );
+          const schedulingResult = await ctx.runQuery(
+            internal.scheduling.getSlotsForDayInternal,
+            {
+              date: Temporal.ZonedDateTime.from(appointment.start)
+                .withTimeZone("Europe/Berlin")
+                .toPlainDate()
+                .toString(),
+              excludedAppointmentIds: [appointment._id],
+              practiceId: args.practiceId,
+              ruleSetId,
+              simulatedContext: {
+                appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+                locationLineageKey: selectedLocationLineageKey,
+                patient: {
+                  ...(patientDateOfBirth
+                    ? { dateOfBirth: patientDateOfBirth }
+                    : {}),
+                  isNew: false,
+                },
+              },
             },
-          },
-        },
-      );
-      const matchingSlot = schedulingResult.slots.find(
-        (slot) =>
-          slot.status === "AVAILABLE" &&
-          slot.practitionerLineageKey === targetPractitionerLineageKey &&
-          slot.startTime === appointment.start,
-      );
+          );
+          const matchingSlot = schedulingResult.slots.find(
+            (slot) =>
+              slot.status === "AVAILABLE" &&
+              slot.practitionerLineageKey === targetPractitionerLineageKey &&
+              slot.startTime === appointment.start,
+          );
 
-      if (!matchingSlot) {
-        throw new Error(
-          "Mindestens ein Verschiebevorschlag ist nicht mehr gueltig. Bitte Vorschläge neu laden.",
-        );
-      }
-      const appointmentsReplacingCurrent = await ctx.db
-        .query("appointments")
-        .withIndex("by_replacesAppointmentId", (q) =>
-          q.eq("replacesAppointmentId", appointment._id),
-        )
-        .collect();
-      const existingSimulationAppointments =
-        appointmentsReplacingCurrent.filter(
-          (candidate) =>
-            candidate.isSimulation === true &&
-            candidate.simulationRuleSetId === ruleSetId &&
-            isActivationBoundSimulation(candidate),
-        );
-      const conflictingDraftSimulation = appointmentsReplacingCurrent.find(
-        (candidate) =>
-          candidate.isSimulation === true &&
-          candidate.simulationRuleSetId === ruleSetId &&
-          !isActivationBoundSimulation(candidate),
-      );
-      if (conflictingDraftSimulation) {
-        throw new Error(
-          "Mindestens ein Termin wurde in der Simulation bereits manuell angepasst. Bitte Urlaubsvorschläge neu laden.",
-        );
-      }
-      const [existingSimulationAppointment, ...duplicateSimulations] =
-        existingSimulationAppointments;
-      for (const duplicateSimulation of duplicateSimulations) {
-        await ctx.db.delete("appointments", duplicateSimulation._id);
-      }
+          if (!matchingSlot) {
+            throw new Error(
+              "Mindestens ein Verschiebevorschlag ist nicht mehr gueltig. Bitte Vorschläge neu laden.",
+            );
+          }
+          const appointmentsReplacingCurrent = await ctx.db
+            .query("appointments")
+            .withIndex("by_replacesAppointmentId", (q) =>
+              q.eq("replacesAppointmentId", appointment._id),
+            )
+            .collect();
+          const existingSimulationAppointments =
+            appointmentsReplacingCurrent.filter(
+              (candidate) =>
+                candidate.isSimulation === true &&
+                candidate.simulationRuleSetId === ruleSetId &&
+                isActivationBoundSimulation(candidate),
+            );
+          const conflictingDraftSimulation = appointmentsReplacingCurrent.find(
+            (candidate) =>
+              candidate.isSimulation === true &&
+              candidate.simulationRuleSetId === ruleSetId &&
+              !isActivationBoundSimulation(candidate),
+          );
+          if (conflictingDraftSimulation) {
+            throw new Error(
+              "Mindestens ein Termin wurde in der Simulation bereits manuell angepasst. Bitte Urlaubsvorschläge neu laden.",
+            );
+          }
+          const [existingSimulationAppointment, ...duplicateSimulations] =
+            existingSimulationAppointments;
+          for (const duplicateSimulation of duplicateSimulations) {
+            await ctx.db.delete("appointments", duplicateSimulation._id);
+          }
 
-      const storedReferences = await resolveStoredAppointmentReferencesForWrite(
-        ctx.db,
-        {
-          appointmentTypeId: selectedAppointmentTypeId,
-          locationId: selectedLocationId,
-          practitionerId: targetPractitionerIdInDraft,
-        },
-      );
+          const storedReferences =
+            await resolveStoredAppointmentReferencesForWrite(ctx.db, {
+              appointmentTypeId: selectedAppointmentTypeId,
+              locationId: selectedLocationId,
+              practitionerId: targetPractitionerIdInDraft,
+            });
 
-      const nextAppointmentData = {
-        ...storedReferences,
-        appointmentTypeTitle: appointment.appointmentTypeTitle,
-        end: appointment.end,
-        lastModified: now,
-        ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
-        practiceId: args.practiceId,
-        reassignmentSourceVacationLineageKey: vacationLineageKey,
-        replacesAppointmentId: appointment._id,
-        simulationKind: "activation-reassignment" as const,
-        simulationRuleSetId: ruleSetId,
-        start: appointment.start,
-        title: appointment.title,
-        ...(appointment.userId ? { userId: appointment.userId } : {}),
-      };
+          const nextAppointmentData = {
+            ...storedReferences,
+            appointmentTypeTitle: appointment.appointmentTypeTitle,
+            end: appointment.end,
+            lastModified: now,
+            ...(appointment.patientId
+              ? { patientId: appointment.patientId }
+              : {}),
+            practiceId: args.practiceId,
+            reassignmentSourceVacationLineageKey: vacationLineageKey,
+            replacesAppointmentId: appointment._id,
+            simulationKind: "activation-reassignment" as const,
+            simulationRuleSetId: ruleSetId,
+            start: appointment.start,
+            title: appointment.title,
+            ...(appointment.userId ? { userId: appointment.userId } : {}),
+          };
 
-      if (existingSimulationAppointment) {
-        await ctx.db.patch("appointments", existingSimulationAppointment._id, {
-          ...nextAppointmentData,
-          createdAt: existingSimulationAppointment.createdAt,
-          simulationValidatedAt: now,
-        });
-      } else {
-        await ctx.db.insert("appointments", {
-          ...nextAppointmentData,
-          createdAt: now,
-          isSimulation: true,
-          simulationValidatedAt: now,
-        });
-      }
-    }
+          if (existingSimulationAppointment) {
+            await ctx.db.patch(
+              "appointments",
+              existingSimulationAppointment._id,
+              {
+                ...nextAppointmentData,
+                createdAt: existingSimulationAppointment.createdAt,
+                simulationValidatedAt: now,
+              },
+            );
+          } else {
+            await ctx.db.insert("appointments", {
+              ...nextAppointmentData,
+              createdAt: now,
+              isSimulation: true,
+              simulationValidatedAt: now,
+            });
+          }
+        }
 
-    return vacationResult;
+        return vacationResult;
+      },
+    );
   },
   returns: draftMutationResultValidator,
 });
@@ -983,82 +977,85 @@ export const deleteVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await selectDraftRuleSetForWrite(ctx.db, {
-      expectedDraftRevision: args.expectedDraftRevision,
-      practiceId: args.practiceId,
-      selectedRuleSetId: args.selectedRuleSetId,
-    });
+    return await editDraftRuleSet(
+      ctx.db,
+      {
+        expectedDraftRevision: args.expectedDraftRevision,
+        practiceId: args.practiceId,
+        selectedRuleSetId: args.selectedRuleSetId,
+      },
+      async ({ ruleSetId }) => {
+        const resolved = await assertStaffExists(ctx, {
+          ...(args.mfaId ? { mfaId: args.mfaId } : {}),
+          practiceId: args.practiceId,
+          ...(args.practitionerId
+            ? { practitionerId: args.practitionerId }
+            : {}),
+          ruleSetId,
+          staffType: args.staffType,
+        });
 
-    const resolved = await assertStaffExists(ctx, {
-      ...(args.mfaId ? { mfaId: args.mfaId } : {}),
-      practiceId: args.practiceId,
-      ...(args.practitionerId ? { practitionerId: args.practitionerId } : {}),
-      ruleSetId,
-      staffType: args.staffType,
-    });
+        const existingByLineage = args.lineageKey
+          ? await ctx.db
+              .query("vacations")
+              .withIndex("by_ruleSetId_lineageKey", (q) =>
+                q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
+              )
+              .first()
+          : null;
 
-    const existingByLineage = args.lineageKey
-      ? await ctx.db
-          .query("vacations")
-          .withIndex("by_ruleSetId_lineageKey", (q) =>
-            q.eq("ruleSetId", ruleSetId).eq("lineageKey", args.lineageKey),
-          )
-          .first()
-      : null;
+        const existing =
+          existingByLineage ??
+          (args.lineageKey
+            ? null
+            : "practitionerLineageKey" in resolved
+              ? await findExistingVacationForDateAndStaff(ctx.db, {
+                  date: args.date,
+                  portion: args.portion,
+                  practitionerLineageKey: resolved.practitionerLineageKey,
+                  ruleSetId,
+                  staffType: "practitioner",
+                })
+              : await findExistingVacationForDateAndStaff(ctx.db, {
+                  date: args.date,
+                  mfaLineageKey: resolved.mfaLineageKey,
+                  portion: args.portion,
+                  ruleSetId,
+                  staffType: "mfa",
+                }));
 
-    const existing =
-      existingByLineage ??
-      (args.lineageKey
-        ? null
-        : "practitionerLineageKey" in resolved
-          ? await findExistingVacationForDateAndStaff(ctx.db, {
-              date: args.date,
-              portion: args.portion,
-              practitionerLineageKey: resolved.practitionerLineageKey,
-              ruleSetId,
-              staffType: "practitioner",
-            })
-          : await findExistingVacationForDateAndStaff(ctx.db, {
-              date: args.date,
-              mfaLineageKey: resolved.mfaLineageKey,
-              portion: args.portion,
-              ruleSetId,
-              staffType: "mfa",
-            }));
+        if (
+          existingByLineage &&
+          (existingByLineage.practiceId !== args.practiceId ||
+            existingByLineage.date !== args.date ||
+            existingByLineage.portion !== args.portion ||
+            existingByLineage.staffType !== args.staffType ||
+            (args.staffType === "practitioner"
+              ? existingByLineage.practitionerLineageKey !==
+                resolved.practitionerLineageKey
+              : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey))
+        ) {
+          throw new Error(
+            "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
+          );
+        }
 
-    if (
-      existingByLineage &&
-      (existingByLineage.practiceId !== args.practiceId ||
-        existingByLineage.date !== args.date ||
-        existingByLineage.portion !== args.portion ||
-        existingByLineage.staffType !== args.staffType ||
-        (args.staffType === "practitioner"
-          ? existingByLineage.practitionerLineageKey !==
-            resolved.practitionerLineageKey
-          : existingByLineage.mfaLineageKey !== resolved.mfaLineageKey))
-    ) {
-      throw new Error(
-        "Urlaub mit dieser lineageKey existiert bereits mit anderen Daten.",
-      );
-    }
+        const entityId = existing?._id;
 
-    const entityId = existing?._id;
+        if (existing) {
+          const vacationLineageKey = requireVacationLineageKey(existing);
+          await deleteCoverageSimulationAppointmentsForVacation(ctx, {
+            ruleSetId,
+            vacationLineageKey,
+          });
+          await ctx.db.delete("vacations", existing._id);
+        }
 
-    if (existing) {
-      const vacationLineageKey = requireVacationLineageKey(existing);
-      await deleteCoverageSimulationAppointmentsForVacation(ctx, {
-        ruleSetId,
-        vacationLineageKey,
-      });
-      await ctx.db.delete("vacations", existing._id);
-    }
-
-    const draftRevision = await markDraftRuleSetEdited(ctx.db, ruleSetId);
-    return {
-      draftRevision,
-      ...(entityId ? { entityId } : {}),
-      ruleSetId,
-    };
+        return {
+          ...(entityId ? { entityId } : {}),
+        };
+      },
+    );
   },
   returns: draftMutationResultValidator,
 });
