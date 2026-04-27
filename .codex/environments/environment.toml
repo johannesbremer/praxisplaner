@@ -7,6 +7,8 @@ script = '''
 set -eu
 
 FNM_BIN="$(command -v fnm || true)"
+ENV_NEXT="$(mktemp)"
+trap 'rm -f "$ENV_NEXT"' EXIT
 
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
 
@@ -52,6 +54,17 @@ PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 WORKOS_ID="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
+if [ -f .env.local ]; then
+  sed -E '/^(WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)=/d' .env.local > "$ENV_NEXT"
+else
+  : > "$ENV_NEXT"
+fi
+
+if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
+  sed -E '/^VITE_PUBLIC_POSTHOG_KEY=/d' "$ENV_NEXT" > "$ENV_NEXT.posthog"
+  mv "$ENV_NEXT.posthog" "$ENV_NEXT"
+fi
+
 {
   printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
@@ -62,7 +75,8 @@ POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
   if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
     printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
   fi
-} > .env.local
+} >> "$ENV_NEXT"
+mv "$ENV_NEXT" .env.local
 chmod 600 .env.local
 
 pnpm i
