@@ -6,21 +6,91 @@ name = "praxisplaner"
 script = '''
 set -eu
 
-SOURCE_ENV="$HOME/Code/praxisplaner/.env.local"
 FNM_BIN="$(command -v fnm || true)"
+ENV_NEXT="$(mktemp)"
+trap 'rm -f "$ENV_NEXT"' EXIT
 
-[ -f "$SOURCE_ENV" ] || { echo "Missing $SOURCE_ENV"; exit 1; }
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
+
+if [ -z "${WORKOS_CLIENT_ID:-}" ] && [ -z "${VITE_WORKOS_CLIENT_ID:-}" ]; then
+  echo "Missing WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID"
+  exit 1
+fi
+
+EXISTING_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
+EXISTING_CONVEX_COMMENT=""
+if [ -z "$EXISTING_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
+  EXISTING_CONVEX_LINE="$(sed -n 's/^CONVEX_DEPLOYMENT=//p' .env.local | head -n 1)"
+  EXISTING_CONVEX_DEPLOYMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -E 's/[[:space:]]*#.*$//')"
+  EXISTING_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
+fi
+
+if [ -z "$EXISTING_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
+  echo "Missing CONVEX_DEPLOYMENT in .env.local or environment"
+  exit 1
+fi
+
+CONVEX_TEAM_SLUG="$(printf '%s' "$EXISTING_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')"
+CONVEX_PROJECT_SLUG="$(printf '%s' "$EXISTING_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')"
 
 eval "$("$FNM_BIN" env --shell bash)"
 "$FNM_BIN" use --install-if-missing --silent-if-unchanged
 corepack enable
 
-cp -f "$SOURCE_ENV" .env.local
+WORKTREE_NAME="$(basename "$(pwd)")"
+BRANCH_NAME="$(git branch --show-current 2>/dev/null || true)"
+RAW_PREVIEW_NAME="${BRANCH_NAME:-$WORKTREE_NAME}"
+PREVIEW_SLUG="$(
+  printf '%s' "$RAW_PREVIEW_NAME" |
+    tr '[:upper:]' '[:lower:]' |
+    sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+)"
+PREVIEW_HASH="$(printf '%s' "$(pwd)" | shasum -a 256 | cut -c1-8)"
+PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
+PREVIEW_SLUG="$(printf '%s' "$PREVIEW_SLUG" | cut -c1-48 | sed -E 's/-+$//')"
+PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
+PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
+
+WORKOS_ID="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
+POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
+
+if [ -f .env.local ]; then
+  sed -E '/^(WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)=/d' .env.local > "$ENV_NEXT"
+else
+  : > "$ENV_NEXT"
+fi
+
+if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
+  sed -E '/^VITE_PUBLIC_POSTHOG_KEY=/d' "$ENV_NEXT" > "$ENV_NEXT.posthog"
+  mv "$ENV_NEXT.posthog" "$ENV_NEXT"
+fi
+
+{
+  printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
+  printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
+  printf 'VITE_PUBLIC_POSTHOG_HOST=%s\n' "$POSTHOG_HOST"
+  if [ -n "$EXISTING_CONVEX_DEPLOYMENT" ]; then
+    printf 'CONVEX_DEPLOYMENT=%s%s\n' "$EXISTING_CONVEX_DEPLOYMENT" "$EXISTING_CONVEX_COMMENT"
+  fi
+  if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
+    printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
+  fi
+} >> "$ENV_NEXT"
+mv "$ENV_NEXT" .env.local
 chmod 600 .env.local
 
-export CONVEX_AGENT_MODE=anonymous
 pnpm i
+pnpm seed:preview
+CONVEX_PREVIEW_REF="$PREVIEW_NAME"
+if [ -n "$CONVEX_TEAM_SLUG" ] && [ -n "$CONVEX_PROJECT_SLUG" ]; then
+  CONVEX_PREVIEW_REF="${CONVEX_TEAM_SLUG}:${CONVEX_PROJECT_SLUG}:${PREVIEW_NAME}"
+fi
+pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
+  pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
+pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
+CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
+[ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
+pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes seed_data.zip
 pnpm gen
 '''
 

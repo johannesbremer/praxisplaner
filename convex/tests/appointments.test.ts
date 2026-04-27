@@ -3111,6 +3111,7 @@ describe("calendar day appointment queries", () => {
   test("getNextAvailableSlot ignores deleted practitioners left in appointment-type allowlists", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
+    const monday = nextWeekday(1);
     const userId = await createUser(
       t,
       "workos_next_slot_deleted_allowlist",
@@ -3160,7 +3161,7 @@ describe("calendar day appointment queries", () => {
 
     await expect(
       authed.query(api.scheduling.getNextAvailableSlot, {
-        date: "2026-04-27",
+        date: monday.toString(),
         practiceId: baseData.practiceId,
         ruleSetId: baseData.ruleSetId,
         simulatedContext: {
@@ -3172,7 +3173,12 @@ describe("calendar day appointment queries", () => {
     ).resolves.toMatchObject({
       locationLineageKey: baseData.locationId,
       practitionerLineageKey: baseData.practitionerId,
-      startTime: "2026-04-27T08:00:00+02:00[Europe/Berlin]",
+      startTime: monday
+        .toZonedDateTime({
+          plainTime: { hour: 8, minute: 0 },
+          timeZone: "Europe/Berlin",
+        })
+        .toString(),
       status: "AVAILABLE",
     });
   });
