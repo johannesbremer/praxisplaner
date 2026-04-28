@@ -17,21 +17,21 @@ if [ -z "${WORKOS_CLIENT_ID:-}" ] && [ -z "${VITE_WORKOS_CLIENT_ID:-}" ]; then
   exit 1
 fi
 
-EXISTING_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
-EXISTING_CONVEX_COMMENT=""
-if [ -z "$EXISTING_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
+SOURCE_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
+SOURCE_CONVEX_COMMENT=""
+if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
   EXISTING_CONVEX_LINE="$(sed -n 's/^CONVEX_DEPLOYMENT=//p' .env.local | head -n 1)"
-  EXISTING_CONVEX_DEPLOYMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -E 's/[[:space:]]*#.*$//')"
-  EXISTING_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
+  SOURCE_CONVEX_DEPLOYMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -E 's/[[:space:]]*#.*$//')"
+  SOURCE_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
 fi
 
-if [ -z "$EXISTING_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
+if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
   echo "Missing CONVEX_DEPLOYMENT in .env.local or environment"
   exit 1
 fi
 
-CONVEX_TEAM_SLUG="$(printf '%s' "$EXISTING_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')"
-CONVEX_PROJECT_SLUG="$(printf '%s' "$EXISTING_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')"
+CONVEX_TEAM_SLUG="$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')"
+CONVEX_PROJECT_SLUG="$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')"
 
 eval "$("$FNM_BIN" env --shell bash)"
 "$FNM_BIN" use --install-if-missing --silent-if-unchanged
@@ -69,9 +69,6 @@ fi
   printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_PUBLIC_POSTHOG_HOST=%s\n' "$POSTHOG_HOST"
-  if [ -n "$EXISTING_CONVEX_DEPLOYMENT" ]; then
-    printf 'CONVEX_DEPLOYMENT=%s%s\n' "$EXISTING_CONVEX_DEPLOYMENT" "$EXISTING_CONVEX_COMMENT"
-  fi
   if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
     printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
   fi
@@ -85,8 +82,21 @@ CONVEX_PREVIEW_REF="$PREVIEW_NAME"
 if [ -n "$CONVEX_TEAM_SLUG" ] && [ -n "$CONVEX_PROJECT_SLUG" ]; then
   CONVEX_PREVIEW_REF="${CONVEX_TEAM_SLUG}:${CONVEX_PROJECT_SLUG}:${PREVIEW_NAME}"
 fi
-pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
-  pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
+if [ -n "$SOURCE_CONVEX_DEPLOYMENT" ]; then
+  CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
+    CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
+else
+  pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
+    pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
+fi
+CONVEX_SELECTED_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=//p' .env.local | head -n 1 | sed -E 's/[[:space:]]*#.*$//')"
+case "$CONVEX_SELECTED_DEPLOYMENT" in
+  preview:*) ;;
+  *)
+    echo "Expected preview CONVEX_DEPLOYMENT after selecting $CONVEX_PREVIEW_REF, got ${CONVEX_SELECTED_DEPLOYMENT:-<missing>}"
+    exit 1
+    ;;
+esac
 pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
 [ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
