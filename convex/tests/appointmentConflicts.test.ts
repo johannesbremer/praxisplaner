@@ -132,4 +132,20 @@ describe("getEffectiveAppointmentReplacementView", () => {
       }).map((record) => record._id),
     ).toEqual([simulation._id]);
   });
+
+  test("simulation view without draft context degrades to live appointments", () => {
+    const liveAppointment = appointment("live");
+    const simulation = appointment("simulation", {
+      isSimulation: true,
+      replacesAppointmentId: liveAppointment._id,
+      simulationRuleSetId: toTableId<"ruleSets">("draft"),
+      start: "2025-01-01T10:00:00+01:00[Europe/Berlin]",
+    });
+
+    expect(
+      getEffectiveAppointmentReplacementView([liveAppointment, simulation], {
+        view: "simulation",
+      }).map((record) => record._id),
+    ).toEqual([liveAppointment._id]);
+  });
 });

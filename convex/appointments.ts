@@ -550,6 +550,24 @@ function getAppointmentReplacementView(
   return scope === "real" ? "live" : scope;
 }
 
+async function getAppointmentsByIds(
+  ctx: QueryCtx,
+  appointmentIds: Id<"appointments">[],
+): Promise<AppointmentDoc[]> {
+  const appointments = await Promise.all(
+    appointmentIds.map((appointmentId) =>
+      ctx.db.get("appointments", appointmentId),
+    ),
+  );
+
+  return appointments.filter(
+    (appointment): appointment is AppointmentDoc =>
+      appointment !== null &&
+      appointment.cancelledAt === undefined &&
+      appointment.isSimulation !== true,
+  );
+}
+
 function getDisplayRuleSetId(args: {
   activeRuleSetId?: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
@@ -567,6 +585,10 @@ async function getEffectiveAppointmentsForReadScope(
 ): Promise<AppointmentDoc[]> {
   const draftRuleSetId = getSimulationScopeRuleSetId(args);
   const liveAppointmentIds = getLiveAppointmentIds(appointments);
+  const simulationSourceAppointmentIds = getSimulationSourceAppointmentIds(
+    appointments,
+    draftRuleSetId,
+  );
   const [simulationReplacements, liveReplacements] = await Promise.all([
     args.scope === "simulation"
       ? getSimulationAppointmentReplacements(
@@ -576,10 +598,18 @@ async function getEffectiveAppointmentsForReadScope(
           draftRuleSetId,
         )
       : Promise.resolve([]),
-    getLiveAppointmentReplacements(ctx, liveAppointmentIds),
+    getLiveAppointmentReplacements(ctx, [
+      ...liveAppointmentIds,
+      ...simulationSourceAppointmentIds,
+    ]),
   ]);
+  const simulationSourceAppointments = await getAppointmentsByIds(
+    ctx,
+    simulationSourceAppointmentIds,
+  );
   const candidateAppointments = dedupeById([
     ...appointments,
+    ...simulationSourceAppointments,
     ...simulationReplacements,
     ...liveReplacements,
   ]);
@@ -712,6 +742,25 @@ async function getSimulationBlockedSlotReplacements(
 
 function getSimulationScopeRuleSetId(args: AppointmentScopeArgs) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
+}
+
+function getSimulationSourceAppointmentIds(
+  appointments: AppointmentDoc[],
+  draftRuleSetId: Id<"ruleSets"> | undefined,
+): Id<"appointments">[] {
+  if (draftRuleSetId === undefined) {
+    return [];
+  }
+
+  return appointments
+    .filter(
+      (appointment) =>
+        appointment.isSimulation === true &&
+        appointment.simulationRuleSetId === draftRuleSetId &&
+        appointment.replacesAppointmentId !== undefined,
+    )
+    .map((appointment) => appointment.replacesAppointmentId)
+    .filter((id): id is Id<"appointments"> => id !== undefined);
 }
 
 function isAppointmentInCalendarDayQuery(

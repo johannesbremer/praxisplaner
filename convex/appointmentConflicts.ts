@@ -107,7 +107,10 @@ export async function findConflictingCalendarOccupancy(
 
   const appointmentCandidates =
     args.occupancyView === "live"
-      ? await includeLiveAppointmentReplacements(db, rawAppointments)
+      ? await includeLiveAppointmentReplacements(db, {
+          appointments: rawAppointments,
+          practiceId: args.practiceId,
+        })
       : rawAppointments;
 
   return findFirstCalendarOccupancyConflict({
@@ -139,11 +142,16 @@ export function getEffectiveAppointmentReplacementView<
   const currentLiveAppointmentIds = new Set(
     liveAppointments.map((appointment) => appointment._id),
   );
+  const requireDraftRuleSetForSimulation = args.view === "simulation";
   const validSimulationAppointments = appointments.filter((appointment) => {
     if (
       appointment.cancelledAt !== undefined ||
       appointment.isSimulation !== true
     ) {
+      return false;
+    }
+
+    if (requireDraftRuleSetForSimulation && args.draftRuleSetId === undefined) {
       return false;
     }
 
@@ -314,46 +322,48 @@ function getEffectiveBlockedSlotsForOccupancyView(
 
 async function includeLiveAppointmentReplacements(
   db: DatabaseLike,
-  appointments: Doc<"appointments">[],
+  args: {
+    appointments: Doc<"appointments">[];
+    practiceId: Id<"practices">;
+  },
 ): Promise<Doc<"appointments">[]> {
-  let candidateIds = appointments
+  const livePracticeAppointments = await db
+    .query("appointments")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .collect();
+  const replacementCandidates = livePracticeAppointments.filter(
+    (appointment) =>
+      appointment.cancelledAt === undefined &&
+      appointment.isSimulation !== true &&
+      appointment.replacesAppointmentId !== undefined,
+  );
+  const candidateIds = args.appointments
     .filter(
       (appointment) =>
         appointment.cancelledAt === undefined &&
         appointment.isSimulation !== true,
     )
     .map((appointment) => appointment._id);
-  const seenIds = new Set(candidateIds);
+  const relevantIds = new Set(candidateIds);
   const replacements: Doc<"appointments">[] = [];
 
-  while (candidateIds.length > 0) {
-    const replacementBatches = await Promise.all(
-      candidateIds.map((appointmentId) =>
-        db
-          .query("appointments")
-          .withIndex("by_replacesAppointmentId", (q) =>
-            q.eq("replacesAppointmentId", appointmentId),
-          )
-          .collect(),
-      ),
-    );
-    const liveReplacements = replacementBatches
-      .flat()
-      .filter(
-        (appointment) =>
-          appointment.cancelledAt === undefined &&
-          appointment.isSimulation !== true &&
-          !seenIds.has(appointment._id),
-      );
-
-    for (const replacement of liveReplacements) {
-      seenIds.add(replacement._id);
+  let foundReplacement = true;
+  while (foundReplacement) {
+    foundReplacement = false;
+    for (const replacement of replacementCandidates) {
+      if (
+        replacement.replacesAppointmentId !== undefined &&
+        relevantIds.has(replacement.replacesAppointmentId) &&
+        !relevantIds.has(replacement._id)
+      ) {
+        relevantIds.add(replacement._id);
+        replacements.push(replacement);
+        foundReplacement = true;
+      }
     }
-    replacements.push(...liveReplacements);
-    candidateIds = liveReplacements.map((appointment) => appointment._id);
   }
 
-  return [...appointments, ...replacements];
+  return [...args.appointments, ...replacements];
 }
 
 function overlapsCalendarOccupancyCandidate(
