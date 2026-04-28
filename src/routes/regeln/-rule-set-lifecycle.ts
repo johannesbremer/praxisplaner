@@ -109,7 +109,7 @@ export function summarizeRuleSets(
   ruleSets: Doc<"ruleSets">[] | undefined,
   currentActiveRuleSetId: Id<"ruleSets"> | undefined,
 ): RuleSetSummary[] | undefined {
-  if (!ruleSets || !currentActiveRuleSetId) {
+  if (!ruleSets) {
     return;
   }
 
