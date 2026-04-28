@@ -10,10 +10,19 @@ import {
   findConflictingAppointment,
 } from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
+import {
+  createDraftRuleSetFromSource,
+  findUnsavedRuleSet,
+  validateRuleSet,
+} from "./copyOnWrite";
 import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
+import { draftRuleSetHasSemanticChanges } from "./ruleSetDiff";
 import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
+export interface DraftRuleSetForEdit {
+  draftRevision: number;
+  ruleSetId: Id<"ruleSets">;
+}
 export type EquivalentDraftDiscardResult =
   | {
       deleted: false;
@@ -29,10 +38,6 @@ export type EquivalentDraftDiscardResult =
       parentRuleSetId: Id<"ruleSets">;
       reason: "discarded";
     };
-export type RuleSetSnapshotBuilder<TSnapshot> = (
-  db: DatabaseReader,
-  ruleSetId: Id<"ruleSets">,
-) => Promise<TSnapshot>;
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 
@@ -95,11 +100,9 @@ export async function discardCurrentDraftRuleSet(
   });
 }
 
-export async function discardDraftRuleSetIfEquivalentToParent<TSnapshot>(
+export async function discardDraftRuleSetIfEquivalentToParent(
   db: DatabaseWriter,
   args: {
-    buildSnapshot: RuleSetSnapshotBuilder<TSnapshot>;
-    isEquivalent: (draft: TSnapshot, parent: TSnapshot) => boolean;
     practiceId: Id<"practices">;
     ruleSetId: Id<"ruleSets">;
   },
@@ -131,12 +134,12 @@ export async function discardDraftRuleSetIfEquivalentToParent<TSnapshot>(
     };
   }
 
-  const [draftSnapshot, parentSnapshot] = await Promise.all([
-    args.buildSnapshot(db, ruleSet._id),
-    args.buildSnapshot(db, parentRuleSet._id),
-  ]);
-
-  if (!args.isEquivalent(draftSnapshot, parentSnapshot)) {
+  if (
+    await draftRuleSetHasSemanticChanges(db, {
+      draftRuleSetId: ruleSet._id,
+      parentRuleSetId: parentRuleSet._id,
+    })
+  ) {
     return {
       deleted: false,
       parentRuleSetId: parentRuleSet._id,
@@ -212,6 +215,60 @@ export async function saveDraftRuleSet(
   }
 
   return draftRuleSet._id;
+}
+
+export async function selectDraftRuleSetForEdit(
+  db: DatabaseWriter,
+  args: {
+    expectedDraftRevision: null | number;
+    practiceId: Id<"practices">;
+    selectedRuleSetId: Id<"ruleSets">;
+  },
+): Promise<DraftRuleSetForEdit> {
+  const existingDraftRuleSet = await findUnsavedRuleSet(db, args.practiceId);
+  if (existingDraftRuleSet) {
+    const actualRevision = existingDraftRuleSet.draftRevision;
+    if (args.expectedDraftRevision !== actualRevision) {
+      throw revisionMismatchError({
+        actual: actualRevision,
+        expected: args.expectedDraftRevision,
+        ruleSetId: existingDraftRuleSet._id,
+      });
+    }
+    return {
+      draftRevision: actualRevision,
+      ruleSetId: existingDraftRuleSet._id,
+    };
+  }
+
+  if (args.expectedDraftRevision !== null) {
+    throw revisionMismatchError({
+      actual: null,
+      expected: args.expectedDraftRevision,
+      ruleSetId: null,
+    });
+  }
+
+  const sourceRuleSet = await db.get("ruleSets", args.selectedRuleSetId);
+  if (sourceRuleSet?.practiceId !== args.practiceId) {
+    throw new Error(
+      `[COW:SELECTED_RULE_SET_NOT_FOUND] Gewaehltes Regelset ${args.selectedRuleSetId} der Praxis ${args.practiceId} konnte nicht geladen werden.`,
+    );
+  }
+  if (!sourceRuleSet.saved) {
+    throw new Error(
+      `[COW:SELECTED_RULE_SET_MUST_BE_SAVED] Gewaehltes Regelset ${args.selectedRuleSetId} ist kein gespeichertes Regelset und kann nicht als Draft-Quelle verwendet werden.`,
+    );
+  }
+
+  return {
+    draftRevision: 0,
+    ruleSetId: await createDraftRuleSetFromSource(
+      db,
+      args.practiceId,
+      sourceRuleSet,
+    ),
+  };
 }
 
 async function applyPendingSimulationAppointmentsForRuleSet(
@@ -578,4 +635,14 @@ async function hasPendingSimulationAppointmentsForRuleSet(
     .take(1);
 
   return simulationAppointments.length > 0;
+}
+
+function revisionMismatchError(params: {
+  actual: null | number;
+  expected: null | number;
+  ruleSetId: Id<"ruleSets"> | null;
+}): Error {
+  return new Error(
+    `[HISTORY:REVISION_MISMATCH] expected=${params.expected ?? "null"} actual=${params.actual ?? "null"} ruleSet=${params.ruleSetId ?? "null"}`,
+  );
 }

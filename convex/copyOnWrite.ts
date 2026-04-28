@@ -185,83 +185,7 @@ export async function bumpDraftRevision(
   return nextRevision;
 }
 
-export async function getOrCreateUnsavedRuleSet(
-  db: DatabaseWriter,
-  practiceId: Id<"practices">,
-  sourceRuleSetId: Id<"ruleSets">,
-): Promise<Id<"ruleSets">> {
-  // Check if unsaved already exists
-  const existing = await findUnsavedRuleSet(db, practiceId);
-  if (existing) {
-    return existing._id;
-  }
-
-  // Get source rule set to copy from
-  const sourceRuleSet = await db.get("ruleSets", sourceRuleSetId);
-  if (!sourceRuleSet) {
-    throw new Error("Source rule set not found");
-  }
-  if (sourceRuleSet.practiceId !== practiceId) {
-    throw new Error("Source rule set does not belong to this practice");
-  }
-
-  return await createUnsavedRuleSetFromSource(db, practiceId, sourceRuleSet);
-}
-
-export async function resolveDraftForWrite(
-  db: DatabaseWriter,
-  practiceId: Id<"practices">,
-  expectedDraftRevision: null | number,
-  selectedRuleSetId: Id<"ruleSets">,
-): Promise<{ draftRevision: number; ruleSetId: Id<"ruleSets"> }> {
-  const existingUnsavedRuleSet = await findUnsavedRuleSet(db, practiceId);
-  if (existingUnsavedRuleSet) {
-    const actualRevision = existingUnsavedRuleSet.draftRevision;
-    if (expectedDraftRevision !== actualRevision) {
-      throw revisionMismatchError({
-        actual: actualRevision,
-        expected: expectedDraftRevision,
-        ruleSetId: existingUnsavedRuleSet._id,
-      });
-    }
-    return {
-      draftRevision: actualRevision,
-      ruleSetId: existingUnsavedRuleSet._id,
-    };
-  }
-
-  if (expectedDraftRevision !== null) {
-    throw revisionMismatchError({
-      actual: null,
-      expected: expectedDraftRevision,
-      ruleSetId: null,
-    });
-  }
-
-  const sourceRuleSet = await db.get("ruleSets", selectedRuleSetId);
-  if (sourceRuleSet?.practiceId !== practiceId) {
-    throw new Error(
-      `[COW:SELECTED_RULE_SET_NOT_FOUND] Gewaehltes Regelset ${selectedRuleSetId} der Praxis ${practiceId} konnte nicht geladen werden.`,
-    );
-  }
-  if (!sourceRuleSet.saved) {
-    throw new Error(
-      `[COW:SELECTED_RULE_SET_MUST_BE_SAVED] Gewaehltes Regelset ${selectedRuleSetId} ist kein gespeichertes Regelset und kann nicht als Draft-Quelle verwendet werden.`,
-    );
-  }
-
-  const ruleSetId = await createUnsavedRuleSetFromSource(
-    db,
-    practiceId,
-    sourceRuleSet,
-  );
-  return {
-    draftRevision: 0,
-    ruleSetId,
-  };
-}
-
-async function createUnsavedRuleSetFromSource(
+export async function createDraftRuleSetFromSource(
   db: DatabaseWriter,
   practiceId: Id<"practices">,
   sourceRuleSet: Doc<"ruleSets">,
@@ -284,14 +208,27 @@ async function createUnsavedRuleSetFromSource(
   return newRuleSetId;
 }
 
-function revisionMismatchError(params: {
-  actual: null | number;
-  expected: null | number;
-  ruleSetId: Id<"ruleSets"> | null;
-}): Error {
-  return new Error(
-    `[HISTORY:REVISION_MISMATCH] expected=${params.expected ?? "null"} actual=${params.actual ?? "null"} ruleSet=${params.ruleSetId ?? "null"}`,
-  );
+export async function getOrCreateUnsavedRuleSet(
+  db: DatabaseWriter,
+  practiceId: Id<"practices">,
+  sourceRuleSetId: Id<"ruleSets">,
+): Promise<Id<"ruleSets">> {
+  // Check if unsaved already exists
+  const existing = await findUnsavedRuleSet(db, practiceId);
+  if (existing) {
+    return existing._id;
+  }
+
+  // Get source rule set to copy from
+  const sourceRuleSet = await db.get("ruleSets", sourceRuleSetId);
+  if (!sourceRuleSet) {
+    throw new Error("Source rule set not found");
+  }
+  if (sourceRuleSet.practiceId !== practiceId) {
+    throw new Error("Source rule set does not belong to this practice");
+  }
+
+  return await createDraftRuleSetFromSource(db, practiceId, sourceRuleSet);
 }
 
 // ================================
