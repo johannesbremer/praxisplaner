@@ -83,6 +83,10 @@ type AppointmentListItem = AppointmentResult &
     | "simulationRuleSetId"
   >;
 type AppointmentScope = "all" | "real" | "simulation";
+interface AppointmentScopeArgs {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 
 type BlockedSlotDoc = Doc<"blockedSlots">;
@@ -553,6 +557,47 @@ function getDisplayRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
+async function getEffectiveAppointmentsForReadScope(
+  ctx: QueryCtx,
+  appointments: AppointmentDoc[],
+  args: AppointmentScopeArgs & {
+    practiceIds: Iterable<Id<"practices">>;
+    scope: AppointmentScope;
+  },
+): Promise<AppointmentDoc[]> {
+  const draftRuleSetId = getSimulationScopeRuleSetId(args);
+  const liveAppointmentIds = getLiveAppointmentIds(appointments);
+  const [simulationReplacements, liveReplacements] = await Promise.all([
+    args.scope === "simulation"
+      ? getSimulationAppointmentReplacements(
+          ctx,
+          args.practiceIds,
+          liveAppointmentIds,
+          draftRuleSetId,
+        )
+      : Promise.resolve([]),
+    getLiveAppointmentReplacements(ctx, liveAppointmentIds),
+  ]);
+  const candidateAppointments = dedupeById([
+    ...appointments,
+    ...simulationReplacements,
+    ...liveReplacements,
+  ]);
+
+  return getEffectiveAppointmentReplacementView(candidateAppointments, {
+    ...(draftRuleSetId === undefined ? {} : { draftRuleSetId }),
+    view: getAppointmentReplacementView(args.scope),
+  });
+}
+
+function getLiveAppointmentIds(
+  appointments: AppointmentDoc[],
+): Id<"appointments">[] {
+  return appointments
+    .filter((appointment) => appointment.isSimulation !== true)
+    .map((appointment) => appointment._id);
+}
+
 async function getLiveAppointmentReplacements(
   ctx: QueryCtx,
   replacedAppointmentIds: Id<"appointments">[],
@@ -665,10 +710,7 @@ async function getSimulationBlockedSlotReplacements(
   );
 }
 
-function getSimulationScopeRuleSetId(args: {
-  activeRuleSetId?: Id<"ruleSets">;
-  selectedRuleSetId?: Id<"ruleSets">;
-}) {
+function getSimulationScopeRuleSetId(args: AppointmentScopeArgs) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
@@ -686,10 +728,7 @@ function isAppointmentInCalendarDayQuery(
 
 function isAppointmentVisibleInScope(
   appointment: Pick<AppointmentDoc, "isSimulation" | "simulationRuleSetId">,
-  args: {
-    activeRuleSetId?: Id<"ruleSets">;
-    selectedRuleSetId?: Id<"ruleSets">;
-  },
+  args: AppointmentScopeArgs,
   scope: AppointmentScope,
 ) {
   if (scope === "real") {
@@ -830,6 +869,18 @@ function toAppointmentListItem(
   };
 }
 
+async function toAppointmentListItemsForDisplay(
+  ctx: { db: DatabaseReader },
+  appointments: AppointmentDoc[],
+  args: AppointmentScopeArgs,
+): Promise<AppointmentListItem[]> {
+  const displayRuleSetId = getDisplayRuleSetId(args);
+
+  return displayRuleSetId
+    ? await remapAppointmentIds(ctx, appointments, displayRuleSetId)
+    : appointments.map((appointment) => toAppointmentListItem(appointment));
+}
+
 // Query to get all appointments
 export const getAppointments = query({
   args: {
@@ -855,26 +906,22 @@ export const getAppointments = query({
         accessiblePracticeIds.has(appointment.practiceId) &&
         isVisibleAppointment(appointment),
     );
-    const effectiveVisibleAppointments = getEffectiveAppointmentReplacementView(
-      visibleAppointments,
-      {
-        ...(getSimulationScopeRuleSetId(args) === undefined
-          ? {}
-          : { draftRuleSetId: getSimulationScopeRuleSetId(args) }),
-        view: getAppointmentReplacementView(scope),
-      },
-    );
+    const effectiveVisibleAppointments =
+      await getEffectiveAppointmentsForReadScope(ctx, visibleAppointments, {
+        ...args,
+        practiceIds: accessiblePracticeIds,
+        scope,
+      });
     const scopedAppointments = filterAppointmentsForScope(
       effectiveVisibleAppointments,
       args,
       scope,
     );
-    const displayRuleSetId = getDisplayRuleSetId(args);
-    const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
-          toAppointmentListItem(appointment),
-        );
+    const appointments = await toAppointmentListItemsForDisplay(
+      ctx,
+      scopedAppointments,
+      args,
+    );
 
     return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
   },
@@ -909,65 +956,31 @@ export const getCalendarDayAppointments = query({
           selectedLocationLineageKey,
         ),
     );
-    const simulationReplacementAppointments =
-      scope === "simulation"
-        ? await getSimulationAppointmentReplacements(
-            ctx,
-            [args.practiceId],
-            visibleAppointments
-              .filter((appointment) => appointment.isSimulation !== true)
-              .map((appointment) => appointment._id),
-            getSimulationScopeRuleSetId(args),
-          )
-        : [];
-    const liveReplacementAppointments = await getLiveAppointmentReplacements(
-      ctx,
-      visibleAppointments
-        .filter((appointment) => appointment.isSimulation !== true)
-        .map((appointment) => appointment._id),
-    );
-    const candidateAppointments = dedupeById([
-      ...visibleAppointments,
-      ...simulationReplacementAppointments,
-      ...liveReplacementAppointments,
-    ]);
     const effectiveCandidateAppointments =
-      getEffectiveAppointmentReplacementView(candidateAppointments, {
-        ...(getSimulationScopeRuleSetId(args) === undefined
-          ? {}
-          : { draftRuleSetId: getSimulationScopeRuleSetId(args) }),
-        view: getAppointmentReplacementView(scope),
+      await getEffectiveAppointmentsForReadScope(ctx, visibleAppointments, {
+        ...args,
+        practiceIds: [args.practiceId],
+        scope,
       });
     const scopedAppointments = filterAppointmentsForScope(
       effectiveCandidateAppointments,
       args,
       scope,
     );
-    const resolvedAppointments =
-      scope === "simulation"
-        ? scopedAppointments.filter((appointment) =>
-            isAppointmentInCalendarDayQuery(
-              appointment,
-              args,
-              selectedLocationLineageKey,
-            ),
-          )
-        : scopedAppointments
-            .filter((appointment) =>
-              isAppointmentInCalendarDayQuery(
-                appointment,
-                args,
-                selectedLocationLineageKey,
-              ),
-            )
-            .toSorted((left, right) => left.start.localeCompare(right.start));
-    const displayRuleSetId = getDisplayRuleSetId(args);
+    const resolvedAppointments = scopedAppointments.filter((appointment) =>
+      isAppointmentInCalendarDayQuery(
+        appointment,
+        args,
+        selectedLocationLineageKey,
+      ),
+    );
+    const appointments = await toAppointmentListItemsForDisplay(
+      ctx,
+      resolvedAppointments,
+      args,
+    );
 
-    return displayRuleSetId
-      ? await remapAppointmentIds(ctx, resolvedAppointments, displayRuleSetId)
-      : resolvedAppointments.map((appointment) =>
-          toAppointmentListItem(appointment),
-        );
+    return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
   },
   returns: v.array(appointmentResultValidator),
 });
@@ -1002,50 +1015,27 @@ export const getAppointmentsInRange = query({
         isVisibleAppointment(appointment),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const simulationReplacementAppointments =
-      scope === "simulation"
-        ? await getSimulationAppointmentReplacements(
-            ctx,
-            accessiblePracticeIds,
-            filteredAppointments
-              .filter((appointment) => appointment.isSimulation !== true)
-              .map((appointment) => appointment._id),
-            getSimulationScopeRuleSetId(args),
-          )
-        : [];
-    const liveReplacementAppointments = await getLiveAppointmentReplacements(
-      ctx,
-      filteredAppointments
-        .filter((appointment) => appointment.isSimulation !== true)
-        .map((appointment) => appointment._id),
+    const effectiveReadScopeAppointments =
+      await getEffectiveAppointmentsForReadScope(ctx, filteredAppointments, {
+        ...args,
+        practiceIds: accessiblePracticeIds,
+        scope,
+      });
+    const effectiveFilteredAppointments = effectiveReadScopeAppointments.filter(
+      (appointment) =>
+        appointment.start >= args.start && appointment.start <= args.end,
     );
-    const candidateAppointments = dedupeById([
-      ...filteredAppointments,
-      ...simulationReplacementAppointments,
-      ...liveReplacementAppointments,
-    ]);
-    const effectiveFilteredAppointments =
-      getEffectiveAppointmentReplacementView(candidateAppointments, {
-        ...(getSimulationScopeRuleSetId(args) === undefined
-          ? {}
-          : { draftRuleSetId: getSimulationScopeRuleSetId(args) }),
-        view: getAppointmentReplacementView(scope),
-      }).filter(
-        (appointment) =>
-          appointment.start >= args.start && appointment.start <= args.end,
-      );
     const scopedAppointments = filterAppointmentsForScope(
       effectiveFilteredAppointments,
       args,
       scope,
     );
 
-    const displayRuleSetId = getDisplayRuleSetId(args);
-    const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
-          toAppointmentListItem(appointment),
-        );
+    const appointments = await toAppointmentListItemsForDisplay(
+      ctx,
+      scopedAppointments,
+      args,
+    );
 
     return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
   },
@@ -2196,12 +2186,7 @@ async function getBookedAppointmentsForUser(
     }
   }
 
-  const displayRuleSetId = getDisplayRuleSetId(args);
-  if (displayRuleSetId) {
-    return await remapAppointmentIds(ctx, appointments, displayRuleSetId);
-  }
-
-  return appointments.map((appointment) => toAppointmentListItem(appointment));
+  return await toAppointmentListItemsForDisplay(ctx, appointments, args);
 }
 
 // Query to get all appointments for a patient (past, present, and future)
