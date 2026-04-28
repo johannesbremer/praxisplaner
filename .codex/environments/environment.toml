@@ -12,11 +12,6 @@ trap 'rm -f "$ENV_NEXT"' EXIT
 
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
 
-if [ -z "${WORKOS_CLIENT_ID:-}" ] && [ -z "${VITE_WORKOS_CLIENT_ID:-}" ]; then
-  echo "Missing WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID"
-  exit 1
-fi
-
 SOURCE_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
 SOURCE_CONVEX_COMMENT=""
 if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
@@ -25,13 +20,15 @@ if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
   SOURCE_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
 fi
 
-if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
-  echo "Missing CONVEX_DEPLOYMENT in .env.local or environment"
+CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')}"
+CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')}"
+CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-jb-5af98}"
+CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-praxisplaner}"
+
+if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ] && { [ -z "$CONVEX_TEAM_SLUG" ] || [ -z "$CONVEX_PROJECT_SLUG" ]; }; then
+  echo "Missing CONVEX_DEPLOYMENT in .env.local or environment, or CONVEX_TEAM_SLUG/CONVEX_PROJECT_SLUG defaults"
   exit 1
 fi
-
-CONVEX_TEAM_SLUG="$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')"
-CONVEX_PROJECT_SLUG="$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')"
 
 eval "$("$FNM_BIN" env --shell bash)"
 "$FNM_BIN" use --install-if-missing --silent-if-unchanged
@@ -52,6 +49,13 @@ PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
 PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
 WORKOS_ID="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
+if [ -z "$WORKOS_ID" ] && [ -f .env.local ]; then
+  WORKOS_ID="$(
+    sed -n -E 's/^(WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID)=//p' .env.local |
+      head -n 1
+  )"
+fi
+WORKOS_ID="${WORKOS_ID:-client_local_preview_placeholder}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
 if [ -f .env.local ]; then
