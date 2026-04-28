@@ -24,15 +24,18 @@ if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
   SOURCE_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
 fi
 
-CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-}"
-CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-}"
 if [ "$SOURCE_CONVEX_FROM_ENV" -eq 0 ]; then
+  CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-}"
+  CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-}"
   CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*team: ([^, ]+).*/\1/p')}"
   CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-$(printf '%s' "$SOURCE_CONVEX_COMMENT" | sed -n -E 's/.*project: ([^, ]+).*/\1/p')}"
   if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
     CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-jb-5af98}"
     CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-praxisplaner}"
   fi
+else
+  CONVEX_TEAM_SLUG=""
+  CONVEX_PROJECT_SLUG=""
 fi
 
 if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ] && { [ -z "$CONVEX_TEAM_SLUG" ] || [ -z "$CONVEX_PROJECT_SLUG" ]; }; then
