@@ -18,6 +18,18 @@ export interface AppointmentConflictCandidate {
 
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
+export type AppointmentReplacementView = "all" | "live" | "simulation";
+
+type AppointmentReplacementRecord = Pick<
+  Doc<"appointments">,
+  | "_id"
+  | "cancelledAt"
+  | "isSimulation"
+  | "replacesAppointmentId"
+  | "simulationRuleSetId"
+  | "start"
+>;
+
 type CalendarOccupancyConflict =
   | { kind: "appointment"; record: Doc<"appointments"> }
   | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
@@ -114,6 +126,64 @@ export async function findConflictingCalendarOccupancy(
   });
 }
 
+export function getEffectiveAppointmentReplacementView<
+  T extends AppointmentReplacementRecord,
+>(
+  appointments: T[],
+  args: {
+    draftRuleSetId?: Id<"ruleSets">;
+    view: AppointmentReplacementView;
+  },
+): T[] {
+  const liveAppointments = getEffectiveLiveAppointments(appointments);
+  const currentLiveAppointmentIds = new Set(
+    liveAppointments.map((appointment) => appointment._id),
+  );
+  const validSimulationAppointments = appointments.filter((appointment) => {
+    if (
+      appointment.cancelledAt !== undefined ||
+      appointment.isSimulation !== true
+    ) {
+      return false;
+    }
+
+    if (
+      args.draftRuleSetId !== undefined &&
+      appointment.simulationRuleSetId !== args.draftRuleSetId
+    ) {
+      return false;
+    }
+
+    return (
+      appointment.replacesAppointmentId === undefined ||
+      currentLiveAppointmentIds.has(appointment.replacesAppointmentId)
+    );
+  });
+
+  if (args.view === "live") {
+    return liveAppointments;
+  }
+
+  if (args.view === "all") {
+    return [...liveAppointments, ...validSimulationAppointments].toSorted(
+      (a, b) => a.start.localeCompare(b.start),
+    );
+  }
+
+  const simulationReplacedLiveAppointmentIds = new Set(
+    validSimulationAppointments
+      .map((appointment) => appointment.replacesAppointmentId)
+      .filter((id): id is Id<"appointments"> => id !== undefined),
+  );
+  const visibleLiveAppointments = liveAppointments.filter(
+    (appointment) => !simulationReplacedLiveAppointmentIds.has(appointment._id),
+  );
+
+  return [...visibleLiveAppointments, ...validSimulationAppointments].toSorted(
+    (a, b) => a.start.localeCompare(b.start),
+  );
+}
+
 export function getEffectiveAppointmentsForOccupancyView(
   appointments: Doc<"appointments">[],
   occupancyView: AppointmentOccupancyView,
@@ -123,50 +193,26 @@ export function getEffectiveAppointmentsForOccupancyView(
     (appointment) => appointment.cancelledAt === undefined,
   );
 
-  if (occupancyView === "live") {
-    return getEffectiveLiveAppointments(visibleAppointments);
-  }
-
-  const simulationAppointments = visibleAppointments.filter((appointment) => {
-    if (appointment.isSimulation !== true) {
-      return false;
-    }
-
-    if (!draftRuleSetId) {
-      return true;
-    }
-
-    return appointment.simulationRuleSetId === draftRuleSetId;
+  return getEffectiveAppointmentReplacementView(visibleAppointments, {
+    ...(draftRuleSetId === undefined ? {} : { draftRuleSetId }),
+    view: occupancyView === "live" ? "live" : "simulation",
   });
-  const replacedIds = new Set(
-    simulationAppointments
-      .map((appointment) => appointment.replacesAppointmentId)
-      .filter(Boolean),
-  );
-
-  const realAppointments = visibleAppointments.filter(
-    (appointment) =>
-      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
-  );
-
-  return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
-    a.start.localeCompare(b.start),
-  );
 }
 
-export function getEffectiveLiveAppointments<T extends Doc<"appointments">>(
-  appointments: T[],
-): T[] {
+export function getEffectiveLiveAppointments<
+  T extends AppointmentReplacementRecord,
+>(appointments: T[]): T[] {
   const liveAppointments = appointments.filter(
     (appointment) =>
       appointment.cancelledAt === undefined &&
       appointment.isSimulation !== true,
   );
-  const replacedLiveAppointmentIds = new Set(
-    liveAppointments
-      .map((appointment) => appointment.replacesAppointmentId)
-      .filter(Boolean),
-  );
+  const replacedLiveAppointmentIds = new Set<Id<"appointments">>();
+  for (const appointment of liveAppointments) {
+    if (appointment.replacesAppointmentId !== undefined) {
+      replacedLiveAppointmentIds.add(appointment.replacesAppointmentId);
+    }
+  }
 
   return liveAppointments
     .filter((appointment) => !replacedLiveAppointmentIds.has(appointment._id))

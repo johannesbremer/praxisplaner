@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import type { Doc } from "../_generated/dataModel";
 
-import { getEffectiveLiveAppointments } from "../appointmentConflicts";
+import {
+  getEffectiveAppointmentReplacementView,
+  getEffectiveLiveAppointments,
+} from "../appointmentConflicts";
 import { toTableId } from "../identity";
 
 function appointment(
@@ -11,6 +14,7 @@ function appointment(
     cancelledAt?: bigint;
     isSimulation?: true;
     replacesAppointmentId?: Doc<"appointments">["_id"];
+    simulationRuleSetId?: Doc<"ruleSets">["_id"];
     start?: string;
   } = {},
 ): Doc<"appointments"> {
@@ -35,6 +39,9 @@ function appointment(
     ...(args.replacesAppointmentId === undefined
       ? {}
       : { replacesAppointmentId: args.replacesAppointmentId }),
+    ...(args.simulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: args.simulationRuleSetId }),
   };
 }
 
@@ -81,5 +88,48 @@ describe("getEffectiveLiveAppointments", () => {
         (record) => record._id,
       ),
     ).toEqual([active._id]);
+  });
+});
+
+describe("getEffectiveAppointmentReplacementView", () => {
+  test("applies simulations only as an overlay on current live tails", () => {
+    const original = appointment("original");
+    const liveReplacement = appointment("live_replacement", {
+      replacesAppointmentId: original._id,
+      start: "2025-01-01T10:00:00+01:00[Europe/Berlin]",
+    });
+    const staleSimulation = appointment("stale_simulation", {
+      isSimulation: true,
+      replacesAppointmentId: original._id,
+      simulationRuleSetId: toTableId<"ruleSets">("draft"),
+      start: "2025-01-01T11:00:00+01:00[Europe/Berlin]",
+    });
+
+    expect(
+      getEffectiveAppointmentReplacementView(
+        [original, liveReplacement, staleSimulation],
+        {
+          draftRuleSetId: toTableId<"ruleSets">("draft"),
+          view: "simulation",
+        },
+      ).map((record) => record._id),
+    ).toEqual([liveReplacement._id]);
+  });
+
+  test("simulation replacement wins over its current live source", () => {
+    const liveAppointment = appointment("live");
+    const simulation = appointment("simulation", {
+      isSimulation: true,
+      replacesAppointmentId: liveAppointment._id,
+      simulationRuleSetId: toTableId<"ruleSets">("draft"),
+      start: "2025-01-01T10:00:00+01:00[Europe/Berlin]",
+    });
+
+    expect(
+      getEffectiveAppointmentReplacementView([liveAppointment, simulation], {
+        draftRuleSetId: toTableId<"ruleSets">("draft"),
+        view: "simulation",
+      }).map((record) => record._id),
+    ).toEqual([simulation._id]);
   });
 });
