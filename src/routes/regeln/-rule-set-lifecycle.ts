@@ -107,7 +107,7 @@ export function selectRuleSetLifecycle(params: {
 
 export function summarizeRuleSets(
   ruleSets: Doc<"ruleSets">[] | undefined,
-  currentActiveRuleSetId: Id<"ruleSets"> | undefined,
+  currentActiveRuleSetId?: Id<"ruleSets">,
 ): RuleSetSummary[] | undefined {
   if (!ruleSets) {
     return;
