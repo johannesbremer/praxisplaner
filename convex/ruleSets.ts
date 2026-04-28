@@ -1,20 +1,12 @@
-import type {
-  GenericDatabaseReader,
-  GenericDatabaseWriter,
-} from "convex/server";
+import type { GenericDatabaseReader } from "convex/server";
 
 import { v } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
-import {
-  appointmentOverlapsCandidate,
-  findConflictingAppointment,
-} from "./appointmentConflicts";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { findUnsavedRuleSet, validateRuleSet } from "./copyOnWrite";
-import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
+import { findUnsavedRuleSet } from "./copyOnWrite";
 import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
@@ -22,411 +14,19 @@ import {
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
+import {
+  activateSavedRuleSet,
+  deleteDraftRuleSet,
+  discardCurrentDraftRuleSet,
+  discardDraftRuleSetIfEquivalentToParent,
+  saveDraftRuleSet,
+} from "./ruleSetLifecycle";
 
 // ================================
 // HELPER FUNCTIONS
 // ================================
 
 // Type aliases for cleaner code
-type DatabaseReader = GenericDatabaseReader<DataModel>;
-type DatabaseWriter = GenericDatabaseWriter<DataModel>;
-
-/**
- * Get existing saved descriptions for a practice.
- * Used for validation.
- */
-async function getExistingSavedDescriptions(
-  db: DatabaseReader,
-  practiceId: Id<"practices">,
-): Promise<string[]> {
-  const existingRuleSets = await db
-    .query("ruleSets")
-    .withIndex("by_practiceId_saved", (q) =>
-      q.eq("practiceId", practiceId).eq("saved", true),
-    )
-    .collect();
-
-  return existingRuleSets.map((rs) => rs.description);
-}
-
-/**
- * Delete appointment types by ruleSetId in batches.
- */
-async function deleteAppointmentTypesByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("appointmentTypes")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("appointmentTypes", item._id);
-    }
-    batch = await db
-      .query("appointmentTypes")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-/**
- * Delete practitioners by ruleSetId in batches.
- */
-async function applyPendingSimulationAppointmentsForRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-) {
-  const activatedRuleSet = await db.get("ruleSets", ruleSetId);
-  if (!activatedRuleSet) {
-    throw new Error(`Regelset ${ruleSetId} nicht gefunden.`);
-  }
-  const simulationAppointments = await db
-    .query("appointments")
-    .withIndex("by_simulationRuleSetId", (q) =>
-      q.eq("simulationRuleSetId", ruleSetId),
-    )
-    .collect();
-
-  const activationBoundSimulations = simulationAppointments.filter(
-    isActivationBoundSimulation,
-  );
-
-  for (const simulationAppointment of simulationAppointments) {
-    if (
-      !isActivationBoundSimulation(simulationAppointment) ||
-      !simulationAppointment.replacesAppointmentId
-    ) {
-      await db.delete("appointments", simulationAppointment._id);
-    }
-  }
-
-  const replacedAppointmentIds = new Set<Id<"appointments">>();
-  const replacedAppointments = new Map<
-    Id<"appointments">,
-    Doc<"appointments">
-  >();
-
-  for (const simulationAppointment of activationBoundSimulations) {
-    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
-    if (!replacedAppointmentId) {
-      continue;
-    }
-
-    if (replacedAppointmentIds.has(replacedAppointmentId)) {
-      throw new Error(
-        "Ein echter Termin wird mehrfach durch vorgemerkte Simulationen ersetzt. Bitte Vorschläge neu berechnen.",
-      );
-    }
-    replacedAppointmentIds.add(replacedAppointmentId);
-
-    const replacedAppointment = await db.get(
-      "appointments",
-      replacedAppointmentId,
-    );
-    if (!replacedAppointment) {
-      await db.delete("appointments", simulationAppointment._id);
-      continue;
-    }
-
-    replacedAppointments.set(replacedAppointmentId, replacedAppointment);
-
-    const simulationValidatedAt =
-      simulationAppointment.simulationValidatedAt ??
-      simulationAppointment.createdAt;
-
-    if (replacedAppointment.lastModified > simulationValidatedAt) {
-      throw new Error(
-        "Ein vorgemerkter Termin wurde nach der Simulation geändert. Bitte Vorschläge neu berechnen.",
-      );
-    }
-  }
-
-  const validActivationSimulations = activationBoundSimulations.filter(
-    (simulationAppointment) =>
-      simulationAppointment.replacesAppointmentId !== undefined &&
-      replacedAppointments.has(simulationAppointment.replacesAppointmentId),
-  );
-
-  for (let index = 0; index < validActivationSimulations.length; index += 1) {
-    const currentSimulation = validActivationSimulations[index];
-    if (!currentSimulation) {
-      continue;
-    }
-    const currentCandidate = {
-      end: currentSimulation.end,
-      locationLineageKey: asLocationLineageKey(
-        currentSimulation.locationLineageKey,
-      ),
-      ...(currentSimulation.practitionerLineageKey
-        ? {
-            practitionerLineageKey: asPractitionerLineageKey(
-              currentSimulation.practitionerLineageKey,
-            ),
-          }
-        : {}),
-      start: currentSimulation.start,
-    };
-
-    for (
-      let otherIndex = index + 1;
-      otherIndex < validActivationSimulations.length;
-      otherIndex += 1
-    ) {
-      const otherSimulation = validActivationSimulations[otherIndex];
-      if (!otherSimulation) {
-        continue;
-      }
-      if (
-        appointmentOverlapsCandidate(
-          {
-            end: otherSimulation.end,
-            locationLineageKey: asLocationLineageKey(
-              otherSimulation.locationLineageKey,
-            ),
-            ...(otherSimulation.practitionerLineageKey
-              ? {
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    otherSimulation.practitionerLineageKey,
-                  ),
-                }
-              : {}),
-            start: otherSimulation.start,
-          },
-          currentCandidate,
-        )
-      ) {
-        throw new Error(
-          "Zwei vorgemerkte Terminverschiebungen kollidieren miteinander. Bitte Vorschläge neu berechnen.",
-        );
-      }
-    }
-  }
-
-  const excludeAppointmentIds = [...replacedAppointmentIds];
-
-  for (const simulationAppointment of validActivationSimulations) {
-    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
-    if (!replacedAppointmentId) {
-      continue;
-    }
-
-    const replacedAppointment = replacedAppointments.get(replacedAppointmentId);
-    if (!replacedAppointment) {
-      continue;
-    }
-
-    const conflictingAppointment = await findConflictingAppointment(db, {
-      candidate: {
-        end: simulationAppointment.end,
-        locationLineageKey: asLocationLineageKey(
-          simulationAppointment.locationLineageKey,
-        ),
-        ...(simulationAppointment.practitionerLineageKey
-          ? {
-              practitionerLineageKey: asPractitionerLineageKey(
-                simulationAppointment.practitionerLineageKey,
-              ),
-            }
-          : {}),
-        start: simulationAppointment.start,
-      },
-      excludeAppointmentIds,
-      occupancyView: "live",
-      practiceId: simulationAppointment.practiceId,
-    });
-
-    if (conflictingAppointment) {
-      throw new Error(
-        "Ein vorgemerkter Termin kollidiert inzwischen mit einem echten Termin. Bitte Vorschläge neu berechnen.",
-      );
-    }
-  }
-
-  for (const simulationAppointment of validActivationSimulations) {
-    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
-    if (!replacedAppointmentId) {
-      continue;
-    }
-
-    await db.patch("appointments", replacedAppointmentId, {
-      appointmentTypeLineageKey:
-        simulationAppointment.appointmentTypeLineageKey,
-      appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
-      end: simulationAppointment.end,
-      lastModified: BigInt(Date.now()),
-      locationLineageKey: simulationAppointment.locationLineageKey,
-      ...(simulationAppointment.patientId
-        ? { patientId: simulationAppointment.patientId }
-        : {}),
-      practitionerLineageKey: simulationAppointment.practitionerLineageKey,
-      start: simulationAppointment.start,
-      title: simulationAppointment.title,
-      ...(simulationAppointment.userId
-        ? { userId: simulationAppointment.userId }
-        : {}),
-    });
-    await db.delete("appointments", simulationAppointment._id);
-  }
-}
-
-async function deletePractitionersByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("practitioners")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("practitioners", item._id);
-    }
-    batch = await db
-      .query("practitioners")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-async function deleteSimulationAppointmentsByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("appointments")
-    .withIndex("by_simulationRuleSetId", (q) =>
-      q.eq("simulationRuleSetId", ruleSetId),
-    )
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("appointments", item._id);
-    }
-    batch = await db
-      .query("appointments")
-      .withIndex("by_simulationRuleSetId", (q) =>
-        q.eq("simulationRuleSetId", ruleSetId),
-      )
-      .take(batchSize);
-  }
-}
-
-async function hasPendingSimulationAppointmentsForRuleSet(
-  db: DatabaseReader,
-  ruleSetId: Id<"ruleSets">,
-): Promise<boolean> {
-  const simulationAppointments = await db
-    .query("appointments")
-    .withIndex("by_simulationRuleSetId", (q) =>
-      q.eq("simulationRuleSetId", ruleSetId),
-    )
-    .take(1);
-
-  return simulationAppointments.length > 0;
-}
-
-/**
- * Delete locations by ruleSetId in batches.
- */
-async function deleteLocationsByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("locations")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("locations", item._id);
-    }
-    batch = await db
-      .query("locations")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-/**
- * Delete base schedules by ruleSetId in batches.
- */
-async function deleteBaseSchedulesByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("baseSchedules")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("baseSchedules", item._id);
-    }
-    batch = await db
-      .query("baseSchedules")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-async function deleteMfasByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("mfas")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("mfas", item._id);
-    }
-    batch = await db
-      .query("mfas")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-async function deleteVacationsByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("vacations")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("vacations", item._id);
-    }
-    batch = await db
-      .query("vacations")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
-/**
- * Delete rule conditions by ruleSetId in batches.
- */
 interface CanonicalRuleConditionNode {
   __diffKey?: string;
   childOrder: number;
@@ -439,6 +39,8 @@ interface CanonicalRuleConditionNode {
   valueIds: null | string[];
   valueNumber: null | number;
 }
+
+type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 interface RuleSetCanonicalSnapshot {
   appointmentCoverage: string[];
@@ -818,27 +420,6 @@ function createEntityNameLookup(
   return new Map(entries);
 }
 
-async function deleteRuleConditionsByRuleSet(
-  db: DatabaseWriter,
-  ruleSetId: Id<"ruleSets">,
-  batchSize = 100,
-): Promise<void> {
-  let batch = await db
-    .query("ruleConditions")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-    .take(batchSize);
-
-  while (batch.length > 0) {
-    for (const item of batch) {
-      await db.delete("ruleConditions", item._id);
-    }
-    batch = await db
-      .query("ruleConditions")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .take(batchSize);
-  }
-}
-
 function getMultisetDifference(values: string[], comparison: string[]) {
   const counts = new Map<string, number>();
   for (const value of comparison) {
@@ -1086,55 +667,7 @@ export const saveUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const trimmedDescription = args.description.trim();
-
-    // Get existing saved descriptions for validation
-    const existingDescriptions = await getExistingSavedDescriptions(
-      ctx.db,
-      args.practiceId,
-    );
-
-    // Validate the description using shared validation logic
-    const validationResult = validateRuleSetDescriptionSync(
-      trimmedDescription,
-      existingDescriptions,
-    );
-
-    if (!validationResult.isValid) {
-      throw new Error(validationResult.error);
-    }
-
-    // Find the unsaved rule set
-    const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
-
-    if (!unsavedRuleSet) {
-      throw new Error("No unsaved rule set exists for this practice");
-    }
-
-    // Validate it's actually unsaved
-    if (unsavedRuleSet.saved) {
-      throw new Error("Cannot save a rule set that is already saved");
-    }
-
-    // Update to saved state
-    await ctx.db.patch("ruleSets", unsavedRuleSet._id, {
-      description: trimmedDescription,
-      draftRevision: 0,
-      saved: true,
-    });
-
-    // Optionally set as active
-    if (args.setAsActive) {
-      await applyPendingSimulationAppointmentsForRuleSet(
-        ctx.db,
-        unsavedRuleSet._id,
-      );
-      await ctx.db.patch("practices", args.practiceId, {
-        currentActiveRuleSetId: unsavedRuleSet._id,
-      });
-    }
-
-    return unsavedRuleSet._id;
+    return await saveDraftRuleSet(ctx.db, args);
   },
   returns: v.id("ruleSets"),
 });
@@ -1149,29 +682,7 @@ export const discardUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Find the unsaved rule set
-    const unsavedRuleSet = await findUnsavedRuleSet(ctx.db, args.practiceId);
-
-    if (!unsavedRuleSet) {
-      throw new Error("No unsaved rule set exists for this practice");
-    }
-
-    // Delete the rule set (entities will cascade via Convex deletion rules)
-    // Note: We manually delete entities in batches for explicit cleanup
-    const ruleSetId = unsavedRuleSet._id;
-
-    // Delete all entities belonging to this rule set using batch processing
-    await deleteAppointmentTypesByRuleSet(ctx.db, ruleSetId);
-    await deletePractitionersByRuleSet(ctx.db, ruleSetId);
-    await deleteLocationsByRuleSet(ctx.db, ruleSetId);
-    await deleteBaseSchedulesByRuleSet(ctx.db, ruleSetId);
-    await deleteVacationsByRuleSet(ctx.db, ruleSetId);
-    await deleteMfasByRuleSet(ctx.db, ruleSetId);
-    await deleteRuleConditionsByRuleSet(ctx.db, ruleSetId);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSetId);
-
-    // Finally, delete the rule set itself
-    await ctx.db.delete("ruleSets", ruleSetId);
+    await discardCurrentDraftRuleSet(ctx.db, args.practiceId);
   },
 });
 
@@ -1262,22 +773,7 @@ export const setActiveRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    // Validate the rule set exists and belongs to practice
-    const ruleSet = await validateRuleSet(
-      ctx.db,
-      args.ruleSetId,
-      args.practiceId,
-    );
-
-    // Only saved rule sets can be set as active
-    if (!ruleSet.saved) {
-      throw new Error("Cannot set an unsaved rule set as active");
-    }
-
-    await applyPendingSimulationAppointmentsForRuleSet(ctx.db, args.ruleSetId);
-    await ctx.db.patch("practices", args.practiceId, {
-      currentActiveRuleSetId: args.ruleSetId,
-    });
+    await activateSavedRuleSet(ctx.db, args);
   },
 });
 
@@ -1354,36 +850,7 @@ export const deleteUnsavedRuleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
-
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-
-    // Verify it belongs to the practice
-    if (ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-
-    // CRITICAL: Only allow deleting unsaved rule sets
-    if (ruleSet.saved) {
-      throw new Error(
-        "Cannot delete saved rule sets. Only unsaved rule sets can be deleted.",
-      );
-    }
-
-    // Delete all entities associated with this rule set using batch processing
-    await deleteRuleConditionsByRuleSet(ctx.db, args.ruleSetId);
-    await deletePractitionersByRuleSet(ctx.db, args.ruleSetId);
-    await deleteLocationsByRuleSet(ctx.db, args.ruleSetId);
-    await deleteAppointmentTypesByRuleSet(ctx.db, args.ruleSetId);
-    await deleteBaseSchedulesByRuleSet(ctx.db, args.ruleSetId);
-    await deleteVacationsByRuleSet(ctx.db, args.ruleSetId);
-    await deleteMfasByRuleSet(ctx.db, args.ruleSetId);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, args.ruleSetId);
-
-    // Finally, delete the rule set itself
-    await ctx.db.delete("ruleSets", args.ruleSetId);
+    await deleteDraftRuleSet(ctx.db, args);
   },
 });
 
@@ -1398,77 +865,13 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
-
-    if (!ruleSet) {
-      throw new Error("Rule set not found");
-    }
-
-    if (ruleSet.practiceId !== args.practiceId) {
-      throw new Error("Rule set does not belong to this practice");
-    }
-
-    if (ruleSet.saved) {
-      return {
-        deleted: false,
-        reason: "not_unsaved" as const,
-      };
-    }
-
-    if (!ruleSet.parentVersion) {
-      return {
-        deleted: false,
-        reason: "no_parent" as const,
-      };
-    }
-
-    const parentRuleSet = await ctx.db.get("ruleSets", ruleSet.parentVersion);
-    if (parentRuleSet?.practiceId !== args.practiceId) {
-      return {
-        deleted: false,
-        reason: "parent_missing" as const,
-      };
-    }
-
-    if (await hasPendingSimulationAppointmentsForRuleSet(ctx.db, ruleSet._id)) {
-      return {
-        deleted: false,
-        parentRuleSetId: parentRuleSet._id,
-        reason: "has_changes" as const,
-      };
-    }
-
-    const [unsavedSnapshot, parentSnapshot] = await Promise.all([
-      buildRuleSetCanonicalSnapshot(ctx.db, ruleSet._id),
-      buildRuleSetCanonicalSnapshot(ctx.db, parentRuleSet._id),
-    ]);
-
-    const isEquivalent =
-      JSON.stringify(unsavedSnapshot) === JSON.stringify(parentSnapshot);
-
-    if (!isEquivalent) {
-      return {
-        deleted: false,
-        parentRuleSetId: parentRuleSet._id,
-        reason: "has_changes" as const,
-      };
-    }
-
-    await deleteRuleConditionsByRuleSet(ctx.db, ruleSet._id);
-    await deletePractitionersByRuleSet(ctx.db, ruleSet._id);
-    await deleteLocationsByRuleSet(ctx.db, ruleSet._id);
-    await deleteAppointmentTypesByRuleSet(ctx.db, ruleSet._id);
-    await deleteBaseSchedulesByRuleSet(ctx.db, ruleSet._id);
-    await deleteVacationsByRuleSet(ctx.db, ruleSet._id);
-    await deleteMfasByRuleSet(ctx.db, ruleSet._id);
-    await deleteSimulationAppointmentsByRuleSet(ctx.db, ruleSet._id);
-    await ctx.db.delete("ruleSets", ruleSet._id);
-
-    return {
-      deleted: true,
-      parentRuleSetId: parentRuleSet._id,
-      reason: "discarded" as const,
-    };
+    return await discardDraftRuleSetIfEquivalentToParent(ctx.db, {
+      buildSnapshot: buildRuleSetCanonicalSnapshot,
+      isEquivalent: (draftSnapshot, parentSnapshot) =>
+        JSON.stringify(draftSnapshot) === JSON.stringify(parentSnapshot),
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
   },
   returns: v.object({
     deleted: v.boolean(),
