@@ -52,11 +52,11 @@ describe("Regeln rule set lifecycle selection", () => {
       trackedDraftRuleSetId: null,
     });
 
-    expect(selection.selectedRuleSet?._id).toBe(savedRuleSet._id);
-    expect(selection.currentWorkingRuleSet?._id).toBe(savedRuleSet._id);
-    expect(selection.resolvedRuleSetIdFromUrl).toBe(savedRuleSet._id);
-    expect(selection.selectedVersionId).toBe(savedRuleSet._id);
-    expect(selection.activeRuleSet).toBeUndefined();
+    expect(selection.selected?._id).toBe(savedRuleSet._id);
+    expect(selection.working?._id).toBe(savedRuleSet._id);
+    expect(selection.navigation.resolvedUrlRuleSetId).toBe(savedRuleSet._id);
+    expect(selection.navigation.selectedVersionId).toBe(savedRuleSet._id);
+    expect(selection.active).toBeUndefined();
   });
 
   it("selects the current Draft Rule Set when the URL has no rule set segment", () => {
@@ -85,11 +85,10 @@ describe("Regeln rule set lifecycle selection", () => {
       trackedDraftRuleSetId: null,
     });
 
-    expect(selection.activeRuleSet?._id).toBe(parentRuleSet._id);
-    expect(selection.draftRuleSet?._id).toBe(draftRuleSet._id);
-    expect(selection.currentWorkingRuleSet?._id).toBe(draftRuleSet._id);
-    expect(selection.isShowingDraftRuleSet).toBe(true);
-    expect(selection.selectedVersionId).toBe(draftRuleSet._id);
+    expect(selection.active?._id).toBe(parentRuleSet._id);
+    expect(selection.draft?._id).toBe(draftRuleSet._id);
+    expect(selection.working?._id).toBe(draftRuleSet._id);
+    expect(selection.navigation.selectedVersionId).toBe(draftRuleSet._id);
   });
 });
 

@@ -442,13 +442,13 @@ function LogicView() {
       trackedUnsavedRuleSetId,
     ],
   );
-  const unsavedRuleSet = preliminaryRuleSetLifecycle.draftRuleSet;
+  const unsavedRuleSet = preliminaryRuleSetLifecycle.draft;
 
   // Fetch locations for the working rule set
   const locationsListQuery = useQuery(
     api.entities.getLocations,
-    preliminaryRuleSetLifecycle.workingRuleSetForQuery
-      ? { ruleSetId: preliminaryRuleSetLifecycle.workingRuleSetForQuery._id }
+    preliminaryRuleSetLifecycle.working
+      ? { ruleSetId: preliminaryRuleSetLifecycle.working._id }
       : "skip",
   );
 
@@ -519,16 +519,19 @@ function LogicView() {
       trackedUnsavedRuleSetId,
     ],
   );
-  const activeRuleSet = ruleSetLifecycle.activeRuleSet;
-  const currentWorkingRuleSet = ruleSetLifecycle.currentWorkingRuleSet;
-  const resolvedCurrentWorkingRuleSet = ruleSetLifecycle.workingRuleSetForQuery;
-  const resolvedRuleSetIdFromUrl = ruleSetLifecycle.resolvedRuleSetIdFromUrl;
-  const selectedRuleSet = ruleSetLifecycle.selectedRuleSet;
-  const isShowingUnsavedRuleSet = ruleSetLifecycle.isShowingDraftRuleSet;
+  const activeRuleSet = ruleSetLifecycle.active;
+  const currentWorkingRuleSet = ruleSetLifecycle.working;
+  const resolvedCurrentWorkingRuleSet = ruleSetLifecycle.working;
+  const resolvedRuleSetIdFromUrl =
+    ruleSetLifecycle.navigation.resolvedUrlRuleSetId;
+  const selectedRuleSet = ruleSetLifecycle.selected;
+  const draftRuleSet = ruleSetLifecycle.draft;
+  const isShowingUnsavedRuleSet =
+    Boolean(draftRuleSet) && currentWorkingRuleSet?._id === draftRuleSet?._id;
   const hasBlockingUnsavedChanges = Boolean(
     unsavedRuleSet && !isDraftEquivalentToParent,
   );
-  const selectedVersionId = ruleSetLifecycle.selectedVersionId;
+  const selectedVersionId = ruleSetLifecycle.navigation.selectedVersionId;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
     currentPractice && unsavedRuleSet && !isDraftEquivalentToParent

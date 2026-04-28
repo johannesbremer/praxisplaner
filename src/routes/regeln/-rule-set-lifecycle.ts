@@ -7,25 +7,20 @@ export interface DraftRuleSetSummary extends RuleSetSummary {
   parentVersion?: Id<"ruleSets">;
 }
 
-export interface RuleSetLifecycleSelection {
-  activeRuleSet: RuleSetSummary | undefined;
-  currentWorkingRuleSet:
-    | Doc<"ruleSets">
-    | DraftRuleSetSummary
-    | RuleSetSummary
-    | undefined;
-  draftRuleSet: DraftRuleSetSummary | undefined;
-  existingDraftRuleSet: RuleSetSummary | undefined;
-  isShowingDraftRuleSet: boolean;
-  resolvedRuleSetIdFromUrl: Id<"ruleSets"> | undefined;
-  selectedRuleSet: Doc<"ruleSets"> | undefined;
+export type ResolvedRuleSetSummary = DraftRuleSetSummary | RuleSetSummary;
+
+export interface RuleSetLifecycleNavigation {
+  resolvedUrlRuleSetId: Id<"ruleSets"> | undefined;
   selectedVersionId: Id<"ruleSets"> | undefined;
   trackedDraftRuleSetId: Id<"ruleSets"> | null;
-  workingRuleSetForQuery:
-    | Doc<"ruleSets">
-    | DraftRuleSetSummary
-    | RuleSetSummary
-    | undefined;
+}
+
+export interface RuleSetLifecycleView {
+  active: RuleSetSummary | undefined;
+  draft: DraftRuleSetSummary | undefined;
+  navigation: RuleSetLifecycleNavigation;
+  selected: ResolvedRuleSetSummary | undefined;
+  working: ResolvedRuleSetSummary | undefined;
 }
 
 export interface RuleSetSummary {
@@ -41,10 +36,8 @@ export function selectRuleSetLifecycle(params: {
   ruleSets: Doc<"ruleSets">[] | undefined;
   ruleSetSummaries: RuleSetSummary[] | undefined;
   trackedDraftRuleSetId: Id<"ruleSets"> | null;
-}): RuleSetLifecycleSelection {
-  const activeRuleSet = params.ruleSetSummaries?.find(
-    (ruleSet) => ruleSet.isActive,
-  );
+}): RuleSetLifecycleView {
+  const active = params.ruleSetSummaries?.find((ruleSet) => ruleSet.isActive);
   const existingDraftRuleSet = params.ruleSetSummaries?.find(
     (ruleSet) =>
       !ruleSet.isActive && ruleSet.description === UNSAVED_RULE_SET_DESCRIPTION,
@@ -70,38 +63,26 @@ export function selectRuleSetLifecycle(params: {
       : undefined,
     ruleSetSummaries: params.ruleSetSummaries,
   });
-  const selectedRuleSet = params.ruleSets?.find(
-    (ruleSet) => ruleSet._id === params.ruleSetIdFromUrl,
-  );
-  const resolvedRuleSetIdFromUrl = params.ruleSets?.some(
+  const resolvedUrlRuleSetId = params.ruleSets?.some(
     (ruleSet) => ruleSet._id === params.ruleSetIdFromUrl,
   )
     ? params.ruleSetIdFromUrl
     : undefined;
-  const currentWorkingRuleSet =
-    selectedRuleSet ?? draftRuleSet ?? activeRuleSet;
-  const workingRuleSetForQuery =
-    currentWorkingRuleSet &&
-    params.ruleSets?.some(
-      (ruleSet) => ruleSet._id === currentWorkingRuleSet._id,
-    )
-      ? currentWorkingRuleSet
-      : undefined;
-  const isShowingDraftRuleSet = Boolean(
-    draftRuleSet && currentWorkingRuleSet?._id === draftRuleSet._id,
-  );
+  const selected = resolvedUrlRuleSetId
+    ? resolveRuleSetSummary(params.ruleSetSummaries, resolvedUrlRuleSetId)
+    : undefined;
+  const working = selected ?? draftRuleSet ?? active;
 
   return {
-    activeRuleSet,
-    currentWorkingRuleSet,
-    draftRuleSet,
-    existingDraftRuleSet,
-    isShowingDraftRuleSet,
-    resolvedRuleSetIdFromUrl,
-    selectedRuleSet,
-    selectedVersionId: resolvedRuleSetIdFromUrl ?? draftRuleSet?._id,
-    trackedDraftRuleSetId,
-    workingRuleSetForQuery,
+    active,
+    draft: draftRuleSet,
+    navigation: {
+      resolvedUrlRuleSetId,
+      selectedVersionId: resolvedUrlRuleSetId ?? draftRuleSet?._id,
+      trackedDraftRuleSetId,
+    },
+    selected,
+    working,
   };
 }
 
@@ -119,6 +100,13 @@ export function summarizeRuleSets(
     isActive: currentActiveRuleSetId === ruleSet._id,
     version: ruleSet.version,
   }));
+}
+
+function resolveRuleSetSummary(
+  ruleSetSummaries: RuleSetSummary[] | undefined,
+  ruleSetId: Id<"ruleSets">,
+): RuleSetSummary | undefined {
+  return ruleSetSummaries?.find((ruleSet) => ruleSet._id === ruleSetId);
 }
 
 function toDraftRuleSetSummary(params: {
