@@ -19,12 +19,10 @@ fi
 
 SOURCE_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
 SOURCE_CONVEX_COMMENT=""
-if [ -f .env.local ]; then
+if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
   EXISTING_CONVEX_LINE="$(sed -n 's/^CONVEX_DEPLOYMENT=//p' .env.local | head -n 1)"
+  SOURCE_CONVEX_DEPLOYMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -E 's/[[:space:]]*#.*$//')"
   SOURCE_CONVEX_COMMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -n -E 's/^[^#]*(#.*)$/ \1/p')"
-  if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ]; then
-    SOURCE_CONVEX_DEPLOYMENT="$(printf '%s' "$EXISTING_CONVEX_LINE" | sed -E 's/[[:space:]]*#.*$//')"
-  fi
 fi
 
 if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
