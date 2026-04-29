@@ -200,6 +200,14 @@ export function useCalendarLogic({
     practitionerLineageKeyById,
   });
 
+  const getPractitionerIdForColumn = useCallback(
+    (column: CalendarColumnId): Id<"practitioners"> | undefined =>
+      typeof column === "string" && (column === "ekg" || column === "labor")
+        ? undefined
+        : getPractitionerIdForLineageKey(column),
+    [getPractitionerIdForLineageKey],
+  );
+
   const patientDateOfBirth = patient?.dateOfBirth;
   const patientIsNewPatient = patient?.isNewPatient;
   const { commands: planningCommands, getBlockedSlotEditorData } =
@@ -209,10 +217,7 @@ export function useCalendarLogic({
         getAppointmentTypeIdForLineageKey,
         getLocationIdForLineageKey,
         getLocationLineageKeyForDisplayId,
-        getPractitionerIdForColumn: (column) =>
-          typeof column === "string" && (column === "ekg" || column === "labor")
-            ? undefined
-            : getPractitionerIdForLineageKey(column),
+        getPractitionerIdForColumn,
         getPractitionerIdForLineageKey,
         getPractitionerLineageKeyForDisplayId,
         parseZonedDateTime,
@@ -363,14 +368,6 @@ export function useCalendarLogic({
     timeToMinutes,
     vacationsData,
   });
-
-  const getPractitionerIdForColumn = useCallback(
-    (column: CalendarColumnId): Id<"practitioners"> | undefined =>
-      typeof column === "string" && (column === "ekg" || column === "labor")
-        ? undefined
-        : getPractitionerIdForLineageKey(column),
-    [getPractitionerIdForLineageKey],
-  );
 
   const baseAppointmentLayouts = useMemo(
     () => buildCalendarAppointmentLayouts({ appointments: appointmentsData }),
