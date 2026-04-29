@@ -175,6 +175,29 @@ function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
 }
 
+async function assertAppointmentIsCurrentTail(
+  db: DatabaseReader,
+  appointment: AppointmentDoc,
+) {
+  const replacements = await db
+    .query("appointments")
+    .withIndex("by_replacesAppointmentId", (q) =>
+      q.eq("replacesAppointmentId", appointment._id),
+    )
+    .collect();
+
+  const activeReplacement = replacements.find(
+    (replacement) =>
+      replacement.isSimulation !== true && isVisibleAppointment(replacement),
+  );
+  if (activeReplacement) {
+    throw appointmentChainError(
+      "CHAIN_NON_TAIL_UPDATE_FORBIDDEN",
+      "Nur der aktuelle Termin einer Ersetzungskette kann bearbeitet werden.",
+    );
+  }
+}
+
 function asTrustedAppointmentInput(args: {
   appointmentTypeId: Id<"appointmentTypes">;
   isNewPatient?: boolean;
@@ -242,6 +265,20 @@ function calculateShiftedEnd(
     Temporal.ZonedDateTime.from(nextStart)
       .add({ minutes: durationMinutes })
       .toString(),
+  );
+}
+
+function filterCurrentTailAppointments<T extends AppointmentDoc>(
+  appointments: T[],
+): T[] {
+  const replacedAppointmentIds = new Set(
+    appointments
+      .map((appointment) => appointment.replacesAppointmentId)
+      .filter((id): id is Id<"appointments"> => id !== undefined),
+  );
+
+  return appointments.filter(
+    (appointment) => !replacedAppointmentIds.has(appointment._id),
   );
 }
 
@@ -828,10 +865,16 @@ export const getAppointments = query({
       args,
       scope,
     );
+    const currentTailAppointments =
+      filterCurrentTailAppointments(scopedAppointments);
     const displayRuleSetId = getDisplayRuleSetId(args);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(
+          ctx,
+          currentTailAppointments,
+          displayRuleSetId,
+        )
+      : currentTailAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
 
@@ -901,16 +944,19 @@ export const getCalendarDayAppointments = query({
       args,
       scope,
     );
+    const currentTailAppointments =
+      filterCurrentTailAppointments(scopedAppointments);
     const resolvedAppointments =
       scope === "simulation"
-        ? combineForSimulationScope(scopedAppointments).filter((appointment) =>
-            isAppointmentInCalendarDayQuery(
-              appointment,
-              args,
-              selectedLocationLineageKey,
-            ),
+        ? combineForSimulationScope(currentTailAppointments).filter(
+            (appointment) =>
+              isAppointmentInCalendarDayQuery(
+                appointment,
+                args,
+                selectedLocationLineageKey,
+              ),
           )
-        : scopedAppointments.toSorted((left, right) =>
+        : currentTailAppointments.toSorted((left, right) =>
             left.start.localeCompare(right.start),
           );
     const displayRuleSetId = getDisplayRuleSetId(args);
@@ -959,11 +1005,17 @@ export const getAppointmentsInRange = query({
       args,
       scope,
     );
+    const currentTailAppointments =
+      filterCurrentTailAppointments(scopedAppointments);
 
     const displayRuleSetId = getDisplayRuleSetId(args);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(
+          ctx,
+          currentTailAppointments,
+          displayRuleSetId,
+        )
+      : currentTailAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
 
@@ -1907,6 +1959,72 @@ async function updateAppointmentByMode(
     typeof filteredUpdateData,
     "appointmentTypeId" | "locationId" | "practitionerId"
   >;
+
+  if (expectedMode === "real") {
+    await assertAppointmentIsCurrentTail(ctx.db, existingAppointment);
+
+    if (
+      !isCalendarDayRangeMatch(
+        {
+          dayEnd: Temporal.ZonedDateTime.from(existingAppointment.start)
+            .add({ days: 1 })
+            .toPlainDate()
+            .toZonedDateTime({
+              plainTime: Temporal.PlainTime.from("00:00"),
+              timeZone: APPOINTMENT_TIMEZONE,
+            })
+            .toString(),
+          dayStart: Temporal.ZonedDateTime.from(existingAppointment.start)
+            .toPlainDate()
+            .toZonedDateTime({
+              plainTime: Temporal.PlainTime.from("00:00"),
+              timeZone: APPOINTMENT_TIMEZONE,
+            })
+            .toString(),
+        },
+        resolvedStart,
+      )
+    ) {
+      throw appointmentChainError(
+        "CHAIN_CROSS_DAY_REPLACEMENT_FORBIDDEN",
+        "Terminverschiebungen über Tagesgrenzen müssen als Storno plus neuer Termin gebucht werden.",
+      );
+    }
+
+    const now = BigInt(Date.now());
+    await ctx.db.insert("appointments", {
+      appointmentTypeLineageKey: resolvedAppointmentTypeLineageKey,
+      appointmentTypeTitle:
+        appointmentTypeRecord?.name ?? existingAppointment.appointmentTypeTitle,
+      createdAt: now,
+      end: resolvedEnd,
+      isSimulation: false,
+      lastModified: now,
+      locationLineageKey: resolvedLocationLineageKey,
+      ...((filteredUpdateData.patientId ?? existingAppointment.patientId)
+        ? {
+            patientId:
+              filteredUpdateData.patientId ?? existingAppointment.patientId,
+          }
+        : {}),
+      practiceId: existingAppointment.practiceId,
+      ...(resolvedPractitionerLineageKey
+        ? { practitionerLineageKey: resolvedPractitionerLineageKey }
+        : {}),
+      replacesAppointmentId: existingAppointment._id,
+      start: resolvedStart,
+      title: filteredUpdateData.title?.trim() ?? existingAppointment.title,
+      ...((filteredUpdateData.userId ?? existingAppointment.userId)
+        ? { userId: filteredUpdateData.userId ?? existingAppointment.userId }
+        : {}),
+    });
+    await ctx.db.patch("appointments", existingAppointment._id, {
+      cancelledAt: now,
+      lastModified: now,
+    });
+
+    return null;
+  }
 
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
