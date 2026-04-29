@@ -1135,7 +1135,6 @@ export default defineSchema({
   bookingSessions: defineTable({
     // Multi-tenancy
     practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
 
     // User who owns this session (required - no anonymous bookings)
     userId: v.id("users"),
@@ -1151,9 +1150,5 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_userId", ["userId"])
-    .index("by_userId_practiceId_ruleSetId", [
-      "userId",
-      "practiceId",
-      "ruleSetId",
-    ]),
+    .index("by_userId_practiceId", ["userId", "practiceId"]),
 });

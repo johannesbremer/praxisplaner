@@ -180,11 +180,8 @@ function BookingPage() {
  */
 function AuthenticatedBookingFlow() {
   const { signOut } = useAuth();
-  const [pendingSessionForActiveRuleSet, setPendingSessionForActiveRuleSet] =
-    useState<null | {
-      ruleSetId: Id<"ruleSets">;
-      sessionId: Id<"bookingSessions">;
-    }>(null);
+  const [pendingSessionId, setPendingSessionId] =
+    useState<Id<"bookingSessions"> | null>(null);
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
@@ -208,18 +205,11 @@ function AuthenticatedBookingFlow() {
     currentPractice && practiceActiveRuleSetId
       ? {
           practiceId: currentPractice._id,
-          ruleSetId: practiceActiveRuleSetId,
         }
       : "skip",
   );
 
-  const pendingSessionIdForActiveRuleSet =
-    pendingSessionForActiveRuleSet &&
-    pendingSessionForActiveRuleSet.ruleSetId === practiceActiveRuleSetId
-      ? pendingSessionForActiveRuleSet.sessionId
-      : null;
-  const resolvedSessionId =
-    activeRuleSetSession?._id ?? pendingSessionIdForActiveRuleSet;
+  const resolvedSessionId = activeRuleSetSession?._id ?? pendingSessionId;
 
   // Query the session if we have one
   const session = useQuery(
@@ -282,7 +272,6 @@ function AuthenticatedBookingFlow() {
         () =>
           createSession({
             practiceId: currentPractice._id,
-            ruleSetId: practiceActiveRuleSetId,
           }),
         (error) =>
           frontendErrorFromUnknown(error, {
@@ -293,16 +282,12 @@ function AuthenticatedBookingFlow() {
       )
         .match(
           (createdSessionId) => {
-            setPendingSessionForActiveRuleSet({
-              ruleSetId: practiceActiveRuleSetId,
-              sessionId: createdSessionId,
-            });
+            setPendingSessionId(createdSessionId);
           },
           (error) => {
             captureFrontendError(error, {
               context: "BookingPage.createSession",
               practiceId: currentPractice._id,
-              ruleSetId: practiceActiveRuleSetId,
             });
             setSessionError(error.message);
             toast.error("Buchung konnte nicht gestartet werden", {
@@ -318,7 +303,7 @@ function AuthenticatedBookingFlow() {
   }, [
     currentPractice,
     practiceActiveRuleSetId,
-    pendingSessionForActiveRuleSet,
+    pendingSessionId,
     createSession,
     sessionError,
     activeRuleSetSession,
@@ -335,7 +320,7 @@ function AuthenticatedBookingFlow() {
     if (resolvedSessionId) {
       void removeSession({ sessionId: resolvedSessionId });
     }
-    setPendingSessionForActiveRuleSet(null);
+    setPendingSessionId(null);
   }, [resolvedSessionId, removeSession]);
 
   // Handle back navigation using unified goBack mutation
