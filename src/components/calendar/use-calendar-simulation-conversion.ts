@@ -33,17 +33,13 @@ import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 import { SLOT_DURATION } from "./types";
 import { parsePlainTimeResult, TIMEZONE } from "./use-calendar-logic-helpers";
 
-interface CalendarRecordRef<T> {
-  current: T;
-}
-
-interface SimulatedContext {
+export interface CalendarPlanningSimulatedContext {
   appointmentTypeLineageKey?: AppointmentTypeLineageKey;
   locationLineageKey?: LocationLineageKey;
   patient: { dateOfBirth?: string; isNew: boolean };
 }
 
-interface UseCalendarSimulationConversionArgs {
+export interface UseCalendarSimulationConversionArgs {
   blockedSlotDocMapRef: CalendarRecordRef<
     ReadonlyMap<Id<"blockedSlots">, CalendarBlockedSlotRecord>
   >;
@@ -98,7 +94,11 @@ interface UseCalendarSimulationConversionArgs {
   }) => Promise<Id<"blockedSlots"> | undefined>;
   selectedDate: Temporal.PlainDate;
   selectedLocationId: Id<"locations"> | undefined;
-  simulatedContext: SimulatedContext | undefined;
+  simulatedContext: CalendarPlanningSimulatedContext | undefined;
+}
+
+interface CalendarRecordRef<T> {
+  current: T;
 }
 
 export function useCalendarSimulationConversion({
