@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -200,11 +201,7 @@ async function requireActiveRuleSetIdForPractice(
   ctx: MutationCtx | QueryCtx,
   practiceId: Id<"practices">,
 ): Promise<Id<"ruleSets">> {
-  const practice = await ctx.db.get("practices", practiceId);
-  if (!practice?.currentActiveRuleSetId) {
-    throw new Error("Terminbuchung ist derzeit nicht konfiguriert.");
-  }
-  return practice.currentActiveRuleSetId;
+  return await requireActiveRuleSetId(ctx.db, practiceId);
 }
 
 function requireSelectableRuleSetEntity<
@@ -690,7 +687,8 @@ export const get = query({
 /**
  * Get the latest active booking session for the authenticated user
  * within the given practice.
- * Returns null if none exists or it has expired.
+ * Returns null when no usable session exists for the authenticated user.
+ * The practice must already satisfy the exactly-one Active Rule Set invariant.
  */
 export const getActiveForUser = query({
   args: {

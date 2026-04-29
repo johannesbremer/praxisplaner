@@ -3436,8 +3436,10 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     const copiedIds = await t.run(async (ctx) => {
-      await ctx.db.patch("practices", practiceId, {
-        currentActiveRuleSetId: copiedRuleSetId,
+      await ctx.db.insert("ruleSetActivations", {
+        activatedAt: BigInt(Date.now()),
+        practiceId,
+        ruleSetId: copiedRuleSetId,
       });
 
       const copiedPractitionerId = await insertSelfLineageEntity(

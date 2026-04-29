@@ -280,8 +280,10 @@ async function createBookingEntities(t: TestContext) {
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
     const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
@@ -340,8 +342,10 @@ async function createPracticeAndRuleSet(t: TestContext) {
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
     return { practiceId };

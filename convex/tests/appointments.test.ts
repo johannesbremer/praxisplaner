@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { requireActiveRuleSetId } from "../activeRuleSets";
 import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -31,8 +32,10 @@ async function createAppointmentBaseData(t: TestContext) {
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
     const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
@@ -656,12 +659,7 @@ describe("appointments self-service cancellation", () => {
       if (!user) {
         throw new Error("Authenticated user should be provisioned");
       }
-
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice?.currentActiveRuleSetId) {
-        throw new Error("Practice should have an active rule set");
-      }
-      const ruleSetId = practice.currentActiveRuleSetId;
+      const ruleSetId = await requireActiveRuleSetId(ctx.db, practiceId);
 
       const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
@@ -798,11 +796,7 @@ describe("appointments self-service cancellation", () => {
       name: "Simulation Conflict Practice",
     });
     const baseData = await authed.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice?.currentActiveRuleSetId) {
-        throw new Error("Practice should have an active rule set");
-      }
-      const ruleSetId = practice.currentActiveRuleSetId;
+      const ruleSetId = await requireActiveRuleSetId(ctx.db, practiceId);
 
       const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
@@ -879,11 +873,7 @@ describe("appointments self-service cancellation", () => {
       name: "Server Duration Practice",
     });
     const baseData = await authed.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice?.currentActiveRuleSetId) {
-        throw new Error("Practice should have an active rule set");
-      }
-      const ruleSetId = practice.currentActiveRuleSetId;
+      const ruleSetId = await requireActiveRuleSetId(ctx.db, practiceId);
 
       const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Main Location",
@@ -1040,11 +1030,10 @@ describe("appointments update safety", () => {
     });
 
     const otherPractitionerId = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", baseData.practiceId);
       return await insertSelfLineageEntity(ctx.db, "practitioners", {
         name: "Dr. Other",
         practiceId: baseData.practiceId,
-        ruleSetId: practice?.currentActiveRuleSetId as Id<"ruleSets">,
+        ruleSetId: await requireActiveRuleSetId(ctx.db, baseData.practiceId),
       });
     });
 
@@ -1333,11 +1322,10 @@ describe("appointments update safety", () => {
     });
 
     const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", baseData.practiceId);
-      const parentVersion = practice?.currentActiveRuleSetId;
-      if (!parentVersion) {
-        throw new Error("Expected active rule set for practice");
-      }
+      const parentVersion = await requireActiveRuleSetId(
+        ctx.db,
+        baseData.practiceId,
+      );
 
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
@@ -1541,11 +1529,10 @@ describe("appointments update safety", () => {
     });
 
     const unsavedRuleSetId = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", baseData.practiceId);
-      const parentVersion = practice?.currentActiveRuleSetId;
-      if (!parentVersion) {
-        throw new Error("Expected active rule set for practice");
-      }
+      const parentVersion = await requireActiveRuleSetId(
+        ctx.db,
+        baseData.practiceId,
+      );
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
@@ -1604,11 +1591,10 @@ describe("appointments update safety", () => {
     });
 
     const unsavedRuleSetId = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", baseData.practiceId);
-      const parentVersion = practice?.currentActiveRuleSetId;
-      if (!parentVersion) {
-        throw new Error("Expected active rule set for practice");
-      }
+      const parentVersion = await requireActiveRuleSetId(
+        ctx.db,
+        baseData.practiceId,
+      );
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
@@ -1732,11 +1718,10 @@ describe("appointments update safety", () => {
     });
 
     const { patientId, unsavedRuleSetId } = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", baseData.practiceId);
-      const parentVersion = practice?.currentActiveRuleSetId;
-      if (!parentVersion) {
-        throw new Error("Expected active rule set for practice");
-      }
+      const parentVersion = await requireActiveRuleSetId(
+        ctx.db,
+        baseData.practiceId,
+      );
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,

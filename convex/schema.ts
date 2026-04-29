@@ -891,7 +891,6 @@ export default defineSchema({
     }),
 
   practices: defineTable({
-    currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
   vacations: defineTable({
@@ -963,6 +962,15 @@ export default defineSchema({
     .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
     .index("by_lineageKey", ["lineageKey"])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
+
+  ruleSetActivations: defineTable({
+    activatedAt: v.int64(),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_activatedAt", ["practiceId", "activatedAt"])
+    .index("by_ruleSetId", ["ruleSetId"]),
 
   ruleSets: defineTable({
     createdAt: v.number(),

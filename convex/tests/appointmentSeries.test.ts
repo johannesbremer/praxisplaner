@@ -6,6 +6,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { requireActiveRuleSetId } from "../activeRuleSets";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -36,12 +37,7 @@ async function createBasePractice(
   return await t.run(async (ctx) => {
     const practice = await ctx.db.get("practices", practiceId);
     assertDefined(practice, "Practice should exist");
-    assertDefined(
-      practice.currentActiveRuleSetId,
-      "Practice should have an active rule set",
-    );
-
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, practiceId);
     const locationId = await insertWithLineage(ctx, "locations", {
       name: "Main Location",
       practiceId,

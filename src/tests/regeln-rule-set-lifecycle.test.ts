@@ -11,7 +11,7 @@ import {
 } from "../routes/regeln/-rule-set-lifecycle";
 
 describe("Regeln rule set lifecycle selection", () => {
-  it("keeps rule set summaries available when no active rule set is recorded", () => {
+  it("summarizes rule sets independently from the active marker", () => {
     const ruleSets = [
       ruleSetDoc({ id: "rule-set-a", saved: true, version: 1 }),
       ruleSetDoc({ id: "rule-set-b", saved: true, version: 2 }),
@@ -35,7 +35,7 @@ describe("Regeln rule set lifecycle selection", () => {
     ]);
   });
 
-  it("resolves a saved rule set from the URL even before a practice has an active rule set", () => {
+  it("resolves a saved rule set from the URL independently from the active marker", () => {
     const savedRuleSet = ruleSetDoc({
       description: "Saved Rule Set",
       id: "saved-rule-set",

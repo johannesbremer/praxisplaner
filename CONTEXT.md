@@ -113,7 +113,7 @@ A versioned collection of scheduling entities and rules for one Practice.
 _Avoid_: Configuration, calendar version
 
 **Active Rule Set**:
-The Rule Set currently used by the Practice for staff scheduling and online booking.
+The exactly one Rule Set currently used by the Practice for staff scheduling and online booking.
 _Avoid_: Published version, live config
 
 **Rule Set Activation**:
@@ -174,7 +174,7 @@ _Avoid_: Form data, profile
 
 ## Relationships
 
-- A **Practice** has one **Active Rule Set**.
+- A **Practice** always has exactly one **Active Rule Set**.
 - A **Practice** has many **Rule Set Activations**.
 - A **Workspace** can be recorded as the actor for staff actions.
 - A **Workspace** belongs to one **Practice**.
@@ -266,6 +266,7 @@ _Avoid_: Form data, profile
 - A **Booking Attempt** either creates one confirmed **Appointment** or fails without reserving the selected **Candidate Slot**.
 - A **Booking Session** does not store or own a **Rule Set**.
 - A **Booking Session** always presents availability derived from the **Practice**'s current **Active Rule Set**.
+- A **Booking Session** lookup returning none means no usable session exists for the authenticated user; it does not mean the **Practice** lacks an **Active Rule Set**.
 - Online booking availability follows the **Practice**'s current **Active Rule Set** until the discrete booking attempt.
 - A booking attempt must be validated server-side against the **Practice**'s current **Active Rule Set**.
 - A successful **Booking Attempt** records the validating **Rule Set** on the created **Appointment** for auditability.
@@ -310,7 +311,7 @@ _Avoid_: Form data, profile
 - The code uses "booking" both for the online flow and for the resulting **Appointment**; prefer **Booking Session** for the in-progress flow and **Appointment** for the reserved slot.
 - **Rule Set** is the canonical domain term; avoid broader names like scheduling policy or scheduling plan because they blur the distinction from **Scheduling Rules**, **Base Schedules**, and **Follow-up Plans**.
 - **Rule Set** description is provided when a **Draft Rule Set** is saved; direct activation of a draft collects the description as part of saving and activating it.
-- **Rule Set Activation** preserves when each **Rule Set** became active; the **Practice** may still keep a current active pointer for fast reads.
+- **Rule Set Activation** preserves when each **Rule Set** became active and is the source of truth for the **Practice**'s current **Active Rule Set**.
 - **Rule Set Activation** is created whether activation starts from a **Draft Rule Set** or a saved inactive **Rule Set**.
 - **Rule Set Activation** records meaningful active-state changes, not repeated activation of the same **Rule Set**.
 - **Workspace** attribution is required for staff operational actions, including remote use from a phone or tablet.
@@ -382,7 +383,6 @@ _Avoid_: Form data, profile
 - **Booking Session** should not own a **Rule Set** reference; storing `ruleSetId` on booking session state risks freezing availability semantics before the booking attempt.
 - **Appointment** may keep **Rule Set** provenance from the booking attempt even though **Booking Session** should not.
 - **Rule Set** provenance points to the **Rule Set** active at the decisive moment: booking validation for creation, activation for reassignment.
-- Current implementation mismatch: `bookingSessions.ruleSetId` should be removed because availability must stay synchronized to the current **Active Rule Set** until the **Booking Attempt**.
 - Operational **Appointments** use **Lineage Keys** to refer to versioned schedulable resources across **Rule Sets**.
 - **Appointment** snapshots explain what was booked; **Lineage Keys** support grouping and identity across **Rule Sets**.
 - **Appointment** snapshots also support reassignment explanations, such as showing the Practitioner an Appointment was originally booked with before an **Absence**-driven reassignment.

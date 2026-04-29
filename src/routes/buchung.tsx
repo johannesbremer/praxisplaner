@@ -575,7 +575,7 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  // No active rule set
+  // Invariant violation: every practice should have exactly one active rule set.
   if (!practiceActiveRuleSetId) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -583,7 +583,7 @@ function AuthenticatedBookingFlow() {
           <CardHeader>
             <CardTitle>Terminbuchung nicht verfügbar</CardTitle>
             <CardDescription>
-              Die Online-Terminbuchung ist derzeit nicht konfiguriert. Bitte
+              Die Online-Terminbuchung hat einen Konfigurationsfehler. Bitte
               kontaktieren Sie die Praxis telefonisch.
             </CardDescription>
           </CardHeader>

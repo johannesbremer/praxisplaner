@@ -14,6 +14,7 @@ import type {
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import { findConflictingAppointment } from "./appointmentConflicts";
 import {
   resolveAppointmentTypeIdForRuleSet,
@@ -632,10 +633,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      throw new Error("Aktives Regelset nicht gefunden.");
-    }
+    await requireActiveRuleSetId(ctx.db, args.practiceId);
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
       expectedDraftRevision: args.expectedDraftRevision,
       practiceId: args.practiceId,

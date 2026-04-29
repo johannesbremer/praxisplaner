@@ -12,6 +12,7 @@ import type {
 import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
@@ -424,17 +425,10 @@ export const previewPractitionerAbsenceCoverage = query({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
 
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return {
-        affectedCount: 0,
-        movableCount: 0,
-        suggestions: [],
-        unmovedCount: 0,
-      };
-    }
-
-    const activeRuleSetId = practice.currentActiveRuleSetId;
+    const activeRuleSetId = await requireActiveRuleSetId(
+      ctx.db,
+      args.practiceId,
+    );
     const selectedPractitionerLineageKey = await resolvePractitionerLineageKey(
       ctx.db,
       asPractitionerId(args.practitionerId),

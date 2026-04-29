@@ -25,6 +25,7 @@ import type { MutationCtx } from "./_generated/server";
 
 import { parseConditionTreeTransport } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import {
   previewPractitionerCoverageForAppointment,
@@ -154,10 +155,7 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     ruleSetId: Id<"ruleSets">;
   },
 ): Promise<Id<"appointments">[]> {
-  const practice = await ctx.db.get("practices", args.practiceId);
-  if (!practice?.currentActiveRuleSetId) {
-    return [];
-  }
+  const activeRuleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
 
   const nowIso = Temporal.Now.zonedDateTimeISO("Europe/Berlin").toString();
   const appointments = await ctx.db
@@ -233,7 +231,7 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     }
 
     const suggestion = await previewPractitionerCoverageForAppointment(ctx, {
-      activeRuleSetId: practice.currentActiveRuleSetId,
+      activeRuleSetId,
       appointment,
       practiceId: args.practiceId,
       ruleSetId: args.ruleSetId,
@@ -3508,11 +3506,7 @@ export const getPractitionersFromActive = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -3535,11 +3529,7 @@ export const getLocationsFromActive = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
     const locations = await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -3561,11 +3551,7 @@ export const getBaseSchedulesFromActive = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -3599,11 +3585,7 @@ export const getAppointmentTypesFromActive = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
