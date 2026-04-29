@@ -1,6 +1,29 @@
+import type { RefObject } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
+import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
+
 import { UNSAVED_RULE_SET_DESCRIPTION } from "./-rule-set-diff";
+
+export interface DraftRuleSetLifecycleController {
+  clearDraftSelection: () => void;
+  draftRevisionOverride: null | number;
+  isDraftEquivalentToParent: boolean;
+  markDraftMutation: (result: DraftRuleSetMutationResult) => void;
+  pendingDraftRuleSetNavigationIdRef: RefObject<Id<"ruleSets"> | null>;
+  restoreDraftSelection: (draft: DraftRuleSetSummary) => void;
+  setDraftEquivalentToParent: (isEquivalent: boolean) => void;
+  setDraftRevisionOverride: (draftRevision: null | number) => void;
+  trackedDraftRuleSetId: Id<"ruleSets"> | null;
+}
+
+export interface DraftRuleSetMutationResult {
+  draftRevision: number;
+  ruleSetId: Id<"ruleSets">;
+}
 
 export interface DraftRuleSetSummary extends RuleSetSummary {
   draftRevision: number;
@@ -15,12 +38,20 @@ export interface RuleSetLifecycleNavigation {
   trackedDraftRuleSetId: Id<"ruleSets"> | null;
 }
 
-export interface RuleSetLifecycleView {
+export interface RuleSetLifecycleSelection {
   active: RuleSetSummary | undefined;
   draft: DraftRuleSetSummary | undefined;
   navigation: RuleSetLifecycleNavigation;
   selected: ResolvedRuleSetSummary | undefined;
   working: ResolvedRuleSetSummary | undefined;
+}
+
+export interface RuleSetLifecycleView extends RuleSetLifecycleSelection {
+  draftRevisionOverride: null | number;
+  hasBlockingUnsavedChanges: boolean;
+  isDraftEquivalentToParent: boolean;
+  setDraftEquivalentToParent: (isEquivalent: boolean) => void;
+  setDraftRevisionOverride: (draftRevision: null | number) => void;
 }
 
 export interface RuleSetSummary {
@@ -30,13 +61,28 @@ export interface RuleSetSummary {
   version: number;
 }
 
+export function resolveRuleSetIdFromRawSearch(params: {
+  rawRuleSetSearch: string | undefined;
+  ruleSets: Doc<"ruleSets">[] | undefined;
+}): Id<"ruleSets"> | undefined {
+  if (!params.rawRuleSetSearch) {
+    return;
+  }
+  if (params.rawRuleSetSearch === RESERVED_UNSAVED_DESCRIPTION) {
+    return params.ruleSets?.find((ruleSet) => !ruleSet.saved)?._id;
+  }
+  return params.ruleSets?.find(
+    (ruleSet) => ruleSet.description === params.rawRuleSetSearch,
+  )?._id;
+}
+
 export function selectRuleSetLifecycle(params: {
   rawRuleSetSearch: string | undefined;
   ruleSetIdFromUrl: Id<"ruleSets"> | undefined;
   ruleSets: Doc<"ruleSets">[] | undefined;
   ruleSetSummaries: RuleSetSummary[] | undefined;
   trackedDraftRuleSetId: Id<"ruleSets"> | null;
-}): RuleSetLifecycleView {
+}): RuleSetLifecycleSelection {
   const active = params.ruleSetSummaries?.find((ruleSet) => ruleSet.isActive);
   const existingDraftRuleSet = params.ruleSetSummaries?.find(
     (ruleSet) =>
@@ -100,6 +146,158 @@ export function summarizeRuleSets(
     isActive: currentActiveRuleSetId === ruleSet._id,
     version: ruleSet.version,
   }));
+}
+
+export function useDraftRuleSetLifecycleController(): DraftRuleSetLifecycleController {
+  const [trackedDraftRuleSetId, setTrackedDraftRuleSetId] =
+    useState<Id<"ruleSets"> | null>(null);
+  const [draftRevisionOverride, setDraftRevisionOverride] = useState<
+    null | number
+  >(null);
+  const [isDraftEquivalentToParent, setDraftEquivalentToParent] =
+    useState(false);
+  const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
+    null,
+  );
+
+  const clearDraftSelection = useMemo(
+    () => () => {
+      setTrackedDraftRuleSetId(null);
+      setDraftEquivalentToParent(false);
+      setDraftRevisionOverride(null);
+    },
+    [],
+  );
+
+  const markDraftMutation = useMemo(
+    () => (result: DraftRuleSetMutationResult) => {
+      setTrackedDraftRuleSetId(result.ruleSetId);
+      setDraftEquivalentToParent(false);
+      setDraftRevisionOverride(result.draftRevision);
+      pendingDraftRuleSetNavigationIdRef.current = result.ruleSetId;
+    },
+    [],
+  );
+
+  const restoreDraftSelection = useMemo(
+    () => (draftToRestore: DraftRuleSetSummary) => {
+      setTrackedDraftRuleSetId(draftToRestore._id);
+      setDraftEquivalentToParent(false);
+      setDraftRevisionOverride(draftToRestore.draftRevision);
+    },
+    [],
+  );
+
+  return {
+    clearDraftSelection,
+    draftRevisionOverride,
+    isDraftEquivalentToParent,
+    markDraftMutation,
+    pendingDraftRuleSetNavigationIdRef,
+    restoreDraftSelection,
+    setDraftEquivalentToParent,
+    setDraftRevisionOverride,
+    trackedDraftRuleSetId,
+  };
+}
+
+export function useDraftRuleSetLifecycleView(params: {
+  controller: DraftRuleSetLifecycleController;
+  pushRuleSetUrl: (ruleSetId: Id<"ruleSets"> | undefined) => void;
+  rawRuleSetSearch: string | undefined;
+  ruleSetIdFromUrl: Id<"ruleSets"> | undefined;
+  ruleSets: Doc<"ruleSets">[] | undefined;
+  ruleSetSummaries: RuleSetSummary[] | undefined;
+  selectedDate: Date;
+}): RuleSetLifecycleView & {
+  clearDraftSelection: () => void;
+  markDraftMutation: (result: DraftRuleSetMutationResult) => void;
+  restoreDraftSelection: (draft: DraftRuleSetSummary) => void;
+} {
+  const {
+    clearDraftSelection,
+    draftRevisionOverride,
+    isDraftEquivalentToParent,
+    markDraftMutation,
+    pendingDraftRuleSetNavigationIdRef,
+    restoreDraftSelection,
+    setDraftEquivalentToParent,
+    setDraftRevisionOverride,
+    trackedDraftRuleSetId,
+  } = params.controller;
+  const {
+    pushRuleSetUrl,
+    rawRuleSetSearch,
+    ruleSetIdFromUrl,
+    ruleSets,
+    ruleSetSummaries,
+    selectedDate,
+  } = params;
+  const lifecycle = useMemo(
+    () =>
+      selectRuleSetLifecycle({
+        rawRuleSetSearch,
+        ruleSetIdFromUrl,
+        ruleSets,
+        ruleSetSummaries,
+        trackedDraftRuleSetId,
+      }),
+    [
+      rawRuleSetSearch,
+      ruleSetIdFromUrl,
+      ruleSets,
+      ruleSetSummaries,
+      trackedDraftRuleSetId,
+    ],
+  );
+
+  const draft = lifecycle.draft;
+
+  useEffect(() => {
+    if (!draft) {
+      return;
+    }
+    if (rawRuleSetSearch) {
+      return;
+    }
+    if (ruleSetIdFromUrl === draft._id) {
+      return;
+    }
+    if (!(selectedDate instanceof Date)) {
+      return;
+    }
+
+    pushRuleSetUrl(draft._id);
+  }, [draft, pushRuleSetUrl, rawRuleSetSearch, ruleSetIdFromUrl, selectedDate]);
+
+  useEffect(() => {
+    const pendingDraftRuleSetId = pendingDraftRuleSetNavigationIdRef.current;
+    if (!pendingDraftRuleSetId || draft?._id !== pendingDraftRuleSetId) {
+      return;
+    }
+
+    pendingDraftRuleSetNavigationIdRef.current = null;
+    if (ruleSetIdFromUrl !== pendingDraftRuleSetId) {
+      pushRuleSetUrl(pendingDraftRuleSetId);
+    }
+  }, [
+    draft?._id,
+    pendingDraftRuleSetNavigationIdRef,
+    pushRuleSetUrl,
+    ruleSetIdFromUrl,
+  ]);
+
+  return {
+    ...lifecycle,
+    clearDraftSelection,
+    draftRevisionOverride,
+    hasBlockingUnsavedChanges: Boolean(draft && !isDraftEquivalentToParent),
+    isDraftEquivalentToParent,
+    markDraftMutation,
+    restoreDraftSelection,
+    setDraftEquivalentToParent,
+    setDraftRevisionOverride,
+  };
 }
 
 function resolveRuleSetSummary(
