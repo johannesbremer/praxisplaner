@@ -1020,6 +1020,150 @@ describe("appointments self-service cancellation", () => {
 });
 
 describe("appointments update safety", () => {
+  test("updateAppointment appends a replacement and day queries show only the current tail", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_replacement_tail";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-replacement-tail@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-replacement-tail@example.com",
+      subject: authId,
+    });
+    const targetRange = makeDayRange(4);
+    const initialStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 10, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+    const replacementStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 11, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: initialStart.add({ minutes: 30 }).toString(),
+        start: initialStart.toString(),
+      },
+    });
+
+    await authed.mutation(api.appointments.updateAppointment, {
+      end: replacementStart.add({ minutes: 30 }).toString(),
+      id: originalAppointmentId,
+      start: replacementStart.toString(),
+      title: "Moved checkup",
+    });
+
+    const storedAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_practiceId", (q) =>
+          q.eq("practiceId", baseData.practiceId),
+        )
+        .collect();
+    });
+    const replacementAppointment = storedAppointments.find(
+      (appointment) =>
+        appointment.replacesAppointmentId === originalAppointmentId,
+    );
+
+    expect(storedAppointments).toHaveLength(2);
+    expect(replacementAppointment).toMatchObject({
+      replacesAppointmentId: originalAppointmentId,
+      start: replacementStart.toString(),
+      title: "Moved checkup",
+    });
+
+    const visibleAppointments = await authed.query(
+      api.appointments.getCalendarDayAppointments,
+      {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      },
+    );
+
+    expect(visibleAppointments.map((appointment) => appointment._id)).toEqual([
+      replacementAppointment?._id,
+    ]);
+  });
+
+  test("updateAppointment rejects editing a replaced appointment", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_replaced_appointment";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-replaced-appointment@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-replaced-appointment@example.com",
+      subject: authId,
+    });
+    const targetRange = makeDayRange(5);
+    const initialStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 10, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+    const replacementStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 11, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: initialStart.add({ minutes: 30 }).toString(),
+        start: initialStart.toString(),
+      },
+    });
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      replacesAppointmentId: originalAppointmentId,
+      userId,
+      window: {
+        end: replacementStart.add({ minutes: 30 }).toString(),
+        start: replacementStart.toString(),
+      },
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: originalAppointmentId,
+        title: "Stale edit",
+      }),
+    ).rejects.toThrow(
+      "Nur der aktuelle Termin einer Ersetzungskette kann bearbeitet werden.",
+    );
+  });
+
   test("updateAppointment rejects moving an appointment onto an occupied practitioner slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
