@@ -30,7 +30,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
-import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
 import type { LocalHistoryAction } from "../hooks/use-local-history";
@@ -70,8 +69,11 @@ import {
   SaveDialogForm,
 } from "./regeln/-rule-set-diff";
 import {
+  resolveRuleSetIdFromRawSearch,
   selectRuleSetLifecycle,
   summarizeRuleSets,
+  useDraftRuleSetLifecycleController,
+  useDraftRuleSetLifecycleView,
 } from "./regeln/-rule-set-lifecycle";
 import { SimulationControls } from "./regeln/-simulation-controls";
 
@@ -138,14 +140,6 @@ function LogicView() {
   // pushParams will be defined after data queries and derived state
   const { captureError } = useErrorTracking();
 
-  // No explicit selected saved rule set state; selection is driven by URL
-  const [trackedUnsavedRuleSetId, setUnsavedRuleSetId] =
-    useState<Id<"ruleSets"> | null>(null); // New: tracks unsaved rule set
-  const [draftRevisionOverride, setDraftRevisionOverride] = useState<
-    null | number
-  >(null);
-  const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
-    useState(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
@@ -161,9 +155,6 @@ function LogicView() {
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
   const hasTriggeredInitializePracticeRef = useRef(false);
-  const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
-    null,
-  );
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,
@@ -368,6 +359,7 @@ function LogicView() {
       summarizeRuleSets(ruleSetsQuery, currentPractice?.currentActiveRuleSetId),
     [currentPractice?.currentActiveRuleSetId, ruleSetsQuery],
   );
+  const draftRuleSetLifecycleController = useDraftRuleSetLifecycleController();
 
   // Mutations
   const activateRuleSetMutation = useMutation(api.ruleSets.setActiveRuleSet);
@@ -417,12 +409,10 @@ function LogicView() {
 
   const preliminaryRuleSetIdFromUrl = useMemo(
     () =>
-      routeSearch.regelwerk
-        ? findIdInList(
-            (ruleSetsQuery ?? []).map((ruleSet) => ruleSet._id),
-            routeSearch.regelwerk,
-          )
-        : undefined,
+      resolveRuleSetIdFromRawSearch({
+        rawRuleSetSearch: routeSearch.regelwerk,
+        ruleSets: ruleSetsQuery,
+      }),
     [routeSearch.regelwerk, ruleSetsQuery],
   );
   const preliminaryRuleSetLifecycle = useMemo(
@@ -432,14 +422,15 @@ function LogicView() {
         ruleSetIdFromUrl: preliminaryRuleSetIdFromUrl,
         ruleSets: ruleSetsQuery,
         ruleSetSummaries: ruleSetsWithActive,
-        trackedDraftRuleSetId: trackedUnsavedRuleSetId,
+        trackedDraftRuleSetId:
+          draftRuleSetLifecycleController.trackedDraftRuleSetId,
       }),
     [
+      draftRuleSetLifecycleController.trackedDraftRuleSetId,
       preliminaryRuleSetIdFromUrl,
       routeSearch.regelwerk,
       ruleSetsQuery,
       ruleSetsWithActive,
-      trackedUnsavedRuleSetId,
     ],
   );
   const unsavedRuleSet = preliminaryRuleSetLifecycle.draft;
@@ -502,23 +493,17 @@ function LogicView() {
     [locationsListQuery, pushUrl],
   );
 
-  const ruleSetLifecycle = useMemo(
-    () =>
-      selectRuleSetLifecycle({
-        rawRuleSetSearch: raw.ruleSet,
-        ruleSetIdFromUrl,
-        ruleSets: ruleSetsQuery,
-        ruleSetSummaries: ruleSetsWithActive,
-        trackedDraftRuleSetId: trackedUnsavedRuleSetId,
-      }),
-    [
-      raw.ruleSet,
-      ruleSetIdFromUrl,
-      ruleSetsQuery,
-      ruleSetsWithActive,
-      trackedUnsavedRuleSetId,
-    ],
-  );
+  const ruleSetLifecycle = useDraftRuleSetLifecycleView({
+    controller: draftRuleSetLifecycleController,
+    pushRuleSetUrl: (ruleSetId) => {
+      pushUrl({ ruleSetId });
+    },
+    rawRuleSetSearch: raw.ruleSet,
+    ruleSetIdFromUrl,
+    ruleSets: ruleSetsQuery,
+    ruleSetSummaries: ruleSetsWithActive,
+    selectedDate,
+  });
   const activeRuleSet = ruleSetLifecycle.active;
   const currentWorkingRuleSet = ruleSetLifecycle.working;
   const resolvedCurrentWorkingRuleSet = ruleSetLifecycle.working;
@@ -526,11 +511,11 @@ function LogicView() {
     ruleSetLifecycle.navigation.resolvedUrlRuleSetId;
   const selectedRuleSet = ruleSetLifecycle.selected;
   const draftRuleSet = ruleSetLifecycle.draft;
+  const draftRevisionOverride = ruleSetLifecycle.draftRevisionOverride;
   const isShowingUnsavedRuleSet =
     Boolean(draftRuleSet) && currentWorkingRuleSet?._id === draftRuleSet?._id;
-  const hasBlockingUnsavedChanges = Boolean(
-    unsavedRuleSet && !isDraftEquivalentToParent,
-  );
+  const hasBlockingUnsavedChanges = ruleSetLifecycle.hasBlockingUnsavedChanges;
+  const isDraftEquivalentToParent = ruleSetLifecycle.isDraftEquivalentToParent;
   const selectedVersionId = ruleSetLifecycle.navigation.selectedVersionId;
   const ruleSetDiff = useQuery(
     api.ruleSets.getUnsavedRuleSetDiff,
@@ -542,13 +527,7 @@ function LogicView() {
       : "skip",
   );
   React.useEffect(() => {
-    if (
-      !raw.ruleSet ||
-      raw.ruleSet === RESERVED_UNSAVED_DESCRIPTION ||
-      !ruleSetsQuery ||
-      resolvedRuleSetIdFromUrl ||
-      unsavedRuleSet
-    ) {
+    if (!raw.ruleSet || !ruleSetsQuery || resolvedRuleSetIdFromUrl) {
       return;
     }
 
@@ -559,7 +538,6 @@ function LogicView() {
     raw.ruleSet,
     ruleSetsQuery,
     resolvedRuleSetIdFromUrl,
-    unsavedRuleSet,
   ]);
   const ruleSetReplayTarget = useMemo((): null | RuleSetReplayTarget => {
     if (!resolvedCurrentWorkingRuleSet) {
@@ -638,9 +616,7 @@ function LogicView() {
         discardingUnsavedRuleSetIdRef.current = draftToDiscard._id;
 
         try {
-          setUnsavedRuleSetId(null);
-          setDraftRevisionOverride(null);
-          setIsDraftEquivalentToParent(false);
+          ruleSetLifecycle.clearDraftSelection();
           pushUrl({ ruleSetId: parentRuleSetId });
 
           const discardResult = await discardEquivalentUnsavedRuleSetMutation({
@@ -649,16 +625,18 @@ function LogicView() {
           });
 
           if (!discardResult.deleted) {
-            setUnsavedRuleSetId(draftToDiscard._id);
-            setDraftRevisionOverride(previousDraftRevision);
-            setIsDraftEquivalentToParent(false);
+            ruleSetLifecycle.restoreDraftSelection({
+              ...draftToDiscard,
+              draftRevision: previousDraftRevision,
+            });
             pushUrl({ ruleSetId: draftToDiscard._id });
           }
         } catch (error: unknown) {
           discardingUnsavedRuleSetIdRef.current = null;
-          setUnsavedRuleSetId(draftToDiscard._id);
-          setDraftRevisionOverride(previousDraftRevision);
-          setIsDraftEquivalentToParent(false);
+          ruleSetLifecycle.restoreDraftSelection({
+            ...draftToDiscard,
+            draftRevision: previousDraftRevision,
+          });
           pushUrl({ ruleSetId: draftToDiscard._id });
           captureError(error, {
             context: "discard_equivalent_draft_after_final_undo",
@@ -680,13 +658,14 @@ function LogicView() {
     captureError,
     currentPractice,
     discardEquivalentUnsavedRuleSetMutation,
+    ruleSetLifecycle,
     undoRegelnHistoryAction,
     unsavedRuleSet,
   ]);
 
   const runRegelnRedo = useCallback(async () => {
     const previousRuleSetId = ruleSetIdFromUrl;
-    setIsDraftEquivalentToParent(false);
+    ruleSetLifecycle.setDraftEquivalentToParent(false);
     const shouldRestorePreviousRuleSet =
       previousRuleSetId !== undefined &&
       unsavedRuleSet !== undefined &&
@@ -704,7 +683,7 @@ function LogicView() {
 
     if (result.status === "conflict") {
       if (shouldRestorePreviousRuleSet) {
-        setIsDraftEquivalentToParent(true);
+        ruleSetLifecycle.setDraftEquivalentToParent(true);
         pushUrl({ ruleSetId: previousRuleSetId });
       }
       toast.error("Änderung konnte nicht wiederhergestellt werden", {
@@ -717,7 +696,7 @@ function LogicView() {
       return;
     }
     if (shouldRestorePreviousRuleSet) {
-      setIsDraftEquivalentToParent(true);
+      ruleSetLifecycle.setDraftEquivalentToParent(true);
       pushUrl({ ruleSetId: previousRuleSetId });
     }
     toast.info("Keine wiederherstellbare Änderung vorhanden.");
@@ -726,6 +705,7 @@ function LogicView() {
     pushUrl,
     redoRegelnHistoryAction,
     redoRegelnHistoryDepth,
+    ruleSetLifecycle,
     ruleSetIdFromUrl,
     unsavedRuleSet,
   ]);
@@ -754,56 +734,12 @@ function LogicView() {
 
   const handleDraftMutation = useCallback(
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
-      setUnsavedRuleSetId(result.ruleSetId);
-      setIsDraftEquivalentToParent(false);
       setIsSaveDialogOpen(false);
       setPendingRuleSetId(undefined);
-      setDraftRevisionOverride(result.draftRevision);
-      pendingDraftRuleSetNavigationIdRef.current = result.ruleSetId;
+      ruleSetLifecycle.markDraftMutation(result);
     },
-    [],
+    [ruleSetLifecycle],
   );
-
-  // Helper to push the canonical URL reflecting current UI intent
-  // pushUrl and navigateTab come from useRegelnUrl
-
-  // Ensure the URL reflects an existing unsaved draft selection
-  // If an unsaved rule set exists but the URL doesn't say 'ungespeichert',
-  // navigate to include it so the URL remains the single source of truth.
-  React.useEffect(() => {
-    // Only enforce when the ruleSet segment is missing entirely.
-    // Do NOT override a user-chosen named rule set in the URL.
-    if (!unsavedRuleSet) {
-      return;
-    }
-    if (raw.ruleSet) {
-      return;
-    }
-    if (ruleSetIdFromUrl === unsavedRuleSet._id) {
-      return;
-    }
-    // Avoid navigating before we know the date from URL/state.
-    if (!(selectedDate instanceof Date)) {
-      return;
-    }
-
-    pushUrl({ ruleSetId: unsavedRuleSet._id });
-  }, [unsavedRuleSet, raw.ruleSet, ruleSetIdFromUrl, selectedDate, pushUrl]);
-
-  React.useEffect(() => {
-    const pendingDraftRuleSetId = pendingDraftRuleSetNavigationIdRef.current;
-    if (
-      !pendingDraftRuleSetId ||
-      unsavedRuleSet?._id !== pendingDraftRuleSetId
-    ) {
-      return;
-    }
-
-    pendingDraftRuleSetNavigationIdRef.current = null;
-    if (ruleSetIdFromUrl !== pendingDraftRuleSetId) {
-      pushUrl({ ruleSetId: pendingDraftRuleSetId });
-    }
-  }, [pushUrl, ruleSetIdFromUrl, unsavedRuleSet?._id]);
 
   // Reset simulation helper (after pushParams is defined)
   const resetSimulation = useCallback(async () => {
@@ -898,7 +834,7 @@ function LogicView() {
       }
 
       // Navigate to the chosen version
-      setUnsavedRuleSetId(null);
+      ruleSetLifecycle.clearDraftSelection();
       pushUrl({ ruleSetId: versionId });
     },
     [
@@ -906,6 +842,7 @@ function LogicView() {
       hasBlockingUnsavedChanges,
       pushUrl,
       ruleSetsQuery,
+      ruleSetLifecycle,
       unsavedRuleSet,
     ],
   );
@@ -971,9 +908,7 @@ function LogicView() {
 
       setIsSaveDialogOpen(false);
       setActivationName("");
-      setUnsavedRuleSetId(null); // Clear unsaved state
-      setIsDraftEquivalentToParent(false);
-      setDraftRevisionOverride(null);
+      ruleSetLifecycle.clearDraftSelection();
 
       // If we came from the save dialog, switch to the pending rule set (or active when undefined)
       if (pendingRuleSetId === undefined) {
@@ -1026,9 +961,7 @@ function LogicView() {
         }
         // If it's already saved, there's nothing to do
 
-        setUnsavedRuleSetId(null);
-        setIsDraftEquivalentToParent(false);
-        setDraftRevisionOverride(null);
+        ruleSetLifecycle.clearDraftSelection();
         setPendingRuleSetId(undefined);
         setIsSaveDialogOpen(false);
         setActivationName("");
@@ -1081,9 +1014,7 @@ function LogicView() {
       void (async () => {
         try {
           discardingUnsavedRuleSetIdRef.current = draftToDelete._id;
-          setUnsavedRuleSetId(null);
-          setIsDraftEquivalentToParent(false);
-          setDraftRevisionOverride(null);
+          ruleSetLifecycle.clearDraftSelection();
           pushUrl({ ruleSetId: targetRuleSetId });
 
           await deleteUnsavedRuleSetMutation({
@@ -1098,8 +1029,7 @@ function LogicView() {
           if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
             discardingUnsavedRuleSetIdRef.current = null;
           }
-          setUnsavedRuleSetId(draftToDelete._id);
-          setDraftRevisionOverride(draftToDelete.draftRevision);
+          ruleSetLifecycle.restoreDraftSelection(draftToDelete);
           if (wasSaveDialogOpen) {
             setIsSaveDialogOpen(true);
           }
