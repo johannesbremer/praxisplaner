@@ -7,9 +7,9 @@ import {
   ensurePracticeAccessForQuery,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import { activateSavedRuleSet } from "./ruleSetActivation";
 import { summarizeDraftRuleSetDiff } from "./ruleSetDiff";
 import {
-  activateSavedRuleSet,
   deleteDraftRuleSet,
   discardCurrentDraftRuleSet,
   discardDraftRuleSetIfEquivalentToParent,
@@ -213,6 +213,31 @@ export const getVersionHistory = query({
       isActive: v.boolean(),
       message: v.string(),
       parents: v.array(v.id("ruleSets")),
+    }),
+  ),
+});
+
+export const getActivationHistory = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    return await ctx.db
+      .query("ruleSetActivations")
+      .withIndex("by_practiceId_activatedAt", (q) =>
+        q.eq("practiceId", args.practiceId),
+      )
+      .collect();
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("ruleSetActivations"),
+      activatedAt: v.int64(),
+      activatedRuleSetId: v.id("ruleSets"),
+      practiceId: v.id("practices"),
+      previousActiveRuleSetId: v.optional(v.id("ruleSets")),
     }),
   ),
 });
