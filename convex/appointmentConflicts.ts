@@ -119,8 +119,10 @@ export function getEffectiveAppointmentsForOccupancyView(
   );
 
   if (occupancyView === "live") {
-    return visibleAppointments.filter(
-      (appointment) => appointment.isSimulation !== true,
+    return filterCurrentTailAppointments(
+      visibleAppointments.filter(
+        (appointment) => appointment.isSimulation !== true,
+      ),
     );
   }
 
@@ -146,15 +148,30 @@ export function getEffectiveAppointmentsForOccupancyView(
       appointment.isSimulation !== true && !replacedIds.has(appointment._id),
   );
 
-  return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
-    a.start.localeCompare(b.start),
-  );
+  return [
+    ...filterCurrentTailAppointments(realAppointments),
+    ...filterCurrentTailAppointments(simulationAppointments),
+  ].toSorted((a, b) => a.start.localeCompare(b.start));
 }
 
 export function getOccupancyViewForBookingScope(
   scope: AppointmentBookingScope,
 ): AppointmentOccupancyView {
   return scope === "simulation" ? "draftEffective" : "live";
+}
+
+function filterCurrentTailAppointments(
+  appointments: Doc<"appointments">[],
+): Doc<"appointments">[] {
+  const replacedAppointmentIds = new Set(
+    appointments
+      .map((appointment) => appointment.replacesAppointmentId)
+      .filter((id): id is Id<"appointments"> => id !== undefined),
+  );
+
+  return appointments.filter(
+    (appointment) => !replacedAppointmentIds.has(appointment._id),
+  );
 }
 
 function findFirstCalendarOccupancyConflict(args: {

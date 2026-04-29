@@ -1104,6 +1104,66 @@ describe("appointments update safety", () => {
     ]);
   });
 
+  test("updateAppointment frees the superseded real appointment slot for live occupancy", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_replacement_occupancy";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-replacement-occupancy@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-replacement-occupancy@example.com",
+      subject: authId,
+    });
+    const targetRange = makeDayRange(6);
+    const originalStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 10, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+    const replacementStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 11, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: originalStart.add({ minutes: 30 }).toString(),
+        start: originalStart.toString(),
+      },
+    });
+
+    await authed.mutation(api.appointments.updateAppointment, {
+      end: replacementStart.add({ minutes: 30 }).toString(),
+      id: originalAppointmentId,
+      start: replacementStart.toString(),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: originalStart.toString(),
+        title: "Replacement slot reuse",
+        userId,
+      }),
+    ).resolves.toEqual(expect.any(String));
+  });
+
   test("updateAppointment rejects editing a replaced appointment", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
