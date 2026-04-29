@@ -25,7 +25,7 @@ import {
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
-import { bumpDraftRevision, resolveDraftForWrite } from "./copyOnWrite";
+import { bumpDraftRevision } from "./copyOnWrite";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -40,6 +40,7 @@ import {
   ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
 } from "./practiceAccess";
+import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
 import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
 
@@ -387,12 +388,11 @@ export const createVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const resolved = await assertStaffExists(ctx, {
       ...(args.mfaId ? { mfaId: args.mfaId } : {}),
@@ -511,12 +511,11 @@ async function createVacationInDraft(
 ) {
   let ruleSetId = args.resolvedRuleSetId;
   if (!ruleSetId) {
-    const resolvedDraft = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const resolvedDraft = await selectDraftRuleSetForEdit(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
     ruleSetId = resolvedDraft.ruleSetId;
   }
 
@@ -637,12 +636,11 @@ export const createVacationWithCoverageAdjustments = mutation({
     if (!practice?.currentActiveRuleSetId) {
       throw new Error("Aktives Regelset nicht gefunden.");
     }
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
     const replacingVacationLineageKeys = [
       ...(args.replacingVacationLineageKeys ?? []).map((lineageKey) =>
         asVacationLineageKey(lineageKey),
@@ -983,12 +981,11 @@ export const deleteVacation = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
 
-    const { ruleSetId } = await resolveDraftForWrite(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
+    const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
+      expectedDraftRevision: args.expectedDraftRevision,
+      practiceId: args.practiceId,
+      selectedRuleSetId: args.selectedRuleSetId,
+    });
 
     const resolved = await assertStaffExists(ctx, {
       ...(args.mfaId ? { mfaId: args.mfaId } : {}),

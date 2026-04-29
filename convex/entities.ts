@@ -40,7 +40,6 @@ import {
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import {
   bumpDraftRevision,
-  resolveDraftForWrite,
   validateAppointmentTypeLineageKeysInRuleSet,
   validateLocationLineageKeysInRuleSet,
   validatePractitionerLineageKeysInRuleSet,
@@ -87,6 +86,7 @@ import {
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
 import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
@@ -114,12 +114,11 @@ async function resolveDraftRuleSetForMutation(
   expectedDraftRevision: null | number,
   selectedRuleSetId: Id<"ruleSets">,
 ): Promise<Id<"ruleSets">> {
-  const resolved = await resolveDraftForWrite(
-    db,
-    practiceId,
+  const resolved = await selectDraftRuleSetForEdit(db, {
     expectedDraftRevision,
+    practiceId,
     selectedRuleSetId,
-  );
+  });
   return resolved.ruleSetId;
 }
 
