@@ -639,7 +639,6 @@ export const get = query({
     if (!session) {
       return null;
     }
-    const sessionWithActiveRuleSet = await withActiveRuleSet(ctx, session);
 
     // Check session ownership
     if (session.userId !== userId) {
@@ -665,6 +664,7 @@ export const get = query({
       return null;
     }
 
+    const sessionWithActiveRuleSet = await withActiveRuleSet(ctx, session);
     const state = await tryHydrateSessionState(ctx, sessionWithActiveRuleSet);
     if (!state) {
       return null;
