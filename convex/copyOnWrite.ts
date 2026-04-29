@@ -21,6 +21,7 @@ import type { DataModel } from "./_generated/dataModel";
 
 import { asMfaId, asMfaLineageKey, type MfaId, toTableId } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
+import { activateInitialRuleSet } from "./ruleSetActivation";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
 // Type aliases for cleaner code
@@ -153,10 +154,7 @@ export async function createInitialRuleSet(
     version: 1,
   });
 
-  // Set it as the active rule set
-  await db.patch("practices", practiceId, {
-    currentActiveRuleSetId: ruleSetId,
-  });
+  await activateInitialRuleSet(db, { practiceId, ruleSetId });
 
   return ruleSetId;
 }

@@ -894,6 +894,17 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
+
+  ruleSetActivations: defineTable({
+    activatedAt: v.int64(),
+    activatedRuleSetId: v.id("ruleSets"),
+    practiceId: v.id("practices"),
+    previousActiveRuleSetId: v.optional(v.id("ruleSets")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_activatedAt", ["practiceId", "activatedAt"])
+    .index("by_activatedRuleSetId", ["activatedRuleSetId"]),
+
   vacations: defineTable({
     createdAt: v.int64(),
     date: v.string(), // YYYY-MM-DD
