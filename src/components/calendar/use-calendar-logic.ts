@@ -39,9 +39,8 @@ import { useCalendarData } from "./use-calendar-data";
 import { useCalendarDevtools } from "./use-calendar-devtools";
 import { useCalendarInteractions } from "./use-calendar-interactions";
 import { handleEditBlockedSlot, TIMEZONE } from "./use-calendar-logic-helpers";
-import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
+import { useCalendarPlanningAdapters } from "./use-calendar-planning-adapters";
 import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver";
-import { useCalendarSimulationConversion } from "./use-calendar-simulation-conversion";
 import { useCalendarVisibleDay } from "./use-calendar-visible-day";
 
 /**
@@ -201,22 +200,50 @@ export function useCalendarLogic({
     practitionerLineageKeyById,
   });
 
-  const { commands: mutationCommands, getBlockedSlotEditorData } =
-    useCalendarPlanningWorkbench({
-      activeDayAppointmentMapRef: appointmentDocMapRef,
-      activeDayBlockedSlotMapRef: blockedSlotDocMapRef,
-      allPracticeAppointmentMap: allPracticeAppointmentDocMap,
-      allPracticeAppointmentMapRef: allPracticeAppointmentDocMapRef,
-      allPracticeAppointmentsLoaded,
-      allPracticeBlockedSlotMap: allPracticeBlockedSlotDocMap,
-      allPracticeBlockedSlotMapRef: allPracticeBlockedSlotDocMapRef,
-      allPracticeBlockedSlotsLoaded,
-      blockedSlotsQueryArgs,
-      calendarDayQueryArgs,
-      getRequiredAppointmentTypeInfo,
-      parseZonedDateTime,
-      referenceMaps,
-      refreshAllPracticeConflictData,
+  const getPractitionerIdForColumn = useCallback(
+    (column: CalendarColumnId): Id<"practitioners"> | undefined =>
+      typeof column === "string" && (column === "ekg" || column === "labor")
+        ? undefined
+        : getPractitionerIdForLineageKey(column),
+    [getPractitionerIdForLineageKey],
+  );
+
+  const patientDateOfBirth = patient?.dateOfBirth;
+  const patientIsNewPatient = patient?.isNewPatient;
+  const { commands: planningCommands, getBlockedSlotEditorData } =
+    useCalendarPlanningAdapters({
+      simulation: {
+        blockedSlotDocMapRef,
+        getAppointmentTypeIdForLineageKey,
+        getLocationIdForLineageKey,
+        getLocationLineageKeyForDisplayId,
+        getPractitionerIdForColumn,
+        getPractitionerIdForLineageKey,
+        getPractitionerLineageKeyForDisplayId,
+        parseZonedDateTime,
+        patientDateOfBirth,
+        patientIsNewPatient,
+        practiceId,
+        selectedDate,
+        selectedLocationId,
+        simulatedContext,
+      },
+      workbench: {
+        activeDayAppointmentMapRef: appointmentDocMapRef,
+        activeDayBlockedSlotMapRef: blockedSlotDocMapRef,
+        allPracticeAppointmentMap: allPracticeAppointmentDocMap,
+        allPracticeAppointmentMapRef: allPracticeAppointmentDocMapRef,
+        allPracticeAppointmentsLoaded,
+        allPracticeBlockedSlotMap: allPracticeBlockedSlotDocMap,
+        allPracticeBlockedSlotMapRef: allPracticeBlockedSlotDocMapRef,
+        allPracticeBlockedSlotsLoaded,
+        blockedSlotsQueryArgs,
+        calendarDayQueryArgs,
+        getRequiredAppointmentTypeInfo,
+        parseZonedDateTime,
+        referenceMaps,
+        refreshAllPracticeConflictData,
+      },
     });
 
   const placementAppointmentTypeLineageKey =
@@ -252,15 +279,6 @@ export function useCalendarLogic({
     },
     [appointmentTypeInfoByLineageKey],
   );
-
-  const {
-    createAppointment: runCreateAppointment,
-    createBlockedSlot: runCreateBlockedSlot,
-    deleteAppointment: runDeleteAppointment,
-    deleteBlockedSlot: runDeleteBlockedSlot,
-    updateAppointment: runUpdateAppointment,
-    updateBlockedSlot: runUpdateBlockedSlot,
-  } = mutationCommands;
 
   // Resolve location name from URL
   useEffect(() => {
@@ -350,14 +368,6 @@ export function useCalendarLogic({
     timeToMinutes,
     vacationsData,
   });
-
-  const getPractitionerIdForColumn = useCallback(
-    (column: CalendarColumnId): Id<"practitioners"> | undefined =>
-      typeof column === "string" && (column === "ekg" || column === "labor")
-        ? undefined
-        : getPractitionerIdForLineageKey(column),
-    [getPractitionerIdForLineageKey],
-  );
 
   const baseAppointmentLayouts = useMemo(
     () => buildCalendarAppointmentLayouts({ appointments: appointmentsData }),
@@ -547,52 +557,6 @@ export function useCalendarLogic({
       return Math.max(SLOT_DURATION, maxSlots * SLOT_DURATION);
     },
     [baseAppointmentLayouts, timeToSlot, totalSlots],
-  );
-
-  const patientDateOfBirth = patient?.dateOfBirth;
-  const patientIsNewPatient = patient?.isNewPatient;
-  const {
-    convertRealAppointmentToSimulation,
-    convertRealBlockedSlotToSimulation,
-  } = useCalendarSimulationConversion({
-    blockedSlotDocMapRef,
-    getAppointmentTypeIdForLineageKey,
-    getLocationIdForLineageKey,
-    getLocationLineageKeyForDisplayId,
-    getPractitionerIdForColumn,
-    getPractitionerIdForLineageKey,
-    getPractitionerLineageKeyForDisplayId,
-    parseZonedDateTime,
-    patientDateOfBirth,
-    patientIsNewPatient,
-    practiceId,
-    runCreateAppointment,
-    runCreateBlockedSlot,
-    selectedDate,
-    selectedLocationId,
-    simulatedContext,
-  });
-  const planningCommands = useMemo(
-    () => ({
-      convertRealAppointmentToSimulation,
-      convertRealBlockedSlotToSimulation,
-      createAppointment: runCreateAppointment,
-      createBlockedSlot: runCreateBlockedSlot,
-      deleteAppointment: runDeleteAppointment,
-      deleteBlockedSlot: runDeleteBlockedSlot,
-      updateAppointment: runUpdateAppointment,
-      updateBlockedSlot: runUpdateBlockedSlot,
-    }),
-    [
-      convertRealAppointmentToSimulation,
-      convertRealBlockedSlotToSimulation,
-      runCreateAppointment,
-      runCreateBlockedSlot,
-      runDeleteAppointment,
-      runDeleteBlockedSlot,
-      runUpdateAppointment,
-      runUpdateBlockedSlot,
-    ],
   );
 
   const {
