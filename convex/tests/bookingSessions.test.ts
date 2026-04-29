@@ -280,8 +280,10 @@ async function createBookingEntities(t: TestContext) {
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
     const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
@@ -340,11 +342,13 @@ async function createPracticeAndRuleSet(t: TestContext) {
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
-    return { practiceId, ruleSetId };
+    return { practiceId };
   });
 }
 
@@ -456,7 +460,7 @@ function nextWeekdayAt(weekday: number, hour: number, minute: number): string {
 describe("bookingSessions user identity handling", () => {
   test("create bootstraps missing authenticated user", async () => {
     const t = createTestContext();
-    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const { practiceId } = await createPracticeAndRuleSet(t);
 
     const authId = "workos_missing_user";
     const authed = t.withIdentity({
@@ -466,7 +470,6 @@ describe("bookingSessions user identity handling", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     const state = await t.run(async (ctx) => {
@@ -485,7 +488,7 @@ describe("bookingSessions user identity handling", () => {
 
   test("create and read session succeed with duplicate users for same authId", async () => {
     const t = createTestContext();
-    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const { practiceId } = await createPracticeAndRuleSet(t);
 
     const authId = "workos_duplicate_user";
 
@@ -509,7 +512,6 @@ describe("bookingSessions user identity handling", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     const expectedUserId = await t.run(async (ctx) => {
@@ -536,12 +538,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("get returns null when the session owner user no longer exists", async () => {
     const t = createTestContext();
-    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const { practiceId } = await createPracticeAndRuleSet(t);
     const authed = makeAuthedClient(t, "missing_owner");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await t.run(async (ctx) => {
@@ -564,7 +565,6 @@ describe("bookingSessions user identity handling", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToPatientStatus(authed, sessionId, locationId);
@@ -617,7 +617,7 @@ describe("bookingSessions user identity handling", () => {
           phoneNumber: "+491701234567",
         },
         practiceId: session.practiceId,
-        ruleSetId: session.ruleSetId,
+        ruleSetId,
         sessionId,
         userId: wrongUserId,
       });
@@ -629,13 +629,12 @@ describe("bookingSessions user identity handling", () => {
 
   test("get returns null when existing calendar step row is linked to another user", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "step_row_owner_existing");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToPatientStatus(authed, sessionId, locationId);
@@ -699,7 +698,6 @@ describe("bookingSessions user identity handling", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToPatientStatus(authed, sessionId, locationId);
@@ -752,7 +750,7 @@ describe("bookingSessions user identity handling", () => {
           phoneNumber: "+491701234567",
         },
         practiceId: session.practiceId,
-        ruleSetId: session.ruleSetId,
+        ruleSetId,
         sessionId,
         userId: wrongUserId,
       });
@@ -762,7 +760,6 @@ describe("bookingSessions user identity handling", () => {
       api.bookingSessions.getActiveForUser,
       {
         practiceId,
-        ruleSetId,
       },
     );
     expect(activeSession).toBeNull();
@@ -770,13 +767,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("get returns null when public session remapping can no longer resolve the selected location", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "stale_public_location_get");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
@@ -795,13 +790,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("getActiveForUser skips sessions whose public remapping can no longer resolve", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "stale_public_location_active");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await authed.mutation(api.bookingSessions.acceptPrivacy, { sessionId });
@@ -818,7 +811,6 @@ describe("bookingSessions user identity handling", () => {
       api.bookingSessions.getActiveForUser,
       {
         practiceId,
-        ruleSetId,
       },
     );
     expect(activeSession).toBeNull();
@@ -826,13 +818,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("create deletes stale sessions whose public remapping can no longer resolve", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "stale_public_location_create");
 
     const staleSessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await authed.mutation(api.bookingSessions.acceptPrivacy, {
@@ -851,7 +841,6 @@ describe("bookingSessions user identity handling", () => {
       api.bookingSessions.create,
       {
         practiceId,
-        ruleSetId,
       },
     );
 
@@ -873,13 +862,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitNewDataSharing stores owner userId on each contact", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "data_sharing_contact_owner");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToNewDataSharing(authed, locationId, sessionId);
@@ -897,13 +884,11 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitNewDataSharing preserves pvsConsent on PKV path", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "data_sharing_pkv_pvs_consent");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToNewDataSharingPkv(authed, locationId, sessionId);
@@ -923,13 +908,12 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitExistingDataSharing stores owner userId on each contact", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "existing_data_sharing_contact_owner");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToExistingDataSharing(
@@ -958,7 +942,6 @@ describe("bookingSessions user identity handling", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
 
     await bootstrapToNewDataSharing(authed, locationId, sessionId);
@@ -996,7 +979,7 @@ describe("bookingSessions user identity handling", () => {
           phoneNumber: "+491701234567",
         },
         practiceId: session.practiceId,
-        ruleSetId: session.ruleSetId,
+        ruleSetId,
         sessionId,
         userId: session.userId,
       });
@@ -1008,14 +991,12 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitNewDataSharing denies access for non-owner user", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const owner = makeAuthedClient(t, "data_sharing_owner");
     const stranger = makeAuthedClient(t, "data_sharing_stranger");
 
     const sessionId = await owner.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewDataSharing(owner, locationId, sessionId);
 
@@ -1029,14 +1010,13 @@ describe("bookingSessions user identity handling", () => {
 
   test("submitExistingDataSharing denies access for non-owner user", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const owner = makeAuthedClient(t, "existing_data_sharing_owner");
     const stranger = makeAuthedClient(t, "existing_data_sharing_stranger");
 
     const sessionId = await owner.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingDataSharing(
       owner,
@@ -1063,7 +1043,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     const session = await t.run(async (ctx) => {
       return await ctx.db.get("bookingSessions", sessionId);
@@ -1077,7 +1056,7 @@ describe("bookingSessions atomic pending/completed step states", () => {
     const transition = applyBookingSessionTransition({
       base: {
         practiceId: session.practiceId,
-        ruleSetId: session.ruleSetId,
+        ruleSetId,
         sessionId: session._id,
         userId: session.userId,
       },
@@ -1151,13 +1130,11 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("GKV details step transitions from pending to completed variant via goBack", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_gkv");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
@@ -1218,13 +1195,11 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("PKV details step uses explicit completed variant after goBack", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_pkv");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
@@ -1297,13 +1272,11 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("new patient data-input step stays pending before submit and requires data sharing before calendar", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_new_data");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
@@ -1383,13 +1356,12 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("existing patient data-input step remains atomic (pending before submit)", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "atomic_existing_data");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
@@ -1434,13 +1406,11 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("new patient can skip data-sharing contacts", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "skip_data_sharing_new");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
     await authed.mutation(api.bookingSessions.selectNewPatient, { sessionId });
@@ -1477,13 +1447,12 @@ describe("bookingSessions atomic pending/completed step states", () => {
 
   test("existing patient can skip data-sharing contacts", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "skip_data_sharing_existing");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToPatientStatus(authed, sessionId, locationId);
 
@@ -1521,12 +1490,10 @@ describe("bookingSessions atomic pending/completed step states", () => {
 describe("bookingSessions slot selection validation", () => {
   test("submitNewDataSharing rejects invalid date format", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, ruleSetId } =
-      await createBookingEntities(t);
+    const { locationId, practiceId } = await createBookingEntities(t);
     const authed = makeAuthedClient(t, "data_sharing_invalid_date");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewDataSharing(authed, locationId, sessionId);
 
@@ -1542,12 +1509,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("submitExistingDataSharing allows empty title", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "data_sharing_empty_title");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingDataSharing(
       authed,
@@ -1579,18 +1545,12 @@ describe("bookingSessions slot selection validation", () => {
 
   test("returnToCalendarSelectionAfterCancellation resets existing-confirmation to existing-calendar-selection", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { appointmentTypeId, locationId, practiceId, practitionerId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "return_to_calendar_existing");
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingCalendarSelection(
       authed,
@@ -1636,17 +1596,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { appointmentTypeId, locationId, practiceId, practitionerId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "slot_validation_new_reason");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
@@ -1662,12 +1616,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectNewPatientSlot rejects appointment types from other rule sets", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "slot_validation_new_ruleset");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
@@ -1686,17 +1639,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectNewPatientSlot rejects slots in the past", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { appointmentTypeId, locationId, practiceId, practitionerId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "slot_validation_new_minimum_notice");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
@@ -1727,7 +1674,6 @@ describe("bookingSessions slot selection validation", () => {
     const authed = makeAuthedClient(t, "slot_validation_new_minimum_notice");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 
@@ -1743,17 +1689,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectExistingPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { appointmentTypeId, locationId, practiceId, practitionerId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(t, "slot_validation_existing_reason");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingCalendarSelection(
       authed,
@@ -1774,12 +1714,11 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectExistingPatientSlot rejects appointment types from other rule sets", async () => {
     const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
+    const { locationId, practiceId, practitionerId } =
       await createBookingEntities(t);
     const authed = makeAuthedClient(t, "slot_validation_existing_ruleset");
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingCalendarSelection(
       authed,
@@ -1803,20 +1742,14 @@ describe("bookingSessions slot selection validation", () => {
 
   test("selectExistingPatientSlot rejects slots in the past", async () => {
     const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
+    const { appointmentTypeId, locationId, practiceId, practitionerId } =
+      await createBookingEntities(t);
     const authed = makeAuthedClient(
       t,
       "slot_validation_existing_minimum_notice",
     );
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingCalendarSelection(
       authed,
@@ -1855,7 +1788,6 @@ describe("bookingSessions slot selection validation", () => {
     );
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToExistingCalendarSelection(
       authed,
@@ -1935,7 +1867,6 @@ describe("bookingSessions slot selection validation", () => {
 
     const sessionId = await authed.mutation(api.bookingSessions.create, {
       practiceId,
-      ruleSetId,
     });
     await bootstrapToNewCalendarSelection(authed, locationId, sessionId);
 

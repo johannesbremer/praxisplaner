@@ -5,6 +5,7 @@ import type {
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+import { recordRuleSetActivation } from "./activeRuleSets";
 import {
   appointmentOverlapsCandidate,
   findConflictingAppointment,
@@ -40,7 +41,6 @@ export type EquivalentDraftDiscardResult =
     };
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
-
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 
 export async function activateSavedRuleSet(
@@ -56,9 +56,7 @@ export async function activateSavedRuleSet(
   }
 
   await applyPendingSimulationAppointmentsForRuleSet(db, args.ruleSetId);
-  await db.patch("practices", args.practiceId, {
-    currentActiveRuleSetId: args.ruleSetId,
-  });
+  await recordRuleSetActivation(db, args);
 }
 
 export async function deleteDraftRuleSet(

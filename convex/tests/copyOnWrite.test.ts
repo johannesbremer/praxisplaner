@@ -14,6 +14,7 @@ import type { MutationCtx } from "../_generated/server";
 import { regex } from "../../lib/arkregex";
 import { serializeConditionTreeTransport } from "../../lib/condition-tree";
 import { api } from "../_generated/api";
+import { requireActiveRuleSetId } from "../activeRuleSets";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -66,19 +67,9 @@ async function getInitialRuleSetId(
   t: ReturnType<typeof createAuthedTestContext>,
   practiceId: Id<"practices">,
 ): Promise<Id<"ruleSets">> {
-  const practice = await t.run(async (ctx) => {
-    const practice = await ctx.db.get("practices", practiceId);
-    if (!practice) {
-      throw new Error("Practice not found");
-    }
-    return practice;
+  return await t.run(async (ctx) => {
+    return await requireActiveRuleSetId(ctx.db, practiceId);
   });
-
-  if (!practice.currentActiveRuleSetId) {
-    throw new Error("Practice has no active rule set");
-  }
-
-  return practice.currentActiveRuleSetId;
 }
 
 async function insertWithLineage<TableName extends LineageTable>(
@@ -142,20 +133,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
     // Get initial rule set (created by practice setup)
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
@@ -269,20 +248,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
     // Get initial rule set
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
@@ -353,20 +320,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
     // Get initial rule set
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
@@ -519,20 +474,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
     // Get initial rule set
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     // Create a practitioner first (required for appointment types)
     const practitioner = await t.run(async (ctx) => {
@@ -975,18 +918,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Strict Rule Payload Practice",
     });
-
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     await expect(
       createRule(t, {
@@ -1011,7 +943,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         expectedDraftRevision: null,
         name: "Legacy Rule Payload",
         practiceId,
-        selectedRuleSetId: practice.currentActiveRuleSetId,
+        selectedRuleSetId: initialRuleSetId,
       }),
     ).rejects.toThrow(
       "Ungueltiger Regelbaum: Child 0: CONCURRENT_COUNT condition must define scope explicitly; Child 1: DAY_OF_WEEK condition must use valueNumber",
@@ -1024,19 +956,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "practitioners", {
@@ -1313,19 +1233,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "practitioners", {
@@ -1416,19 +1324,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const practiceId = await t.mutation(api.practices.createPractice, {
       name: "Test Practice",
     });
-
-    const practice = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice) {
-        throw new Error("Practice not found");
-      }
-      return practice;
-    });
-
-    if (!practice.currentActiveRuleSetId) {
-      throw new Error("Practice has no active rule set");
-    }
-    const initialRuleSetId = practice.currentActiveRuleSetId;
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "practitioners", {
@@ -1681,12 +1577,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const seeded = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice?.currentActiveRuleSetId) {
-        throw new Error("Practice has no active rule set");
-      }
-
-      const ruleSet1Id = practice.currentActiveRuleSetId;
+      const ruleSet1Id = await requireActiveRuleSetId(ctx.db, practiceId);
       const ruleSet1 = await ctx.db.get("ruleSets", ruleSet1Id);
       if (!ruleSet1) {
         throw new Error("Initial rule set missing");
@@ -1960,12 +1851,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const seeded = await t.run(async (ctx) => {
-      const practice = await ctx.db.get("practices", practiceId);
-      if (!practice?.currentActiveRuleSetId) {
-        throw new Error("Practice has no active rule set");
-      }
-
-      const ruleSet1Id = practice.currentActiveRuleSetId;
+      const ruleSet1Id = await requireActiveRuleSetId(ctx.db, practiceId);
       const ruleSet1 = await ctx.db.get("ruleSets", ruleSet1Id);
       if (!ruleSet1) {
         throw new Error("Initial rule set missing");

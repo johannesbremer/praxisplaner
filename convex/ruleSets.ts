@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import {
+  getActiveRuleSet as getActiveRuleSetDoc,
+  getActiveRuleSetId,
+} from "./activeRuleSets";
 import { findUnsavedRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -167,11 +171,7 @@ export const getActiveRuleSet = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return null;
-    }
-    return await ctx.db.get("ruleSets", practice.currentActiveRuleSetId);
+    return await getActiveRuleSetDoc(ctx.db, args.practiceId);
   },
 });
 
@@ -196,12 +196,12 @@ export const getVersionHistory = query({
       // Include all rule sets (saved and unsaved) for complete version history
       .collect();
 
-    const practice = await ctx.db.get("practices", args.practiceId);
+    const activeRuleSetId = await getActiveRuleSetId(ctx.db, args.practiceId);
 
     return ruleSets.map((ruleSet) => ({
       createdAt: ruleSet.createdAt,
       id: ruleSet._id,
-      isActive: practice?.currentActiveRuleSetId === ruleSet._id,
+      isActive: activeRuleSetId === ruleSet._id,
       message: ruleSet.description,
       parents: ruleSet.parentVersion ? [ruleSet.parentVersion] : [], // Convert single parent to array for visualization
     }));

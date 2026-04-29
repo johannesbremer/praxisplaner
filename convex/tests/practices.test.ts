@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "../_generated/api";
+import { requireActiveRuleSetId } from "../activeRuleSets";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -50,6 +51,10 @@ describe("Practices", () => {
         .collect();
 
       return {
+        activeRuleSetId: await requireActiveRuleSetId(
+          ctx.db,
+          recreatedPracticeId,
+        ),
         danglingMemberships,
         memberships,
         recreatedPractice,
@@ -57,7 +62,7 @@ describe("Practices", () => {
     });
 
     expect(state.recreatedPractice?.name).toEqual("Standardpraxis");
-    expect(state.recreatedPractice?.currentActiveRuleSetId).toBeDefined();
+    expect(state.activeRuleSetId).toBeDefined();
     expect(state.memberships).toHaveLength(1);
     expect(state.danglingMemberships).toHaveLength(0);
   });

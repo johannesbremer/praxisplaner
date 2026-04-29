@@ -6,6 +6,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { requireActiveRuleSetId } from "../activeRuleSets";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -124,8 +125,10 @@ async function createCoverageFixture(
       version: 1,
     });
 
-    await ctx.db.patch("practices", practiceId, {
-      currentActiveRuleSetId: ruleSetId,
+    await ctx.db.insert("ruleSetActivations", {
+      activatedAt: BigInt(Date.now()),
+      practiceId,
+      ruleSetId,
     });
 
     const user = await ctx.db
@@ -235,11 +238,7 @@ async function createSchedulingFixture(
   });
 
   return await t.run(async (ctx) => {
-    const practice = await ctx.db.get("practices", practiceId);
-    assertDefined(practice);
-    assertDefined(practice.currentActiveRuleSetId);
-
-    const ruleSetId = practice.currentActiveRuleSetId;
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, practiceId);
     const locationId = await insertWithLineage(ctx, "locations", {
       name: "Hauptstandort",
       practiceId,
@@ -607,8 +606,10 @@ describe("vacations", () => {
           version: 2,
         });
 
-        await ctx.db.patch("practices", fixture.practiceId, {
-          currentActiveRuleSetId: copiedRuleSetId,
+        await ctx.db.insert("ruleSetActivations", {
+          activatedAt: BigInt(Date.now()),
+          practiceId: fixture.practiceId,
+          ruleSetId: copiedRuleSetId,
         });
 
         await ctx.db.insert("locations", {
@@ -1733,10 +1734,10 @@ describe("vacations", () => {
       }),
     ).rejects.toThrow("nach der Simulation geändert");
 
-    const practice = await t.run(async (ctx) =>
-      ctx.db.get("practices", fixture.practiceId),
+    const activeRuleSetId = await t.run(async (ctx) =>
+      requireActiveRuleSetId(ctx.db, fixture.practiceId),
     );
-    expect(practice?.currentActiveRuleSetId).toBe(fixture.ruleSetId);
+    expect(activeRuleSetId).toBe(fixture.ruleSetId);
 
     const unchangedAppointment = await t.run(async (ctx) =>
       ctx.db.get("appointments", appointmentId),
@@ -1932,10 +1933,10 @@ describe("vacations", () => {
       }),
     ).rejects.toThrow("kollidiert");
 
-    const practice = await t.run(async (ctx) =>
-      ctx.db.get("practices", fixture.practiceId),
+    const activeRuleSetId = await t.run(async (ctx) =>
+      requireActiveRuleSetId(ctx.db, fixture.practiceId),
     );
-    expect(practice?.currentActiveRuleSetId).toBe(fixture.ruleSetId);
+    expect(activeRuleSetId).toBe(fixture.ruleSetId);
     expect(draftResult.ruleSetId).toBe(savedRuleSetId);
   });
 

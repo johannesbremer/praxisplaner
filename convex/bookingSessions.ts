@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -23,7 +24,6 @@ import {
   type QueryCtx,
   SESSION_TTL_MS,
   type SessionDoc,
-  type SessionWithState,
   type StepInsertMap,
   type StepPatchMap,
   type StepQueryMap,
@@ -78,7 +78,16 @@ import {
 
 export { assertValidSanitizedBookingSessionState } from "./bookingSessions.stateMachine";
 
+type PublicSessionWithState = SessionWithActiveRuleSet & {
+  state: BookingSessionState;
+};
+
+type SessionWithActiveRuleSet = SessionDoc & {
+  activeRuleSetId: Id<"ruleSets">;
+};
+
 type SessionWithInternalState = SessionDoc & {
+  activeRuleSetId: Id<"ruleSets">;
   state: InternalBookingSessionState;
 };
 
@@ -155,26 +164,26 @@ function isRecoverableSessionHydrationError(error: unknown): boolean {
 
 async function materializeInternalState(
   ctx: StepReadCtx,
-  session: SessionDoc,
+  activeRuleSetId: Id<"ruleSets">,
   state: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
   return await materializeBookingSessionUiState(state, {
     resolveAppointmentTypeName: async (appointmentTypeLineageKey) =>
       await resolveAppointmentTypeNameForPublicState(
         ctx.db,
-        session.ruleSetId,
+        activeRuleSetId,
         asAppointmentTypeLineageKey(appointmentTypeLineageKey),
       ),
     resolveLocationName: async (locationLineageKey) =>
       await resolveLocationNameForPublicState(
         ctx.db,
-        session.ruleSetId,
+        activeRuleSetId,
         asLocationLineageKey(locationLineageKey),
       ),
     resolvePractitionerName: async (practitionerLineageKey) =>
       await resolvePractitionerNameForPublicState(
         ctx.db,
-        session.ruleSetId,
+        activeRuleSetId,
         asPractitionerLineageKey(practitionerLineageKey),
       ),
   });
@@ -182,10 +191,17 @@ async function materializeInternalState(
 
 async function materializePublicSessionState(
   ctx: StepReadCtx,
-  session: SessionDoc,
+  activeRuleSetId: Id<"ruleSets">,
   internalState: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
-  return await materializeInternalState(ctx, session, internalState);
+  return await materializeInternalState(ctx, activeRuleSetId, internalState);
+}
+
+async function requireActiveRuleSetIdForPractice(
+  ctx: MutationCtx | QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<Id<"ruleSets">> {
+  return await requireActiveRuleSetId(ctx.db, practiceId);
 }
 
 function requireSelectableRuleSetEntity<
@@ -396,11 +412,15 @@ async function tryHydrateInternalSessionState(
 
 async function tryHydrateSessionState(
   ctx: MutationCtx | QueryCtx,
-  session: SessionDoc,
+  session: SessionWithActiveRuleSet,
 ): Promise<BookingSessionState | null> {
   try {
     const internalState = await hydrateInternalSessionState(ctx, session);
-    return await materializePublicSessionState(ctx, session, internalState);
+    return await materializePublicSessionState(
+      ctx,
+      session.activeRuleSetId,
+      internalState,
+    );
   } catch (error) {
     if (isRecoverableSessionHydrationError(error)) {
       return null;
@@ -409,10 +429,23 @@ async function tryHydrateSessionState(
   }
 }
 
-function withHydratedState(
+async function withActiveRuleSet(
+  ctx: MutationCtx | QueryCtx,
   session: SessionDoc,
+): Promise<SessionWithActiveRuleSet> {
+  return {
+    ...session,
+    activeRuleSetId: await requireActiveRuleSetIdForPractice(
+      ctx,
+      session.practiceId,
+    ),
+  };
+}
+
+function withHydratedState(
+  session: SessionWithActiveRuleSet,
   state: BookingSessionState,
-): SessionWithState {
+): PublicSessionWithState {
   return {
     ...session,
     state,
@@ -420,7 +453,7 @@ function withHydratedState(
 }
 
 function withInternalHydratedState(
-  session: SessionDoc,
+  session: SessionWithActiveRuleSet,
   state: InternalBookingSessionState,
 ): SessionWithInternalState {
   return {
@@ -628,21 +661,22 @@ export const get = query({
       return null;
     }
 
-    const state = await tryHydrateSessionState(ctx, session);
+    const sessionWithActiveRuleSet = await withActiveRuleSet(ctx, session);
+    const state = await tryHydrateSessionState(ctx, sessionWithActiveRuleSet);
     if (!state) {
       return null;
     }
-    return withHydratedState(session, state);
+    return withHydratedState(sessionWithActiveRuleSet, state);
   },
   returns: v.union(
     v.object({
       _creationTime: v.number(),
       _id: v.id("bookingSessions"),
+      activeRuleSetId: v.id("ruleSets"),
       createdAt: v.int64(),
       expiresAt: v.int64(),
       lastModified: v.int64(),
       practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
       state: bookingSessionStepValidator,
       userId: v.id("users"),
     }),
@@ -652,13 +686,13 @@ export const get = query({
 
 /**
  * Get the latest active booking session for the authenticated user
- * within the given practice + rule set.
- * Returns null if none exists or it has expired.
+ * within the given practice.
+ * Returns null when no usable session exists for the authenticated user.
+ * The practice must already satisfy the exactly-one Active Rule Set invariant.
  */
 export const getActiveForUser = query({
   args: {
     practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthenticatedUserIdForQuery(ctx);
@@ -666,13 +700,15 @@ export const getActiveForUser = query({
       return null;
     }
 
+    const activeRuleSetId = await requireActiveRuleSetIdForPractice(
+      ctx,
+      args.practiceId,
+    );
+
     const sessions = await ctx.db
       .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
+      .withIndex("by_userId_practiceId", (q) =>
+        q.eq("userId", userId).eq("practiceId", args.practiceId),
       )
       .order("desc")
       .collect();
@@ -694,7 +730,11 @@ export const getActiveForUser = query({
         continue;
       }
 
-      const hydratedState = await tryHydrateSessionState(ctx, session);
+      const sessionWithActiveRuleSet = { ...session, activeRuleSetId };
+      const hydratedState = await tryHydrateSessionState(
+        ctx,
+        sessionWithActiveRuleSet,
+      );
       if (!hydratedState) {
         continue;
       }
@@ -708,7 +748,7 @@ export const getActiveForUser = query({
         return null;
       }
 
-      return withHydratedState(session, hydratedState);
+      return withHydratedState(sessionWithActiveRuleSet, hydratedState);
     }
 
     return null;
@@ -717,11 +757,11 @@ export const getActiveForUser = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("bookingSessions"),
+      activeRuleSetId: v.id("ruleSets"),
       createdAt: v.int64(),
       expiresAt: v.int64(),
       lastModified: v.int64(),
       practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
       state: bookingSessionStepValidator,
       userId: v.id("users"),
     }),
@@ -740,27 +780,31 @@ export const getActiveForUser = query({
 export const create = mutation({
   args: {
     practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     const userId = await ensureAuthenticatedUserId(ctx);
+    const activeRuleSetId = await requireActiveRuleSetIdForPractice(
+      ctx,
+      args.practiceId,
+    );
 
     const now = BigInt(Date.now());
 
     const sessions = await ctx.db
       .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
+      .withIndex("by_userId_practiceId", (q) =>
+        q.eq("userId", userId).eq("practiceId", args.practiceId),
       )
       .order("desc")
       .collect();
 
     for (const session of sessions) {
       if (session.expiresAt >= now) {
-        const hydratedState = await tryHydrateSessionState(ctx, session);
+        const sessionWithActiveRuleSet = { ...session, activeRuleSetId };
+        const hydratedState = await tryHydrateSessionState(
+          ctx,
+          sessionWithActiveRuleSet,
+        );
         if (!hydratedState) {
           await ctx.db.delete("bookingSessions", session._id);
           continue;
@@ -791,7 +835,6 @@ export const create = mutation({
       expiresAt: now + BigInt(SESSION_TTL_MS),
       lastModified: now,
       practiceId: args.practiceId,
-      ruleSetId: args.ruleSetId,
       state: {
         step: "privacy" as const,
       },
@@ -868,10 +911,10 @@ type StepRowIdParams = {
   [K in StepTableName]: [tableName: K, row: StepTableDocMap[K]];
 }[StepTableName];
 
-function getStepBase(session: Doc<"bookingSessions">) {
+function getStepBase(session: SessionWithActiveRuleSet) {
   return {
     practiceId: session.practiceId,
-    ruleSetId: session.ruleSetId,
+    ruleSetId: session.activeRuleSetId,
     sessionId: session._id,
     userId: session.userId,
   };
@@ -935,13 +978,17 @@ async function getVerifiedSession(
     throw new Error("Session has expired");
   }
 
-  const state = await tryHydrateInternalSessionState(ctx, session);
+  const sessionWithActiveRuleSet = await withActiveRuleSet(ctx, session);
+  const state = await tryHydrateInternalSessionState(
+    ctx,
+    sessionWithActiveRuleSet,
+  );
   if (!state) {
     throw new Error(
       "Session data is incomplete. Please start the booking again.",
     );
   }
-  return withInternalHydratedState(session, state);
+  return withInternalHydratedState(sessionWithActiveRuleSet, state);
 }
 
 async function hasValidStepEntryUserAssociation(
@@ -1411,14 +1458,14 @@ export const selectLocation = mutation({
     // Verify location exists and belongs to this practice
     const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: asLocationLineageKey(args.locationLineageKey),
-      ruleSetId: session.ruleSetId,
+      ruleSetId: session.activeRuleSetId,
     });
     const location = await ctx.db.get("locations", locationId);
     requireSelectableRuleSetEntity({
       entity: location,
       entityLabel: "Standort",
       expectedPracticeId: session.practiceId,
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: session.activeRuleSetId,
     });
 
     const locationLineageKey = resolveStoredLocationLineageKey(
@@ -1719,13 +1766,13 @@ export const selectNewPatientSlot = mutation({
       ctx.db,
       {
         lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-        ruleSetId: session.ruleSetId,
+        ruleSetId: session.activeRuleSetId,
       },
     );
     const selectedAppointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: session.activeRuleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
@@ -1736,7 +1783,7 @@ export const selectNewPatientSlot = mutation({
         ctx.db,
         asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
       ),
-      ruleSetId: session.ruleSetId,
+      ruleSetId: session.activeRuleSetId,
       startTime: selectedSlot.startTime,
     });
 
@@ -1749,7 +1796,7 @@ export const selectNewPatientSlot = mutation({
 
     const locationId = await resolveLocationIdForInternalState(
       ctx.db,
-      session.ruleSetId,
+      session.activeRuleSetId,
       asLocationLineageKey(state.locationLineageKey),
     );
 
@@ -1761,7 +1808,7 @@ export const selectNewPatientSlot = mutation({
       practiceId: session.practiceId,
       practitionerId: await resolvePractitionerIdForInternalState(
         ctx.db,
-        session.ruleSetId,
+        session.activeRuleSetId,
         asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
       ),
       start: selectedSlot.startTime,
@@ -1818,7 +1865,7 @@ export const selectDoctor = mutation({
       ctx.db,
       {
         lineageKey: asPractitionerLineageKey(args.practitionerLineageKey),
-        ruleSetId: session.ruleSetId,
+        ruleSetId: session.activeRuleSetId,
       },
     );
     const practitioner = await ctx.db.get("practitioners", practitionerId);
@@ -1826,7 +1873,7 @@ export const selectDoctor = mutation({
       entity: practitioner,
       entityLabel: "Behandler",
       expectedPracticeId: session.practiceId,
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: session.activeRuleSetId,
     });
 
     const practitionerLineageKey = resolveStoredPractitionerLineageKey(
@@ -1945,13 +1992,13 @@ export const selectExistingPatientSlot = mutation({
       ctx.db,
       {
         lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-        ruleSetId: session.ruleSetId,
+        ruleSetId: session.activeRuleSetId,
       },
     );
     const appointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: session.activeRuleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
@@ -1961,19 +2008,19 @@ export const selectExistingPatientSlot = mutation({
       practitionerLineageKey: asPractitionerLineageKey(
         state.practitionerLineageKey,
       ),
-      ruleSetId: session.ruleSetId,
+      ruleSetId: session.activeRuleSetId,
       startTime: selectedSlot.startTime,
     });
 
     const [locationId, practitionerId] = await Promise.all([
       resolveLocationIdForInternalState(
         ctx.db,
-        session.ruleSetId,
+        session.activeRuleSetId,
         asLocationLineageKey(state.locationLineageKey),
       ),
       resolvePractitionerIdForInternalState(
         ctx.db,
-        session.ruleSetId,
+        session.activeRuleSetId,
         asPractitionerLineageKey(state.practitionerLineageKey),
       ),
     ]);

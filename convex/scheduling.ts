@@ -18,6 +18,7 @@ import {
 } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { internalQuery, query } from "./_generated/server";
+import { getActiveRuleSetId, requireActiveRuleSetId } from "./activeRuleSets";
 import { type AppointmentBookingScope } from "./appointmentConflicts";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
@@ -248,8 +249,7 @@ async function resolveSchedulingRuleSetId(
     return args.preferredRuleSetId;
   }
 
-  const practice = await db.get("practices", args.practiceId);
-  return practice?.currentActiveRuleSetId ?? null;
+  return await getActiveRuleSetId(db, args.practiceId);
 }
 
 function toPublicSchedulingResult(args: {
@@ -299,12 +299,7 @@ export const getAvailableDates = query({
     const dateRange = asDateRangeInput(args.dateRange);
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const availableDates = new Set<string>();
-    const practice = await ctx.db.get("practices", args.practiceId);
-    const ruleSetId = practice?.currentActiveRuleSetId;
-
-    if (!ruleSetId) {
-      return { dates: [] };
-    }
+    const ruleSetId = await requireActiveRuleSetId(ctx.db, args.practiceId);
 
     const [practitioners, baseSchedules, vacations] = await Promise.all([
       ctx.db
@@ -449,21 +444,10 @@ async function getSlotsForDayImpl(
 
   // Determine which rule set to use
   let ruleSetId = args.ruleSetId;
-  const practice = await ctx.db.get("practices", args.practiceId);
-  if (!ruleSetId) {
-    if (practice?.currentActiveRuleSetId) {
-      ruleSetId = practice.currentActiveRuleSetId;
-    } else {
-      log.push("No active rule set found, no rules will be applied");
-      ruleSetId = undefined;
-    }
-  }
+  ruleSetId ||= await requireActiveRuleSetId(ctx.db, args.practiceId);
 
-  if (!ruleSetId) {
-    log.push("No rule set available for candidate slot generation");
-    return { log, slots: [] };
-  }
   log.push(`Using rule set: ${ruleSetId}`);
+  const practice = await ctx.db.get("practices", args.practiceId);
   if (!practice) {
     throw new Error(`Practice with ID ${args.practiceId} not found`);
   }
@@ -863,12 +847,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
 
     // Determine which rule set to use
     let ruleSetId = args.ruleSetId;
-    if (!ruleSetId) {
-      const practice = await ctx.db.get("practices", args.practiceId);
-      if (practice?.currentActiveRuleSetId) {
-        ruleSetId = practice.currentActiveRuleSetId;
-      }
-    }
+    ruleSetId ||= await requireActiveRuleSetId(ctx.db, args.practiceId);
 
     if (!ruleSetId) {
       // No rules to apply, return empty slots

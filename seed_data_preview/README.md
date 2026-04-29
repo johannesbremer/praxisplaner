@@ -13,6 +13,7 @@ not migrated, when the schema changes.
 Contains a small synthetic dataset for:
 
 - practices
+- ruleSetActivations
 - ruleSets
 - practitioners
 - locations

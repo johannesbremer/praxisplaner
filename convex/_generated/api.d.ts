@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as activeRuleSets from "../activeRuleSets.js";
 import type * as appointmentConflicts from "../appointmentConflicts.js";
 import type * as appointmentCoverage from "../appointmentCoverage.js";
 import type * as appointmentReferences from "../appointmentReferences.js";
@@ -56,6 +57,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  activeRuleSets: typeof activeRuleSets;
   appointmentConflicts: typeof appointmentConflicts;
   appointmentCoverage: typeof appointmentCoverage;
   appointmentReferences: typeof appointmentReferences;

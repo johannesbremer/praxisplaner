@@ -19,6 +19,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { recordRuleSetActivation } from "./activeRuleSets";
 import { asMfaId, asMfaLineageKey, type MfaId, toTableId } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -134,7 +135,7 @@ export async function findUnsavedRuleSet(
  *
  * The rule set will be:
  * - Saved (saved=true)
- * - Set as the active rule set for the practice
+ * - Activated for the practice
  * - Version 1 with no parent versions (it's the root)
  * - Empty (no entities yet).
  */
@@ -153,10 +154,7 @@ export async function createInitialRuleSet(
     version: 1,
   });
 
-  // Set it as the active rule set
-  await db.patch("practices", practiceId, {
-    currentActiveRuleSetId: ruleSetId,
-  });
+  await recordRuleSetActivation(db, { practiceId, ruleSetId });
 
   return ruleSetId;
 }

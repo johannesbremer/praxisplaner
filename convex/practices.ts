@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
+import { requireActiveRuleSetId } from "./activeRuleSets";
 import { createInitialRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -54,7 +55,7 @@ export const getAllPractices = query({
     const practices: {
       _creationTime: number;
       _id: Id<"practices">;
-      currentActiveRuleSetId?: Id<"ruleSets">;
+      currentActiveRuleSetId: Id<"ruleSets">;
       name: string;
     }[] = [];
 
@@ -62,7 +63,13 @@ export const getAllPractices = query({
       if (!practice) {
         continue;
       }
-      practices.push(practice);
+      practices.push({
+        ...practice,
+        currentActiveRuleSetId: await requireActiveRuleSetId(
+          ctx.db,
+          practice._id,
+        ),
+      });
     }
 
     return practices;
@@ -71,7 +78,7 @@ export const getAllPractices = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      currentActiveRuleSetId: v.id("ruleSets"),
       name: v.string(),
     }),
   ),
@@ -86,13 +93,23 @@ export const getPractice = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return await ctx.db.get("practices", args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (!practice) {
+      return null;
+    }
+    return {
+      ...practice,
+      currentActiveRuleSetId: await requireActiveRuleSetId(
+        ctx.db,
+        practice._id,
+      ),
+    };
   },
   returns: v.union(
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      currentActiveRuleSetId: v.id("ruleSets"),
       name: v.string(),
     }),
     v.null(),
