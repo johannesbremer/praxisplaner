@@ -1087,6 +1087,11 @@ describe("appointments update safety", () => {
       start: replacementStart.toString(),
       title: "Moved checkup",
     });
+    expect(
+      storedAppointments.find(
+        (appointment) => appointment._id === originalAppointmentId,
+      )?.cancelledAt,
+    ).toBeDefined();
 
     const visibleAppointments = await authed.query(
       api.appointments.getCalendarDayAppointments,
@@ -1162,6 +1167,141 @@ describe("appointments update safety", () => {
         userId,
       }),
     ).resolves.toEqual(expect.any(String));
+  });
+
+  test("updateAppointment ignores draft simulation replacements when checking the editable real tail", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_with_simulation_replacement";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-with-simulation-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-with-simulation-replacement@example.com",
+      subject: authId,
+    });
+    const targetRange = makeDayRange(7);
+    const realStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 10, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+    const simulationStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 11, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: realStart.add({ minutes: 30 }).toString(),
+        start: realStart.toString(),
+      },
+    });
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: simulationStart.add({ minutes: 30 }).toString(),
+        start: simulationStart.toString(),
+      },
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: realAppointmentId,
+        title: "Real edit while draft exists",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("cancelOwnAppointment does not reactivate a superseded predecessor after replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_cancel_replacement_tail";
+    const userId = await createUser(
+      t,
+      authId,
+      "cancel-replacement-tail@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "cancel-replacement-tail@example.com",
+      subject: authId,
+    });
+    const targetRange = makeDayRange(8);
+    const originalStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 10, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+    const replacementStart = targetRange.date.toZonedDateTime({
+      plainTime: { hour: 11, minute: 0 },
+      timeZone: "Europe/Berlin",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: originalStart.add({ minutes: 30 }).toString(),
+        start: originalStart.toString(),
+      },
+    });
+
+    await authed.mutation(api.appointments.updateAppointment, {
+      end: replacementStart.add({ minutes: 30 }).toString(),
+      id: originalAppointmentId,
+      start: replacementStart.toString(),
+    });
+
+    const replacementAppointmentId = await t.run(async (ctx) => {
+      const replacement = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", originalAppointmentId),
+        )
+        .first();
+      if (!replacement) {
+        throw new Error("Expected replacement appointment");
+      }
+      return replacement._id;
+    });
+
+    await authed.mutation(api.appointments.cancelOwnAppointment, {
+      appointmentId: replacementAppointmentId,
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "real",
+      }),
+    ).resolves.toHaveLength(0);
   });
 
   test("updateAppointment rejects editing a replaced appointment", async () => {

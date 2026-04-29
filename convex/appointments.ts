@@ -186,8 +186,9 @@ async function assertAppointmentIsCurrentTail(
     )
     .collect();
 
-  const activeReplacement = replacements.find((replacement) =>
-    isVisibleAppointment(replacement),
+  const activeReplacement = replacements.find(
+    (replacement) =>
+      replacement.isSimulation !== true && isVisibleAppointment(replacement),
   );
   if (activeReplacement) {
     throw appointmentChainError(
@@ -2016,6 +2017,10 @@ async function updateAppointmentByMode(
       ...((filteredUpdateData.userId ?? existingAppointment.userId)
         ? { userId: filteredUpdateData.userId ?? existingAppointment.userId }
         : {}),
+    });
+    await ctx.db.patch("appointments", existingAppointment._id, {
+      cancelledAt: now,
+      lastModified: now,
     });
 
     return null;
