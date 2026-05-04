@@ -245,6 +245,59 @@ function calculateShiftedEnd(
   );
 }
 
+function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
+  appointments: T[],
+): T[] {
+  const appointmentsById = new Map(
+    appointments.map((appointment) => [appointment._id, appointment] as const),
+  );
+  const hiddenIds = new Set<Id<"appointments">>();
+
+  for (const appointment of appointments) {
+    const replacementRoot = findReplacementRoot(appointment, appointmentsById);
+    if (replacementRoot?.cancelledAt !== undefined) {
+      hiddenIds.add(appointment._id);
+      continue;
+    }
+
+    const replacedAppointmentId = appointment.replacesAppointmentId;
+    if (!replacedAppointmentId) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (
+      replacedAppointment &&
+      isSameAppointmentReplacementDay(appointment, replacedAppointment)
+    ) {
+      hiddenIds.add(replacedAppointmentId);
+    }
+  }
+
+  return appointments.filter((appointment) => !hiddenIds.has(appointment._id));
+}
+
+function findReplacementRoot<T extends AppointmentDoc>(
+  appointment: T,
+  appointmentsById: ReadonlyMap<Id<"appointments">, T>,
+): T | undefined {
+  let current: T | undefined = appointment;
+  const visitedIds = new Set<Id<"appointments">>();
+
+  while (current.replacesAppointmentId) {
+    if (visitedIds.has(current._id)) {
+      return current;
+    }
+    visitedIds.add(current._id);
+    const previous = appointmentsById.get(current.replacesAppointmentId);
+    if (!previous || !isSameAppointmentReplacementDay(current, previous)) {
+      return current;
+    }
+    current = previous;
+  }
+
+  return current;
+}
+
 async function getAppointmentSeriesRecord(
   db: DatabaseReader,
   seriesId: string,
@@ -304,6 +357,16 @@ function isAppointmentInFuture(
   } catch {
     return false;
   }
+}
+
+function isSameAppointmentReplacementDay(
+  replacement: Pick<AppointmentDoc, "start">,
+  replaced: Pick<AppointmentDoc, "start">,
+): boolean {
+  return (
+    Temporal.ZonedDateTime.from(replacement.start).toPlainDate().toString() ===
+    Temporal.ZonedDateTime.from(replaced.start).toPlainDate().toString()
+  );
 }
 
 function isVisibleAppointment(
@@ -824,7 +887,7 @@ export const getAppointments = query({
         isVisibleAppointment(appointment),
     );
     const scopedAppointments = filterAppointmentsForScope(
-      visibleAppointments,
+      filterCurrentAppointmentReplacementTails(visibleAppointments),
       args,
       scope,
     );
@@ -873,7 +936,16 @@ export const getCalendarDayAppointments = query({
       )
       .collect();
 
-    const visibleAppointments = appointmentDocs.filter(
+    const dayAppointments = appointmentDocs.filter((appointment) =>
+      isAppointmentInCalendarDayQuery(
+        appointment,
+        args,
+        selectedLocationLineageKey,
+      ),
+    );
+    const visibleAppointments = filterCurrentAppointmentReplacementTails(
+      dayAppointments,
+    ).filter(
       (appointment) =>
         isVisibleAppointment(appointment) &&
         isAppointmentInCalendarDayQuery(
@@ -897,7 +969,7 @@ export const getCalendarDayAppointments = query({
       ...simulationReplacementAppointments,
     ]);
     const scopedAppointments = filterAppointmentsForScope(
-      candidateAppointments,
+      filterCurrentAppointmentReplacementTails(candidateAppointments),
       args,
       scope,
     );
@@ -955,7 +1027,7 @@ export const getAppointmentsInRange = query({
     );
     const scope: AppointmentScope = args.scope ?? "real";
     const scopedAppointments = filterAppointmentsForScope(
-      filteredAppointments,
+      filterCurrentAppointmentReplacementTails(filteredAppointments),
       args,
       scope,
     );

@@ -54,6 +54,10 @@ export async function activateSavedRuleSet(
   if (!ruleSet.saved) {
     throw new Error("Cannot set an unsaved rule set as active");
   }
+  const practice = await db.get("practices", args.practiceId);
+  if (practice?.currentActiveRuleSetId === args.ruleSetId) {
+    throw new Error("Cannot activate the already active rule set");
+  }
 
   await applyPendingSimulationAppointmentsForRuleSet(db, args.ruleSetId);
   await db.patch("practices", args.practiceId, {
