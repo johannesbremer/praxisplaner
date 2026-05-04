@@ -117,7 +117,7 @@ esac
 pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
 [ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
-pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes seed_data.zip
+pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
 pnpm gen
 '''
 

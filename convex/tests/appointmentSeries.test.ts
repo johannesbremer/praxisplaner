@@ -1393,7 +1393,7 @@ describe("appointment series", () => {
       return rootId;
     });
 
-    const monday = nextWeekday(1);
+    const monday = Temporal.PlainDate.from("2026-06-01");
     const rootStart = monday
       .toZonedDateTime({
         plainTime: { hour: 9, minute: 0 },
