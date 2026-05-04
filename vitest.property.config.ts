@@ -1,6 +1,8 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+import PropertyProgressReporter from "./src/tests/property-progress-reporter";
+
 export default defineConfig({
   define: {
     __ENABLE_DEVTOOLS__: "false",
@@ -25,6 +27,7 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/playwright/**", "**/*.spec.ts"],
     globals: true,
     include: ["**/*.property.test.ts"],
+    reporters: [new PropertyProgressReporter()],
     setupFiles: ["./src/tests/setup.ts"],
     testTimeout: 0,
   },

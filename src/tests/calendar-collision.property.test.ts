@@ -8,7 +8,7 @@ import {
   findNextAvailableSlot,
 } from "../utils/collision-detection";
 import { SLOT_DURATION, slotToTime } from "../utils/time-calculations";
-import { assertProperty, checkProperty } from "./property-test-utils";
+import { assertAsyncProperty, checkAsyncProperty } from "./property-test-utils";
 
 const BUSINESS_START_HOUR = 8;
 const TOTAL_SLOTS = (12 * 60) / SLOT_DURATION;
@@ -56,13 +56,14 @@ function toAppointment(
 }
 
 describe("calendar collision properties", () => {
-  test("collision detection matches interval overlap semantics", () => {
-    assertProperty(
-      fc.property(
+  test("collision detection matches interval overlap semantics", async () => {
+    await assertAsyncProperty(
+      fc.asyncProperty(
         slotIntervalArbitrary,
         slotIntervalArbitrary,
         fc.boolean(),
-        (appointmentInterval, candidateInterval, sameColumn) => {
+        async (appointmentInterval, candidateInterval, sameColumn) => {
+          await Promise.resolve();
           const appointment = toAppointment(
             appointmentInterval,
             sameColumn ? TEST_COLUMN : OTHER_COLUMN,
@@ -81,15 +82,17 @@ describe("calendar collision properties", () => {
           );
         },
       ),
+      "calendar collision overlap",
     );
   });
 
-  test("adjacent intervals do not collide", () => {
-    assertProperty(
-      fc.property(
+  test("adjacent intervals do not collide", async () => {
+    await assertAsyncProperty(
+      fc.asyncProperty(
         fc.integer({ max: TOTAL_SLOTS - 2, min: 0 }),
         fc.integer({ max: 12, min: 1 }),
-        (startSlot, requestedDurationSlots) => {
+        async (startSlot, requestedDurationSlots) => {
+          await Promise.resolve();
           const durationSlots = Math.min(
             requestedDurationSlots,
             TOTAL_SLOTS - startSlot - 1,
@@ -110,16 +113,18 @@ describe("calendar collision properties", () => {
           ).toBe(false);
         },
       ),
+      "calendar adjacent intervals",
     );
   });
 
-  test("findNextAvailableSlot returns a collision-free slot or no slot", () => {
-    const result = checkProperty(
-      fc.property(
+  test("findNextAvailableSlot returns a collision-free slot or no slot", async () => {
+    const result = await checkAsyncProperty(
+      fc.asyncProperty(
         fc.array(slotIntervalArbitrary, { maxLength: 16 }),
         fc.integer({ max: TOTAL_SLOTS - 1, min: 0 }),
         fc.integer({ max: 12, min: 1 }),
-        (appointmentIntervals, startSlot, requestedDurationSlots) => {
+        async (appointmentIntervals, startSlot, requestedDurationSlots) => {
+          await Promise.resolve();
           const durationSlots = Math.min(
             requestedDurationSlots,
             TOTAL_SLOTS - startSlot,
@@ -168,6 +173,7 @@ describe("calendar collision properties", () => {
           );
         },
       ),
+      "calendar next available slot",
     );
     expect(result.failed).toBe(false);
   });

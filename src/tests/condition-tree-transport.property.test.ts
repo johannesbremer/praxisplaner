@@ -16,7 +16,7 @@ import {
   SCOPES,
   serializeConditionTreeTransport,
 } from "../../lib/condition-tree";
-import { assertProperty } from "./property-test-utils";
+import { assertAsyncProperty } from "./property-test-utils";
 
 const conditionTypeArbitrary = fc.constantFrom<ConditionType>(
   ...CONDITION_TYPES,
@@ -107,18 +107,21 @@ function conditionTreeArbitrary(depth: number): Arbitrary<ConditionTreeNode> {
 }
 
 describe("condition tree transport properties", () => {
-  test("valid condition trees round-trip through flat transport", () => {
-    assertProperty(
-      fc.property(conditionTreeArbitrary(4), (tree) => {
+  test("valid condition trees round-trip through flat transport", async () => {
+    await assertAsyncProperty(
+      fc.asyncProperty(conditionTreeArbitrary(4), async (tree) => {
+        await Promise.resolve();
         const transport = serializeConditionTreeTransport(tree);
         expect(parseConditionTreeTransport(transport)).toEqual(tree);
       }),
+      "condition tree round-trip",
     );
   });
 
-  test("serialized transports have unique reachable node ids", () => {
-    assertProperty(
-      fc.property(conditionTreeArbitrary(4), (tree) => {
+  test("serialized transports have unique reachable node ids", async () => {
+    await assertAsyncProperty(
+      fc.asyncProperty(conditionTreeArbitrary(4), async (tree) => {
+        await Promise.resolve();
         const transport = serializeConditionTreeTransport(tree);
         const nodeIds = transport.nodes.map((node) => node.nodeId);
         const uniqueNodeIds = new Set(nodeIds);
@@ -131,6 +134,7 @@ describe("condition tree transport properties", () => {
           collectReachableNodeIds(transport.rootNodeId, nodesById).size,
         ).toBe(transport.nodes.length);
       }),
+      "condition tree reachable ids",
     );
   });
 });

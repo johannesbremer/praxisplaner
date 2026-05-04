@@ -135,6 +135,7 @@ describe("ruleEngine preloaded day data properties", () => {
         expect(result.appointmentCount).toBe(fixture.activeCount);
         expect(result.dailyCount).toBe(fixture.activeCount);
       }),
+      "rule preload cancelled appointments",
     );
   });
 });

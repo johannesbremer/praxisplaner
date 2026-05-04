@@ -4,7 +4,6 @@ import fc, {
   type Parameters,
   type RunDetails,
 } from "fast-check";
-import readline from "node:readline";
 
 const DEFAULT_FAST_CHECK_TIME_LIMIT_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_FAST_CHECK_PROGRESS_EVERY = 10_000;
@@ -15,15 +14,16 @@ interface PropertyProgress {
   runs: number;
 }
 
-const progressByLabel = new Map<string, PropertyProgress>();
+export const PROPERTY_PROGRESS_EVENT_PREFIX = "[fast-check-progress]";
 
 let propertyRunCounter = 0;
 
 export async function assertAsyncProperty<T extends [unknown, ...unknown[]]>(
   property: IAsyncPropertyWithHooks<T>,
+  label: string,
   overrides: Parameters<T> = {},
 ): Promise<void> {
-  const { onRun, parameters } = propertyTestParameters(overrides);
+  const { onRun, parameters } = propertyTestParameters(label, overrides);
   await fc.assert(
     property.beforeEach(async (previousHook) => {
       await previousHook();
@@ -35,9 +35,10 @@ export async function assertAsyncProperty<T extends [unknown, ...unknown[]]>(
 
 export function assertProperty<T extends [unknown, ...unknown[]]>(
   property: IPropertyWithHooks<T>,
+  label: string,
   overrides: Parameters<T> = {},
 ): void {
-  const { onRun, parameters } = propertyTestParameters(overrides);
+  const { onRun, parameters } = propertyTestParameters(label, overrides);
   fc.assert(
     property.beforeEach((previousHook) => {
       previousHook();
@@ -47,11 +48,27 @@ export function assertProperty<T extends [unknown, ...unknown[]]>(
   );
 }
 
+export async function checkAsyncProperty<T extends [unknown, ...unknown[]]>(
+  property: IAsyncPropertyWithHooks<T>,
+  label: string,
+  overrides: Parameters<T> = {},
+): Promise<RunDetails<T>> {
+  const { onRun, parameters } = propertyTestParameters(label, overrides);
+  return await fc.check(
+    property.beforeEach(async (previousHook) => {
+      await previousHook();
+      onRun();
+    }),
+    parameters,
+  );
+}
+
 export function checkProperty<T extends [unknown, ...unknown[]]>(
   property: IPropertyWithHooks<T>,
+  label: string,
   overrides: Parameters<T> = {},
 ): RunDetails<T> {
-  const { onRun, parameters } = propertyTestParameters(overrides);
+  const { onRun, parameters } = propertyTestParameters(label, overrides);
   return fc.check(
     property.beforeEach((previousHook) => {
       previousHook();
@@ -62,12 +79,13 @@ export function checkProperty<T extends [unknown, ...unknown[]]>(
 }
 
 export function propertyTestParameters<T = void>(
+  label: string,
   overrides: Parameters<T> = {},
 ): { onRun: () => void; parameters: Parameters<T> } {
   const progressEvery =
     parsePositiveIntegerEnv("FAST_CHECK_PROGRESS_EVERY") ??
     DEFAULT_FAST_CHECK_PROGRESS_EVERY;
-  const label = `property-${propertyRunCounter + 1}`;
+  const progressLabel = label.trim() || `property-${propertyRunCounter + 1}`;
   propertyRunCounter += 1;
   let runs = 0;
   const startedAt = Date.now();
@@ -88,7 +106,7 @@ export function propertyTestParameters<T = void>(
       const ratePerSecond =
         elapsedMs === 0 ? 0 : Math.round((runs * 1000) / elapsedMs);
       renderProgress({
-        label,
+        label: progressLabel,
         ratePerSecond,
         runs,
       });
@@ -120,28 +138,5 @@ function parsePositiveIntegerEnv(name: string): number | undefined {
 }
 
 function renderProgress(progress: PropertyProgress) {
-  progressByLabel.set(progress.label, progress);
-  const totalRuns = [...progressByLabel.values()].reduce(
-    (sum, current) => sum + current.runs,
-    0,
-  );
-  const totalRate = [...progressByLabel.values()].reduce(
-    (sum, current) => sum + current.ratePerSecond,
-    0,
-  );
-  const line = `[fast-check] runs=${totalRuns.toLocaleString("en-US")} rate=${totalRate.toLocaleString("en-US")}/s active=${progress.label}:${progress.runs.toLocaleString("en-US")}`;
-
-  if (process.env["FAST_CHECK_PROGRESS_MODE"] === "lines") {
-    process.stderr.write(`${line}\n`);
-    return;
-  }
-
-  if (process.stderr.isTTY) {
-    readline.clearLine(process.stderr, 0);
-    readline.cursorTo(process.stderr, 0);
-    process.stderr.write(line);
-    return;
-  }
-
-  process.stderr.write(`\r${line}`);
+  console.error(`${PROPERTY_PROGRESS_EVENT_PREFIX}${JSON.stringify(progress)}`);
 }
