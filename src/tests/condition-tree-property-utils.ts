@@ -89,17 +89,18 @@ export function conditionTreeArbitrary(
   }
 
   const child = conditionTreeArbitrary(depth - 1);
-  const logicalNode = fc
-    .tuple(
-      fc.constantFrom("AND", "NOT"),
-      fc.array(child, { maxLength: 3, minLength: 1 }),
-    )
-    .map(
-      ([nodeType, children]): ConditionTreeNode => ({
-        children,
-        nodeType,
-      }),
-    );
+  const andNode = fc.array(child, { maxLength: 3, minLength: 1 }).map(
+    (children): ConditionTreeNode => ({
+      children,
+      nodeType: "AND",
+    }),
+  );
+  const notNode = child.map(
+    (childNode): ConditionTreeNode => ({
+      children: [childNode],
+      nodeType: "NOT",
+    }),
+  );
 
-  return fc.oneof(conditionNode, logicalNode);
+  return fc.oneof(conditionNode, andNode, notNode);
 }

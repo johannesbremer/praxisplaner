@@ -54,13 +54,15 @@ export async function checkAsyncProperty<T extends [unknown, ...unknown[]]>(
   overrides: Parameters<T> = {},
 ): Promise<RunDetails<T>> {
   const { onRun, parameters } = propertyTestParameters(label, overrides);
-  return await fc.check(
+  const result = await fc.check(
     property.beforeEach(async (previousHook) => {
       await previousHook();
       onRun();
     }),
     parameters,
   );
+  assertRunCompleted(result, label);
+  return result;
 }
 
 export function checkProperty<T extends [unknown, ...unknown[]]>(
@@ -69,13 +71,15 @@ export function checkProperty<T extends [unknown, ...unknown[]]>(
   overrides: Parameters<T> = {},
 ): RunDetails<T> {
   const { onRun, parameters } = propertyTestParameters(label, overrides);
-  return fc.check(
+  const result = fc.check(
     property.beforeEach((previousHook) => {
       previousHook();
       onRun();
     }),
     parameters,
   );
+  assertRunCompleted(result, label);
+  return result;
 }
 
 export function propertyTestParameters<T = void>(
@@ -121,6 +125,17 @@ export function propertyTestParameters<T = void>(
     parameters.timeout = timeout;
   }
   return { onRun, parameters };
+}
+
+function assertRunCompleted<T extends [unknown, ...unknown[]]>(
+  result: RunDetails<T>,
+  label: string,
+) {
+  if (result.interrupted) {
+    throw new Error(
+      `Property "${label}" was interrupted before completing its configured run count.`,
+    );
+  }
 }
 
 function parsePositiveIntegerEnv(name: string): number | undefined {
