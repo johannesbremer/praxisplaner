@@ -1,5 +1,4 @@
 import fc, { type Arbitrary } from "fast-check";
-import { describe, expect, test } from "vitest";
 
 import type {
   ConditionOperator,
@@ -12,11 +11,8 @@ import type {
 import {
   CONDITION_OPERATORS,
   CONDITION_TYPES,
-  parseConditionTreeTransport,
   SCOPES,
-  serializeConditionTreeTransport,
 } from "../../lib/condition-tree";
-import { assertAsyncProperty } from "./property-test-utils";
 
 const conditionTypeArbitrary = fc.constantFrom<ConditionType>(
   ...CONDITION_TYPES,
@@ -35,7 +31,7 @@ const valueNumberArbitrary = fc.option(fc.integer({ max: 500, min: -50 }), {
   nil: undefined,
 });
 
-function collectReachableNodeIds(
+export function collectReachableNodeIds(
   rootNodeId: string,
   nodesById: ReadonlyMap<string, ConditionTreeTransportNode>,
 ): Set<string> {
@@ -60,7 +56,9 @@ function collectReachableNodeIds(
   return reachable;
 }
 
-function conditionTreeArbitrary(depth: number): Arbitrary<ConditionTreeNode> {
+export function conditionTreeArbitrary(
+  depth: number,
+): Arbitrary<ConditionTreeNode> {
   const conditionNode = fc
     .tuple(
       conditionTypeArbitrary,
@@ -105,36 +103,3 @@ function conditionTreeArbitrary(depth: number): Arbitrary<ConditionTreeNode> {
 
   return fc.oneof(conditionNode, logicalNode);
 }
-
-describe("condition tree transport properties", () => {
-  test("valid condition trees round-trip through flat transport", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(conditionTreeArbitrary(4), async (tree) => {
-        await Promise.resolve();
-        const transport = serializeConditionTreeTransport(tree);
-        expect(parseConditionTreeTransport(transport)).toEqual(tree);
-      }),
-      "condition tree round-trip",
-    );
-  });
-
-  test("serialized transports have unique reachable node ids", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(conditionTreeArbitrary(4), async (tree) => {
-        await Promise.resolve();
-        const transport = serializeConditionTreeTransport(tree);
-        const nodeIds = transport.nodes.map((node) => node.nodeId);
-        const uniqueNodeIds = new Set(nodeIds);
-        const nodesById = new Map(
-          transport.nodes.map((node) => [node.nodeId, node]),
-        );
-
-        expect(uniqueNodeIds.size).toBe(nodeIds.length);
-        expect(
-          collectReachableNodeIds(transport.rootNodeId, nodesById).size,
-        ).toBe(transport.nodes.length);
-      }),
-      "condition tree reachable ids",
-    );
-  });
-});
