@@ -70,8 +70,12 @@ describe("ruleEngine preloaded day data properties", () => {
           const day = Temporal.PlainDate.from("2026-06-15");
 
           for (const [index, cancelled] of cancelledFlags.entries()) {
+            const startOffsetMinutes = index * 10;
             const start = day.toZonedDateTime({
-              plainTime: { hour: 8, minute: index * 10 },
+              plainTime: {
+                hour: 8 + Math.floor(startOffsetMinutes / 60),
+                minute: startOffsetMinutes % 60,
+              },
               timeZone: "Europe/Berlin",
             });
             const end = start.add({ minutes: 5 });
