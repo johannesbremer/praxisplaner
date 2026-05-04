@@ -22,13 +22,10 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
     },
     environment: "jsdom",
-    exclude: [
-      "**/node_modules/**",
-      "**/playwright/**",
-      "**/*.spec.ts",
-      "**/*.property.test.ts",
-    ],
+    exclude: ["**/node_modules/**", "**/playwright/**", "**/*.spec.ts"],
     globals: true,
+    include: ["**/*.property.test.ts"],
     setupFiles: ["./src/tests/setup.ts"],
+    testTimeout: 0,
   },
 });
