@@ -16,7 +16,7 @@ import {
   SCOPES,
   serializeConditionTreeTransport,
 } from "../../lib/condition-tree";
-import { propertyTestParameters } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 const conditionTypeArbitrary = fc.constantFrom<ConditionType>(
   ...CONDITION_TYPES,
@@ -108,17 +108,16 @@ function conditionTreeArbitrary(depth: number): Arbitrary<ConditionTreeNode> {
 
 describe("condition tree transport properties", () => {
   test("valid condition trees round-trip through flat transport", () => {
-    fc.assert(
+    assertProperty(
       fc.property(conditionTreeArbitrary(4), (tree) => {
         const transport = serializeConditionTreeTransport(tree);
         expect(parseConditionTreeTransport(transport)).toEqual(tree);
       }),
-      propertyTestParameters(),
     );
   });
 
   test("serialized transports have unique reachable node ids", () => {
-    fc.assert(
+    assertProperty(
       fc.property(conditionTreeArbitrary(4), (tree) => {
         const transport = serializeConditionTreeTransport(tree);
         const nodeIds = transport.nodes.map((node) => node.nodeId);
@@ -132,7 +131,6 @@ describe("condition tree transport properties", () => {
           collectReachableNodeIds(transport.rootNodeId, nodesById).size,
         ).toBe(transport.nodes.length);
       }),
-      propertyTestParameters(),
     );
   });
 });

@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
-import { propertyTestParameters } from "../../src/tests/property-test-utils";
+import { assertAsyncProperty } from "../../src/tests/property-test-utils";
 import { insertSelfLineageEntity } from "../lineage";
 import { buildPreloadedDayData } from "../ruleEngine";
 import schema from "../schema";
@@ -20,7 +20,7 @@ function createTestContext() {
 
 describe("ruleEngine preloaded day data properties", () => {
   test("cancelled appointments are excluded from preloaded day data", async () => {
-    await fc.assert(
+    await assertAsyncProperty(
       fc.asyncProperty(appointmentFlagsArbitrary, async (cancelledFlags) => {
         const t = createTestContext();
         const fixture = await t.run(async (ctx) => {
@@ -135,7 +135,6 @@ describe("ruleEngine preloaded day data properties", () => {
         expect(result.appointmentCount).toBe(fixture.activeCount);
         expect(result.dailyCount).toBe(fixture.activeCount);
       }),
-      propertyTestParameters(),
     );
   });
 });

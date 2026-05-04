@@ -8,7 +8,7 @@ import {
   findNextAvailableSlot,
 } from "../utils/collision-detection";
 import { SLOT_DURATION, slotToTime } from "../utils/time-calculations";
-import { propertyTestParameters } from "./property-test-utils";
+import { assertProperty, checkProperty } from "./property-test-utils";
 
 const BUSINESS_START_HOUR = 8;
 const TOTAL_SLOTS = (12 * 60) / SLOT_DURATION;
@@ -57,7 +57,7 @@ function toAppointment(
 
 describe("calendar collision properties", () => {
   test("collision detection matches interval overlap semantics", () => {
-    fc.assert(
+    assertProperty(
       fc.property(
         slotIntervalArbitrary,
         slotIntervalArbitrary,
@@ -81,12 +81,11 @@ describe("calendar collision properties", () => {
           );
         },
       ),
-      propertyTestParameters(),
     );
   });
 
   test("adjacent intervals do not collide", () => {
-    fc.assert(
+    assertProperty(
       fc.property(
         fc.integer({ max: TOTAL_SLOTS - 2, min: 0 }),
         fc.integer({ max: 12, min: 1 }),
@@ -111,12 +110,11 @@ describe("calendar collision properties", () => {
           ).toBe(false);
         },
       ),
-      propertyTestParameters(),
     );
   });
 
   test("findNextAvailableSlot returns a collision-free slot or no slot", () => {
-    const result = fc.check(
+    const result = checkProperty(
       fc.property(
         fc.array(slotIntervalArbitrary, { maxLength: 16 }),
         fc.integer({ max: TOTAL_SLOTS - 1, min: 0 }),
@@ -170,7 +168,6 @@ describe("calendar collision properties", () => {
           );
         },
       ),
-      propertyTestParameters(),
     );
     expect(result.failed).toBe(false);
   });
