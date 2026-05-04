@@ -7,6 +7,7 @@ import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
+import { isPublicHoliday } from "../publicHolidays";
 import schema from "../schema";
 import { modules } from "./test.setup";
 import { assertDefined } from "./test_utils";
@@ -146,7 +147,20 @@ async function insertWithLineage<TableName extends LineageTable>(
 function nextWeekday(weekday: number): Temporal.PlainDate {
   const today = Temporal.Now.plainDateISO(TIMEZONE);
   const delta = (weekday - today.dayOfWeek + 7) % 7;
-  return today.add({ days: delta === 0 ? 7 : delta });
+  const nextMatchingWeekday = today.add({ days: delta === 0 ? 7 : delta });
+
+  for (let weekOffset = 0; weekOffset < 52; weekOffset++) {
+    const candidate = nextMatchingWeekday.add({ weeks: weekOffset });
+    const hasHolidayInWorkingWeek = [0, 1, 2, 3, 4].some((dayOffset) =>
+      isPublicHoliday(candidate.add({ days: dayOffset })),
+    );
+
+    if (!hasHolidayInWorkingWeek) {
+      return candidate;
+    }
+  }
+
+  throw new Error("No holiday-free weekday found for appointment series test.");
 }
 
 describe("appointment series", () => {
@@ -1393,7 +1407,7 @@ describe("appointment series", () => {
       return rootId;
     });
 
-    const monday = Temporal.PlainDate.from("2026-06-01");
+    const monday = nextWeekday(1);
     const rootStart = monday
       .toZonedDateTime({
         plainTime: { hour: 9, minute: 0 },
