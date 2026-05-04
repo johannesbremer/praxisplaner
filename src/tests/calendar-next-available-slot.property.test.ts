@@ -62,6 +62,18 @@ describe("calendar next available slot property", () => {
           return (
             nextSlot >= startSlot &&
             nextSlot <= TOTAL_SLOTS - durationSlots &&
+            Array.from(
+              { length: nextSlot - startSlot },
+              (_, index) => startSlot + index,
+            ).every((slot) =>
+              checkCollision(
+                appointments,
+                TEST_COLUMN,
+                slot,
+                duration,
+                BUSINESS_START_HOUR,
+              ),
+            ) &&
             !checkCollision(
               appointments,
               TEST_COLUMN,
