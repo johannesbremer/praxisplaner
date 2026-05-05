@@ -16,7 +16,10 @@ import {
   selectedSlotStorageValidator,
   selectedSlotValidator,
 } from "./bookingValidators";
-import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
+import {
+  followUpPlanVariantsValidator,
+  followUpStepValidator,
+} from "./followUpPlans";
 
 export {
   beihilfeStatusValidator,
@@ -444,6 +447,8 @@ export default defineSchema({
   appointmentSeries: defineTable({
     createdAt: v.int64(),
     followUpPlanSnapshot: v.array(followUpStepValidator),
+    followUpPlanVariantId: v.string(),
+    followUpPlanVariantTitle: v.string(),
     lastModified: v.int64(),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
@@ -471,7 +476,7 @@ export default defineSchema({
     createdAt: v.int64(),
     deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
-    followUpPlan: followUpPlanValidator,
+    followUpPlanVariants: followUpPlanVariantsValidator,
     lastModified: v.int64(),
     lineageKey: v.optional(v.id("appointmentTypes")), // Stable identity across copied rule sets
     name: v.string(),

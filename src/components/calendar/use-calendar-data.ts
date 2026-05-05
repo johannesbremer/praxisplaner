@@ -422,7 +422,8 @@ export function useCalendarData(args: {
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
         duration: appointmentType.duration,
-        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        hasFollowUpPlan:
+          (appointmentType.followUpPlanVariants?.length ?? 0) > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });

@@ -21,8 +21,10 @@ import {
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
 import {
+  type FollowUpPlanVariant,
   type FollowUpStep,
-  normalizeFollowUpPlan,
+  getFollowUpPlanVariant,
+  normalizeFollowUpPlanVariants,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
 import {
@@ -90,6 +92,7 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
+  followUpPlanVariantId: v.string(),
   isNewPatient: v.optional(v.boolean()),
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
@@ -120,8 +123,8 @@ export interface PlannedSeriesStep {
 }
 
 type FollowUpSearchPolicy =
-  | "exact_after_previous"
-  | "same_day_after_offset"
+  | "exact"
+  | "same_day_on_or_after"
   | "target_date_or_later"
   | "target_day_only";
 
@@ -159,6 +162,7 @@ interface SeriesPlanningState {
 
 interface SeriesSpecification {
   followUpPlanSnapshot: FollowUpStep[];
+  followUpPlanVariant: FollowUpPlanVariant;
   rootAppointmentType: Doc<"appointmentTypes">;
   rootDurationMinutes: number;
   ruleSetId: Id<"ruleSets">;
@@ -167,6 +171,7 @@ interface SeriesSpecification {
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    followUpPlanVariantId: string;
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
@@ -187,6 +192,9 @@ export async function createAppointmentSeries(
     practiceId: args.practiceId,
     rootAppointmentTypeId: args.rootAppointmentTypeId,
     ruleSetId: args.ruleSetId,
+  });
+  const selectedVariant = requireFollowUpPlanVariant(rootAppointmentType, {
+    followUpPlanVariantId: args.followUpPlanVariantId,
   });
   const planningState = createSeriesPlanningState();
   const preview = await previewAppointmentSeries(
@@ -307,9 +315,9 @@ export async function createAppointmentSeries(
 
   await ctx.db.insert("appointmentSeries", {
     createdAt: now,
-    followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
-      rootAppointmentType.followUpPlan ?? [],
-    ),
+    followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(selectedVariant.steps),
+    followUpPlanVariantId: selectedVariant.variantId,
+    followUpPlanVariantTitle: selectedVariant.title,
     lastModified: now,
     ...(patientDateOfBirth && { patientDateOfBirth }),
     ...(args.patientId && { patientId: args.patientId }),
@@ -397,7 +405,7 @@ export async function planSeriesFromRootCandidate(
   };
 
   const plannedSteps: PlannedSeriesStep[] = [rootStep];
-  let previousStep = rootStep;
+  let previousSuccessfulStep = rootStep;
 
   for (const step of args.seriesSpecification.followUpPlanSnapshot) {
     const targetAppointmentType = await requireAppointmentTypeByLineageKey(
@@ -406,11 +414,17 @@ export async function planSeriesFromRootCandidate(
       step.appointmentTypeLineageKey,
     );
     const inheritedPractitionerId =
-      step.practitionerMode === "inherit"
-        ? previousStep.practitionerId
-        : undefined;
+      step.practitionerMode === "inherit_root"
+        ? rootStep.practitionerId
+        : step.practitionerMode === "inherit_previous"
+          ? previousSuccessfulStep.practitionerId
+          : undefined;
     const inheritedLocationId =
-      step.locationMode === "inherit" ? previousStep.locationId : undefined;
+      step.locationMode === "inherit_root"
+        ? rootStep.locationId
+        : step.locationMode === "inherit_previous"
+          ? previousSuccessfulStep.locationId
+          : undefined;
 
     const matchingSlot = await findSlotForFollowUpStep(ctx, {
       ...(inheritedLocationId && { locationId: inheritedLocationId }),
@@ -422,7 +436,8 @@ export async function planSeriesFromRootCandidate(
       }),
       planningState: args.planningState,
       practiceId: args.rootCandidate.practiceId,
-      previousStep,
+      previousStep: previousSuccessfulStep,
+      rootStep,
       ...(inheritedPractitionerId && {
         practitionerId: inheritedPractitionerId,
       }),
@@ -488,7 +503,7 @@ export async function planSeriesFromRootCandidate(
     };
 
     plannedSteps.push(plannedStep);
-    previousStep = plannedStep;
+    previousSuccessfulStep = plannedStep;
   }
 
   return {
@@ -501,6 +516,7 @@ export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
     excludedAppointmentIds?: Id<"appointments">[];
+    followUpPlanVariantId: string;
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
@@ -517,6 +533,9 @@ export async function previewAppointmentSeries(
   planningState = createSeriesPlanningState(),
 ): Promise<SeriesPlanningResult> {
   const rootAppointmentType = await loadRootAppointmentType(ctx, args);
+  const selectedVariant = requireFollowUpPlanVariant(rootAppointmentType, {
+    followUpPlanVariantId: args.followUpPlanVariantId,
+  });
   const patientDateOfBirth = await resolvePatientDateOfBirth(ctx, {
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
@@ -550,8 +569,9 @@ export async function previewAppointmentSeries(
     },
     seriesSpecification: {
       followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
-        rootAppointmentType.followUpPlan ?? [],
+        selectedVariant.steps,
       ),
+      followUpPlanVariant: selectedVariant,
       rootAppointmentType,
       rootDurationMinutes: rootAppointmentType.duration,
       ruleSetId: args.ruleSetId,
@@ -615,6 +635,11 @@ export async function replanAppointmentSeries(
       followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
         args.series.followUpPlanSnapshot,
       ),
+      followUpPlanVariant: {
+        steps: normalizeFollowUpPlanSnapshot(args.series.followUpPlanSnapshot),
+        title: args.series.followUpPlanVariantTitle,
+        variantId: args.series.followUpPlanVariantId,
+      },
       rootAppointmentType,
       rootDurationMinutes: args.rootDurationMinutes,
       ruleSetId: args.series.ruleSetIdAtBooking,
@@ -635,18 +660,12 @@ export async function replanAppointmentSeries(
 export function resolveFollowUpSearchPolicy(
   step: FollowUpStep,
 ): FollowUpSearchPolicy {
-  if (step.searchMode === "exact_after_previous") {
-    return "exact_after_previous";
+  if (step.searchMode === "exact") {
+    return "exact";
   }
 
-  if (step.searchMode === "same_day") {
-    return "same_day_after_offset";
-  }
-
-  if (step.offsetUnit === "minutes") {
-    return step.offsetValue === 0
-      ? "exact_after_previous"
-      : "same_day_after_offset";
+  if (step.searchMode === "same_day_on_or_after") {
+    return "same_day_on_or_after";
   }
 
   return "target_date_or_later";
@@ -663,21 +682,26 @@ export function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
   return BigInt(seriesStepIndex);
 }
 
-function addOffset(start: Temporal.ZonedDateTime, step: FollowUpStep) {
-  switch (step.offsetUnit) {
-    case "days": {
-      return start.add({ days: step.offsetValue });
-    }
-    case "minutes": {
-      return start.add({ minutes: step.offsetValue });
-    }
-    case "months": {
-      return start.add({ months: step.offsetValue });
-    }
-    case "weeks": {
-      return start.add({ weeks: step.offsetValue });
-    }
+function addPreviousDateOffset(
+  start: Temporal.ZonedDateTime,
+  anchor: Extract<FollowUpStep["anchor"], { kind: "previousDate" }>,
+) {
+  if (anchor.offsetDays !== undefined) {
+    return start.add({ days: anchor.offsetDays });
   }
+
+  if (anchor.offsetWeeks !== undefined) {
+    return start.add({ weeks: anchor.offsetWeeks });
+  }
+
+  if (anchor.offsetMonths !== undefined) {
+    return start.add({ months: anchor.offsetMonths });
+  }
+
+  throw appointmentSeriesError(
+    "CHAIN_REPLAN_FAILED",
+    "previousDate anchor is missing its offset.",
+  );
 }
 
 function appointmentSeriesError(code: string, message: string) {
@@ -719,6 +743,7 @@ async function findSlotForFollowUpStep(
     practitionerId?: Id<"practitioners">;
     previousStep: PlannedSeriesStep;
     requestedAt: InstantString;
+    rootStep: PlannedSeriesStep;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
@@ -740,13 +765,14 @@ async function findSlotForFollowUpStep(
     return null;
   }
 
-  const earliestStart = addOffset(
-    Temporal.ZonedDateTime.from(args.previousStep.end),
+  const earliestStart = resolveStepAnchorDateTime(
+    args.rootStep,
+    args.previousStep,
     args.step,
   );
   const searchPolicy = resolveFollowUpSearchPolicy(args.step);
 
-  if (searchPolicy === "exact_after_previous") {
+  if (searchPolicy === "exact") {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
       date: asIsoDateString(earliestStart.toPlainDate().toString()),
@@ -776,7 +802,7 @@ async function findSlotForFollowUpStep(
     );
   }
 
-  if (searchPolicy === "same_day_after_offset") {
+  if (searchPolicy === "same_day_on_or_after") {
     const slots = await queryAvailableSlotsForDay(ctx, {
       appointmentType: args.targetAppointmentType,
       date: asIsoDateString(earliestStart.toPlainDate().toString()),
@@ -1057,9 +1083,24 @@ async function loadRootAppointmentType(
 }
 
 function normalizeFollowUpPlanSnapshot(
-  followUpPlan: Doc<"appointmentTypes">["followUpPlan"] | FollowUpStep[],
+  followUpPlanSteps:
+    | Doc<"appointmentSeries">["followUpPlanSnapshot"]
+    | FollowUpStep[],
 ): FollowUpStep[] {
-  return normalizeFollowUpPlan(followUpPlan) ?? [];
+  return (
+    normalizeFollowUpPlanVariants([
+      {
+        steps: followUpPlanSteps.map((step) => ({
+          ...step,
+          appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+            step.appointmentTypeLineageKey,
+          ),
+        })),
+        title: "snapshot",
+        variantId: "snapshot",
+      },
+    ])?.[0]?.steps ?? []
+  );
 }
 
 async function queryAvailableSlotsForDay(
@@ -1176,6 +1217,25 @@ async function queryAvailableSlotsForDay(
   return slots;
 }
 
+function requireFollowUpPlanVariant(
+  appointmentType: Doc<"appointmentTypes">,
+  args: { followUpPlanVariantId: string },
+) {
+  const selectedVariant = getFollowUpPlanVariant(
+    normalizeFollowUpPlanVariants(appointmentType.followUpPlanVariants ?? []),
+    args.followUpPlanVariantId,
+  );
+
+  if (!selectedVariant) {
+    throw appointmentSeriesError(
+      "CHAIN_NOT_FOUND",
+      `Kettentermin-Variante "${args.followUpPlanVariantId}" wurde nicht gefunden.`,
+    );
+  }
+
+  return selectedVariant;
+}
+
 async function resolvePatientDateOfBirth(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -1205,6 +1265,36 @@ function resolveSeriesSimulationRuleSetId(args: {
   }
 
   return args.simulationRuleSetId ?? args.ruleSetId;
+}
+
+function resolveStepAnchorDateTime(
+  rootStep: PlannedSeriesStep,
+  previousStep: PlannedSeriesStep,
+  step: FollowUpStep,
+) {
+  switch (step.anchor.kind) {
+    case "previousDate": {
+      return addPreviousDateOffset(
+        Temporal.ZonedDateTime.from(previousStep.start),
+        step.anchor,
+      );
+    }
+    case "previousEnd": {
+      return Temporal.ZonedDateTime.from(previousStep.end).add({
+        minutes: step.anchor.offsetMinutes,
+      });
+    }
+    case "rootEnd": {
+      return Temporal.ZonedDateTime.from(rootStep.end).add({
+        minutes: step.anchor.offsetMinutes,
+      });
+    }
+    case "rootStart": {
+      return Temporal.ZonedDateTime.from(rootStep.start).add({
+        minutes: step.anchor.offsetMinutes,
+      });
+    }
+  }
 }
 
 function validateDurationMinutes(durationMinutes: number): number {

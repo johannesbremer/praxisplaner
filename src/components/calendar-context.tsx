@@ -78,6 +78,7 @@ export interface CalendarContextValue {
   // Optimistic mutations
   runCreateAppointment?: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    followUpPlanVariantId?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;

@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/convex/_generated/api";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
@@ -78,6 +85,7 @@ interface StaffAppointmentCreationModalProps {
   ruleSetId: Id<"ruleSets">;
   runCreateAppointment?: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    followUpPlanVariantId?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
@@ -117,6 +125,7 @@ export function StaffAppointmentCreationModal({
   const [selectedFallbackPatient, setSelectedFallbackPatient] = useState<
     PracticePatientSelection | undefined
   >();
+  const [selectedVariantIdState, setSelectedVariantId] = useState<string>();
   const [title, setTitle] = useState("");
 
   const createAppointmentMutation = useMutation(
@@ -149,7 +158,22 @@ export function StaffAppointmentCreationModal({
     (type) => type._id === appointmentTypeId,
   );
   const location = locations?.find((entry) => entry._id === locationId);
-  const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
+  const followUpPlanVariants = appointmentType?.followUpPlanVariants ?? [];
+  const hasFollowUpPlan = followUpPlanVariants.length > 0;
+  const selectedVariantId =
+    followUpPlanVariants.length === 1
+      ? followUpPlanVariants[0]?.variantId
+      : followUpPlanVariants.some(
+            (variant) => variant.variantId === selectedVariantIdState,
+          )
+        ? selectedVariantIdState
+        : undefined;
+  const selectedVariant =
+    selectedVariantId === undefined
+      ? undefined
+      : followUpPlanVariants.find(
+          (variant) => variant.variantId === selectedVariantId,
+        );
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
   const effectiveSelectedPatientId =
     selectedFallbackPatient && "id" in selectedFallbackPatient
@@ -205,9 +229,11 @@ export function StaffAppointmentCreationModal({
     open &&
       mode === "next" &&
       hasFollowUpPlan &&
+      selectedVariantId &&
       nextAvailableSlot &&
       nextAvailablePractitionerId
       ? {
+          followUpPlanVariantId: selectedVariantId,
           locationId,
           ...(effectivePatient?.dateOfBirth && {
             patientDateOfBirth: effectivePatient.dateOfBirth,
@@ -357,6 +383,9 @@ export function StaffAppointmentCreationModal({
         "patientId" in createTarget
           ? {
               appointmentTypeId: selectedAppointmentType._id,
+              ...(selectedVariantId && {
+                followUpPlanVariantId: selectedVariantId,
+              }),
               isNewPatient,
               ...(isSimulation && { isSimulation: true }),
               locationId,
@@ -372,6 +401,9 @@ export function StaffAppointmentCreationModal({
           : "userId" in createTarget
             ? {
                 appointmentTypeId: selectedAppointmentType._id,
+                ...(selectedVariantId && {
+                  followUpPlanVariantId: selectedVariantId,
+                }),
                 isNewPatient,
                 ...(isSimulation && { isSimulation: true }),
                 locationId,
@@ -386,6 +418,9 @@ export function StaffAppointmentCreationModal({
               }
             : {
                 appointmentTypeId: selectedAppointmentType._id,
+                ...(selectedVariantId && {
+                  followUpPlanVariantId: selectedVariantId,
+                }),
                 isNewPatient,
                 ...(isSimulation && { isSimulation: true }),
                 locationId,
@@ -478,6 +513,7 @@ export function StaffAppointmentCreationModal({
     open &&
     mode === "next" &&
     hasFollowUpPlan &&
+    selectedVariantId !== undefined &&
     nextAvailableSlot !== undefined &&
     nextAvailableSlot !== null;
   const isSeriesPreviewLoading =
@@ -490,6 +526,7 @@ export function StaffAppointmentCreationModal({
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     !hasAnyPatient ||
+    (hasFollowUpPlan && selectedVariantId === undefined) ||
     (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
   const submitButtonLabel = isNextAvailableSlotLoading
     ? "Termin wird gesucht..."
@@ -581,9 +618,38 @@ export function StaffAppointmentCreationModal({
                     <div className="text-sm font-medium">
                       Geplante Kettentermine
                     </div>
+                    {followUpPlanVariants.length > 1 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="follow-up-plan-variant">Variante</Label>
+                        <Select
+                          onValueChange={setSelectedVariantId}
+                          {...(selectedVariantId
+                            ? { value: selectedVariantId }
+                            : {})}
+                        >
+                          <SelectTrigger id="follow-up-plan-variant">
+                            <SelectValue placeholder="Variante auswählen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {followUpPlanVariants.map((variant) => (
+                              <SelectItem
+                                key={variant.variantId}
+                                value={variant.variantId}
+                              >
+                                {variant.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     {isNextAvailableSlotLoading ? (
                       <div className="text-sm text-muted-foreground">
                         Suche zuerst den Starttermin...
+                      </div>
+                    ) : selectedVariantId === undefined ? (
+                      <div className="text-sm text-muted-foreground">
+                        Bitte wählen Sie zuerst eine Kettentermin-Variante aus.
                       </div>
                     ) : hasNoNextAvailableSlot ? (
                       <div className="text-sm text-muted-foreground">
@@ -601,6 +667,11 @@ export function StaffAppointmentCreationModal({
                       </div>
                     ) : (
                       <div className="space-y-2">
+                        {selectedVariant && (
+                          <div className="text-sm text-muted-foreground">
+                            Variante: {selectedVariant.title}
+                          </div>
+                        )}
                         {seriesPreview.steps.map((step) => (
                           <div
                             className="flex items-start justify-between gap-4 text-sm"
@@ -642,6 +713,12 @@ export function StaffAppointmentCreationModal({
               </div>
 
               <DialogFooter>
+                {hasFollowUpPlan && selectedVariantId === undefined && (
+                  <div className="mr-auto text-sm text-muted-foreground">
+                    Der Termin kann erst erstellt werden, wenn eine
+                    Kettentermin-Variante ausgewählt ist.
+                  </div>
+                )}
                 {hasFollowUpPlan &&
                   (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
                     <div className="mr-auto text-sm text-muted-foreground">

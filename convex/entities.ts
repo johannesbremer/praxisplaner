@@ -62,9 +62,9 @@ import {
   ruleResultValidator,
 } from "./entities.validators";
 import {
-  type FollowUpPlan,
-  followUpStepValidator,
-  validateFollowUpPlan,
+  type FollowUpPlanVariants,
+  followUpPlanVariantValidator,
+  validateFollowUpPlanVariants,
 } from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
@@ -722,7 +722,7 @@ export const createAppointmentType = mutation({
   args: {
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
+    followUpPlanVariants: v.optional(v.array(followUpPlanVariantValidator)),
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
@@ -746,10 +746,10 @@ export const createAppointmentType = mutation({
     );
     const normalizedAllowedPractitionerLineageKeys =
       allowedPractitionerLineageKeys ?? [];
-    const followUpPlan = await validateFollowUpPlan(
+    const followUpPlanVariants = await validateFollowUpPlanVariants(
       ctx.db,
       ruleSetId,
-      args.followUpPlan,
+      args.followUpPlanVariants,
       args.lineageKey
         ? asAppointmentTypeLineageKey(args.lineageKey)
         : undefined,
@@ -797,7 +797,7 @@ export const createAppointmentType = mutation({
             normalizedAllowedPractitionerLineageKeys,
           deleted: false,
           duration: args.duration,
-          followUpPlan: followUpPlan ?? [],
+          followUpPlanVariants: followUpPlanVariants ?? [],
           lastModified: BigInt(Date.now()),
           name: args.name,
         });
@@ -816,7 +816,7 @@ export const createAppointmentType = mutation({
       allowedPractitionerLineageKeys: normalizedAllowedPractitionerLineageKeys,
       createdAt: BigInt(Date.now()),
       duration: args.duration,
-      ...(followUpPlan && { followUpPlan }),
+      ...(followUpPlanVariants && { followUpPlanVariants }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name: args.name,
@@ -838,7 +838,7 @@ export const updateAppointmentType = mutation({
     appointmentTypeId: v.id("appointmentTypes"),
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
+    followUpPlanVariants: v.optional(v.array(followUpPlanVariantValidator)),
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
@@ -888,7 +888,7 @@ export const updateAppointmentType = mutation({
     const updates: Partial<{
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
       duration: number;
-      followUpPlan: FollowUpPlan;
+      followUpPlanVariants: FollowUpPlanVariants;
       lastModified: bigint;
       name: string;
     }> = {
@@ -909,14 +909,14 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
-    if (args.followUpPlan !== undefined) {
-      const validatedFollowUpPlan = await validateFollowUpPlan(
+    if (args.followUpPlanVariants !== undefined) {
+      const validatedFollowUpPlanVariants = await validateFollowUpPlanVariants(
         ctx.db,
         ruleSetId,
-        args.followUpPlan,
+        args.followUpPlanVariants,
         requireAppointmentTypeLineageKey(appointmentType),
       );
-      updates.followUpPlan = validatedFollowUpPlan ?? [];
+      updates.followUpPlanVariants = validatedFollowUpPlanVariants ?? [];
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching

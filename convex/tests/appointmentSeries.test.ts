@@ -19,6 +19,116 @@ type LineageTable = Extract<
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
 
+const DEFAULT_FOLLOW_UP_PLAN_VARIANT_ID = "variant-1";
+
+interface CreateAppointmentSeriesArgs {
+  locationId: Id<"locations">;
+  patientId?: Id<"patients">;
+  practiceId: Id<"practices">;
+  practitionerId: Id<"practitioners">;
+  rootAppointmentTypeId: Id<"appointmentTypes">;
+  rootTitle: string;
+  ruleSetId: Id<"ruleSets">;
+  scope?: "real" | "simulation";
+  simulationRuleSetId?: Id<"ruleSets">;
+  start: string;
+  userId?: Id<"users">;
+}
+
+interface LegacyFollowUpStep {
+  appointmentTypeLineageKey: Id<"appointmentTypes">;
+  locationMode: "inherit";
+  note?: string;
+  offsetUnit: "days" | "minutes" | "months" | "weeks";
+  offsetValue: number;
+  practitionerMode: "inherit";
+  required: boolean;
+  searchMode:
+    | "exact_after_previous"
+    | "first_available_on_or_after"
+    | "same_day";
+  stepId: string;
+}
+
+interface PreviewAppointmentSeriesArgs {
+  locationId: Id<"locations">;
+  practiceId: Id<"practices">;
+  practitionerId: Id<"practitioners">;
+  rootAppointmentTypeId: Id<"appointmentTypes">;
+  ruleSetId: Id<"ruleSets">;
+  scope?: "real" | "simulation";
+  simulationRuleSetId?: Id<"ruleSets">;
+  start: string;
+  userId?: Id<"users">;
+}
+
+function asFollowUpPlanVariants(
+  steps: LegacyFollowUpStep[],
+): NonNullable<Doc<"appointmentTypes">["followUpPlanVariants"]> {
+  return [
+    {
+      steps: steps.map((step) => ({
+        anchor: (() => {
+          if (step.offsetUnit === "minutes") {
+            return {
+              kind: "previousEnd" as const,
+              offsetMinutes: step.offsetValue,
+            };
+          }
+
+          if (step.offsetUnit === "days") {
+            return {
+              kind: "previousDate" as const,
+              offsetDays: step.offsetValue,
+            };
+          }
+
+          if (step.offsetUnit === "weeks") {
+            return {
+              kind: "previousDate" as const,
+              offsetWeeks: step.offsetValue,
+            };
+          }
+
+          return {
+            kind: "previousDate" as const,
+            offsetMonths: step.offsetValue,
+          };
+        })(),
+        appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+        locationMode: "inherit_previous" as const,
+        ...(step.note ? { note: step.note } : {}),
+        practitionerMode: "inherit_previous" as const,
+        required: step.required,
+        searchMode: (() => {
+          if (step.searchMode === "exact_after_previous") {
+            return "exact" as const;
+          }
+
+          if (step.searchMode === "same_day") {
+            return "same_day_on_or_after" as const;
+          }
+
+          return "first_available_on_or_after" as const;
+        })(),
+        stepId: step.stepId,
+      })),
+      title: "Standard",
+      variantId: DEFAULT_FOLLOW_UP_PLAN_VARIANT_ID,
+    },
+  ];
+}
+
+function createAppointmentSeries(
+  t: ReturnType<typeof createAuthedTestContext>,
+  args: CreateAppointmentSeriesArgs,
+) {
+  return t.mutation(api.appointments.createAppointmentSeries, {
+    ...args,
+    followUpPlanVariantId: DEFAULT_FOLLOW_UP_PLAN_VARIANT_ID,
+  });
+}
+
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "appointment-series@example.com",
@@ -163,6 +273,16 @@ function nextWeekday(weekday: number): Temporal.PlainDate {
   throw new Error("No holiday-free weekday found for appointment series test.");
 }
 
+function previewAppointmentSeries(
+  t: ReturnType<typeof createAuthedTestContext>,
+  args: PreviewAppointmentSeriesArgs,
+) {
+  return t.query(api.appointments.previewAppointmentSeries, {
+    ...args,
+    followUpPlanVariantId: DEFAULT_FOLLOW_UP_PLAN_VARIANT_ID,
+  });
+}
+
 describe("appointment series", () => {
   test("createAppointmentType rejects follow-up plans with missing target lineage keys", async () => {
     const t = createAuthedTestContext();
@@ -190,7 +310,7 @@ describe("appointment series", () => {
       t.mutation(api.entities.createAppointmentType, {
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: missingLineageKey,
             locationMode: "inherit",
@@ -201,7 +321,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         name: "Root",
         practiceId,
         practitionerIds: [practitionerId],
@@ -236,7 +356,7 @@ describe("appointment series", () => {
       t.mutation(api.entities.createAppointmentType, {
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -247,7 +367,7 @@ describe("appointment series", () => {
             searchMode: "same_day",
             stepId: "step-1",
           },
-        ],
+        ]),
         name: "Ungueltig Minuten",
         practiceId,
         practitionerIds: [practitionerId],
@@ -259,7 +379,7 @@ describe("appointment series", () => {
       t.mutation(api.entities.createAppointmentType, {
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -270,7 +390,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         name: "Ungueltig Tage",
         practiceId,
         practitionerIds: [practitionerId],
@@ -282,7 +402,7 @@ describe("appointment series", () => {
       t.mutation(api.entities.createAppointmentType, {
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -293,7 +413,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         name: "Ungueltig Kommazahl",
         practiceId,
         practitionerIds: [practitionerId],
@@ -304,7 +424,7 @@ describe("appointment series", () => {
     const validResult = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
       expectedDraftRevision: null,
-      followUpPlan: [
+      followUpPlanVariants: asFollowUpPlanVariants([
         {
           appointmentTypeLineageKey: targetAppointmentTypeId,
           locationMode: "inherit",
@@ -315,7 +435,7 @@ describe("appointment series", () => {
           searchMode: "first_available_on_or_after",
           stepId: "step-1",
         },
-      ],
+      ]),
       name: "Gueltig Tage",
       practiceId,
       practitionerIds: [practitionerId],
@@ -353,7 +473,7 @@ describe("appointment series", () => {
           allowedPractitionerLineageKeys: [practitionerId],
           createdAt: now,
           duration: 30,
-          followUpPlan: [
+          followUpPlanVariants: asFollowUpPlanVariants([
             {
               appointmentTypeLineageKey: targetAppointmentTypeId,
               locationMode: "inherit",
@@ -364,7 +484,7 @@ describe("appointment series", () => {
               searchMode: "first_available_on_or_after",
               stepId: "step-1",
             },
-          ],
+          ]),
           lastModified: now,
           name: "Ersttermin",
           practiceId,
@@ -416,7 +536,7 @@ describe("appointment series", () => {
       });
     });
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -462,7 +582,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -473,7 +593,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -494,7 +614,7 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -542,7 +662,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -553,7 +673,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -573,7 +693,7 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -614,7 +734,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -625,7 +745,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -645,7 +765,7 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -691,7 +811,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -702,7 +822,7 @@ describe("appointment series", () => {
             searchMode: "exact_after_previous",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Spättermin",
         practiceId,
@@ -723,7 +843,7 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -737,7 +857,7 @@ describe("appointment series", () => {
     expect(preview.blockedStepId).toBe("step-1");
 
     await expect(
-      t.mutation(api.appointments.createAppointmentSeries, {
+      createAppointmentSeries(t, {
         locationId,
         practiceId,
         practitionerId,
@@ -805,7 +925,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -816,7 +936,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Root",
         practiceId,
@@ -837,7 +957,7 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId,
       practiceId,
       practitionerId,
@@ -891,7 +1011,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [activePractitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -902,7 +1022,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -964,7 +1084,7 @@ describe("appointment series", () => {
           allowedPractitionerLineageKeys: [activePractitionerId],
           createdAt: now,
           duration: 30,
-          followUpPlan: [
+          followUpPlanVariants: asFollowUpPlanVariants([
             {
               appointmentTypeLineageKey: targetAppointmentTypeId,
               locationMode: "inherit",
@@ -975,7 +1095,7 @@ describe("appointment series", () => {
               searchMode: "first_available_on_or_after",
               stepId: "step-1",
             },
-          ],
+          ]),
           lastModified: now,
           lineageKey: rootAppointmentTypeId,
           name: "Ersttermin Copy",
@@ -1021,7 +1141,7 @@ describe("appointment series", () => {
       });
     });
 
-    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+    const preview = await previewAppointmentSeries(t, {
       locationId: draftLocationId,
       practiceId,
       practitionerId: draftPractitionerId,
@@ -1037,7 +1157,7 @@ describe("appointment series", () => {
     expect(preview.blockedStepId).toBe("root");
 
     await expect(
-      t.mutation(api.appointments.createAppointmentSeries, {
+      createAppointmentSeries(t, {
         locationId: draftLocationId,
         practiceId,
         practitionerId: draftPractitionerId,
@@ -1076,7 +1196,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -1087,7 +1207,7 @@ describe("appointment series", () => {
             searchMode: "exact_after_previous",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1188,7 +1308,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -1199,7 +1319,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1272,7 +1392,7 @@ describe("appointment series", () => {
     const created = await t.mutation(api.entities.createAppointmentType, {
       duration: 30,
       expectedDraftRevision: null,
-      followUpPlan: [
+      followUpPlanVariants: asFollowUpPlanVariants([
         {
           appointmentTypeLineageKey: targetAppointmentTypeId,
           locationMode: "inherit",
@@ -1283,7 +1403,7 @@ describe("appointment series", () => {
           searchMode: "first_available_on_or_after",
           stepId: "step-1",
         },
-      ],
+      ]),
       name: "Root",
       practiceId,
       practitionerIds: [practitionerId],
@@ -1293,7 +1413,7 @@ describe("appointment series", () => {
     await t.mutation(api.entities.updateAppointmentType, {
       appointmentTypeId: created.entityId,
       expectedDraftRevision: created.draftRevision,
-      followUpPlan: [],
+      followUpPlanVariants: [],
       practiceId,
       selectedRuleSetId: created.ruleSetId,
     });
@@ -1302,7 +1422,7 @@ describe("appointment series", () => {
       return await ctx.db.get("appointmentTypes", created.entityId);
     });
 
-    expect(updatedAppointmentType?.followUpPlan).toEqual([]);
+    expect(updatedAppointmentType?.followUpPlanVariants).toEqual([]);
   });
 
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
@@ -1383,7 +1503,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: targetAppointmentTypeId,
             locationMode: "inherit",
@@ -1394,7 +1514,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1415,19 +1535,16 @@ describe("appointment series", () => {
       })
       .toString();
 
-    const createdSeries = await t.mutation(
-      api.appointments.createAppointmentSeries,
-      {
-        locationId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        rootTitle: "Ersttermin",
-        ruleSetId,
-        start: rootStart,
-        userId,
-      },
-    );
+    const createdSeries = await createAppointmentSeries(t, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      rootTitle: "Ersttermin",
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
 
     const storedSeries = await t.run(async (ctx) => {
       return await ctx.db
@@ -1536,7 +1653,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: followUpTypeId,
             locationMode: "inherit",
@@ -1547,7 +1664,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1567,19 +1684,16 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const createdSeries = await t.mutation(
-      api.appointments.createAppointmentSeries,
-      {
-        locationId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        rootTitle: "Ersttermin",
-        ruleSetId,
-        start: rootStart,
-        userId,
-      },
-    );
+    const createdSeries = await createAppointmentSeries(t, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      rootTitle: "Ersttermin",
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
 
     const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
     expect(followUpAppointmentId).toBeDefined();
@@ -1638,7 +1752,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: followUpTypeId,
             locationMode: "inherit",
@@ -1649,7 +1763,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1669,20 +1783,17 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const createdSeries = await t.mutation(
-      api.appointments.createAppointmentSeries,
-      {
-        locationId,
-        patientId: originalPatientId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        rootTitle: "Ersttermin",
-        ruleSetId,
-        start: rootStart,
-        userId,
-      },
-    );
+    const createdSeries = await createAppointmentSeries(t, {
+      locationId,
+      patientId: originalPatientId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      rootTitle: "Ersttermin",
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
 
     await t.mutation(api.appointments.updateAppointment, {
       id: createdSeries.rootAppointmentId,
@@ -1731,7 +1842,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
-        followUpPlan: [
+        followUpPlanVariants: asFollowUpPlanVariants([
           {
             appointmentTypeLineageKey: followUpTypeId,
             locationMode: "inherit",
@@ -1742,7 +1853,7 @@ describe("appointment series", () => {
             searchMode: "first_available_on_or_after",
             stepId: "step-1",
           },
-        ],
+        ]),
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1762,19 +1873,16 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const createdSeries = await t.mutation(
-      api.appointments.createAppointmentSeries,
-      {
-        locationId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        rootTitle: "Ersttermin",
-        ruleSetId,
-        start: rootStart,
-        userId,
-      },
-    );
+    const createdSeries = await createAppointmentSeries(t, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      rootTitle: "Ersttermin",
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
 
     const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
     expect(followUpAppointmentId).toBeDefined();

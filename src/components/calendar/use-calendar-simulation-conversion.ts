@@ -74,6 +74,7 @@ interface UseCalendarSimulationConversionArgs {
   practiceId: Id<"practices">;
   runCreateAppointment: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    followUpPlanVariantId?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;

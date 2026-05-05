@@ -86,7 +86,7 @@ type AppointmentType = FrontendLineageEntity<
 >;
 interface AppointmentTypeFormValues {
   duration: number;
-  followUpPlan: FollowUpPlanFormStep[];
+  followUpPlanVariants: FollowUpPlanVariantFormValue[];
   name: string;
   practitionerIds: Id<"practitioners">[];
 }
@@ -100,14 +100,29 @@ interface AppointmentTypesManagementProps {
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
+type FollowUpPlanAnchorKind = FollowUpPlanStep["anchor"]["kind"];
+type FollowUpPlanDateOffsetUnit = "days" | "months" | "weeks";
 interface FollowUpPlanFormStep {
+  anchorKind: FollowUpPlanAnchorKind;
   appointmentTypeLineageKey: FollowUpPlanTargetSelection;
-  offsetUnit: FollowUpPlanOffsetUnit;
-  offsetValue: number;
+  dateOffsetUnit: FollowUpPlanDateOffsetUnit;
+  dateOffsetValue: number;
+  locationMode: FollowUpPlanStep["locationMode"];
+  note: string;
+  offsetMinutes: number;
+  practitionerMode: FollowUpPlanStep["practitionerMode"];
+  required: boolean;
+  searchMode: FollowUpPlanStep["searchMode"];
 }
-type FollowUpPlanOffsetUnit = FollowUpPlanStep["offsetUnit"];
-type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
+type FollowUpPlanStep = FollowUpPlanVariant["steps"][number];
 type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
+type FollowUpPlanVariant = NonNullable<
+  AppointmentType["followUpPlanVariants"]
+>[number];
+interface FollowUpPlanVariantFormValue {
+  steps: FollowUpPlanFormStep[];
+  title: string;
+}
 
 type Practitioner = FrontendLineageEntity<
   "practitioners",
@@ -119,111 +134,121 @@ type PractitionerQueryResult =
 
 const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
   duration: 30,
-  followUpPlan: [],
+  followUpPlanVariants: [],
   name: "",
   practitionerIds: [],
 };
 
 const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
+  anchorKind: "previousDate",
   appointmentTypeLineageKey: "",
-  offsetUnit: "days",
-  offsetValue: 1,
+  dateOffsetUnit: "days",
+  dateOffsetValue: 1,
+  locationMode: "inherit_root",
+  note: "",
+  offsetMinutes: 0,
+  practitionerMode: "inherit_root",
+  required: true,
+  searchMode: "first_available_on_or_after",
 });
 
-const getFollowUpSearchMode = (
-  step: FollowUpPlanFormStep,
-): FollowUpPlanStep["searchMode"] => {
-  if (step.offsetUnit !== "minutes") {
-    return "first_available_on_or_after";
-  }
+const createEmptyFollowUpPlanVariant = (): FollowUpPlanVariantFormValue => ({
+  steps: [createEmptyFollowUpStep()],
+  title: "",
+});
 
-  return step.offsetValue === 0 ? "exact_after_previous" : "same_day";
+const normalizeMinutesOffset = (rawValue: number) => {
+  const normalizedInteger = Number.isFinite(rawValue)
+    ? Math.trunc(rawValue)
+    : 0;
+
+  return Math.max(0, Math.round(normalizedInteger / 5) * 5);
 };
 
-const normalizeFollowUpPlanForSubmit = (
-  steps: FollowUpPlanFormStep[],
-): Result<FollowUpPlanStep[], string> => {
-  if (steps.length === 0) {
+const normalizeDateOffsetValue = (rawValue: number) => {
+  const normalizedInteger = Number.isFinite(rawValue)
+    ? Math.trunc(rawValue)
+    : 0;
+
+  return Math.max(1, normalizedInteger);
+};
+
+const normalizeFollowUpPlanVariantsForSubmit = (
+  variants: FollowUpPlanVariantFormValue[],
+): Result<FollowUpPlanVariant[], string> => {
+  if (variants.length === 0) {
     return ok([]);
   }
 
   return Result.combine(
-    steps.map((step, index) =>
-      resolveSelectedAppointmentTypeLineageKey(step).map(
-        (appointmentTypeLineageKey) => ({
-          appointmentTypeLineageKey,
-          locationMode: "inherit" as const,
-          offsetUnit: step.offsetUnit,
-          offsetValue: normalizeFollowUpOffsetValue(
-            step.offsetUnit,
-            step.offsetValue,
+    variants.map((variant, variantIndex) => {
+      const trimmedTitle = variant.title.trim();
+      if (trimmedTitle.length === 0) {
+        return err("Jede Kettentermin-Variante benötigt einen Titel.");
+      }
+
+      return Result.combine(
+        variant.steps.map((step, stepIndex) =>
+          resolveSelectedAppointmentTypeLineageKey(step).map(
+            (appointmentTypeLineageKey) => ({
+              anchor: buildFollowUpStepAnchor(step),
+              appointmentTypeLineageKey,
+              locationMode: step.locationMode,
+              ...(step.note.trim() ? { note: step.note.trim() } : {}),
+              practitionerMode: step.practitionerMode,
+              required: step.required,
+              searchMode: step.searchMode,
+              stepId: `step-${stepIndex + 1}`,
+            }),
           ),
-          practitionerMode: "inherit" as const,
-          required: true,
-          searchMode: getFollowUpSearchMode(step),
-          stepId: `step-${index + 1}`,
-        }),
-      ),
-    ),
+        ),
+      ).map((steps) => ({
+        steps,
+        title: trimmedTitle,
+        variantId: `variant-${variantIndex + 1}`,
+      }));
+    }),
   );
 };
 
-const createFollowUpPlanCreateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
-) => (followUpPlan === undefined ? {} : { followUpPlan });
+const createFollowUpPlanVariantCreateArgs = (
+  followUpPlanVariants: FollowUpPlanVariant[] | undefined,
+) => (followUpPlanVariants === undefined ? {} : { followUpPlanVariants });
 
-const createFollowUpPlanUpdateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
-) => ({ followUpPlan: followUpPlan ?? [] });
+const createFollowUpPlanVariantUpdateArgs = (
+  followUpPlanVariants: FollowUpPlanVariant[] | undefined,
+) => ({ followUpPlanVariants: followUpPlanVariants ?? [] });
 
-const formatFollowUpOffset = (step: {
-  offsetUnit: FollowUpPlanStep["offsetUnit"];
-  offsetValue: number;
-}) => {
-  const unitLabel =
-    step.offsetUnit === "minutes"
-      ? step.offsetValue === 1
-        ? "Minute"
-        : "Minuten"
-      : step.offsetUnit === "days"
-        ? step.offsetValue === 1
-          ? "Tag"
-          : "Tage"
-        : step.offsetUnit === "weeks"
-          ? step.offsetValue === 1
-            ? "Woche"
-            : "Wochen"
-          : step.offsetValue === 1
-            ? "Monat"
-            : "Monate";
+const formatFollowUpStepSummary = (step: FollowUpPlanStep) => {
+  const anchorDescription =
+    step.anchor.kind === "previousDate"
+      ? step.anchor.offsetDays === undefined
+        ? step.anchor.offsetWeeks === undefined
+          ? `${step.anchor.offsetMonths ?? 0} Monat${step.anchor.offsetMonths === 1 ? "" : "e"}`
+          : `${step.anchor.offsetWeeks} Woche${step.anchor.offsetWeeks === 1 ? "" : "n"}`
+        : `${step.anchor.offsetDays} Tag${step.anchor.offsetDays === 1 ? "" : "e"}`
+      : `${step.anchor.offsetMinutes} Min`;
 
-  return `${step.offsetValue} ${unitLabel}`;
+  const anchorLabel =
+    step.anchor.kind === "previousEnd"
+      ? "ab vorherigem Ende"
+      : step.anchor.kind === "rootStart"
+        ? "ab Root-Start"
+        : step.anchor.kind === "rootEnd"
+          ? "ab Root-Ende"
+          : "ab vorherigem Datum";
+
+  return `${anchorLabel}, ${anchorDescription}`;
 };
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
 
-const normalizeFollowUpOffsetValue = (
-  offsetUnit: FollowUpPlanFormStep["offsetUnit"],
-  rawValue: number,
-) => {
-  const normalizedInteger = Number.isFinite(rawValue)
-    ? Math.trunc(rawValue)
-    : 0;
-
-  if (offsetUnit === "minutes") {
-    return Math.max(0, Math.round(normalizedInteger / 5) * 5);
-  }
-
-  return Math.max(1, normalizedInteger);
-};
-
-const parseFollowUpOffsetUnit = (
+const parseFollowUpDateOffsetUnit = (
   value: string,
-): FollowUpPlanOffsetUnit | undefined => {
+): FollowUpPlanDateOffsetUnit | undefined => {
   switch (value) {
     case "days":
-    case "minutes":
     case "months":
     case "weeks": {
       return value;
@@ -234,32 +259,62 @@ const parseFollowUpOffsetUnit = (
   }
 };
 
-const normalizeFollowUpPlanForForm = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
-): FollowUpPlanFormStep[] =>
-  (followUpPlan ?? []).map((step) => ({
-    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-      step.appointmentTypeLineageKey,
-    ),
-    offsetUnit: step.offsetUnit,
-    offsetValue: normalizeFollowUpOffsetValue(
-      step.offsetUnit,
-      step.offsetValue,
-    ),
-  }));
-
-const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
-  JSON.stringify(
-    (steps ?? []).map((step) => ({
-      appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+const normalizeFollowUpPlanVariantsForForm = (
+  followUpPlanVariants: FollowUpPlanVariant[] | undefined,
+): FollowUpPlanVariantFormValue[] =>
+  (followUpPlanVariants ?? []).map((variant) => ({
+    steps: variant.steps.map((step) => ({
+      anchorKind: step.anchor.kind,
+      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+        step.appointmentTypeLineageKey,
+      ),
+      dateOffsetUnit:
+        step.anchor.kind === "previousDate"
+          ? step.anchor.offsetWeeks === undefined
+            ? step.anchor.offsetMonths === undefined
+              ? "days"
+              : "months"
+            : "weeks"
+          : "days",
+      dateOffsetValue:
+        step.anchor.kind === "previousDate"
+          ? normalizeDateOffsetValue(
+              step.anchor.offsetDays ??
+                step.anchor.offsetWeeks ??
+                step.anchor.offsetMonths ??
+                1,
+            )
+          : 1,
       locationMode: step.locationMode,
-      note: step.note ?? null,
-      offsetUnit: step.offsetUnit,
-      offsetValue: step.offsetValue,
+      note: step.note ?? "",
+      offsetMinutes:
+        step.anchor.kind === "previousDate"
+          ? 0
+          : normalizeMinutesOffset(step.anchor.offsetMinutes),
       practitionerMode: step.practitionerMode,
       required: step.required,
       searchMode: step.searchMode,
-      stepId: step.stepId,
+    })),
+    title: variant.title,
+  }));
+
+const serializeFollowUpPlanVariants = (
+  variants: FollowUpPlanVariant[] | undefined,
+) =>
+  JSON.stringify(
+    (variants ?? []).map((variant) => ({
+      steps: variant.steps.map((step) => ({
+        anchor: step.anchor,
+        appointmentTypeLineageKey: step.appointmentTypeLineageKey,
+        locationMode: step.locationMode,
+        note: step.note ?? null,
+        practitionerMode: step.practitionerMode,
+        required: step.required,
+        searchMode: step.searchMode,
+        stepId: step.stepId,
+      })),
+      title: variant.title,
+      variantId: variant.variantId,
     })),
   );
 
@@ -280,8 +335,8 @@ function createAppointmentTypeFormSchema(params: {
       .refine((val) => val % 5 === 0, {
         message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
       }),
-    followUpPlan: z.array(
-      createFollowUpStepSchema(params.appointmentTypeLineageKeys),
+    followUpPlanVariants: z.array(
+      createFollowUpPlanVariantSchema(params.appointmentTypeLineageKeys),
     ),
     name: z
       .string()
@@ -319,43 +374,78 @@ function createAppointmentTypeLineageSelectionSchema(
     });
 }
 
+function createFollowUpPlanVariantSchema(
+  availableLineageKeys: readonly AppointmentTypeLineageKey[],
+) {
+  return z.object({
+    steps: z.array(createFollowUpStepSchema(availableLineageKeys)),
+    title: z
+      .string()
+      .trim()
+      .min(1, "Bitte geben Sie einen Titel für die Variante an"),
+  });
+}
+
 function createFollowUpStepSchema(
   availableLineageKeys: readonly AppointmentTypeLineageKey[],
 ) {
   return z
     .object({
+      anchorKind: z.enum([
+        "previousEnd",
+        "previousDate",
+        "rootEnd",
+        "rootStart",
+      ]),
       appointmentTypeLineageKey: createAppointmentTypeLineageSelectionSchema(
         availableLineageKeys,
       ).refine((value) => value !== "", "Bitte wählen Sie eine Terminart"),
-      offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
-      offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
+      dateOffsetUnit: z.enum(["days", "weeks", "months"]),
+      dateOffsetValue: z
+        .number()
+        .int("Der Datumsversatz muss eine ganze Zahl sein"),
+      locationMode: z.enum(["inherit_previous", "inherit_root", "any_allowed"]),
+      note: z.string(),
+      offsetMinutes: z
+        .number()
+        .int("Der Minutenversatz muss eine ganze Zahl sein"),
+      practitionerMode: z.enum([
+        "inherit_previous",
+        "inherit_root",
+        "any_allowed",
+      ]),
+      required: z.boolean(),
+      searchMode: z.enum([
+        "exact",
+        "same_day_on_or_after",
+        "first_available_on_or_after",
+      ]),
     })
     .superRefine((step, ctx) => {
-      if (step.offsetUnit === "minutes") {
-        if (step.offsetValue < 0) {
+      if (step.anchorKind === "previousDate") {
+        if (step.dateOffsetValue < 1) {
           ctx.addIssue({
             code: "custom",
-            message: "Minuten dürfen nicht negativ sein",
-            path: ["offsetValue"],
+            message: "Datumsversätze müssen mindestens 1 sein",
+            path: ["dateOffsetValue"],
           });
         }
-
-        if (step.offsetValue % 5 !== 0) {
-          ctx.addIssue({
-            code: "custom",
-            message: "Minuten müssen in 5er-Schritten angegeben werden",
-            path: ["offsetValue"],
-          });
-        }
-
         return;
       }
 
-      if (step.offsetValue < 1) {
+      if (step.offsetMinutes < 0) {
         ctx.addIssue({
           code: "custom",
-          message: "Tage, Wochen und Monate müssen mindestens 1 sein",
-          path: ["offsetValue"],
+          message: "Minuten dürfen nicht negativ sein",
+          path: ["offsetMinutes"],
+        });
+      }
+
+      if (step.offsetMinutes % 5 !== 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Minuten müssen in 5er-Schritten angegeben werden",
+          path: ["offsetMinutes"],
         });
       }
     });
@@ -421,6 +511,24 @@ const samePractitionerLineageIds = (
 
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, APPOINTMENT_TYPE_MISSING_ENTITY_REGEX);
+
+const buildFollowUpStepAnchor = (
+  step: FollowUpPlanFormStep,
+): FollowUpPlanStep["anchor"] => {
+  if (step.anchorKind === "previousDate") {
+    const normalizedValue = normalizeDateOffsetValue(step.dateOffsetValue);
+    return step.dateOffsetUnit === "weeks"
+      ? { kind: "previousDate", offsetWeeks: normalizedValue }
+      : step.dateOffsetUnit === "months"
+        ? { kind: "previousDate", offsetMonths: normalizedValue }
+        : { kind: "previousDate", offsetDays: normalizedValue };
+  }
+
+  return {
+    kind: step.anchorKind,
+    offsetMinutes: normalizeMinutesOffset(step.offsetMinutes),
+  };
+};
 
 const resolveSelectedAppointmentTypeLineageKey = (
   step: FollowUpPlanFormStep,
@@ -608,19 +716,20 @@ export function AppointmentTypesManagement({
         }
 
         const parsedValue = parseResult.data;
-        const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
-          parsedValue.followUpPlan,
-        ).match(
-          (normalizedPlan) =>
-            normalizedPlan.length === 0 ? undefined : normalizedPlan,
-          (message) => {
-            toast.error("Fehler beim Speichern", {
-              description: message,
-            });
-            return null;
-          },
-        );
-        if (normalizedFollowUpPlan === null) {
+        const normalizedFollowUpPlanVariants =
+          normalizeFollowUpPlanVariantsForSubmit(
+            parsedValue.followUpPlanVariants,
+          ).match(
+            (normalizedVariants) =>
+              normalizedVariants.length === 0 ? undefined : normalizedVariants,
+            (message) => {
+              toast.error("Fehler beim Speichern", {
+                description: message,
+              });
+              return null;
+            },
+          );
+        if (normalizedFollowUpPlanVariants === null) {
           return;
         }
         const formPractitionerSnapshots = createPractitionerSnapshots(
@@ -642,7 +751,7 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             duration: editingAppointmentType.duration,
-            followUpPlan: editingAppointmentType.followUpPlan,
+            followUpPlanVariants: editingAppointmentType.followUpPlanVariants,
             name: editingAppointmentType.name,
             practitionerLineageKeys:
               editingAppointmentType.allowedPractitionerLineageKeys.map(
@@ -651,7 +760,7 @@ export function AppointmentTypesManagement({
           };
           const afterState = {
             duration: parsedValue.duration,
-            followUpPlan: normalizedFollowUpPlan,
+            followUpPlanVariants: normalizedFollowUpPlanVariants,
             name: parsedValue.name,
             practitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
@@ -676,7 +785,9 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
+            ...createFollowUpPlanVariantUpdateArgs(
+              normalizedFollowUpPlanVariants,
+            ),
           });
           handleDraftMutationResult(updateResult);
           upsertAppointmentTypeRef(
@@ -686,7 +797,7 @@ export function AppointmentTypesManagement({
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
               duration: afterState.duration,
-              followUpPlan: afterState.followUpPlan ?? [],
+              followUpPlanVariants: afterState.followUpPlanVariants ?? [],
               name: afterState.name,
               ruleSetId: updateResult.ruleSetId,
             },
@@ -716,7 +827,9 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(afterState.followUpPlan),
+                ...createFollowUpPlanVariantUpdateArgs(
+                  afterState.followUpPlanVariants,
+                ),
               });
               handleDraftMutationResult(redoResult);
               return { entityId: redoResult.entityId };
@@ -737,7 +850,9 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(beforeState.followUpPlan),
+                ...createFollowUpPlanVariantUpdateArgs(
+                  beforeState.followUpPlanVariants,
+                ),
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
@@ -748,8 +863,10 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
-                serializeFollowUpPlan(current.followUpPlan) !==
-                  serializeFollowUpPlan(beforeState.followUpPlan) ||
+                serializeFollowUpPlanVariants(current.followUpPlanVariants) !==
+                  serializeFollowUpPlanVariants(
+                    beforeState.followUpPlanVariants,
+                  ) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -765,8 +882,10 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== afterState.name ||
                 current.duration !== afterState.duration ||
-                serializeFollowUpPlan(current.followUpPlan) !==
-                  serializeFollowUpPlan(afterState.followUpPlan) ||
+                serializeFollowUpPlanVariants(current.followUpPlanVariants) !==
+                  serializeFollowUpPlanVariants(
+                    afterState.followUpPlanVariants,
+                  ) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -795,7 +914,9 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+            ...createFollowUpPlanVariantCreateArgs(
+              normalizedFollowUpPlanVariants,
+            ),
           });
           handleDraftMutationResult(createResult);
           const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
@@ -809,7 +930,7 @@ export function AppointmentTypesManagement({
             ),
             createdAt: 0n,
             duration: parsedValue.duration,
-            followUpPlan: normalizedFollowUpPlan ?? [],
+            followUpPlanVariants: normalizedFollowUpPlanVariants ?? [],
             lastModified: 0n,
             lineageKey: appointmentTypeLineageKey,
             name: parsedValue.name,
@@ -833,7 +954,9 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+                ...createFollowUpPlanVariantCreateArgs(
+                  normalizedFollowUpPlanVariants,
+                ),
               });
               handleDraftMutationResult(recreateResult);
               return { entityId: recreateResult.entityId };
@@ -911,8 +1034,10 @@ export function AppointmentTypesManagement({
     form.setFieldValue("name", appointmentType.name);
     form.setFieldValue("duration", appointmentType.duration);
     form.setFieldValue(
-      "followUpPlan",
-      normalizeFollowUpPlanForForm(appointmentType.followUpPlan),
+      "followUpPlanVariants",
+      normalizeFollowUpPlanVariantsForForm(
+        appointmentType.followUpPlanVariants,
+      ),
     );
     form.setFieldValue("practitionerIds", validPractitionerIds);
 
@@ -932,7 +1057,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         duration: appointmentType.duration,
-        followUpPlan: appointmentType.followUpPlan,
+        followUpPlanVariants: appointmentType.followUpPlanVariants,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerLineageKeys:
@@ -1004,8 +1129,12 @@ export function AppointmentTypesManagement({
             );
             const isSameDefinition =
               existingByLineage.duration === deletedSnapshot.duration &&
-              serializeFollowUpPlan(existingByLineage.followUpPlan) ===
-                serializeFollowUpPlan(deletedSnapshot.followUpPlan) &&
+              serializeFollowUpPlanVariants(
+                existingByLineage.followUpPlanVariants,
+              ) ===
+                serializeFollowUpPlanVariants(
+                  deletedSnapshot.followUpPlanVariants,
+                ) &&
               samePractitionerLineageIds(
                 existingPractitionerLineageIds,
                 deletedPractitionerLineageIds,
@@ -1037,7 +1166,9 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds: resolvedUndoPractitionerIds.ids,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
+            ...createFollowUpPlanVariantCreateArgs(
+              deletedSnapshot.followUpPlanVariants,
+            ),
           });
           handleDraftMutationResult(recreateResult);
           upsertAppointmentTypeRef({
@@ -1048,7 +1179,7 @@ export function AppointmentTypesManagement({
             ),
             createdAt: 0n,
             duration: deletedSnapshot.duration,
-            followUpPlan: deletedSnapshot.followUpPlan ?? [],
+            followUpPlanVariants: deletedSnapshot.followUpPlanVariants ?? [],
             lastModified: 0n,
             lineageKey: deletedSnapshot.lineageKey,
             name: deletedSnapshot.name,
@@ -1177,7 +1308,7 @@ export function AppointmentTypesManagement({
                       }}
                     </form.Field>
 
-                    <form.Field mode="array" name="followUpPlan">
+                    <form.Field mode="array" name="followUpPlanVariants">
                       {(field) => {
                         const availableTargets = appointmentTypes.filter(
                           (appointmentType) =>
@@ -1188,54 +1319,49 @@ export function AppointmentTypesManagement({
                         return (
                           <FieldSet>
                             <FieldLegend variant="label">
-                              Kettentermine
+                              Kettentermin-Varianten
                             </FieldLegend>
                             <div className="space-y-3">
                               {field.state.value.length === 0 ? (
                                 <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                                  Keine Kettentermine konfiguriert.
+                                  Keine Kettentermin-Varianten konfiguriert.
                                 </div>
                               ) : (
-                                field.state.value.map((step, index) => {
-                                  const selectedTargetExists =
-                                    availableTargets.some(
-                                      (appointmentType) =>
-                                        appointmentType.lineageKey ===
-                                        step.appointmentTypeLineageKey,
-                                    );
-
-                                  return (
+                                field.state.value.map(
+                                  (_variant, variantIndex) => (
                                     <form.Field
-                                      key={`${index}-${step.appointmentTypeLineageKey}`}
-                                      name={`followUpPlan[${index}]` as const}
+                                      key={`variant-${variantIndex}`}
+                                      name={
+                                        `followUpPlanVariants[${variantIndex}]` as const
+                                      }
                                     >
-                                      {(itemField) => (
+                                      {(variantField) => (
                                         <div className="rounded-lg border p-4 space-y-4">
                                           <div className="flex items-center justify-between gap-2">
                                             <div className="text-sm font-medium">
-                                              Schritt {index + 1}
+                                              Variante {variantIndex + 1}
                                             </div>
                                             <div className="flex gap-1">
                                               <Button
-                                                disabled={index === 0}
+                                                disabled={variantIndex === 0}
                                                 onClick={() => {
-                                                  if (index === 0) {
+                                                  if (variantIndex === 0) {
                                                     return;
                                                   }
                                                   const current =
-                                                    itemField.state.value;
+                                                    variantField.state.value;
                                                   const previous =
                                                     field.state.value[
-                                                      index - 1
+                                                      variantIndex - 1
                                                     ];
                                                   if (!previous) {
                                                     return;
                                                   }
-                                                  itemField.handleChange(
+                                                  variantField.handleChange(
                                                     previous,
                                                   );
                                                   field.replaceValue(
-                                                    index - 1,
+                                                    variantIndex - 1,
                                                     current,
                                                   );
                                                 }}
@@ -1247,22 +1373,24 @@ export function AppointmentTypesManagement({
                                               </Button>
                                               <Button
                                                 disabled={
-                                                  index ===
+                                                  variantIndex ===
                                                   field.state.value.length - 1
                                                 }
                                                 onClick={() => {
                                                   const current =
-                                                    itemField.state.value;
+                                                    variantField.state.value;
                                                   const next =
                                                     field.state.value[
-                                                      index + 1
+                                                      variantIndex + 1
                                                     ];
                                                   if (!next) {
                                                     return;
                                                   }
-                                                  itemField.handleChange(next);
+                                                  variantField.handleChange(
+                                                    next,
+                                                  );
                                                   field.replaceValue(
-                                                    index + 1,
+                                                    variantIndex + 1,
                                                     current,
                                                   );
                                                 }}
@@ -1274,7 +1402,9 @@ export function AppointmentTypesManagement({
                                               </Button>
                                               <Button
                                                 onClick={() => {
-                                                  field.removeValue(index);
+                                                  field.removeValue(
+                                                    variantIndex,
+                                                  );
                                                 }}
                                                 size="icon"
                                                 type="button"
@@ -1285,177 +1415,646 @@ export function AppointmentTypesManagement({
                                             </div>
                                           </div>
 
-                                          <div className="grid gap-4 md:grid-cols-3">
-                                            <Field>
-                                              <FieldLabel>Terminart</FieldLabel>
-                                              <Select
-                                                onValueChange={(value) => {
-                                                  const selectedAppointmentType =
-                                                    availableTargets.find(
-                                                      (appointmentType) =>
-                                                        appointmentType.lineageKey ===
-                                                        value,
-                                                    );
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    appointmentTypeLineageKey:
-                                                      selectedAppointmentType?.lineageKey ??
-                                                      "",
-                                                  });
-                                                }}
-                                                {...(selectedTargetExists
-                                                  ? {
-                                                      value:
-                                                        itemField.state.value
-                                                          .appointmentTypeLineageKey,
-                                                    }
-                                                  : {})}
-                                              >
-                                                <SelectTrigger>
-                                                  <SelectValue placeholder="Terminart wählen" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  {availableTargets.map(
-                                                    (appointmentType) => (
-                                                      <SelectItem
-                                                        key={
-                                                          appointmentType.lineageKey
-                                                        }
-                                                        value={
-                                                          appointmentType.lineageKey
+                                          <Field>
+                                            <FieldLabel>Titel</FieldLabel>
+                                            <Input
+                                              onChange={(e) => {
+                                                variantField.handleChange({
+                                                  ...variantField.state.value,
+                                                  title: e.target.value,
+                                                });
+                                              }}
+                                              placeholder="z.B. mit Fußuntersuchung"
+                                              value={
+                                                variantField.state.value.title
+                                              }
+                                            />
+                                          </Field>
+
+                                          <form.Field
+                                            mode="array"
+                                            name={
+                                              `followUpPlanVariants[${variantIndex}].steps` as const
+                                            }
+                                          >
+                                            {(stepsField) => (
+                                              <div className="space-y-3">
+                                                {stepsField.state.value.map(
+                                                  (step, stepIndex) => {
+                                                    const selectedTargetExists =
+                                                      availableTargets.some(
+                                                        (appointmentType) =>
+                                                          appointmentType.lineageKey ===
+                                                          step.appointmentTypeLineageKey,
+                                                      );
+
+                                                    return (
+                                                      <form.Field
+                                                        key={`step-${stepIndex}`}
+                                                        name={
+                                                          `followUpPlanVariants[${variantIndex}].steps[${stepIndex}]` as const
                                                         }
                                                       >
-                                                        {appointmentType.name}
-                                                      </SelectItem>
-                                                    ),
-                                                  )}
-                                                </SelectContent>
-                                              </Select>
-                                            </Field>
+                                                        {(itemField) => (
+                                                          <div className="rounded-lg border p-4 space-y-4">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                              <div className="text-sm font-medium">
+                                                                Schritt{" "}
+                                                                {stepIndex + 1}
+                                                              </div>
+                                                              <div className="flex gap-1">
+                                                                <Button
+                                                                  disabled={
+                                                                    stepIndex ===
+                                                                    0
+                                                                  }
+                                                                  onClick={() => {
+                                                                    if (
+                                                                      stepIndex ===
+                                                                      0
+                                                                    ) {
+                                                                      return;
+                                                                    }
+                                                                    const current =
+                                                                      itemField
+                                                                        .state
+                                                                        .value;
+                                                                    const previous =
+                                                                      stepsField
+                                                                        .state
+                                                                        .value[
+                                                                        stepIndex -
+                                                                          1
+                                                                      ];
+                                                                    if (
+                                                                      !previous
+                                                                    ) {
+                                                                      return;
+                                                                    }
+                                                                    itemField.handleChange(
+                                                                      previous,
+                                                                    );
+                                                                    stepsField.replaceValue(
+                                                                      stepIndex -
+                                                                        1,
+                                                                      current,
+                                                                    );
+                                                                  }}
+                                                                  size="icon"
+                                                                  type="button"
+                                                                  variant="ghost"
+                                                                >
+                                                                  <ArrowUp className="h-4 w-4" />
+                                                                </Button>
+                                                                <Button
+                                                                  disabled={
+                                                                    stepIndex ===
+                                                                    stepsField
+                                                                      .state
+                                                                      .value
+                                                                      .length -
+                                                                      1
+                                                                  }
+                                                                  onClick={() => {
+                                                                    const current =
+                                                                      itemField
+                                                                        .state
+                                                                        .value;
+                                                                    const next =
+                                                                      stepsField
+                                                                        .state
+                                                                        .value[
+                                                                        stepIndex +
+                                                                          1
+                                                                      ];
+                                                                    if (!next) {
+                                                                      return;
+                                                                    }
+                                                                    itemField.handleChange(
+                                                                      next,
+                                                                    );
+                                                                    stepsField.replaceValue(
+                                                                      stepIndex +
+                                                                        1,
+                                                                      current,
+                                                                    );
+                                                                  }}
+                                                                  size="icon"
+                                                                  type="button"
+                                                                  variant="ghost"
+                                                                >
+                                                                  <ArrowDown className="h-4 w-4" />
+                                                                </Button>
+                                                                <Button
+                                                                  onClick={() => {
+                                                                    stepsField.removeValue(
+                                                                      stepIndex,
+                                                                    );
+                                                                  }}
+                                                                  size="icon"
+                                                                  type="button"
+                                                                  variant="ghost"
+                                                                >
+                                                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                                                </Button>
+                                                              </div>
+                                                            </div>
 
-                                            <Field>
-                                              <FieldLabel>Versatz</FieldLabel>
-                                              <Input
-                                                min={
-                                                  itemField.state.value
-                                                    .offsetUnit === "minutes"
-                                                    ? 0
-                                                    : 1
-                                                }
-                                                onBlur={(e) => {
-                                                  const normalizedOffsetValue =
-                                                    normalizeFollowUpOffsetValue(
-                                                      itemField.state.value
-                                                        .offsetUnit,
-                                                      parseNumberInput(
-                                                        e.target.valueAsNumber,
-                                                        itemField.state.value
-                                                          .offsetValue,
-                                                      ),
-                                                    );
+                                                            <div className="grid gap-4 md:grid-cols-2">
+                                                              <Field>
+                                                                <FieldLabel>
+                                                                  Terminart
+                                                                </FieldLabel>
+                                                                <Select
+                                                                  onValueChange={(
+                                                                    value,
+                                                                  ) => {
+                                                                    const selectedAppointmentType =
+                                                                      availableTargets.find(
+                                                                        (
+                                                                          appointmentType,
+                                                                        ) =>
+                                                                          appointmentType.lineageKey ===
+                                                                          value,
+                                                                      );
+                                                                    itemField.handleChange(
+                                                                      {
+                                                                        ...itemField
+                                                                          .state
+                                                                          .value,
+                                                                        appointmentTypeLineageKey:
+                                                                          selectedAppointmentType?.lineageKey ??
+                                                                          "",
+                                                                      },
+                                                                    );
+                                                                  }}
+                                                                  {...(selectedTargetExists
+                                                                    ? {
+                                                                        value:
+                                                                          itemField
+                                                                            .state
+                                                                            .value
+                                                                            .appointmentTypeLineageKey,
+                                                                      }
+                                                                    : {})}
+                                                                >
+                                                                  <SelectTrigger>
+                                                                    <SelectValue placeholder="Terminart wählen" />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    {availableTargets.map(
+                                                                      (
+                                                                        appointmentType,
+                                                                      ) => (
+                                                                        <SelectItem
+                                                                          key={
+                                                                            appointmentType.lineageKey
+                                                                          }
+                                                                          value={
+                                                                            appointmentType.lineageKey
+                                                                          }
+                                                                        >
+                                                                          {
+                                                                            appointmentType.name
+                                                                          }
+                                                                        </SelectItem>
+                                                                      ),
+                                                                    )}
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              </Field>
 
-                                                  if (
-                                                    normalizedOffsetValue !==
-                                                    itemField.state.value
-                                                      .offsetValue
-                                                  ) {
-                                                    itemField.handleChange({
-                                                      ...itemField.state.value,
-                                                      offsetValue:
-                                                        normalizedOffsetValue,
-                                                    });
-                                                  }
-                                                }}
-                                                onChange={(e) => {
-                                                  const rawValue =
-                                                    parseNumberInput(
-                                                      e.target.valueAsNumber,
-                                                      itemField.state.value
-                                                        .offsetValue,
-                                                    );
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    offsetValue: rawValue,
-                                                  });
-                                                }}
-                                                step={
-                                                  itemField.state.value
-                                                    .offsetUnit === "minutes"
-                                                    ? 5
-                                                    : 1
-                                                }
-                                                type="number"
-                                                value={
-                                                  itemField.state.value
-                                                    .offsetValue
-                                                }
-                                              />
-                                            </Field>
+                                                              <Field>
+                                                                <FieldLabel>
+                                                                  Anker
+                                                                </FieldLabel>
+                                                                <Select
+                                                                  onValueChange={(
+                                                                    value,
+                                                                  ) => {
+                                                                    const nextAnchorKind =
+                                                                      value as FollowUpPlanAnchorKind;
+                                                                    itemField.handleChange(
+                                                                      {
+                                                                        ...itemField
+                                                                          .state
+                                                                          .value,
+                                                                        anchorKind:
+                                                                          nextAnchorKind,
+                                                                        searchMode:
+                                                                          nextAnchorKind ===
+                                                                          "previousDate"
+                                                                            ? "first_available_on_or_after"
+                                                                            : itemField
+                                                                                  .state
+                                                                                  .value
+                                                                                  .offsetMinutes ===
+                                                                                0
+                                                                              ? "exact"
+                                                                              : "same_day_on_or_after",
+                                                                      },
+                                                                    );
+                                                                  }}
+                                                                  value={
+                                                                    itemField
+                                                                      .state
+                                                                      .value
+                                                                      .anchorKind
+                                                                  }
+                                                                >
+                                                                  <SelectTrigger>
+                                                                    <SelectValue />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    <SelectItem value="previousEnd">
+                                                                      Vorheriges
+                                                                      Ende
+                                                                    </SelectItem>
+                                                                    <SelectItem value="previousDate">
+                                                                      Vorheriges
+                                                                      Datum
+                                                                    </SelectItem>
+                                                                    <SelectItem value="rootStart">
+                                                                      Root-Start
+                                                                    </SelectItem>
+                                                                    <SelectItem value="rootEnd">
+                                                                      Root-Ende
+                                                                    </SelectItem>
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              </Field>
 
-                                            <Field>
-                                              <FieldLabel>Einheit</FieldLabel>
-                                              <Select
-                                                onValueChange={(value) => {
-                                                  const nextOffsetUnit =
-                                                    parseFollowUpOffsetUnit(
-                                                      value,
+                                                              {itemField.state
+                                                                .value
+                                                                .anchorKind ===
+                                                              "previousDate" ? (
+                                                                <>
+                                                                  <Field>
+                                                                    <FieldLabel>
+                                                                      Datumsversatz
+                                                                    </FieldLabel>
+                                                                    <Input
+                                                                      min={1}
+                                                                      onChange={(
+                                                                        e,
+                                                                      ) => {
+                                                                        itemField.handleChange(
+                                                                          {
+                                                                            ...itemField
+                                                                              .state
+                                                                              .value,
+                                                                            dateOffsetValue:
+                                                                              parseNumberInput(
+                                                                                e
+                                                                                  .target
+                                                                                  .valueAsNumber,
+                                                                                itemField
+                                                                                  .state
+                                                                                  .value
+                                                                                  .dateOffsetValue,
+                                                                              ),
+                                                                          },
+                                                                        );
+                                                                      }}
+                                                                      step={1}
+                                                                      type="number"
+                                                                      value={
+                                                                        itemField
+                                                                          .state
+                                                                          .value
+                                                                          .dateOffsetValue
+                                                                      }
+                                                                    />
+                                                                  </Field>
+                                                                  <Field>
+                                                                    <FieldLabel>
+                                                                      Einheit
+                                                                    </FieldLabel>
+                                                                    <Select
+                                                                      onValueChange={(
+                                                                        value,
+                                                                      ) => {
+                                                                        const nextUnit =
+                                                                          parseFollowUpDateOffsetUnit(
+                                                                            value,
+                                                                          );
+                                                                        if (
+                                                                          !nextUnit
+                                                                        ) {
+                                                                          return;
+                                                                        }
+                                                                        itemField.handleChange(
+                                                                          {
+                                                                            ...itemField
+                                                                              .state
+                                                                              .value,
+                                                                            dateOffsetUnit:
+                                                                              nextUnit,
+                                                                          },
+                                                                        );
+                                                                      }}
+                                                                      value={
+                                                                        itemField
+                                                                          .state
+                                                                          .value
+                                                                          .dateOffsetUnit
+                                                                      }
+                                                                    >
+                                                                      <SelectTrigger>
+                                                                        <SelectValue />
+                                                                      </SelectTrigger>
+                                                                      <SelectContent>
+                                                                        <SelectItem value="days">
+                                                                          Tage
+                                                                        </SelectItem>
+                                                                        <SelectItem value="weeks">
+                                                                          Wochen
+                                                                        </SelectItem>
+                                                                        <SelectItem value="months">
+                                                                          Monate
+                                                                        </SelectItem>
+                                                                      </SelectContent>
+                                                                    </Select>
+                                                                  </Field>
+                                                                </>
+                                                              ) : (
+                                                                <Field>
+                                                                  <FieldLabel>
+                                                                    Minutenversatz
+                                                                  </FieldLabel>
+                                                                  <Input
+                                                                    min={0}
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) => {
+                                                                      itemField.handleChange(
+                                                                        {
+                                                                          ...itemField
+                                                                            .state
+                                                                            .value,
+                                                                          offsetMinutes:
+                                                                            parseNumberInput(
+                                                                              e
+                                                                                .target
+                                                                                .valueAsNumber,
+                                                                              itemField
+                                                                                .state
+                                                                                .value
+                                                                                .offsetMinutes,
+                                                                            ),
+                                                                        },
+                                                                      );
+                                                                    }}
+                                                                    step={5}
+                                                                    type="number"
+                                                                    value={
+                                                                      itemField
+                                                                        .state
+                                                                        .value
+                                                                        .offsetMinutes
+                                                                    }
+                                                                  />
+                                                                </Field>
+                                                              )}
+
+                                                              <Field>
+                                                                <FieldLabel>
+                                                                  Suche
+                                                                </FieldLabel>
+                                                                <Select
+                                                                  onValueChange={(
+                                                                    value,
+                                                                  ) => {
+                                                                    itemField.handleChange(
+                                                                      {
+                                                                        ...itemField
+                                                                          .state
+                                                                          .value,
+                                                                        searchMode:
+                                                                          value as FollowUpPlanStep["searchMode"],
+                                                                      },
+                                                                    );
+                                                                  }}
+                                                                  value={
+                                                                    itemField
+                                                                      .state
+                                                                      .value
+                                                                      .searchMode
+                                                                  }
+                                                                >
+                                                                  <SelectTrigger>
+                                                                    <SelectValue />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    <SelectItem value="exact">
+                                                                      Exakt
+                                                                    </SelectItem>
+                                                                    <SelectItem value="same_day_on_or_after">
+                                                                      Gleicher
+                                                                      Tag ab
+                                                                      Uhrzeit
+                                                                    </SelectItem>
+                                                                    <SelectItem value="first_available_on_or_after">
+                                                                      Erste
+                                                                      Verfügbarkeit
+                                                                      ab Datum
+                                                                    </SelectItem>
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              </Field>
+
+                                                              <Field>
+                                                                <FieldLabel>
+                                                                  Behandler
+                                                                </FieldLabel>
+                                                                <Select
+                                                                  onValueChange={(
+                                                                    value,
+                                                                  ) => {
+                                                                    itemField.handleChange(
+                                                                      {
+                                                                        ...itemField
+                                                                          .state
+                                                                          .value,
+                                                                        practitionerMode:
+                                                                          value as FollowUpPlanStep["practitionerMode"],
+                                                                      },
+                                                                    );
+                                                                  }}
+                                                                  value={
+                                                                    itemField
+                                                                      .state
+                                                                      .value
+                                                                      .practitionerMode
+                                                                  }
+                                                                >
+                                                                  <SelectTrigger>
+                                                                    <SelectValue />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    <SelectItem value="inherit_root">
+                                                                      Root
+                                                                      übernehmen
+                                                                    </SelectItem>
+                                                                    <SelectItem value="inherit_previous">
+                                                                      Vorherigen
+                                                                      übernehmen
+                                                                    </SelectItem>
+                                                                    <SelectItem value="any_allowed">
+                                                                      Beliebig
+                                                                      erlaubt
+                                                                    </SelectItem>
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              </Field>
+
+                                                              <Field>
+                                                                <FieldLabel>
+                                                                  Standort
+                                                                </FieldLabel>
+                                                                <Select
+                                                                  onValueChange={(
+                                                                    value,
+                                                                  ) => {
+                                                                    itemField.handleChange(
+                                                                      {
+                                                                        ...itemField
+                                                                          .state
+                                                                          .value,
+                                                                        locationMode:
+                                                                          value as FollowUpPlanStep["locationMode"],
+                                                                      },
+                                                                    );
+                                                                  }}
+                                                                  value={
+                                                                    itemField
+                                                                      .state
+                                                                      .value
+                                                                      .locationMode
+                                                                  }
+                                                                >
+                                                                  <SelectTrigger>
+                                                                    <SelectValue />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    <SelectItem value="inherit_root">
+                                                                      Root
+                                                                      übernehmen
+                                                                    </SelectItem>
+                                                                    <SelectItem value="inherit_previous">
+                                                                      Vorherigen
+                                                                      übernehmen
+                                                                    </SelectItem>
+                                                                    <SelectItem value="any_allowed">
+                                                                      Beliebig
+                                                                      erlaubt
+                                                                    </SelectItem>
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              </Field>
+                                                            </div>
+
+                                                            <Field orientation="horizontal">
+                                                              <Checkbox
+                                                                checked={
+                                                                  itemField
+                                                                    .state.value
+                                                                    .required
+                                                                }
+                                                                id={`required-${variantIndex}-${stepIndex}`}
+                                                                onCheckedChange={(
+                                                                  checked,
+                                                                ) => {
+                                                                  itemField.handleChange(
+                                                                    {
+                                                                      ...itemField
+                                                                        .state
+                                                                        .value,
+                                                                      required:
+                                                                        checked ===
+                                                                        true,
+                                                                    },
+                                                                  );
+                                                                }}
+                                                              />
+                                                              <FieldLabel
+                                                                className="font-normal"
+                                                                htmlFor={`required-${variantIndex}-${stepIndex}`}
+                                                              >
+                                                                Schritt ist
+                                                                erforderlich
+                                                              </FieldLabel>
+                                                            </Field>
+
+                                                            <Field>
+                                                              <FieldLabel>
+                                                                Notiz
+                                                              </FieldLabel>
+                                                              <Input
+                                                                onChange={(
+                                                                  e,
+                                                                ) => {
+                                                                  itemField.handleChange(
+                                                                    {
+                                                                      ...itemField
+                                                                        .state
+                                                                        .value,
+                                                                      note: e
+                                                                        .target
+                                                                        .value,
+                                                                    },
+                                                                  );
+                                                                }}
+                                                                placeholder="Optional"
+                                                                value={
+                                                                  itemField
+                                                                    .state.value
+                                                                    .note
+                                                                }
+                                                              />
+                                                            </Field>
+                                                          </div>
+                                                        )}
+                                                      </form.Field>
                                                     );
-                                                  if (!nextOffsetUnit) {
-                                                    return;
-                                                  }
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    offsetUnit: nextOffsetUnit,
-                                                    offsetValue:
-                                                      normalizeFollowUpOffsetValue(
-                                                        nextOffsetUnit,
-                                                        itemField.state.value
-                                                          .offsetValue,
-                                                      ),
-                                                  });
-                                                }}
-                                                value={
-                                                  itemField.state.value
-                                                    .offsetUnit
-                                                }
-                                              >
-                                                <SelectTrigger>
-                                                  <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  <SelectItem value="minutes">
-                                                    Minuten
-                                                  </SelectItem>
-                                                  <SelectItem value="days">
-                                                    Tage
-                                                  </SelectItem>
-                                                  <SelectItem value="weeks">
-                                                    Wochen
-                                                  </SelectItem>
-                                                  <SelectItem value="months">
-                                                    Monate
-                                                  </SelectItem>
-                                                </SelectContent>
-                                              </Select>
-                                            </Field>
-                                          </div>
+                                                  },
+                                                )}
+
+                                                <Button
+                                                  onClick={() => {
+                                                    stepsField.pushValue(
+                                                      createEmptyFollowUpStep(),
+                                                    );
+                                                  }}
+                                                  size="sm"
+                                                  type="button"
+                                                  variant="outline"
+                                                >
+                                                  <Plus className="h-4 w-4 mr-2" />
+                                                  Schritt hinzufügen
+                                                </Button>
+                                              </div>
+                                            )}
+                                          </form.Field>
                                         </div>
                                       )}
                                     </form.Field>
-                                  );
-                                })
+                                  ),
+                                )
                               )}
 
                               <Button
                                 onClick={() => {
-                                  field.pushValue(createEmptyFollowUpStep());
+                                  field.pushValue(
+                                    createEmptyFollowUpPlanVariant(),
+                                  );
                                 }}
                                 size="sm"
                                 type="button"
                                 variant="outline"
                               >
                                 <Plus className="h-4 w-4 mr-2" />
-                                Kettentermin hinzufügen
+                                Variante hinzufügen
                               </Button>
                             </div>
                             <FieldError errors={field.state.meta.errors} />
@@ -1608,30 +2207,44 @@ export function AppointmentTypesManagement({
                       <div className="text-sm text-muted-foreground mb-2">
                         Dauer: {appointmentType.duration} Minuten
                       </div>
-                      {(appointmentType.followUpPlan?.length ?? 0) > 0 && (
+                      {(appointmentType.followUpPlanVariants?.length ?? 0) >
+                        0 && (
                         <div className="mb-2 space-y-1">
                           <div className="text-sm font-medium">
-                            {appointmentType.followUpPlan?.length} Kettentermine
+                            {appointmentType.followUpPlanVariants?.length}{" "}
+                            Varianten
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {appointmentType.followUpPlan?.map((step) => {
-                              const target = appointmentTypes.find(
-                                (candidate) =>
-                                  candidate.lineageKey ===
-                                  step.appointmentTypeLineageKey,
-                              );
+                          <div className="space-y-2">
+                            {appointmentType.followUpPlanVariants?.map(
+                              (variant) => (
+                                <div key={variant.variantId}>
+                                  <div className="text-sm">{variant.title}</div>
+                                  <div className="flex flex-wrap gap-1.5 mt-1">
+                                    {variant.steps.map((step) => {
+                                      const target = appointmentTypes.find(
+                                        (candidate) =>
+                                          candidate.lineageKey ===
+                                          step.appointmentTypeLineageKey,
+                                      );
 
-                              if (!target) {
-                                return null;
-                              }
+                                      if (!target) {
+                                        return null;
+                                      }
 
-                              return (
-                                <Badge key={step.stepId} variant="outline">
-                                  {formatFollowUpOffset(step)} {"->"}{" "}
-                                  {target.name}
-                                </Badge>
-                              );
-                            })}
+                                      return (
+                                        <Badge
+                                          key={`${variant.variantId}-${step.stepId}`}
+                                          variant="outline"
+                                        >
+                                          {formatFollowUpStepSummary(step)}{" "}
+                                          {"->"} {target.name}
+                                        </Badge>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ),
+                            )}
                           </div>
                         </div>
                       )}

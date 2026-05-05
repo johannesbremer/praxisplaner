@@ -521,7 +521,7 @@ function formatStructuredKey(key: string) {
     duration: "Dauer",
     enabled: "Aktiv",
     endTime: "Ende",
-    followUpPlan: "Folgetermine",
+    followUpPlanVariants: "Folgetermine",
     locationName: "Standort",
     name: "Name",
     nodeType: "Logik",
@@ -796,7 +796,7 @@ function isOnlyReferenceRename(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSameAfterNormalizingReferences(
@@ -809,6 +809,10 @@ function isSameAfterNormalizingReferences(
     JSON.stringify(normalizeReferences(sectionKey, before, entityRenames)) ===
     JSON.stringify(normalizeReferences(sectionKey, after, entityRenames))
   );
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 function normalizeEntityName(
@@ -832,26 +836,37 @@ function normalizeEntityName(
   return name;
 }
 
-function normalizeFollowUpPlanReferences(
+function normalizeFollowUpPlanVariantReferences(
   value: unknown,
   renames: Map<string, string>,
 ) {
-  if (!Array.isArray(value)) {
+  if (!isUnknownArray(value)) {
     return value;
   }
 
-  const steps: unknown[] = value;
-  return steps.map((step) => {
-    if (!isRecord(step)) {
-      return step;
+  return value.map((variant) => {
+    if (!isRecord(variant)) {
+      return variant;
     }
 
+    const rawSteps = variant["steps"];
     return {
-      ...step,
-      appointmentTypeName: normalizeRenamedValue(
-        stringValue(step["appointmentTypeName"]),
-        renames,
-      ),
+      ...variant,
+      steps: isUnknownArray(rawSteps)
+        ? rawSteps.map((step) => {
+            if (!isRecord(step)) {
+              return step;
+            }
+
+            return {
+              ...step,
+              appointmentTypeName: normalizeRenamedValue(
+                stringValue(step["appointmentTypeName"]),
+                renames,
+              ),
+            };
+          })
+        : rawSteps,
     };
   });
 }
@@ -868,8 +883,8 @@ function normalizeReferences(
         value["allowedPractitioners"],
         entityRenames.practitioners,
       ),
-      followUpPlan: normalizeFollowUpPlanReferences(
-        value["followUpPlan"],
+      followUpPlanVariants: normalizeFollowUpPlanVariantReferences(
+        value["followUpPlanVariants"],
         entityRenames.appointmentTypes,
       ),
     };
