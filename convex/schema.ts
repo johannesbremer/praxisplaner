@@ -903,6 +903,7 @@ export default defineSchema({
     callerPhoneNumber: v.optional(v.string()),
     callId: v.string(),
     createdAt: v.int64(),
+    dialedPracticePhoneNumber: v.optional(v.string()),
     integrationActor: v.optional(v.string()),
     lastModified: v.int64(),
     practiceId: v.id("practices"),
@@ -911,6 +912,16 @@ export default defineSchema({
     .index("by_callId", ["callId"])
     .index("by_practiceId_callId", ["practiceId", "callId"])
     .index("by_appointmentId", ["appointmentId"]),
+
+  practicePhoneNumbers: defineTable({
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+    phoneNumber: v.string(),
+    practiceId: v.id("practices"),
+  })
+    .index("by_phoneNumber", ["phoneNumber"])
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_phoneNumber", ["practiceId", "phoneNumber"]),
 
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),

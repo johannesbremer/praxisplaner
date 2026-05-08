@@ -20,6 +20,7 @@ import {
   asPractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
+import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import {
   asIsoDateString,
   asZonedDateTimeString,
@@ -348,6 +349,7 @@ export const createOrReusePhoneBookingIdentity = mutation({
   args: {
     callerPhoneNumber: v.optional(v.string()),
     callId: v.string(),
+    dialedPracticePhoneNumber: v.optional(v.string()),
     integrationActor: v.optional(v.string()),
     integrationSecret: v.optional(v.string()),
     practiceId: v.id("practices"),
@@ -375,6 +377,11 @@ export const createOrReusePhoneBookingIdentity = mutation({
         ...(args.callerPhoneNumber !== undefined && {
           callerPhoneNumber: args.callerPhoneNumber,
         }),
+        ...(args.dialedPracticePhoneNumber !== undefined && {
+          dialedPracticePhoneNumber: normalizePracticePhoneNumber(
+            args.dialedPracticePhoneNumber,
+          ),
+        }),
         ...(args.integrationActor !== undefined && {
           integrationActor: args.integrationActor,
         }),
@@ -389,6 +396,11 @@ export const createOrReusePhoneBookingIdentity = mutation({
         callerPhoneNumber: args.callerPhoneNumber,
       }),
       createdAt: now,
+      ...(args.dialedPracticePhoneNumber !== undefined && {
+        dialedPracticePhoneNumber: normalizePracticePhoneNumber(
+          args.dialedPracticePhoneNumber,
+        ),
+      }),
       ...(args.integrationActor !== undefined && {
         integrationActor: args.integrationActor,
       }),
@@ -398,6 +410,44 @@ export const createOrReusePhoneBookingIdentity = mutation({
     });
   },
   returns: v.id("phoneBookingIdentities"),
+});
+
+export const resolvePracticeByDialedPhoneNumber = query({
+  args: {
+    dialedPracticePhoneNumber: v.string(),
+    integrationSecret: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    assertTelefonkiAccess(args);
+    const normalizedPhoneNumber = normalizePracticePhoneNumber(
+      args.dialedPracticePhoneNumber,
+    );
+    const mapping = await ctx.db
+      .query("practicePhoneNumbers")
+      .withIndex("by_phoneNumber", (q) =>
+        q.eq("phoneNumber", normalizedPhoneNumber),
+      )
+      .unique();
+    if (!mapping) {
+      throw new Error("No practice is configured for the dialed phone number.");
+    }
+
+    const practice = await ctx.db.get("practices", mapping.practiceId);
+    if (!practice) {
+      throw new Error("Practice for dialed phone number was not found.");
+    }
+
+    return {
+      dialedPracticePhoneNumber: normalizedPhoneNumber,
+      practiceId: practice._id,
+      practiceName: practice.name,
+    };
+  },
+  returns: v.object({
+    dialedPracticePhoneNumber: v.string(),
+    practiceId: v.id("practices"),
+    practiceName: v.string(),
+  }),
 });
 
 export const getActiveConfig = query({
@@ -553,7 +603,7 @@ export const book = mutation({
       firstName: v.string(),
       isNew: v.boolean(),
       lastName: v.string(),
-      phoneNumber: v.string(),
+      phoneNumber: v.optional(v.string()),
     }),
     phoneBookingIdentityId: v.id("phoneBookingIdentities"),
     practitionerLineageKey: v.id("practitioners"),
@@ -638,7 +688,9 @@ export const book = mutation({
     const now = BigInt(Date.now());
     await ctx.db.patch("phoneBookingIdentities", args.phoneBookingIdentityId, {
       appointmentId,
-      callerPhoneNumber: args.patient.phoneNumber,
+      ...(args.patient.phoneNumber !== undefined && {
+        callerPhoneNumber: args.patient.phoneNumber,
+      }),
       lastModified: now,
     });
 

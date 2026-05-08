@@ -20,7 +20,7 @@ import { z } from "zod";
 import type { Id } from "../../convex/_generated/dataModel";
 
 import { api as convexApi } from "../../convex/_generated/api";
-import { toTableId } from "../../convex/identity";
+import { resolveCallRouting } from "./call-routing";
 import { buildTelefonkiInstructions } from "./instructions";
 
 const AGENT_NAME = "telefonki-agent";
@@ -42,11 +42,6 @@ interface CallState {
   phoneNumber?: string;
   practitioner?: PractitionerChoice;
   reason?: string;
-}
-interface JobMetadata {
-  caller_number?: string;
-  phoneNumber?: string;
-  practiceId?: string;
 }
 type LocationChoice = ActiveConfig["locations"][number];
 
@@ -123,56 +118,6 @@ async function markAsyncBoundary(): Promise<void> {
   await Promise.resolve();
 }
 
-function parseJobMetadata(metadata: string | undefined): JobMetadata {
-  if (!metadata) {
-    return {};
-  }
-  try {
-    const parsed = z
-      .looseObject({
-        caller_number: z.string().optional(),
-        phoneNumber: z.string().optional(),
-        practiceId: z.string().optional(),
-      })
-      .parse(JSON.parse(metadata));
-    return {
-      ...(parsed.caller_number !== undefined && {
-        caller_number: parsed.caller_number,
-      }),
-      ...(parsed.phoneNumber !== undefined && {
-        phoneNumber: parsed.phoneNumber,
-      }),
-      ...(parsed.practiceId !== undefined && {
-        practiceId: parsed.practiceId,
-      }),
-    };
-  } catch {
-    return {};
-  }
-}
-
-function parseParticipantPhoneNumber(
-  metadata: string | undefined,
-): string | undefined {
-  if (!metadata) {
-    return undefined;
-  }
-  try {
-    const parsed = z
-      .looseObject({
-        sip: z
-          .object({
-            caller_number: z.string().optional(),
-          })
-          .optional(),
-      })
-      .parse(JSON.parse(metadata));
-    return parsed.sip?.caller_number;
-  } catch {
-    return undefined;
-  }
-}
-
 function requireBookingPrerequisites(state: CallState): string[] {
   const missing: string[] = [];
   if (state.isNewPatient === undefined) {
@@ -225,20 +170,7 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     const convexUrl = getOptionalEnv("CONVEX_URL") ?? getEnv("VITE_CONVEX_URL");
     const integrationSecret = getOptionalEnv("TELEFONKI_SHARED_SECRET");
-    const jobMetadata = parseJobMetadata(ctx.job.metadata);
-    const practiceId = toTableId<"practices">(
-      jobMetadata.practiceId ?? getEnv("TELEFONKI_PRACTICE_ID"),
-    );
     const convex = new ConvexHttpClient(convexUrl);
-
-    const activeConfig = await convex.query(
-      convexApi.telefonki.getActiveConfig,
-      {
-        ...(integrationSecret && { integrationSecret }),
-        practiceId,
-      },
-    );
-    const instructions = buildTelefonkiInstructions(activeConfig);
     const state: CallState = {
       offeredSlots: new Map(),
     };
@@ -247,19 +179,41 @@ export default defineAgent({
     try {
       await ctx.connect();
       const participant = await ctx.waitForParticipant();
-      const callerPhoneNumber =
-        parseParticipantPhoneNumber(participant.metadata) ??
-        participant.attributes["sipPhoneNumber"] ??
-        jobMetadata.caller_number ??
-        jobMetadata.phoneNumber;
-      if (callerPhoneNumber) {
-        state.phoneNumber = callerPhoneNumber;
+      const routing = resolveCallRouting(participant, ctx.job.metadata);
+      if (!routing.dialedPracticePhoneNumber) {
+        throw new Error(
+          "Inbound call is missing sip.trunkPhoneNumber and cannot be routed to a practice.",
+        );
+      }
+
+      const practiceResolution = await convex.query(
+        convexApi.telefonki.resolvePracticeByDialedPhoneNumber,
+        {
+          dialedPracticePhoneNumber: routing.dialedPracticePhoneNumber,
+          ...(integrationSecret && { integrationSecret }),
+        },
+      );
+      const practiceId = practiceResolution.practiceId;
+      const activeConfig = await convex.query(
+        convexApi.telefonki.getActiveConfig,
+        {
+          ...(integrationSecret && { integrationSecret }),
+          practiceId,
+        },
+      );
+      const instructions = buildTelefonkiInstructions(activeConfig);
+
+      if (routing.callerPhoneNumber) {
+        state.phoneNumber = routing.callerPhoneNumber;
       }
       state.phoneBookingIdentityId = await convex.mutation(
         convexApi.telefonki.createOrReusePhoneBookingIdentity,
         {
           callId: ctx.job.id,
-          ...(callerPhoneNumber && { callerPhoneNumber }),
+          ...(routing.callerPhoneNumber && {
+            callerPhoneNumber: routing.callerPhoneNumber,
+          }),
+          dialedPracticePhoneNumber: routing.dialedPracticePhoneNumber,
           ...(integrationSecret && { integrationSecret }),
           integrationActor: DEFAULT_INTEGRATION_ACTOR,
           practiceId,
@@ -512,7 +466,7 @@ export default defineAgent({
                 firstName: state.firstName,
                 isNew: state.isNewPatient,
                 lastName: state.lastName,
-                phoneNumber: state.phoneNumber ?? "unbekannt",
+                ...(state.phoneNumber && { phoneNumber: state.phoneNumber }),
               },
               phoneBookingIdentityId: state.phoneBookingIdentityId,
               practitionerLineageKey: slot.practitionerLineageKey,

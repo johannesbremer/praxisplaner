@@ -52,6 +52,12 @@ async function createTelefonkiFixture(t: TestContext) {
     const practiceId = await ctx.db.insert("practices", {
       name: "TelefonKI Test Practice",
     });
+    const phoneNumberId = await ctx.db.insert("practicePhoneNumbers", {
+      createdAt: BigInt(Date.now()),
+      lastModified: BigInt(Date.now()),
+      phoneNumber: "+495421000000",
+      practiceId,
+    });
     const ruleSetId = await ctx.db.insert("ruleSets", {
       createdAt: Date.now(),
       description: "TelefonKI Test Rule Set",
@@ -108,6 +114,7 @@ async function createTelefonkiFixture(t: TestContext) {
     return {
       appointmentTypeId,
       locationId,
+      phoneNumberId,
       practiceId,
       practitionerId,
       ruleSetId,
@@ -152,6 +159,65 @@ function simulatedContext(args: {
 }
 
 describe("TelefonKI availability", () => {
+  test("resolves the practice by dialed phone number", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+
+    const resolved = await t.query(
+      api.telefonki.resolvePracticeByDialedPhoneNumber,
+      {
+        dialedPracticePhoneNumber: " +49 5421 000000 ",
+      },
+    );
+
+    expect(resolved.practiceId).toBe(fixture.practiceId);
+    expect(resolved.dialedPracticePhoneNumber).toBe("+495421000000");
+  });
+
+  test("rejects unknown dialed phone numbers", async () => {
+    const t = createTestContext();
+    await createTelefonkiFixture(t);
+
+    await expect(
+      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
+        dialedPracticePhoneNumber: "+495421999999",
+      }),
+    ).rejects.toThrow("No practice is configured for the dialed phone number");
+  });
+
+  test("maps different dialed numbers to different practices", async () => {
+    const t = createTestContext();
+    const firstFixture = await createTelefonkiFixture(t);
+    const secondFixture = await t.run(async (ctx) => {
+      const practiceId = await ctx.db.insert("practices", {
+        name: "TelefonKI Zweitpraxis",
+      });
+      await ctx.db.insert("practicePhoneNumbers", {
+        createdAt: BigInt(Date.now()),
+        lastModified: BigInt(Date.now()),
+        phoneNumber: "+495431000000",
+        practiceId,
+      });
+      return { practiceId };
+    });
+
+    const firstResolved = await t.query(
+      api.telefonki.resolvePracticeByDialedPhoneNumber,
+      {
+        dialedPracticePhoneNumber: "+495421000000",
+      },
+    );
+    const secondResolved = await t.query(
+      api.telefonki.resolvePracticeByDialedPhoneNumber,
+      {
+        dialedPracticePhoneNumber: "+495431000000",
+      },
+    );
+
+    expect(firstResolved.practiceId).toBe(firstFixture.practiceId);
+    expect(secondResolved.practiceId).toBe(secondFixture.practiceId);
+  });
+
   test("returns bounded next slots and afternoon variants", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
@@ -284,6 +350,7 @@ describe("TelefonKI booking ownership", () => {
       {
         callerPhoneNumber: "+491701234567",
         callId: "call-1",
+        dialedPracticePhoneNumber: "+495421000000",
         integrationActor: "livekit-agent",
         practiceId: fixture.practiceId,
       },
@@ -358,6 +425,7 @@ describe("TelefonKI booking ownership", () => {
       api.telefonki.createOrReusePhoneBookingIdentity,
       {
         callId: "call-occupied-1",
+        dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
       },
     );
@@ -365,6 +433,7 @@ describe("TelefonKI booking ownership", () => {
       api.telefonki.createOrReusePhoneBookingIdentity,
       {
         callId: "call-occupied-2",
+        dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
       },
     );
@@ -396,5 +465,66 @@ describe("TelefonKI booking ownership", () => {
         phoneBookingIdentityId: secondIdentityId,
       }),
     ).rejects.toThrow("Selected slot is no longer available");
+  });
+
+  test("view and cancel stay scoped to the same phone booking identity", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const slot = await t.query(api.telefonki.nextAvailableSlot, {
+      date: nextWeekdayDate(1),
+      practiceId: fixture.practiceId,
+      simulatedContext: simulatedContext({
+        appointmentTypeId: fixture.appointmentTypeId,
+        locationId: fixture.locationId,
+      }),
+    });
+    expect(slot).not.toBeNull();
+    if (!slot) {
+      throw new Error("Expected a TelefonKI slot.");
+    }
+
+    const ownerIdentityId = await t.mutation(
+      api.telefonki.createOrReusePhoneBookingIdentity,
+      {
+        callId: "call-owner",
+        dialedPracticePhoneNumber: "+495421000000",
+        practiceId: fixture.practiceId,
+      },
+    );
+    const otherIdentityId = await t.mutation(
+      api.telefonki.createOrReusePhoneBookingIdentity,
+      {
+        callId: "call-other",
+        dialedPracticePhoneNumber: "+495421000000",
+        practiceId: fixture.practiceId,
+      },
+    );
+
+    await t.mutation(api.telefonki.book, {
+      appointmentTypeLineageKey: fixture.appointmentTypeId,
+      locationLineageKey: fixture.locationId,
+      patient: {
+        dateOfBirth: "1980-01-01",
+        firstName: "Ada",
+        isNew: false,
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      phoneBookingIdentityId: ownerIdentityId,
+      practitionerLineageKey: slot.practitionerLineageKey,
+      practitionerName: slot.practitionerName,
+      reasonDescription: "Rueckenschmerzen",
+      startTime: slot.startTime,
+    });
+
+    const viewed = await t.query(api.telefonki.viewBookedAppointment, {
+      phoneBookingIdentityId: otherIdentityId,
+    });
+    const cancelled = await t.mutation(api.telefonki.cancelBookedAppointment, {
+      phoneBookingIdentityId: otherIdentityId,
+    });
+
+    expect(viewed).toBeNull();
+    expect(cancelled).toBeNull();
   });
 });

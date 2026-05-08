@@ -1,0 +1,10 @@
+.env
+.env.*
+.git
+.github
+.output
+.cache
+node_modules
+coverage
+playwright-report
+test-results

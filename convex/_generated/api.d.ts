@@ -30,6 +30,7 @@ import type * as mfas from "../mfas.js";
 import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
+import type * as practicePhoneNumbers from "../practicePhoneNumbers.js";
 import type * as practices from "../practices.js";
 import type * as publicHolidays from "../publicHolidays.js";
 import type * as recursiveValidator from "../recursiveValidator.js";
@@ -79,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   patientSearch: typeof patientSearch;
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
+  practicePhoneNumbers: typeof practicePhoneNumbers;
   practices: typeof practices;
   publicHolidays: typeof publicHolidays;
   recursiveValidator: typeof recursiveValidator;

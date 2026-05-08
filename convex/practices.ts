@@ -10,6 +10,7 @@ import {
   getAccessiblePracticeIdsForQuery,
   practiceRoleValidator,
 } from "./practiceAccess";
+import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { ensureAuthenticatedUserId } from "./userIdentity";
 
 /**
@@ -97,6 +98,100 @@ export const getPractice = query({
     }),
     v.null(),
   ),
+});
+
+export const listPracticePhoneNumbers = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+
+    const phoneNumbers = await ctx.db
+      .query("practicePhoneNumbers")
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+      .collect();
+
+    return phoneNumbers.toSorted((left, right) =>
+      left.phoneNumber.localeCompare(right.phoneNumber),
+    );
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practicePhoneNumbers"),
+      createdAt: v.int64(),
+      lastModified: v.int64(),
+      phoneNumber: v.string(),
+      practiceId: v.id("practices"),
+    }),
+  ),
+});
+
+export const upsertPracticePhoneNumber = mutation({
+  args: {
+    phoneNumber: v.string(),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+
+    const normalizedPhoneNumber = normalizePracticePhoneNumber(
+      args.phoneNumber,
+    );
+    const existing = await ctx.db
+      .query("practicePhoneNumbers")
+      .withIndex("by_phoneNumber", (q) =>
+        q.eq("phoneNumber", normalizedPhoneNumber),
+      )
+      .unique();
+
+    if (existing && existing.practiceId !== args.practiceId) {
+      throw new Error(
+        "Practice phone number is already assigned to another practice.",
+      );
+    }
+
+    const now = BigInt(Date.now());
+    if (existing) {
+      await ctx.db.patch("practicePhoneNumbers", existing._id, {
+        lastModified: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("practicePhoneNumbers", {
+      createdAt: now,
+      lastModified: now,
+      phoneNumber: normalizedPhoneNumber,
+      practiceId: args.practiceId,
+    });
+  },
+  returns: v.id("practicePhoneNumbers"),
+});
+
+export const removePracticePhoneNumber = mutation({
+  args: {
+    practicePhoneNumberId: v.id("practicePhoneNumbers"),
+  },
+  handler: async (ctx, args) => {
+    const practicePhoneNumber = await ctx.db.get(
+      "practicePhoneNumbers",
+      args.practicePhoneNumberId,
+    );
+    if (!practicePhoneNumber) {
+      throw new Error("Practice phone number not found.");
+    }
+
+    await ensurePracticeAccessForMutation(
+      ctx,
+      practicePhoneNumber.practiceId,
+      "admin",
+    );
+    await ctx.db.delete("practicePhoneNumbers", args.practicePhoneNumberId);
+    return args.practicePhoneNumberId;
+  },
+  returns: v.id("practicePhoneNumbers"),
 });
 
 /**
