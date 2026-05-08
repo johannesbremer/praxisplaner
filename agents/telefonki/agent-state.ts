@@ -1,3 +1,5 @@
+import { Temporal } from "temporal-polyfill";
+
 export interface OfferedTelefonkiSlot {
   locationLineageKey: string;
   practitionerLineageKey: string;
@@ -22,6 +24,20 @@ export function buildOfferedSlotId(slot: OfferedTelefonkiSlot): string {
     slot.locationLineageKey,
     slot.practitionerLineageKey,
   ].join("::");
+}
+
+export function formatTelefonkiDate(isoDate: string): string {
+  return Temporal.PlainDate.from(isoDate).toLocaleString("de-DE", {
+    dateStyle: "long",
+  });
+}
+
+export function formatTelefonkiDateTime(zonedDateTime: string): string {
+  return Temporal.ZonedDateTime.from(zonedDateTime).toLocaleString("de-DE", {
+    dateStyle: "full",
+    hour12: false,
+    timeStyle: "short",
+  });
 }
 
 export function listMissingBookingPrerequisites(

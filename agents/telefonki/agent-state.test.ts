@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildOfferedSlotId,
+  formatTelefonkiDate,
+  formatTelefonkiDateTime,
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
@@ -67,5 +69,22 @@ describe("TelefonKI agent state helpers", () => {
     expect(() => sanitizePhoneNumber("   ")).toThrow(
       "Telefonnummer darf nicht leer sein.",
     );
+  });
+
+  test("formats Temporal zoned slot strings without using Date parsing", () => {
+    const formatted = formatTelefonkiDateTime(
+      "2026-05-11T09:00:00+02:00[Europe/Berlin]",
+    );
+
+    expect(formatted).not.toContain("Invalid Date");
+    expect(formatted).toContain("2026");
+    expect(formatted).toContain("09:00");
+  });
+
+  test("formats stored birth dates through Temporal", () => {
+    const formatted = formatTelefonkiDate("1980-01-01");
+
+    expect(formatted).not.toContain("Invalid Date");
+    expect(formatted).toContain("1980");
   });
 });

@@ -21,6 +21,8 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 import { api as convexApi } from "../../convex/_generated/api";
 import {
+  formatTelefonkiDate,
+  formatTelefonkiDateTime,
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
@@ -83,12 +85,7 @@ function findChoiceByLineageKey<T extends { lineageKey: string }>(
 }
 
 function formatSlot(slot: TelefonkiSlot): string {
-  const formattedStart = new Date(slot.startTime).toLocaleString("de-DE", {
-    dateStyle: "full",
-    hour12: false,
-    timeStyle: "short",
-    timeZone: "Europe/Berlin",
-  });
+  const formattedStart = formatTelefonkiDateTime(slot.startTime);
   return `${formattedStart} Uhr bei ${slot.practitionerName}`;
 }
 
@@ -215,7 +212,7 @@ export default defineAgent({
               return "Fehler: Bitte speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.";
             }
             state.birthDate = parsed.data;
-            return `Gespeichert: ${new Date(`${parsed.data}T00:00:00Z`).toLocaleDateString("de-DE", { dateStyle: "long", timeZone: "UTC" })}.`;
+            return `Gespeichert: ${formatTelefonkiDate(parsed.data)}.`;
           },
           parameters: z.object({
             birthDate: z
@@ -427,7 +424,7 @@ export default defineAgent({
             if (!appointment) {
               return "Es gibt in diesem Anruf keinen sichtbaren gebuchten Termin.";
             }
-            return `Gebuchter Termin: ${new Date(appointment.start).toLocaleString("de-DE", { dateStyle: "full", hour12: false, timeStyle: "short", timeZone: "Europe/Berlin" })} Uhr, ${appointment.appointmentTypeTitle}.`;
+            return `Gebuchter Termin: ${formatTelefonkiDateTime(appointment.start)} Uhr, ${appointment.appointmentTypeTitle}.`;
           },
         }),
         termin_buchen: llm.tool({
