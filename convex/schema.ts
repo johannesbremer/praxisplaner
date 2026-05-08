@@ -401,10 +401,14 @@ export default defineSchema({
     appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
     cancelledAt: v.optional(v.int64()),
+    cancelledByPhoneBookingIdentityId: v.optional(
+      v.id("phoneBookingIdentities"),
+    ),
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"), // Stable reference across rule set versions
     patientId: v.optional(v.id("patients")), // Real patient from PVS
+    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
     practiceId: v.id("practices"), // Multi-tenancy support
     practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
     reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
@@ -439,7 +443,11 @@ export default defineSchema({
     .index("by_appointmentTypeLineageKey", ["appointmentTypeLineageKey"])
     .index("by_seriesId", ["seriesId"])
     .index("by_userId", ["userId"])
-    .index("by_userId_start", ["userId", "start"]),
+    .index("by_userId_start", ["userId", "start"])
+    .index("by_phoneBookingIdentityId_start", [
+      "phoneBookingIdentityId",
+      "start",
+    ]),
 
   appointmentSeries: defineTable({
     createdAt: v.int64(),
@@ -889,6 +897,20 @@ export default defineSchema({
       filterFields: ["practiceId"],
       searchField: "searchLastName",
     }),
+
+  phoneBookingIdentities: defineTable({
+    appointmentId: v.optional(v.id("appointments")),
+    callerPhoneNumber: v.optional(v.string()),
+    callId: v.string(),
+    createdAt: v.int64(),
+    integrationActor: v.optional(v.string()),
+    lastModified: v.int64(),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  })
+    .index("by_callId", ["callId"])
+    .index("by_practiceId_callId", ["practiceId", "callId"])
+    .index("by_appointmentId", ["appointmentId"]),
 
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
